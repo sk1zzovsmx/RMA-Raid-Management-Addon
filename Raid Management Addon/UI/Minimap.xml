@@ -1,0 +1,46 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+<!-- ====== Start of Minimap Button ====== -->
+<Button name="RMA_MINIMAP_GUI" parent="Minimap" movable="true" userPlaced="true" frameStrata="MEDIUM" hidden="false">
+		<Size>
+			<AbsDimension x="33" y="33" />
+		</Size>
+		<Anchors>
+			<Anchor point="CENTER">
+				<Offset>
+					<AbsDimension x="-65.35" y="-38.8" />
+				</Offset>
+			</Anchor>
+		</Anchors>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture name="$parentIcon" file="Interface\Buttons\UI-GroupLoot-Dice-Up">
+					<Size>
+						<AbsDimension x="24" y="24" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="7.5" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</Texture>
+			</Layer>
+			<Layer level="OVERLAY">
+				<Texture file="Interface\Minimap\MiniMap-TrackingBorder">
+					<Size>
+						<AbsDimension x="56" y="56" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" />
+					</Anchors>
+				</Texture>
+			</Layer>
+		</Layers>
+		<HighlightTexture file="Interface\Minimap\UI-Minimap-ZoomButton-Highlight" alphaMode="ADD" />
+</Button>
+<!-- ====== End of Minimap Button ====== -->
+</Ui>
+
+

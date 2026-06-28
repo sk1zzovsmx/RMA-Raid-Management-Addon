@@ -1,0 +1,2409 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+	<CheckButton name="RMAConfigCheckButtonTemplate" inherits="InterfaceOptionsCheckButtonTemplate" virtual="true">
+		<Size>
+			<AbsDimension x="20" y="20" />
+		</Size>
+    </CheckButton>
+	<!-- FontString Template -->
+	<FontString name="RMAConfigFontStringTemplate" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP" virtual="true">
+		<Size>
+			<AbsDimension x="185" y="0" />
+		</Size>
+	</FontString>
+	<FontString name="RMAConfigDescriptionFontStringTemplate"
+		inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP" virtual="true">
+		<Size>
+			<AbsDimension x="390" y="24" />
+		</Size>
+		<Color r="0.55" g="0.55" b="0.55" a="1" />
+	</FontString>
+	<FontString name="RMAConfigCompactDescriptionFontStringTemplate"
+		inherits="RMAConfigDescriptionFontStringTemplate" virtual="true">
+		<Size>
+			<AbsDimension x="390" y="18" />
+		</Size>
+	</FontString>
+    <!-- Config frame -->
+	<Frame name="RMAConfig" inherits="RMAWindowTemplate">
+		<Size>
+			<AbsDimension x="245" y="485" />
+		</Size>
+		<Layers>
+			<Layer level="ARTWORK">
+				<FontString name="$parentsortAscendingStr" inherits="RMAConfigFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="35" y="-35" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentuseRaidWarningStr" inherits="RMAConfigFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentsortAscendingStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-7.5" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentcountdownSimpleRaidMsgStr" inherits="RMAConfigFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentuseRaidWarningStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-7.5" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentannounceOnWinStr" inherits="RMAConfigFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentcountdownSimpleRaidMsgStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-7.5" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentannounceOnHoldStr" inherits="RMAConfigFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentannounceOnWinStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-7.5" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentannounceOnBankStr" inherits="RMAConfigFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentannounceOnHoldStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-7.5" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentannounceOnDisenchantStr" inherits="RMAConfigFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentannounceOnBankStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-7.5" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentlootWhispersStr" inherits="RMAConfigFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentannounceOnDisenchantStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-7.5" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentcountdownRollsBlockStr" inherits="RMAConfigFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentlootWhispersStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-7.5" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentscreenReminderStr" inherits="RMAConfigFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentcountdownRollsBlockStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-7.5" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentignoreStacksStr" inherits="RMAConfigFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentscreenReminderStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-7.5" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentshowTooltipsStr" inherits="RMAConfigFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentignoreStacksStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-7.5" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentshowLootCounterDuringMSRollStr" inherits="RMAConfigFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentshowTooltipsStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-7.5" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentminimapButtonStr" inherits="RMAConfigFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentshowLootCounterDuringMSRollStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-7.5" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentautoSpamLootOnLootOpenedStr" inherits="RMAConfigFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentminimapButtonStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-7.5" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentautoSpamSoftResOnLootOpenedStr" inherits="RMAConfigFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentautoSpamLootOnLootOpenedStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-7.5" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentcountdownDurationStr" inherits="GameFontNormalSmall">
+					<Anchors>
+						<Anchor point="BOTTOM">
+							<Offset>
+								<AbsDimension x="0" y="45" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Frames>
+			<CheckButton name="$parentsortAscending" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentsortAscendingStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-2.5" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentuseRaidWarning" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentuseRaidWarningStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-2.5" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+            </CheckButton>
+			<CheckButton name="$parentcountdownSimpleRaidMsg" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentcountdownSimpleRaidMsgStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-2.5" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+            </CheckButton>
+			<CheckButton name="$parentannounceOnWin" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentannounceOnWinStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-2.5" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentannounceOnHold" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentannounceOnHoldStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-2.5" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentannounceOnBank" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentannounceOnBankStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-2.5" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentannounceOnDisenchant" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentannounceOnDisenchantStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-2.5" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentlootWhispers" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentlootWhispersStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-2.5" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentcountdownRollsBlock" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentcountdownRollsBlockStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-2.5" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentscreenReminder" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentscreenReminderStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-2.5" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentignoreStacks" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentignoreStacksStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-2.5" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentshowTooltips" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentshowTooltipsStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-2.5" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentshowLootCounterDuringMSRoll" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentshowLootCounterDuringMSRollStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-2.5" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+
+			<CheckButton name="$parentminimapButton" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentminimapButtonStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-2.5" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentautoSpamLootOnLootOpened" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentautoSpamLootOnLootOpenedStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-2.5" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentautoSpamSoftResOnLootOpened" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentautoSpamSoftResOnLootOpenedStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-2.5" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<Slider name="$parentcountdownDuration" inherits="OptionsSliderTemplate"
+				minValue="3.0" maxValue="60.0" defaultValue="5.0" valueStep="1.0">
+				<Size>
+					<AbsDimension x="180" y="15" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOM">
+						<Offset>
+							<AbsDimension x="0" y="60" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+            </Slider>
+			<Button name="$parentDefaultsBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="105" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMLEFT" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="10" y="12.5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentCloseBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="105" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMRIGHT" relativePoint="BOTTOMRIGHT">
+						<Offset>
+							<AbsDimension x="-10" y="12.5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+            </Button>
+		</Frames>
+    </Frame>
+    <!-- ====== End of Config Frame ====== -->
+    <!-- Blizzard Interface Options parent panel -->
+	<Frame name="RMAInterfaceOptionsPanel" parent="UIParent" hidden="true">
+		<Size>
+			<AbsDimension x="560" y="560" />
+		</Size>
+		<Layers>
+			<Layer level="ARTWORK">
+				<FontString name="$parentTitle" inherits="GameFontNormalLarge" justifyH="LEFT">
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="16" y="-16" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+								<FontString name="$parentOverviewTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-20" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentOverviewBody" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP">
+									<Size>
+										<AbsDimension x="430" y="40" />
+									</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentOverviewTitle" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-8" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+								<FontString name="$parentWhatTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentOverviewBody" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-12" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentWhatBody" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP">
+									<Size>
+										<AbsDimension x="430" y="36" />
+									</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentWhatTitle" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-8" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+								<FontString name="$parentHowTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentWhatBody" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-12" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentHowBody" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP">
+									<Size>
+										<AbsDimension x="430" y="36" />
+									</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentHowTitle" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-8" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+								<FontString name="$parentWhyTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentHowBody" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-12" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentWhyBody" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP">
+									<Size>
+										<AbsDimension x="430" y="44" />
+									</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentWhyTitle" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-8" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+	</Frame>
+    <!-- Blizzard Interface Options Master Loot panel -->
+	<Frame name="RMAInterfaceOptionsMasterLootPanel" parent="UIParent" hidden="true">
+		<Size>
+			<AbsDimension x="560" y="560" />
+		</Size>
+		<Frames>
+			<ScrollFrame name="$parentScrollFrame" inherits="RMAOptionsScrollFrameTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" />
+					<Anchor point="BOTTOMRIGHT">
+						<Offset>
+							<AbsDimension x="-42" y="36" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<ScrollChild>
+					<Frame name="RMAInterfaceOptionsMasterLootPanelScrollChild">
+						<Size>
+							<AbsDimension x="520" y="940" />
+						</Size>
+		<Layers>
+			<Layer level="ARTWORK">
+				<FontString name="$parentTitle" inherits="GameFontNormalLarge" justifyH="LEFT">
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="16" y="-16" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentsortAscendingStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="50" y="-54" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentsortAscendingDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentsortAscendingStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentuseRaidWarningStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentsortAscendingDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentuseRaidWarningDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentuseRaidWarningStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentcountdownSimpleRaidMsgStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentuseRaidWarningDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentcountdownSimpleRaidMsgDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentcountdownSimpleRaidMsgStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentannounceOnWinStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentcountdownSimpleRaidMsgDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentannounceOnWinDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentannounceOnWinStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentannounceOnHoldStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentannounceOnWinDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentannounceOnHoldDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentannounceOnHoldStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentannounceOnBankStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentannounceOnHoldDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentannounceOnBankDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentannounceOnBankStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentannounceOnDisenchantStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentannounceOnBankDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentannounceOnDisenchantDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentannounceOnDisenchantStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentlootWhispersStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentannounceOnDisenchantDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentlootWhispersDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentlootWhispersStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentcountdownRollsBlockStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentlootWhispersDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentcountdownRollsBlockDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentcountdownRollsBlockStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentscreenReminderStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentcountdownRollsBlockDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentscreenReminderDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentscreenReminderStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentignoreStacksStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentscreenReminderDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentignoreStacksDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentignoreStacksStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentshowTooltipsStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentignoreStacksDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentshowTooltipsDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentshowTooltipsStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentshowLootCounterDuringMSRollStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentshowTooltipsDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentshowLootCounterDuringMSRollDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentshowLootCounterDuringMSRollStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentminimapButtonStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentshowLootCounterDuringMSRollDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentminimapButtonDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentminimapButtonStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentautoMasterLootOnBossTargetStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentminimapButtonDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentautoMasterLootOnBossTargetDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentautoMasterLootOnBossTargetStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentautoMasterLootNoticeSecondsStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentautoMasterLootOnBossTargetDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentautoMasterLootNoticeSecondsDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentautoMasterLootNoticeSecondsStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentaskGroupLootAfterBossLootStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentautoMasterLootNoticeSecondsDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentaskGroupLootAfterBossLootDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentaskGroupLootAfterBossLootStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentautoSpamLootOnLootOpenedStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentaskGroupLootAfterBossLootDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentautoSpamLootOnLootOpenedDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentautoSpamLootOnLootOpenedStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentautoSpamSoftResOnLootOpenedStr" inherits="RMAConfigFontStringTemplate">
+					<Size>
+						<AbsDimension x="320" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentautoSpamLootOnLootOpenedDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-4" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentautoSpamSoftResOnLootOpenedDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentautoSpamSoftResOnLootOpenedStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentcountdownDurationStr" inherits="GameFontNormalSmall">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentautoSpamSoftResOnLootOpenedDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="-34" y="-18" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentcountdownDurationDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentcountdownDurationStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="34" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentPresetsTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentcountdownDurationDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="-34" y="-66" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentDefaultsPresetTitle" inherits="GameFontHighlightSmall" justifyH="LEFT">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentPresetsTitle" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-10" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentDefaultsPresetDesc" inherits="RMAConfigDescriptionFontStringTemplate">
+					<Size>
+						<AbsDimension x="295" y="34" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentDefaultsPresetTitle" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentQuietPresetTitle" inherits="GameFontHighlightSmall" justifyH="LEFT">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentPresetsTitle" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-58" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentQuietPresetDesc" inherits="RMAConfigDescriptionFontStringTemplate">
+					<Size>
+						<AbsDimension x="295" y="34" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentQuietPresetTitle" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentStandardPresetTitle" inherits="GameFontHighlightSmall" justifyH="LEFT">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentPresetsTitle" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-106" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentStandardPresetDesc" inherits="RMAConfigDescriptionFontStringTemplate">
+					<Size>
+						<AbsDimension x="295" y="34" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentStandardPresetTitle" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentVerbosePresetTitle" inherits="GameFontHighlightSmall" justifyH="LEFT">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentPresetsTitle" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-154" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentVerbosePresetDesc" inherits="RMAConfigDescriptionFontStringTemplate">
+					<Size>
+						<AbsDimension x="295" y="34" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentVerbosePresetTitle" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentAnnouncementPreviewTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentPresetsTitle" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-206" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentAnnouncementPreviewBody" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP">
+					<Size>
+						<AbsDimension x="430" y="88" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentAnnouncementPreviewTitle" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-8" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Frames>
+			<CheckButton name="$parentsortAscending" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentsortAscendingStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentuseRaidWarning" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentuseRaidWarningStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentcountdownSimpleRaidMsg" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentcountdownSimpleRaidMsgStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentannounceOnWin" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentannounceOnWinStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentannounceOnHold" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentannounceOnHoldStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentannounceOnBank" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentannounceOnBankStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentannounceOnDisenchant" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentannounceOnDisenchantStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentlootWhispers" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentlootWhispersStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentcountdownRollsBlock" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentcountdownRollsBlockStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentscreenReminder" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentscreenReminderStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentignoreStacks" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentignoreStacksStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentshowTooltips" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentshowTooltipsStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentshowLootCounterDuringMSRoll" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentshowLootCounterDuringMSRollStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentminimapButton" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentminimapButtonStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentautoMasterLootOnBossTarget" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentautoMasterLootOnBossTargetStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<EditBox name="$parentautoMasterLootNoticeSecondsEditBox" inherits="RMATextInputTemplate" letters="5">
+				<Size>
+					<AbsDimension x="105" y="20" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentautoMasterLootNoticeSecondsDesc" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="260" y="2" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</EditBox>
+			<CheckButton name="$parentaskGroupLootAfterBossLoot" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentaskGroupLootAfterBossLootStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentautoSpamLootOnLootOpened" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentautoSpamLootOnLootOpenedStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentautoSpamSoftResOnLootOpened" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentautoSpamSoftResOnLootOpenedStr" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<Slider name="$parentcountdownDuration" inherits="OptionsSliderTemplate"
+				minValue="3.0" maxValue="60.0" defaultValue="5.0" valueStep="1.0">
+				<Size>
+					<AbsDimension x="180" y="15" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentcountdownDurationDesc" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="4" y="-18" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Slider>
+			<Button name="$parentDefaultsBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="125" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentPresetsTitle" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="315" y="-14" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentQuietPresetBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="125" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentPresetsTitle" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="315" y="-62" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentStandardPresetBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="125" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentPresetsTitle" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="315" y="-110" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentVerbosePresetBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="125" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentPresetsTitle" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="315" y="-158" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+		</Frames>
+					</Frame>
+				</ScrollChild>
+			</ScrollFrame>
+		</Frames>
+	</Frame>
+    <!-- Blizzard Interface Options Loot History panel -->
+	<Frame name="RMAInterfaceOptionsLootHistoryPanel" parent="UIParent" hidden="true">
+		<Size>
+			<AbsDimension x="560" y="560" />
+		</Size>
+		<Frames>
+			<ScrollFrame name="$parentScrollFrame" inherits="RMAOptionsScrollFrameTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" />
+					<Anchor point="BOTTOMRIGHT">
+						<Offset>
+							<AbsDimension x="-42" y="36" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<ScrollChild>
+					<Frame name="RMAInterfaceOptionsLootHistoryPanelScrollChild">
+						<Size>
+							<AbsDimension x="520" y="980" />
+						</Size>
+						<Layers>
+							<Layer level="ARTWORK">
+								<FontString name="$parentTitle" inherits="GameFontNormalLarge" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT">
+											<Offset>
+												<AbsDimension x="16" y="-16" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentReportTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT">
+											<Offset>
+												<AbsDimension x="16" y="-54" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentReportSummary" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP">
+									<Size>
+										<AbsDimension x="365" y="116" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentReportTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-8" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentSyncTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentReportSummary" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-12" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentPersistentSyncStr" inherits="RMAConfigFontStringTemplate">
+									<Size>
+										<AbsDimension x="315" y="0" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentSyncTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="34" y="-12" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentPersistentSyncDesc" inherits="RMAConfigDescriptionFontStringTemplate">
+									<Size>
+										<AbsDimension x="315" y="24" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentPersistentSyncStr" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-2" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentIgnoreGroupLootStr" inherits="RMAConfigFontStringTemplate">
+									<Size>
+										<AbsDimension x="315" y="0" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentPersistentSyncDesc" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentIgnoreGroupLootDesc" inherits="RMAConfigDescriptionFontStringTemplate">
+									<Size>
+										<AbsDimension x="315" y="24" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentIgnoreGroupLootStr" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-2" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentIgnoreSelectionThresholdStr" inherits="RMAConfigFontStringTemplate">
+									<Size>
+										<AbsDimension x="315" y="0" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentIgnoreGroupLootDesc" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentIgnoreSelectionThresholdDesc" inherits="RMAConfigDescriptionFontStringTemplate">
+									<Size>
+										<AbsDimension x="315" y="24" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentIgnoreSelectionThresholdStr" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-2" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentLoggerLootQualityTitle" inherits="GameFontHighlightSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentIgnoreSelectionThresholdDesc" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="-34" y="-10" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentLoggerLootQualityDesc" inherits="RMAConfigDescriptionFontStringTemplate">
+									<Size>
+										<AbsDimension x="250" y="34" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentLoggerLootQualityTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentRequireDatabaseTitle" inherits="GameFontHighlightSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentLoggerLootQualityDesc" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-10" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentRequireDatabaseDesc" inherits="RMAConfigDescriptionFontStringTemplate">
+									<Size>
+										<AbsDimension x="250" y="34" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentRequireDatabaseTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentPushDatabaseTitle" inherits="GameFontHighlightSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentRequireDatabaseDesc" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-10" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentPushDatabaseDesc" inherits="RMAConfigDescriptionFontStringTemplate">
+									<Size>
+										<AbsDimension x="250" y="34" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentPushDatabaseTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentSyncNowTitle" inherits="GameFontHighlightSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentPushDatabaseDesc" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-10" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentSyncNowDesc" inherits="RMAConfigDescriptionFontStringTemplate">
+									<Size>
+										<AbsDimension x="250" y="34" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentSyncNowTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentDataHealthTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentSyncNowDesc" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-12" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentScanHistoryTitle" inherits="GameFontHighlightSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentDataHealthTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-14" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentScanHistoryDesc" inherits="RMAConfigDescriptionFontStringTemplate">
+									<Size>
+										<AbsDimension x="250" y="54" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentScanHistoryTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentMaintenanceTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentScanHistoryDesc" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-12" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentPurgeHistoryTitle" inherits="GameFontHighlightSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentMaintenanceTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-14" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentPurgeHistoryDesc" inherits="RMAConfigDescriptionFontStringTemplate">
+									<Size>
+										<AbsDimension x="250" y="54" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentPurgeHistoryTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentRebuildSourcesTitle" inherits="GameFontHighlightSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentPurgeHistoryDesc" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-12" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentRebuildSourcesDesc" inherits="RMAConfigDescriptionFontStringTemplate">
+									<Size>
+										<AbsDimension x="250" y="54" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentRebuildSourcesTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentCleanUpTitle" inherits="GameFontHighlightSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentRebuildSourcesDesc" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-12" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentCleanUpDesc" inherits="RMAConfigDescriptionFontStringTemplate">
+									<Size>
+										<AbsDimension x="250" y="54" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentCleanUpTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+							</Layer>
+						</Layers>
+						<Frames>
+							<CheckButton name="$parentPersistentSyncCheck" inherits="RMAConfigCheckButtonTemplate">
+								<Anchors>
+									<Anchor point="TOPRIGHT" relativeTo="$parentPersistentSyncStr" relativePoint="TOPLEFT">
+										<Offset>
+											<AbsDimension x="-8" y="5" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</CheckButton>
+							<CheckButton name="$parentIgnoreGroupLootCheck" inherits="RMAConfigCheckButtonTemplate">
+								<Anchors>
+									<Anchor point="TOPRIGHT" relativeTo="$parentIgnoreGroupLootStr" relativePoint="TOPLEFT">
+										<Offset>
+											<AbsDimension x="-8" y="5" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</CheckButton>
+							<CheckButton name="$parentIgnoreSelectionThresholdCheck" inherits="RMAConfigCheckButtonTemplate">
+								<Anchors>
+									<Anchor point="TOPRIGHT" relativeTo="$parentIgnoreSelectionThresholdStr" relativePoint="TOPLEFT">
+										<Offset>
+											<AbsDimension x="-8" y="5" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</CheckButton>
+							<Frame name="$parentLoggerLootQualityDropDown" inherits="UIDropDownMenuTemplate">
+								<Size>
+									<AbsDimension x="125" y="32" />
+								</Size>
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="$parentLoggerLootQualityDesc" relativePoint="TOPLEFT">
+										<Offset>
+											<AbsDimension x="260" y="8" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Frame>
+							<EditBox name="$parentRequireDatabaseEditBox" inherits="RMATextInputTemplate" letters="32">
+								<Size>
+									<AbsDimension x="105" y="20" />
+								</Size>
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="$parentRequireDatabaseDesc" relativePoint="TOPLEFT">
+										<Offset>
+											<AbsDimension x="260" y="3" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</EditBox>
+							<Button name="$parentRequireDatabaseBtn" inherits="RMAActionButtonTemplate">
+								<Size>
+									<AbsDimension x="105" y="25" />
+								</Size>
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="$parentRequireDatabaseEditBox" relativePoint="BOTTOMLEFT">
+										<Offset>
+											<AbsDimension x="0" y="-6" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<EditBox name="$parentPushDatabaseEditBox" inherits="RMATextInputTemplate" letters="32">
+								<Size>
+									<AbsDimension x="105" y="20" />
+								</Size>
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="$parentPushDatabaseDesc" relativePoint="TOPLEFT">
+										<Offset>
+											<AbsDimension x="260" y="3" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</EditBox>
+							<Button name="$parentPushDatabaseBtn" inherits="RMAActionButtonTemplate">
+								<Size>
+									<AbsDimension x="105" y="25" />
+								</Size>
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="$parentPushDatabaseEditBox" relativePoint="BOTTOMLEFT">
+										<Offset>
+											<AbsDimension x="0" y="-6" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<Button name="$parentSyncNowBtn" inherits="RMAActionButtonTemplate">
+								<Size>
+									<AbsDimension x="105" y="25" />
+								</Size>
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="$parentSyncNowDesc" relativePoint="TOPLEFT">
+										<Offset>
+											<AbsDimension x="260" y="0" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<Button name="$parentScanHistoryBtn" inherits="RMAActionButtonTemplate">
+								<Size>
+									<AbsDimension x="105" y="25" />
+								</Size>
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="$parentScanHistoryDesc" relativePoint="TOPLEFT">
+										<Offset>
+											<AbsDimension x="260" y="0" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<Button name="$parentPurgeHistoryBtn" inherits="RMAActionButtonTemplate">
+								<Size>
+									<AbsDimension x="105" y="25" />
+								</Size>
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="$parentPurgeHistoryDesc" relativePoint="TOPLEFT">
+										<Offset>
+											<AbsDimension x="260" y="0" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<Button name="$parentRebuildSourcesBtn" inherits="RMAActionButtonTemplate">
+								<Size>
+									<AbsDimension x="105" y="25" />
+								</Size>
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="$parentRebuildSourcesDesc" relativePoint="TOPLEFT">
+										<Offset>
+											<AbsDimension x="260" y="0" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<Button name="$parentCleanUpBtn" inherits="RMAActionButtonTemplate">
+								<Size>
+									<AbsDimension x="105" y="25" />
+								</Size>
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="$parentCleanUpDesc" relativePoint="TOPLEFT">
+										<Offset>
+											<AbsDimension x="260" y="0" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+						</Frames>
+					</Frame>
+				</ScrollChild>
+			</ScrollFrame>
+		</Frames>
+	</Frame>
+    <!-- Blizzard Interface Options LFM Spam panel -->
+	<Frame name="RMAInterfaceOptionsLFMSpamPanel" parent="UIParent" hidden="true">
+		<Size>
+			<AbsDimension x="560" y="560" />
+		</Size>
+		<Frames>
+			<ScrollFrame name="$parentScrollFrame" inherits="RMAOptionsScrollFrameTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" />
+					<Anchor point="BOTTOMRIGHT">
+						<Offset>
+							<AbsDimension x="-42" y="36" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<ScrollChild>
+					<Frame name="RMAInterfaceOptionsLFMSpamPanelScrollChild">
+						<Size>
+							<AbsDimension x="520" y="500" />
+						</Size>
+						<Layers>
+							<Layer level="ARTWORK">
+								<FontString name="$parentTitle" inherits="GameFontNormalLarge" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT">
+											<Offset>
+												<AbsDimension x="16" y="-16" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentMessagePreviewTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT">
+											<Offset>
+												<AbsDimension x="16" y="-54" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentMessagePreviewBody" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP">
+									<Size>
+										<AbsDimension x="430" y="66" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentMessagePreviewTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentSafetyTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentMessagePreviewBody" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-38" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentSafetyBody" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP">
+									<Size>
+										<AbsDimension x="430" y="86" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentSafetyTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+							</Layer>
+						</Layers>
+						<Frames>
+							<Button name="$parentRefreshPreviewBtn" inherits="RMAActionButtonTemplate">
+								<Size>
+									<AbsDimension x="105" y="25" />
+								</Size>
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="$parentMessagePreviewBody" relativePoint="BOTTOMLEFT">
+										<Offset>
+											<AbsDimension x="0" y="-8" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<Button name="$parentClearPreviewBtn" inherits="RMAActionButtonTemplate">
+								<Size>
+									<AbsDimension x="105" y="25" />
+								</Size>
+								<Anchors>
+									<Anchor point="LEFT" relativeTo="$parentRefreshPreviewBtn" relativePoint="RIGHT">
+										<Offset>
+											<AbsDimension x="8" y="0" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<Button name="$parentOpenBtn" inherits="RMAActionButtonTemplate">
+								<Size>
+									<AbsDimension x="105" y="25" />
+								</Size>
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="$parentSafetyBody" relativePoint="BOTTOMLEFT">
+										<Offset>
+											<AbsDimension x="0" y="-8" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<Button name="$parentStartBtn" inherits="RMAActionButtonTemplate">
+								<Size>
+									<AbsDimension x="105" y="25" />
+								</Size>
+								<Anchors>
+									<Anchor point="LEFT" relativeTo="$parentOpenBtn" relativePoint="RIGHT">
+										<Offset>
+											<AbsDimension x="8" y="0" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<Button name="$parentStopBtn" inherits="RMAActionButtonTemplate">
+								<Size>
+									<AbsDimension x="105" y="25" />
+								</Size>
+								<Anchors>
+									<Anchor point="LEFT" relativeTo="$parentStartBtn" relativePoint="RIGHT">
+										<Offset>
+											<AbsDimension x="8" y="0" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+						</Frames>
+					</Frame>
+				</ScrollChild>
+			</ScrollFrame>
+		</Frames>
+	</Frame>
+    <!-- Blizzard Interface Options Raid Warning panel -->
+	<Frame name="RMAInterfaceOptionsRaidWarningPanel" parent="UIParent" hidden="true">
+		<Size>
+			<AbsDimension x="560" y="560" />
+		</Size>
+		<Frames>
+			<ScrollFrame name="$parentScrollFrame" inherits="RMAOptionsScrollFrameTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" />
+					<Anchor point="BOTTOMRIGHT">
+						<Offset>
+							<AbsDimension x="-42" y="36" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<ScrollChild>
+					<Frame name="RMAInterfaceOptionsRaidWarningPanelScrollChild">
+						<Size>
+							<AbsDimension x="520" y="560" />
+						</Size>
+						<Layers>
+							<Layer level="ARTWORK">
+								<FontString name="$parentTitle" inherits="GameFontNormalLarge" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT">
+											<Offset>
+												<AbsDimension x="16" y="-16" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentTemplatesTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT">
+											<Offset>
+												<AbsDimension x="16" y="-54" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentTemplatesBody" inherits="RMAConfigDescriptionFontStringTemplate">
+									<Size>
+										<AbsDimension x="365" y="44" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentTemplatesTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentPreviewTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentTemplatesBody" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-44" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentPreviewBody" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP">
+									<Size>
+										<AbsDimension x="365" y="112" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentPreviewTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentPermissionTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentPreviewBody" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-12" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentPermissionBody" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP">
+									<Size>
+										<AbsDimension x="365" y="54" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentPermissionTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentMaintenanceTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentPermissionBody" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-12" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentClearSavedTitle" inherits="GameFontHighlightSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentMaintenanceTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-14" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentClearSavedDesc" inherits="RMAConfigDescriptionFontStringTemplate">
+									<Size>
+										<AbsDimension x="250" y="34" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentClearSavedTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+							</Layer>
+						</Layers>
+						<Frames>
+							<Button name="$parentPreviewBtn" inherits="RMAActionButtonTemplate">
+								<Size>
+									<AbsDimension x="105" y="25" />
+								</Size>
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="$parentTemplatesBody" relativePoint="BOTTOMLEFT">
+										<Offset>
+											<AbsDimension x="0" y="-12" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<Button name="$parentOpenBtn" inherits="RMAActionButtonTemplate">
+								<Size>
+									<AbsDimension x="105" y="25" />
+								</Size>
+								<Anchors>
+									<Anchor point="LEFT" relativeTo="$parentPreviewBtn" relativePoint="RIGHT">
+										<Offset>
+											<AbsDimension x="8" y="0" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+							<Button name="$parentClearSavedBtn" inherits="RMAActionButtonTemplate">
+								<Size>
+									<AbsDimension x="105" y="25" />
+								</Size>
+								<Anchors>
+									<Anchor point="TOPLEFT" relativeTo="$parentClearSavedDesc" relativePoint="TOPLEFT">
+										<Offset>
+											<AbsDimension x="260" y="0" />
+										</Offset>
+									</Anchor>
+								</Anchors>
+							</Button>
+						</Frames>
+					</Frame>
+				</ScrollChild>
+			</ScrollFrame>
+		</Frames>
+	</Frame>
+    <!-- Blizzard Interface Options Help panel -->
+	<Frame name="RMAInterfaceOptionsHelpPanel" parent="UIParent" hidden="true">
+		<Size>
+			<AbsDimension x="560" y="560" />
+		</Size>
+		<Frames>
+			<ScrollFrame name="$parentScrollFrame" inherits="RMAOptionsScrollFrameTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" />
+					<Anchor point="BOTTOMRIGHT">
+						<Offset>
+							<AbsDimension x="-42" y="36" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<ScrollChild>
+					<Frame name="RMAInterfaceOptionsHelpPanelScrollChild">
+						<Size>
+							<AbsDimension x="520" y="760" />
+						</Size>
+						<Layers>
+							<Layer level="ARTWORK">
+								<FontString name="$parentTitle" inherits="GameFontNormalLarge" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT">
+											<Offset>
+												<AbsDimension x="16" y="-16" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentMasterLootTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT">
+											<Offset>
+												<AbsDimension x="16" y="-54" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentMasterLootBody" inherits="GameFontHighlightSmall"
+									justifyH="LEFT" justifyV="TOP">
+									<Size>
+										<AbsDimension x="430" y="62" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentMasterLootTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentLootHistoryTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentMasterLootBody" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-10" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentLootHistoryBody" inherits="GameFontHighlightSmall"
+									justifyH="LEFT" justifyV="TOP">
+									<Size>
+										<AbsDimension x="430" y="88" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentLootHistoryTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentLFMSpamTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentLootHistoryBody" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-10" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentLFMSpamBody" inherits="GameFontHighlightSmall"
+									justifyH="LEFT" justifyV="TOP">
+									<Size>
+										<AbsDimension x="430" y="76" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentLFMSpamTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentRaidWarningTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentLFMSpamBody" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-10" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentRaidWarningBody" inherits="GameFontHighlightSmall"
+									justifyH="LEFT" justifyV="TOP">
+									<Size>
+										<AbsDimension x="430" y="54" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentRaidWarningTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentCommandPermissionsTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentRaidWarningBody" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-10" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentCommandPermissionsBody" inherits="GameFontHighlightSmall"
+									justifyH="LEFT" justifyV="TOP">
+									<Size>
+										<AbsDimension x="430" y="70" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentCommandPermissionsTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentDiagnosticsTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentCommandPermissionsBody" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-10" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentDiagnosticsBody" inherits="GameFontHighlightSmall"
+									justifyH="LEFT" justifyV="TOP">
+									<Size>
+										<AbsDimension x="430" y="58" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentDiagnosticsTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+							</Layer>
+						</Layers>
+					</Frame>
+				</ScrollChild>
+			</ScrollFrame>
+		</Frames>
+	</Frame>
+	<Frame name="RMALootHistoryCleanupPopup" inherits="RMADialogTemplate" parent="UIParent" hidden="true"
+		frameStrata="DIALOG" toplevel="true">
+		<Size>
+			<AbsDimension x="380" y="340" />
+		</Size>
+		<Anchors>
+			<Anchor point="CENTER" />
+		</Anchors>
+		<Layers>
+			<Layer level="ARTWORK">
+				<FontString name="$parentTitle" inherits="GameFontNormal" justifyH="CENTER">
+					<Size>
+						<AbsDimension x="340" y="20" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOP">
+							<Offset>
+								<AbsDimension x="0" y="-16" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentBody" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP">
+					<Size>
+						<AbsDimension x="320" y="34" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentTitle" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="10" y="-8" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentEmptyRaidsLabel" inherits="GameFontHighlightSmall" justifyH="LEFT">
+					<Size>
+						<AbsDimension x="292" y="16" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentBody" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="28" y="-14" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentEmptyRaidsDesc" inherits="GameFontHighlightSmall" justifyH="LEFT"
+					justifyV="TOP">
+					<Size>
+						<AbsDimension x="292" y="34" />
+					</Size>
+					<Color r="0.55" g="0.55" b="0.55" a="1" />
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentEmptyRaidsLabel" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentNonEpicLootLabel" inherits="GameFontHighlightSmall" justifyH="LEFT">
+					<Size>
+						<AbsDimension x="292" y="16" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentEmptyRaidsDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-10" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentNonEpicLootDesc" inherits="GameFontHighlightSmall" justifyH="LEFT"
+					justifyV="TOP">
+					<Size>
+						<AbsDimension x="292" y="34" />
+					</Size>
+					<Color r="0.55" g="0.55" b="0.55" a="1" />
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentNonEpicLootLabel" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentNoBossEncounterLabel" inherits="GameFontHighlightSmall" justifyH="LEFT">
+					<Size>
+						<AbsDimension x="292" y="16" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentNonEpicLootDesc" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-10" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentNoBossEncounterDesc" inherits="GameFontHighlightSmall" justifyH="LEFT"
+					justifyV="TOP">
+					<Size>
+						<AbsDimension x="292" y="34" />
+					</Size>
+					<Color r="0.55" g="0.55" b="0.55" a="1" />
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentNoBossEncounterLabel" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Frames>
+			<CheckButton name="$parentEmptyRaidsCheck" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentEmptyRaidsLabel" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentNonEpicLootCheck" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentNonEpicLootLabel" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentNoBossEncounterCheck" inherits="RMAConfigCheckButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentNoBossEncounterLabel" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-8" y="5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<Button name="$parentDeleteBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="110" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="62" y="16" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentCancelBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="110" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMRIGHT">
+						<Offset>
+							<AbsDimension x="-62" y="16" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+		</Frames>
+	</Frame>
+</Ui>
+

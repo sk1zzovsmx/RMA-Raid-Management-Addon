@@ -1,0 +1,502 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+	<Button name="RMARaidAttendanceInspectItemIconButtonTemplate" enableMouse="true" hidden="true" virtual="true">
+		<Size>
+			<AbsDimension x="16" y="16" />
+		</Size>
+		<Layers>
+			<Layer level="ARTWORK">
+				<Texture name="$parentTexture">
+					<Anchors>
+						<Anchor point="TOPLEFT" />
+						<Anchor point="BOTTOMRIGHT" />
+					</Anchors>
+					<TexCoords left="0.08" right="0.92" top="0.08" bottom="0.92" />
+				</Texture>
+			</Layer>
+		</Layers>
+	</Button>
+
+	<Button name="RMARaidAttendancePlayerRowTemplate" inherits="RMASelectableRowButtonTemplate" virtual="true">
+		<Size>
+			<AbsDimension y="20" />
+		</Size>
+		<NormalFont style="GameFontNormalSmall" />
+		<DisabledFont style="GameFontDisableSmall" />
+		<HighlightFont style="GameFontHighlightSmall" />
+		<Anchors>
+			<Anchor point="LEFT">
+				<Offset>
+					<AbsDimension x="5" y="0" />
+				</Offset>
+			</Anchor>
+			<Anchor point="RIGHT">
+				<Offset>
+					<AbsDimension x="-5" y="0" />
+				</Offset>
+			</Anchor>
+		</Anchors>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture file="Interface\AuctionFrame\UI-AuctionItemNameFrame">
+					<Size>
+						<AbsDimension x="10" y="22" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="0" y="0" />
+							</Offset>
+						</Anchor>
+						<Anchor point="BOTTOMRIGHT">
+							<Offset>
+								<AbsDimension x="0" y="-2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+					<TexCoords top="0" right="0.75" bottom="0.75" left="0.078125" />
+				</Texture>
+				<Texture name="$parentLoggerBg" file="Interface\Buttons\WHITE8x8">
+					<Anchors>
+						<Anchor point="TOPLEFT" />
+						<Anchor point="BOTTOMRIGHT" />
+					</Anchors>
+					<Color r="0.025" g="0.025" b="0.025" a="0.76" />
+				</Texture>
+			</Layer>
+			<Layer level="BORDER" textureSubLevel="0">
+				<Texture name="$parentLoggerBottomLine" file="Interface\Buttons\WHITE8x8">
+					<Size>
+						<AbsDimension y="1" />
+					</Size>
+					<Anchors>
+						<Anchor point="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="2" y="0" />
+							</Offset>
+						</Anchor>
+						<Anchor point="BOTTOMRIGHT">
+							<Offset>
+								<AbsDimension x="-2" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+					<Color r="0.32" g="0.30" b="0.25" a="0.42" />
+				</Texture>
+			</Layer>
+			<Layer level="ARTWORK">
+				<FontString name="$parentName" font="GameFontNormalSmall" justifyH="LEFT" justifyV="MIDDLE">
+					<Size>
+						<AbsDimension x="80" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="3" y="-1" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentJoin" inherits="GameFontHighlightSmall" justifyH="CENTER" justifyV="MIDDLE">
+					<Size>
+						<AbsDimension x="50" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentName" relativePoint="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="6" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentLeave" inherits="GameFontHighlightSmall" justifyH="CENTER" justifyV="MIDDLE">
+					<Size>
+						<AbsDimension x="50" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentJoin" relativePoint="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="6" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentIlvl" inherits="GameFontHighlightSmall" justifyH="CENTER" justifyV="MIDDLE">
+					<Size>
+						<AbsDimension x="42" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentLeave" relativePoint="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="6" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentSpec" inherits="GameFontHighlightSmall" justifyH="CENTER" justifyV="MIDDLE">
+					<Size>
+						<AbsDimension x="30" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentIlvl" relativePoint="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="6" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentInspectStatus" inherits="GameFontDisableSmall" justifyH="LEFT" justifyV="MIDDLE">
+					<Size>
+						<AbsDimension x="286" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentSpec" relativePoint="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="6" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Frames>
+			<Button name="$parentSpecIcon" enableMouse="true" hidden="true">
+				<Size>
+					<AbsDimension x="17" y="17" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentSpec" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="1" y="-1" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Layers>
+					<Layer level="ARTWORK">
+						<Texture name="$parentTexture">
+							<Anchors>
+								<Anchor point="TOPLEFT" />
+								<Anchor point="BOTTOMRIGHT" />
+							</Anchors>
+							<TexCoords left="0.08" right="0.92" top="0.08" bottom="0.92" />
+						</Texture>
+					</Layer>
+				</Layers>
+			</Button>
+			<Button name="$parentInspectItemIcon1" inherits="RMARaidAttendanceInspectItemIconButtonTemplate" />
+			<Button name="$parentInspectItemIcon2" inherits="RMARaidAttendanceInspectItemIconButtonTemplate" />
+			<Button name="$parentInspectItemIcon3" inherits="RMARaidAttendanceInspectItemIconButtonTemplate" />
+			<Button name="$parentInspectItemIcon4" inherits="RMARaidAttendanceInspectItemIconButtonTemplate" />
+			<Button name="$parentInspectItemIcon5" inherits="RMARaidAttendanceInspectItemIconButtonTemplate" />
+			<Button name="$parentInspectItemIcon6" inherits="RMARaidAttendanceInspectItemIconButtonTemplate" />
+			<Button name="$parentInspectItemIcon7" inherits="RMARaidAttendanceInspectItemIconButtonTemplate" />
+			<Button name="$parentInspectItemIcon8" inherits="RMARaidAttendanceInspectItemIconButtonTemplate" />
+			<Button name="$parentInspectItemIcon9" inherits="RMARaidAttendanceInspectItemIconButtonTemplate" />
+			<Button name="$parentInspectItemIcon10" inherits="RMARaidAttendanceInspectItemIconButtonTemplate" />
+			<Button name="$parentInspectItemIcon11" inherits="RMARaidAttendanceInspectItemIconButtonTemplate" />
+			<Button name="$parentInspectItemIcon12" inherits="RMARaidAttendanceInspectItemIconButtonTemplate" />
+			<Button name="$parentInspectItemIcon13" inherits="RMARaidAttendanceInspectItemIconButtonTemplate" />
+			<Button name="$parentInspectItemIcon14" inherits="RMARaidAttendanceInspectItemIconButtonTemplate" />
+			<Button name="$parentInspectItemIcon15" inherits="RMARaidAttendanceInspectItemIconButtonTemplate" />
+			<Button name="$parentInspectItemIcon16" inherits="RMARaidAttendanceInspectItemIconButtonTemplate" />
+			<Button name="$parentInspectItemIcon17" inherits="RMARaidAttendanceInspectItemIconButtonTemplate" />
+			<Button name="$parentSecondarySpecIcon" enableMouse="true" hidden="true">
+				<Size>
+					<AbsDimension x="17" y="17" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentSpec" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="19" y="-1" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Layers>
+					<Layer level="ARTWORK">
+						<Texture name="$parentTexture">
+							<Anchors>
+								<Anchor point="TOPLEFT" />
+								<Anchor point="BOTTOMRIGHT" />
+							</Anchors>
+							<TexCoords left="0.08" right="0.92" top="0.08" bottom="0.92" />
+						</Texture>
+					</Layer>
+				</Layers>
+			</Button>
+		</Frames>
+		<HighlightTexture>
+			<Anchors>
+				<Anchor point="TOPLEFT" />
+				<Anchor point="BOTTOMRIGHT" />
+			</Anchors>
+			<Color r="1" g="0.8" b="0" a="0.1" />
+		</HighlightTexture>
+	</Button>
+
+	<Frame name="RMARaidAttendance" inherits="RMAWindowTemplate">
+		<Size>
+			<AbsDimension x="980" y="515" />
+		</Size>
+		<Frames>
+			<Frame name="$parentHistory">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="18" y="-35" />
+						</Offset>
+					</Anchor>
+					<Anchor point="BOTTOMRIGHT" relativePoint="BOTTOMRIGHT">
+						<Offset>
+							<AbsDimension x="-18" y="20" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Frame>
+			<Frame name="RMARaidAttendanceRaids" inherits="RMALogPanelTemplate" parent="RMARaidAttendanceHistory">
+				<Size>
+					<AbsDimension x="335" y="430" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativePoint="TOPLEFT" />
+				</Anchors>
+				<Layers>
+					<Layer level="ARTWORK">
+						<FontString name="$parentTitle" font="GameFontNormal" justifyH="CENTER">
+							<Anchors>
+								<Anchor point="TOPLEFT">
+									<Offset>
+										<AbsDimension x="10" y="-10" />
+									</Offset>
+								</Anchor>
+								<Anchor point="TOPRIGHT">
+									<Offset>
+										<AbsDimension x="-10" y="-10" />
+									</Offset>
+								</Anchor>
+							</Anchors>
+						</FontString>
+					</Layer>
+					<Layer level="OVERLAY">
+						<FontString name="$parentEmptyState" font="GameFontDisableSmall" justifyH="CENTER" justifyV="MIDDLE">
+							<Anchors>
+								<Anchor point="TOPLEFT">
+									<Offset>
+										<AbsDimension x="16" y="-74" />
+									</Offset>
+								</Anchor>
+								<Anchor point="BOTTOMRIGHT">
+									<Offset>
+										<AbsDimension x="-30" y="8" />
+									</Offset>
+								</Anchor>
+							</Anchors>
+						</FontString>
+					</Layer>
+				</Layers>
+				<Frames>
+					<Button name="$parentHeaderNum" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="40" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT">
+								<Offset>
+									<AbsDimension x="3" y="-25" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentHeaderDate" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="100" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parentHeaderNum" relativePoint="TOPRIGHT" />
+						</Anchors>
+					</Button>
+					<Button name="$parentHeaderZone" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="123" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parentHeaderDate" relativePoint="TOPRIGHT" />
+						</Anchors>
+					</Button>
+					<Button name="$parentHeaderSize" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="45" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parentHeaderZone" relativePoint="TOPRIGHT" />
+						</Anchors>
+					</Button>
+					<ScrollFrame name="$parentScrollFrame" inherits="RMAListScrollFrameTemplate">
+						<Anchors>
+							<Anchor point="TOPLEFT">
+								<Offset>
+									<AbsDimension x="3" y="-46" />
+								</Offset>
+							</Anchor>
+							<Anchor point="BOTTOMRIGHT">
+								<Offset>
+									<AbsDimension x="-25" y="5" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</ScrollFrame>
+				</Frames>
+			</Frame>
+			<Frame name="RMARaidAttendanceRaidAttendees" inherits="RMALogPanelTemplate" parent="RMARaidAttendanceHistory">
+				<Size>
+					<AbsDimension x="607" y="430" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="RMARaidAttendanceRaids" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="7" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Layers>
+					<Layer level="ARTWORK">
+						<FontString name="$parentTitle" font="GameFontNormal" justifyH="CENTER">
+							<Anchors>
+								<Anchor point="TOPLEFT">
+									<Offset>
+										<AbsDimension x="10" y="-10" />
+									</Offset>
+								</Anchor>
+								<Anchor point="TOPRIGHT">
+									<Offset>
+										<AbsDimension x="-10" y="-10" />
+									</Offset>
+								</Anchor>
+							</Anchors>
+						</FontString>
+					</Layer>
+					<Layer level="OVERLAY">
+						<FontString name="$parentEmptyState" font="GameFontDisableSmall" justifyH="CENTER" justifyV="MIDDLE">
+							<Anchors>
+								<Anchor point="TOPLEFT">
+									<Offset>
+										<AbsDimension x="16" y="-74" />
+									</Offset>
+								</Anchor>
+								<Anchor point="BOTTOMRIGHT">
+									<Offset>
+										<AbsDimension x="-30" y="8" />
+									</Offset>
+								</Anchor>
+							</Anchors>
+						</FontString>
+					</Layer>
+				</Layers>
+				<Frames>
+					<Button name="$parentAddBtn" inherits="RMAActionButtonTemplate">
+						<Size>
+							<AbsDimension x="65" y="25" />
+						</Size>
+						<Anchors>
+							<Anchor point="BOTTOM" relativePoint="BOTTOM">
+								<Offset>
+									<AbsDimension x="-35" y="-31" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentDeleteBtn" inherits="RMAActionButtonTemplate">
+						<Size>
+							<AbsDimension x="65" y="25" />
+						</Size>
+						<Anchors>
+							<Anchor point="LEFT" relativeTo="$parentAddBtn" relativePoint="RIGHT">
+								<Offset>
+									<AbsDimension x="3" y="0" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentForceInspectBtn" inherits="RMAActionButtonTemplate">
+						<Size>
+							<AbsDimension x="65" y="25" />
+						</Size>
+						<Anchors>
+							<Anchor point="LEFT" relativeTo="$parentDeleteBtn" relativePoint="RIGHT">
+								<Offset>
+									<AbsDimension x="3" y="0" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentHeaderName" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="85" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT">
+								<Offset>
+									<AbsDimension x="3" y="-25" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentHeaderJoin" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="39" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parentHeaderName" relativePoint="TOPRIGHT" />
+						</Anchors>
+					</Button>
+					<Button name="$parentHeaderLeave" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="39" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parentHeaderJoin" relativePoint="TOPRIGHT" />
+						</Anchors>
+					</Button>
+					<Button name="$parentHeaderIlvl" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="30" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parentHeaderLeave" relativePoint="TOPRIGHT" />
+						</Anchors>
+					</Button>
+					<Button name="$parentHeaderSpec" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="25" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parentHeaderIlvl" relativePoint="TOPRIGHT" />
+						</Anchors>
+					</Button>
+					<Button name="$parentHeaderInspect" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="322" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parentHeaderSpec" relativePoint="TOPRIGHT" />
+						</Anchors>
+					</Button>
+					<ScrollFrame name="$parentScrollFrame" inherits="RMAListScrollFrameTemplate">
+						<Anchors>
+							<Anchor point="TOPLEFT">
+								<Offset>
+									<AbsDimension x="3" y="-46" />
+								</Offset>
+							</Anchor>
+							<Anchor point="BOTTOMRIGHT">
+								<Offset>
+									<AbsDimension x="-25" y="5" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</ScrollFrame>
+				</Frames>
+			</Frame>
+		</Frames>
+	</Frame>
+</Ui>
+

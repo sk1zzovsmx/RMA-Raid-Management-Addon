@@ -1,0 +1,16 @@
+## Interface: 30300
+## X-Compatible-With: 40000
+## LoadOnDemand: 1
+## Title: Lib: Logger-1.0
+## Notes: Simple library that handles multiple levels of logging.
+## Author: NeoTron
+## eMail: neotron@gmail.com
+## X-Category: Library
+## X-License: GPLv3
+## X-Curse-Packaged-Version: r35
+## X-Curse-Project-Name: LibLogger-1.0
+## X-Curse-Project-ID: liblogger-1-0
+## X-Curse-Repository-ID: wow/liblogger-1-0/mainline
+
+LibStub.lua
+LibLogger-1.0\lib.xml

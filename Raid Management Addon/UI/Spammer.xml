@@ -1,0 +1,607 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+	<EditBox name="RMASpammerEditBox" inherits="RMATextInputTemplate" virtual="true">
+		<FontString inherits="GameFontHighlightSmall" />
+	</EditBox>
+	<!-- CheckBox Template -->
+	<CheckButton name="RMASpammerCheckButton" inherits="SendMailRadioButtonTemplate" virtual="true">
+		<Size>
+			<AbsDimension x="15" y="15" />
+		</Size>
+	</CheckButton>
+	<!-- LFM spam frame -->
+	<Frame name="RMASpammer" inherits="RMAWindowTemplate">
+		<Size>
+			<AbsDimension x="260" y="380" />
+		</Size>
+		<Layers>
+			<Layer level="ARTWORK">
+				<FontString name="$parentNameStr" inherits="GameFontNormalSmall" justifyH="LEFT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="105" y="10" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="20" y="-35" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentDurationStr" inherits="GameFontNormalSmall" justifyH="LEFT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="85" y="10" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="-55" y="-35" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentTick" inherits="RMAFontStringGray" justifyH="RIGHT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="30" y="10" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="-15" y="-35" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentCompStr" inherits="GameFontNormalSmall" justifyH="CENTER" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="105" y="10" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="20" y="-85" />
+							</Offset>
+						</Anchor>
+						<Anchor point="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="-15" y="-85" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentNeedStr" inherits="RMAFontStringGray" justifyH="CENTER" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="105" y="10" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="85" y="-105" />
+							</Offset>
+						</Anchor>
+						<Anchor point="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="-140" y="-105" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentClassStr" inherits="RMAFontStringGray" justifyH="LEFT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="105" y="10" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="130" y="-105" />
+							</Offset>
+						</Anchor>
+						<Anchor point="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="0" y="-105" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentTanksStr" inherits="GameFontNormalSmall" justifyH="RIGHT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="55" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="20" y="-117" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentHealersStr" inherits="GameFontNormalSmall" justifyH="RIGHT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="55" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentTanksStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-10" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentMeleesStr" inherits="GameFontNormalSmall" justifyH="RIGHT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="55" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentHealersStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-10" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentRangedStr" inherits="GameFontNormalSmall" justifyH="RIGHT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="55" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentMeleesStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-10" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentMessageStr" inherits="GameFontNormalSmall" justifyH="RIGHT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="55" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentRangedStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="-10" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentChannelsStr" inherits="GameFontNormalSmall" justifyH="LEFT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="45" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentMessageStr" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="-5" y="-10" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentChannel1Str" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="10" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentChannelsStr" relativePoint="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="20" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentChannel2Str" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="10" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="LEFT" relativeTo="$parentChannel1Str" relativePoint="RIGHT">
+							<Offset>
+								<AbsDimension x="17" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentChannel3Str" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="10" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="LEFT" relativeTo="$parentChannel2Str" relativePoint="RIGHT">
+							<Offset>
+								<AbsDimension x="17" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentChannel4Str" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="10" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="LEFT" relativeTo="$parentChannel3Str" relativePoint="RIGHT">
+							<Offset>
+								<AbsDimension x="17" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentChannel5Str" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="10" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="LEFT" relativeTo="$parentChannel4Str" relativePoint="RIGHT">
+							<Offset>
+								<AbsDimension x="17" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentChannel6Str" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="10" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="LEFT" relativeTo="$parentChannel5Str" relativePoint="RIGHT">
+							<Offset>
+								<AbsDimension x="17" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentChannel7Str" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="10" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentChannel1Str" relativePoint="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="0" y="2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentChannel8Str" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="10" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="LEFT" relativeTo="$parentChannel7Str" relativePoint="RIGHT">
+							<Offset>
+								<AbsDimension x="17" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentChannelGuildStr" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="35" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="LEFT" relativeTo="$parentChannel8Str" relativePoint="RIGHT">
+							<Offset>
+								<AbsDimension x="17" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentChannelYellStr" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="35" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="LEFT" relativeTo="$parentChannelGuildStr" relativePoint="RIGHT">
+							<Offset>
+								<AbsDimension x="17" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentPreviewStr" inherits="GameFontNormal" justifyH="LEFT" justifyV="BOTTOM">
+					<Size>
+						<AbsDimension x="55" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="20" y="-292" />
+							</Offset>
+						</Anchor>
+						<Anchor point="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="-15" y="-292" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentOutput" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP">
+					<Size>
+						<AbsDimension x="218" y="0" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="20" y="-312" />
+							</Offset>
+						</Anchor>
+						<Anchor point="BOTTOMRIGHT">
+							<Offset>
+								<AbsDimension x="-15" y="15" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentLength" inherits="RMAFontStringGray" justifyH="RIGHT" justifyV="TOP">
+					<Size>
+						<AbsDimension x="55" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="-15" y="-305" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Frames>
+			<Button name="$parentClearBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="65" y="19" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="-27" y="-5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<EditBox name="$parentName" inherits="RMASpammerEditBox" letters="15">
+				<Size>
+					<AbsDimension x="75" y="18" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset>
+							<AbsDimension x="25" y="-55" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</EditBox>
+			<Button name="$parentStartBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="75" y="26" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="-15" y="-50" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<EditBox name="$parentDuration" inherits="RMASpammerEditBox" letters="3" numeric="true">
+				<Size>
+					<AbsDimension x="30" y="18" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativeTo="$parentStartBtn" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="-15" y="-5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<FontString inherits="GameFontHighlightSmall" justifyH="CENTER" />
+			</EditBox>
+			<EditBox name="$parentTank" inherits="RMASpammerEditBox" letters="1" numeric="true">
+				<Size>
+					<AbsDimension x="25" y="13" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset>
+							<AbsDimension x="90" y="-125" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<FontString justifyH="CENTER" />
+			</EditBox>
+			<EditBox name="$parentTankClass" inherits="RMASpammerEditBox">
+				<Size>
+					<AbsDimension x="100" y="13" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentTank" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="20" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</EditBox>
+			<EditBox name="$parentHealer" inherits="RMASpammerEditBox" letters="1" numeric="true">
+				<Size>
+					<AbsDimension x="25" y="13" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentTank" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="0" y="-15" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<FontString justifyH="CENTER" />
+			</EditBox>
+			<EditBox name="$parentHealerClass" inherits="RMASpammerEditBox">
+				<Size>
+					<AbsDimension x="100" y="13" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentHealer" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="20" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</EditBox>
+			<EditBox name="$parentMelee" inherits="RMASpammerEditBox" letters="2" numeric="true">
+				<Size>
+					<AbsDimension x="25" y="13" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentHealer" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="0" y="-15" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<FontString justifyH="CENTER" />
+			</EditBox>
+			<EditBox name="$parentMeleeClass" inherits="RMASpammerEditBox">
+				<Size>
+					<AbsDimension x="100" y="13" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentMelee" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="20" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</EditBox>
+			<EditBox name="$parentRanged" inherits="RMASpammerEditBox" letters="2" numeric="true">
+				<Size>
+					<AbsDimension x="25" y="13" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentMelee" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="0" y="-15" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<FontString justifyH="CENTER" />
+			</EditBox>
+			<EditBox name="$parentRangedClass" inherits="RMASpammerEditBox">
+				<Size>
+					<AbsDimension x="100" y="13" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentRanged" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="20" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</EditBox>
+			<EditBox name="$parentMessage" inherits="RMASpammerEditBox">
+				<Size>
+					<AbsDimension x="100" y="13" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentRanged" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="0" y="-15" />
+						</Offset>
+					</Anchor>
+					<Anchor point="TOPRIGHT" relativeTo="$parentRangedClass" relativePoint="BOTTOMRIGHT">
+						<Offset>
+							<AbsDimension x="0" y="-15" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+</EditBox>
+			<CheckButton name="$parentChat1" inherits="RMASpammerCheckButton">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentMessage" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="-25" y="-13" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentChat2" inherits="RMASpammerCheckButton">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentChat1" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="12" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentChat3" inherits="RMASpammerCheckButton">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentChat2" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="12" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentChat4" inherits="RMASpammerCheckButton">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentChat3" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="12" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentChat5" inherits="RMASpammerCheckButton">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentChat4" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="12" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentChat6" inherits="RMASpammerCheckButton">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentChat5" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="12" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentChat7" inherits="RMASpammerCheckButton">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentChat1" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="0" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentChat8" inherits="RMASpammerCheckButton">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentChat7" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="12" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentChatGuild" inherits="RMASpammerCheckButton">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentChat8" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="12" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentChatYell" inherits="RMASpammerCheckButton">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentChatGuild" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="38" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+		</Frames>
+	</Frame>
+	<!-- ====== End of LFM Spam Frame ====== -->
+</Ui>
+

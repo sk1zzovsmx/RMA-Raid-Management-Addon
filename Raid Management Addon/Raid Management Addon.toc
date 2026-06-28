@@ -1,0 +1,161 @@
+## Interface: 30300
+## Title: Raid Management Addon
+## Notes: Raid Management Addon helps raid leaders manage loot, reserves, warnings, and raid history.
+## Author: ferrarizer
+## SavedVariables: RMA_Raids, RMA_Players, RMA_Reserves, RMA_Warnings, RMA_Spammer, RMA_Options
+## Version: 0.1.0-alpha.1
+## X-Category: Raid, Inventory
+
+
+# Layer 0 - Third-party libraries
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibBossIDs-1.0\lib.xml
+Libs\LibDeflate\LibDeflate.lua
+Libs\LibDeformat-3.0\lib.xml
+Libs\LibCompat-1.0\lib.xml
+Libs\LibLogger-1.0\lib.xml
+
+# Layer 1 - Unified init/bootstrap/runtime (must load before all addon Lua files)
+Init.lua
+Database\DB.lua
+Database\DBOptions.lua
+
+# Layer 2 - Localization (must load before runtime modules)
+Localization\localization.en.lua
+Localization\DiagnoseLog.en.lua
+
+# Layer 3 - Shared templates and lightweight XML-only frames
+UI\Templates\Common.xml
+UI\ScreenNotice.xml
+UI\RaidGrid.xml
+
+# Layer 4 - Shared modules (helpers/constants)
+Modules\C.lua
+Modules\Timer.lua
+Modules\Events.lua
+Modules\Colors.lua
+Modules\Strings.lua
+Modules\Item.lua
+Modules\LootSourceCandidates.lua
+Modules\Dataset\LootSources\Vanilla.lua
+Modules\Dataset\LootSources\BurningCrusade.lua
+Modules\Dataset\LootSources\Wrath.lua
+Modules\Dataset\LootSourcesData.lua
+Modules\LootSources.lua
+Modules\Dataset\IgnoredItems.lua
+Modules\Dataset\IgnoredMobs.lua
+Modules\Comms.lua
+Modules\Time.lua
+Modules\Base64.lua
+Modules\Json.lua
+Modules\Sort.lua
+Modules\Features.lua
+Modules\ModuleRegistry.lua
+Modules\UI\Facade.lua
+Modules\UI\Effects.lua
+Modules\UI\Visuals.lua
+Modules\UI\Frames.lua
+Modules\UI\ListController.lua
+Modules\UI\MultiSelect.lua
+Modules\UI\OptionsLayout.lua
+Modules\Bus.lua
+Modules\UI\ScreenNotice.lua
+
+# Layer 5 - Runtime modules (ordered by dependency)
+# Services + entrypoint + parents + child UI controllers
+Database\DBRaidMigrations.lua
+Database\DBRaidStore.lua
+Database\DBRaidQueries.lua
+Database\DBRaidValidator.lua
+Database\DBSyncMetrics.lua
+Database\DBSyncPayload.lua
+Database\DBSyncImport.lua
+Database\DBSyncer.lua
+Services\Loot\Context.lua
+Services\Loot\State.lua
+Services\Loot\Snapshots.lua
+Services\Loot\PendingAwards.lua
+Services\Loot\PassiveGroupLoot.lua
+Services\Loot\Tracking.lua
+Services\Loot\Workflow.lua
+Services\Loot\Receipts.lua
+Services\Loot\Records.lua
+Services\Loot\Reconcile.lua
+Services\Loot\Rules.lua
+Services\Loot\DistributionSession.lua
+Services\Loot\AwardPlanner.lua
+Services\Loot\Inventory.lua
+Services\Raid\State.lua
+Services\Raid\Capabilities.lua
+Services\Raid\LootMethod.lua
+Services\Raid\Counts.lua
+Services\Raid\Roster.lua
+Services\Raid\Attendance.lua
+Services\Raid\LootRecords.lua
+Services\Raid\Session.lua
+Services\SpecInspect.lua
+Services\EquipInspect.lua
+Services\Chat.lua
+EntryPoints\Minimap.lua
+EntryPoints\SlashEvents.lua
+Services\Rolls\Countdown.lua
+Services\Rolls\Sessions.lua
+Services\Rolls\History.lua
+Services\Rolls\Responses.lua
+Services\Rolls\Strategies.lua
+Services\Rolls\Resolution.lua
+Services\Rolls\Display.lua
+Services\Rolls\Service.lua
+Services\Loot\Service.lua
+Services\Debug.lua
+Services\Master\SoftRes.lua
+Services\Master\SessionWinners.lua
+Services\Master\FlowState.lua
+Services\Master\ButtonState.lua
+Services\Master\RollRows.lua
+Services\Master\AssignmentHelpers.lua
+Services\Master\AssignmentCandidates.lua
+Services\Master\AssignmentTargets.lua
+Services\Master\DebugRaidGrid.lua
+Services\Master\AwardMessages.lua
+Services\Master\LootSpam.lua
+Services\Master\AwardCounter.lua
+Services\Master\RollAnnouncements.lua
+Services\Master\Trade.lua
+Services\Master\Service.lua
+Widgets\RaidGrid.lua
+Widgets\LootHints.lua
+Widgets\TradeMenu.lua
+UI\Master.xml
+Controllers\Master.lua
+Widgets\LootCounter.lua
+Services\Reserves\Import.lua
+Services\Reserves\Aliases.lua
+Services\Reserves\Display.lua
+Services\Reserves\Sync.lua
+Services\Reserves.lua
+Services\Reserves\Chat.lua
+UI\Reserves.xml
+Widgets\ReservesUI.lua
+Services\Logger\Store.lua
+Services\Logger\Helpers.lua
+Services\Logger\View.lua
+Services\Logger\Export.lua
+Services\Logger\Actions.lua
+Services\Spammer\Draft.lua
+Services\Warnings\Store.lua
+UI\Logger.xml
+UI\LootHistory.xml
+UI\RaidAttendance.xml
+Controllers\Logger.lua
+Widgets\Config.lua
+Controllers\Warnings.lua
+Controllers\Spammer.lua
+
+# Layer 6 - Concrete UI frames
+UI\Minimap.xml
+UI\Spammer.xml
+UI\Warnings.xml
+UI\Config.xml
+UI\LootCounter.xml

@@ -1,0 +1,64 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+    <!-- ====== Start of Loot Counter Frame ====== -->
+    <Frame name="RMALootCounterFrame" inherits="RMAWindowTemplate" hidden="true" enableMouse="true" registerForDrag="LeftButton">
+        <Size>
+            <AbsDimension x="370" y="360" />
+        </Size>
+        <Anchors>
+            <Anchor point="CENTER" />
+        </Anchors>
+        <Frames>
+            <ScrollFrame name="$parentScrollFrame" inherits="RMAListScrollFrameTemplate">
+                <Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset>
+							<AbsDimension x="15" y="-32" />
+						</Offset>
+					</Anchor>
+					<Anchor point="BOTTOMRIGHT">
+						<Offset>
+							<AbsDimension x="-30" y="44" />
+						</Offset>
+					</Anchor>
+                </Anchors>
+            </ScrollFrame>
+            <Button name="$parentAnnounceBtn" inherits="RMAActionButtonTemplate">
+                <Size>
+                    <AbsDimension y="24" />
+                </Size>
+                <Anchors>
+                    <Anchor point="BOTTOMLEFT" relativePoint="BOTTOM">
+                        <Offset>
+                            <AbsDimension x="4" y="14" />
+                        </Offset>
+                    </Anchor>
+                    <Anchor point="BOTTOMRIGHT" relativePoint="BOTTOMRIGHT">
+                        <Offset>
+                            <AbsDimension x="-16" y="14" />
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+            </Button>
+            <Button name="$parentResetAllBtn" inherits="RMAActionButtonTemplate">
+                <Size>
+                    <AbsDimension y="24" />
+                </Size>
+                <Anchors>
+                    <Anchor point="BOTTOMLEFT">
+                        <Offset>
+                            <AbsDimension x="16" y="14" />
+                        </Offset>
+                    </Anchor>
+                    <Anchor point="BOTTOMRIGHT" relativePoint="BOTTOM">
+                        <Offset>
+                            <AbsDimension x="-4" y="14" />
+                        </Offset>
+                    </Anchor>
+                </Anchors>
+            </Button>
+        </Frames>
+    </Frame>
+    <!-- ====== End of Loot Counter Frame ====== -->
+</Ui>
+

@@ -1,0 +1,724 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+	<Button name="RMALootHistoryLootRowTemplate" inherits="RMASelectableRowButtonTemplate" virtual="true">
+		<Size>
+			<AbsDimension y="30" />
+		</Size>
+		<NormalFont style="GameFontNormalSmall" />
+		<DisabledFont style="GameFontDisableSmall" />
+		<HighlightFont style="GameFontHighlightSmall" />
+		<Anchors>
+			<Anchor point="LEFT">
+				<Offset>
+					<AbsDimension x="5" y="0" />
+				</Offset>
+			</Anchor>
+			<Anchor point="RIGHT">
+				<Offset>
+					<AbsDimension x="-5" y="0" />
+				</Offset>
+			</Anchor>
+			</Anchors>
+			<Layers>
+				<Layer level="BACKGROUND">
+					<Texture file="Interface\AuctionFrame\UI-AuctionItemNameFrame">
+						<Size>
+							<AbsDimension x="10" y="31" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT">
+								<Offset>
+									<AbsDimension x="0" y="0" />
+								</Offset>
+							</Anchor>
+							<Anchor point="BOTTOMRIGHT">
+								<Offset>
+									<AbsDimension x="0" y="-2" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+						<TexCoords top="0" right="0.75" bottom="0.75" left="0.078125" />
+					</Texture>
+					<Texture name="$parentLoggerBg" file="Interface\Buttons\WHITE8x8">
+						<Anchors>
+							<Anchor point="TOPLEFT" />
+							<Anchor point="BOTTOMRIGHT" />
+						</Anchors>
+						<Color r="0.025" g="0.025" b="0.025" a="0.76" />
+					</Texture>
+				</Layer>
+				<Layer level="BORDER" textureSubLevel="0">
+					<Texture name="$parentLoggerBottomLine" file="Interface\Buttons\WHITE8x8">
+						<Size>
+							<AbsDimension y="1" />
+					</Size>
+					<Anchors>
+						<Anchor point="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="2" y="0" />
+							</Offset>
+						</Anchor>
+						<Anchor point="BOTTOMRIGHT">
+							<Offset>
+								<AbsDimension x="-2" y="0" />
+							</Offset>
+						</Anchor>
+						</Anchors>
+						<Color r="0.32" g="0.30" b="0.25" a="0.42" />
+					</Texture>
+				</Layer>
+			<Layer level="ARTWORK">
+				<FontString name="$parentName" font="GameFontNormalSmall" justifyH="LEFT" justifyV="MIDDLE">
+					<Size>
+						<AbsDimension x="158" y="12" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="34" y="-9" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentSource" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="MIDDLE">
+					<Size>
+						<AbsDimension x="123" y="12" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentName" relativePoint="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="6" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentWinner" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="MIDDLE">
+					<Size>
+						<AbsDimension x="85" y="12" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentSource" relativePoint="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="6" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentType" inherits="GameFontHighlightSmall" justifyH="CENTER" justifyV="MIDDLE">
+					<Size>
+						<AbsDimension x="45" y="12" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentWinner" relativePoint="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="6" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentRoll" inherits="GameFontHighlightSmall" justifyH="RIGHT" justifyV="MIDDLE">
+					<Size>
+						<AbsDimension x="37" y="12" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentType" relativePoint="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="6" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentTime" inherits="GameFontHighlightSmall" justifyH="CENTER" justifyV="MIDDLE">
+					<Size>
+						<AbsDimension x="35" y="12" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentRoll" relativePoint="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="6" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Frames>
+			<Frame name="$parentSourceHitBox" enableMouse="true">
+				<Size>
+					<AbsDimension x="123" y="20" />
+				</Size>
+				<Anchors>
+					<Anchor point="CENTER" relativeTo="$parentSource" relativePoint="CENTER" />
+				</Anchors>
+			</Frame>
+			<Button name="$parentItem" inherits="RMAItemIconButtonTemplate">
+				<Size>
+					<AbsDimension x="26" y="26" />
+				</Size>
+				<HitRectInsets left="2" right="2" top="2" bottom="2" />
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset>
+							<AbsDimension x="0" y="-2" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+		</Frames>
+		<HighlightTexture>
+			<Anchors>
+				<Anchor point="TOPLEFT" />
+				<Anchor point="BOTTOMRIGHT" />
+			</Anchors>
+			<Color r="1" g="0.82" b="0.28" a="0.14" />
+		</HighlightTexture>
+	</Button>
+
+	<Frame name="RMALootHistory" inherits="RMAWindowTemplate">
+		<Size>
+			<AbsDimension x="980" y="515" />
+		</Size>
+		<Frames>
+			<Frame name="$parentHistory">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="18" y="-35" />
+						</Offset>
+					</Anchor>
+					<Anchor point="BOTTOMRIGHT" relativePoint="BOTTOMRIGHT">
+						<Offset>
+							<AbsDimension x="-18" y="20" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Frame>
+			<Frame name="RMALootHistoryRaids" inherits="RMALogPanelTemplate" parent="RMALootHistoryHistory">
+				<Size>
+					<AbsDimension x="330" y="195" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="0" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Layers>
+					<Layer level="ARTWORK">
+						<FontString name="$parentTitle" font="GameFontNormal" justifyH="CENTER">
+							<Size>
+								<AbsDimension x="280" y="5" />
+							</Size>
+							<Anchors>
+								<Anchor point="TOPLEFT">
+									<Offset>
+										<AbsDimension x="10" y="-10" />
+									</Offset>
+								</Anchor>
+								<Anchor point="TOPRIGHT">
+									<Offset>
+										<AbsDimension x="-10" y="-10" />
+									</Offset>
+								</Anchor>
+							</Anchors>
+						</FontString>
+					</Layer>
+					<Layer level="OVERLAY">
+						<FontString name="$parentEmptyState" font="GameFontDisableSmall" justifyH="CENTER" justifyV="MIDDLE">
+							<Anchors>
+								<Anchor point="TOPLEFT">
+									<Offset>
+										<AbsDimension x="16" y="-74" />
+									</Offset>
+								</Anchor>
+								<Anchor point="BOTTOMRIGHT">
+									<Offset>
+										<AbsDimension x="-30" y="8" />
+									</Offset>
+								</Anchor>
+							</Anchors>
+						</FontString>
+					</Layer>
+				</Layers>
+				<Frames>
+					<Button name="$parentCurrentBtn" inherits="RMAActionButtonTemplate">
+						<Size>
+							<AbsDimension x="75" y="25" />
+						</Size>
+						<Anchors>
+							<Anchor point="BOTTOM" relativePoint="BOTTOM">
+								<Offset>
+									<AbsDimension x="-34" y="-31" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentDeleteBtn" inherits="RMAActionButtonTemplate">
+						<Size>
+							<AbsDimension x="65" y="25" />
+						</Size>
+						<Anchors>
+							<Anchor point="LEFT" relativeTo="$parentCurrentBtn" relativePoint="RIGHT">
+								<Offset>
+									<AbsDimension x="3" y="0" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<!-- Table Headers -->
+					<Button name="$parentHeaderNum" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="40" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT">
+								<Offset>
+									<AbsDimension x="3" y="-25" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentHeaderDate" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="100" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parentHeaderNum" relativePoint="TOPRIGHT">
+								<Offset>
+									<AbsDimension x="0" y="0" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentHeaderZone" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="123" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parentHeaderDate" relativePoint="TOPRIGHT">
+								<Offset>
+									<AbsDimension x="0" y="0" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentHeaderSize" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="45" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parentHeaderZone" relativePoint="TOPRIGHT">
+								<Offset>
+									<AbsDimension x="0" y="0" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<ScrollFrame name="$parentScrollFrame" inherits="RMAListScrollFrameTemplate">
+						<Anchors>
+							<Anchor point="TOPLEFT">
+								<Offset>
+									<AbsDimension x="3" y="-46" />
+								</Offset>
+							</Anchor>
+							<Anchor point="BOTTOMRIGHT">
+								<Offset>
+									<AbsDimension x="-25" y="5" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</ScrollFrame>
+				</Frames>
+			</Frame>
+			<Frame name="RMALootHistoryLoot" inherits="RMALogPanelTemplate" parent="RMALootHistoryHistory">
+				<Size>
+					<AbsDimension x="600" y="430" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="RMALootHistoryRaids" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="7" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Layers>
+					<Layer level="ARTWORK">
+						<FontString name="$parentTitle" font="GameFontNormal" justifyH="CENTER">
+							<Size>
+								<AbsDimension x="280" y="5" />
+							</Size>
+							<Anchors>
+								<Anchor point="TOPLEFT">
+									<Offset>
+										<AbsDimension x="10" y="-10" />
+									</Offset>
+								</Anchor>
+								<Anchor point="TOPRIGHT">
+									<Offset>
+										<AbsDimension x="-10" y="-10" />
+									</Offset>
+								</Anchor>
+							</Anchors>
+						</FontString>
+					</Layer>
+					<Layer level="OVERLAY">
+						<FontString name="$parentEmptyState" font="GameFontDisableSmall" justifyH="CENTER" justifyV="MIDDLE">
+							<Anchors>
+								<Anchor point="TOPLEFT">
+									<Offset>
+										<AbsDimension x="16" y="-74" />
+									</Offset>
+								</Anchor>
+								<Anchor point="BOTTOMRIGHT">
+									<Offset>
+										<AbsDimension x="-30" y="8" />
+									</Offset>
+								</Anchor>
+							</Anchors>
+						</FontString>
+					</Layer>
+				</Layers>
+				<Frames>
+					<Button name="$parentExportBtn" inherits="RMAActionButtonTemplate">
+						<Size>
+							<AbsDimension x="65" y="25" />
+						</Size>
+						<Anchors>
+							<Anchor point="BOTTOM" relativePoint="BOTTOM">
+								<Offset>
+									<AbsDimension x="-163" y="-31" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentClearBtn" inherits="RMAActionButtonTemplate">
+						<Size>
+							<AbsDimension x="65" y="25" />
+						</Size>
+						<Anchors>
+							<Anchor point="LEFT" relativeTo="$parentExportBtn" relativePoint="RIGHT">
+								<Offset>
+									<AbsDimension x="3" y="0" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentAddBtn" inherits="RMAActionButtonTemplate">
+						<Size>
+							<AbsDimension x="65" y="25" />
+						</Size>
+						<Anchors>
+							<Anchor point="BOTTOM" relativePoint="BOTTOM">
+								<Offset>
+									<AbsDimension x="53" y="-31" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentEditBtn" inherits="RMAActionButtonTemplate">
+						<Size>
+							<AbsDimension x="65" y="25" />
+						</Size>
+						<Anchors>
+							<Anchor point="LEFT" relativeTo="$parentAddBtn" relativePoint="RIGHT">
+								<Offset>
+									<AbsDimension x="3" y="0" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentDeleteBtn" inherits="RMAActionButtonTemplate">
+						<Size>
+							<AbsDimension x="65" y="25" />
+						</Size>
+						<Anchors>
+							<Anchor point="LEFT" relativeTo="$parentEditBtn" relativePoint="RIGHT">
+								<Offset>
+									<AbsDimension x="3" y="0" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<!-- Table Headers -->
+					<Button name="$parentHeaderItem" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="190" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT">
+								<Offset>
+									<AbsDimension x="3" y="-25" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentHeaderSource" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="135" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parentHeaderItem" relativePoint="TOPRIGHT">
+								<Offset>
+									<AbsDimension x="0" y="0" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentHeaderWinner" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="90" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parentHeaderSource" relativePoint="TOPRIGHT">
+								<Offset>
+									<AbsDimension x="0" y="0" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentHeaderType" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="50" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parentHeaderWinner" relativePoint="TOPRIGHT">
+								<Offset>
+									<AbsDimension x="0" y="0" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentHeaderRoll" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="45" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parentHeaderType" relativePoint="TOPRIGHT">
+								<Offset>
+									<AbsDimension x="0" y="0" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentHeaderTime" inherits="RMALogTableHeaderTemplate">
+						<Size>
+							<AbsDimension x="45" y="20" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parentHeaderRoll" relativePoint="TOPRIGHT">
+								<Offset>
+									<AbsDimension x="0" y="0" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<ScrollFrame name="$parentScrollFrame" inherits="RMAListScrollFrameTemplate">
+						<Anchors>
+							<Anchor point="TOPLEFT">
+								<Offset>
+									<AbsDimension x="3" y="-46" />
+								</Offset>
+							</Anchor>
+							<Anchor point="BOTTOMRIGHT">
+								<Offset>
+									<AbsDimension x="-25" y="5" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</ScrollFrame>
+				</Frames>
+			</Frame>
+		</Frames>
+	</Frame>
+
+	<Frame name="RMAExportFrame" inherits="RMAWindowTemplate" parent="UIParent" frameStrata="DIALOG" hidden="true">
+		<Size>
+			<AbsDimension x="1000" y="500" />
+		</Size>
+		<Anchors>
+			<Anchor point="CENTER" />
+		</Anchors>
+		<Layers>
+			<Layer level="ARTWORK">
+				<FontString name="$parentHint" inherits="GameFontHighlightSmall" justifyH="LEFT">
+					<Size>
+						<AbsDimension x="956" y="32" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="22" y="-36" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Frames>
+			<Button name="$parentLootBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="140" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset>
+							<AbsDimension x="22" y="-74" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentRaidAttendanceBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="170" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentLootBtn" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="6" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<ScrollFrame name="$parentOutputScroll" inherits="RMATextScrollFrameTemplate">
+				<Size>
+					<AbsDimension x="956" y="330" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset>
+							<AbsDimension x="22" y="-110" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Backdrop bgFile="Interface\DialogFrame\UI-DialogBox-Background-Dark" edgeFile="Interface\Tooltips\UI-Tooltip-Border" tile="true">
+					<TileSize>
+						<AbsValue val="16" />
+					</TileSize>
+					<EdgeSize>
+						<AbsValue val="12" />
+					</EdgeSize>
+					<BackgroundInsets>
+						<AbsInset top="3" right="3" bottom="3" left="3" />
+					</BackgroundInsets>
+				</Backdrop>
+				<ScrollChild>
+					<EditBox name="RMAExportFrameOutput" multiLine="true" autoFocus="false">
+						<Size>
+							<AbsDimension x="930" y="312" />
+						</Size>
+						<Anchors>
+							<Anchor point="TOPLEFT">
+								<Offset>
+									<AbsDimension x="8" y="-8" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+						<FontString inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP" />
+					</EditBox>
+				</ScrollChild>
+			</ScrollFrame>
+			<Button name="$parentCloseBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="92" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOM">
+						<Offset>
+							<AbsDimension x="0" y="20" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+		</Frames>
+	</Frame>
+
+	<Frame name="RMALootHistoryRollTypePickerFrame" parent="UIParent" frameStrata="DIALOG" hidden="true">
+		<Size>
+			<AbsDimension x="312" y="22" />
+		</Size>
+		<Frames>
+			<Button name="$parentMS" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="42" y="22" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" />
+				</Anchors>
+			</Button>
+			<Button name="$parentOS" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="42" y="22" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentMS" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="3" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentSR" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="42" y="22" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentOS" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="3" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentFree" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="42" y="22" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentSR" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="3" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentBank" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="42" y="22" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentFree" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="3" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentDE" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="42" y="22" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentBank" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="3" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentHold" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="42" y="22" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentDE" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="3" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+		</Frames>
+	</Frame>
+</Ui>
+

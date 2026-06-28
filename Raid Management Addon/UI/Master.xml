@@ -1,0 +1,427 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+	<!-- ====== Start of Master Loot Frame ====== -->
+	<Frame name="RMAItemSelectionFrame" toplevel="true" hidden="true" frameStrata="FULLSCREEN" virtual="true">
+		<Size>
+			<AbsDimension x="225" y="100" />
+		</Size>
+		<Backdrop bgFile="Interface\DialogFrame\UI-DialogBox-Background-Dark" tile="true">
+			<TileSize>
+				<AbsValue val="6" />
+			</TileSize>
+			<EdgeSize>
+				<AbsValue val="6" />
+			</EdgeSize>
+			<BackgroundInsets>
+				<AbsInset top="3" right="3" bottom="2" left="2" />
+			</BackgroundInsets>
+		</Backdrop>
+	</Frame>
+	<!-- Item Selection Button -->
+	<Button name="RMAItemSelectionButton" hidden="true" virtual="true">
+		<Size>
+			<AbsDimension y="30" />
+		</Size>
+		<Anchors>
+			<Anchor point="TOPLEFT">
+				<Offset>
+					<AbsDimension x="5" y="-5" />
+				</Offset>
+			</Anchor>
+			<Anchor point="RIGHT">
+				<Offset>
+					<AbsDimension x="-5" y="5" />
+				</Offset>
+			</Anchor>
+		</Anchors>
+		<Layers>
+			<Layer level="OVERLAY" textureSubLevel="1">
+				<Texture name="$parentIcon" file="">
+					<Size>
+						<AbsDimension x="30" y="30" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativePoint="TOPLEFT">
+							<Offset>
+								<AbsDimension x="7" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</Texture>
+				<FontString name="$parentName" inherits="GameFontNormalSmall" justifyH="LEFT" justifyV="MIDDLE">
+					<Size>
+						<AbsDimension x="140" y="32" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" relativeTo="$parentIcon" relativePoint="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="10" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+					<!-- <Color r="0.5" g="0.5" b="0.5" a="1" /> -->
+				</FontString>
+			</Layer>
+		</Layers>
+		<HighlightTexture>
+			<Anchors>
+				<Anchor point="TOPLEFT" relativePoint="TOPLEFT">
+					<Offset>
+						<AbsDimension x="3" y="0" />
+					</Offset>
+				</Anchor>
+				<Anchor point="BOTTOMRIGHT" relativePoint="BOTTOMRIGHT">
+					<Offset>
+						<AbsDimension x="3" y="0" />
+					</Offset>
+				</Anchor>
+			</Anchors>
+			<Color r="1" g="0.8" b="0" a="0.1" />
+		</HighlightTexture>
+	</Button>
+	<!-- The Frame: Loot Manager -->
+	<Frame name="RMAMaster" inherits="RMAWindowTemplate">
+		<Size>
+			<AbsDimension x="250" y="480" />
+		</Size>
+		<Layers>
+			<Layer level="ARTWORK">
+				<FontString name="$parentName" inherits="RMAFontStringGray" justifyH="LEFT" justifyV="MIDDLE">
+					<Size>
+						<AbsDimension x="140" y="32" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="47" y="-60" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentStatus" inherits="RMAFontStringGray" justifyH="LEFT" justifyV="TOP">
+					<Size>
+						<AbsDimension x="205" y="30" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="16" y="-126" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentRollsHeaderRoll" inherits="RMAFontStringGray" justifyH="RIGHT">
+					<Size>
+						<AbsDimension x="28" y="5" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="-34" y="-160" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentRollsHeaderCounter" inherits="RMAFontStringGray" justifyH="RIGHT">
+					<Size>
+						<AbsDimension x="30" y="5" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPRIGHT" relativeTo="$parentRollsHeaderRoll" relativePoint="TOPLEFT">
+							<Offset>
+								<AbsDimension x="-2" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentRollsHeaderInfo" inherits="RMAFontStringGray" justifyH="RIGHT">
+					<Size>
+						<AbsDimension x="24" y="5" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPRIGHT" relativeTo="$parentRollsHeaderCounter" relativePoint="TOPLEFT">
+							<Offset>
+								<AbsDimension x="-2" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentRollsHeaderPlayer" inherits="RMAFontStringGray">
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="16" y="-160" />
+							</Offset>
+						</Anchor>
+						<Anchor point="TOPRIGHT" relativeTo="$parentRollsHeaderInfo" relativePoint="TOPLEFT">
+							<Offset>
+								<AbsDimension x="-8" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Frames>
+			<Button name="$parentConfigBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="70" y="19" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="-26" y="-5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentSelectItemBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="113" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset>
+							<AbsDimension x="10" y="-30" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentSpamLootBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="113" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentSelectItemBtn" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="4" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentItemBtn" inherits="RMAItemIconButtonTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentSelectItemBtn" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="5" y="-5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<EditBox name="$parentItemCount" inherits="RMANumericInputTemplate" letters="2" hidden="true">
+				<Size>
+					<AbsDimension x="20" y="18" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="-10" y="-65" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<FontString inherits="GameFontHighlightSmall" justifyH="LEFT" />
+			</EditBox>
+			<Button name="$parentMSBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="30" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentSelectItemBtn" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="0" y="-42" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentOSBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="30" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentMSBtn" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="4" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentSRBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="30" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentOSBtn" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="4" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentFreeBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="38" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentSRBtn" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="4" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentCountdownBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="84" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentFreeBtn" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="4" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<ScrollFrame name="$parentScrollFrame" inherits="RMAListScrollFrameTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset>
+							<AbsDimension x="12" y="-175" />
+						</Offset>
+					</Anchor>
+					<Anchor point="BOTTOMRIGHT">
+						<Offset>
+							<AbsDimension x="-30" y="165" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</ScrollFrame>
+			<Button name="$parentAwardBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="75" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentScrollFrame" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="-2" y="-7.5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentRollBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="77" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentAwardBtn" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="5" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentClearBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="68" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentRollBtn" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="5" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentHoldBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="75" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentAwardBtn" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="0" y="-5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Frame name="$parentHoldDropDown" inherits="UIDropDownMenuTemplate">
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentHoldBtn" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="-15" y="-1" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Frame>
+			<Button name="$parentBankBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="75" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentHoldBtn" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="0" y="-5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Frame name="$parentBankDropDown" inherits="UIDropDownMenuTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentBankBtn" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="-15" y="2" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Frame>
+			<Button name="$parentDisenchantBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="75" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentBankBtn" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="0" y="-5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Frame name="$parentDisenchantDropDown" inherits="UIDropDownMenuTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentDisenchantBtn" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="-15" y="2" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Frame>
+			<!-- First row: Reserve List (contextual) -->
+			<Button name="$parentReserveListBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="113" y="25" />
+				</Size>
+				<Anchors>
+					<!-- 10px in from left, 10px up from bottom -->
+					<Anchor point="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="10" y="10" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentLootCounterBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="113" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentReserveListBtn" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="4" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+		</Frames>
+	</Frame>
+	<!-- ====== End of Master Loot Frame ====== -->
+</Ui>
+

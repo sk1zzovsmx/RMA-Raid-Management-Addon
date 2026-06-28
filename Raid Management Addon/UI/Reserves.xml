@@ -1,0 +1,743 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/ ..\FrameXML\UI.xsd">
+	<!-- ====== Reserve List Templates ====== -->
+	<Button name="RMAReserveHeaderTemplate" virtual="true">
+		<Size>
+			<AbsDimension x="320" y="30" />
+		</Size>
+		<Frames>
+			<Button name="$parentItemIcon" inherits="RMAItemIconButtonTemplate" enableMouse="true">
+				<Size>
+					<AbsDimension x="26" y="26" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT">
+						<Offset>
+							<AbsDimension x="3" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentItemNameHotspot" enableMouse="true">
+				<Size>
+					<AbsDimension x="236" y="20" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT">
+						<Offset>
+							<AbsDimension x="34" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+		</Frames>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture name="$parentBackground" file="Interface\Buttons\WHITE8x8">
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset>
+								<AbsDimension x="-4" y="-1" />
+							</Offset>
+						</Anchor>
+						<Anchor point="BOTTOMRIGHT">
+							<Offset>
+								<AbsDimension x="2" y="1" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+					<Color r="0" g="0" b="0" a="0.22" />
+				</Texture>
+			</Layer>
+			<Layer level="ARTWORK">
+				<FontString name="$parentName" inherits="GameFontNormalSmall" justifyH="LEFT">
+					<Size>
+						<AbsDimension x="236" y="18" />
+					</Size>
+					<Anchors>
+						<Anchor point="LEFT">
+							<Offset>
+								<AbsDimension x="34" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+					<Color r="1" g="0.82" b="0" a="1" />
+				</FontString>
+				<FontString name="$parentCollapse" inherits="GameFontNormalSmall" justifyH="CENTER">
+					<Size>
+						<AbsDimension x="16" y="16" />
+					</Size>
+					<Anchors>
+						<Anchor point="RIGHT">
+							<Offset>
+								<AbsDimension x="-2" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+					<Font font="Fonts\\FRIZQT__.TTF" height="12" flags="OUTLINE" />
+					<Color r="1" g="0.82" b="0" a="1" />
+				</FontString>
+				<Texture name="$parentLine" file="Interface\Buttons\WHITE8x8">
+					<Size>
+						<AbsDimension y="1" />
+					</Size>
+					<Anchors>
+						<Anchor point="LEFT" relativeTo="$parentName" relativePoint="RIGHT">
+							<Offset>
+								<AbsDimension x="8" y="0" />
+							</Offset>
+						</Anchor>
+						<Anchor point="RIGHT" relativeTo="$parentCollapse" relativePoint="LEFT">
+							<Offset>
+								<AbsDimension x="-8" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+					<Color r="0" g="1" b="0" a="0.72" />
+				</Texture>
+			</Layer>
+		</Layers>
+	</Button>
+	<Frame name="RMAReserveRowTemplate" virtual="true">
+		<Size>
+			<AbsDimension x="320" y="42" />
+		</Size>
+		<Frames>
+			<Button name="$parentIconBtn" inherits="RMAItemIconButtonTemplate">
+				<Size>
+					<AbsDimension x="32" y="32" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parent" relativePoint="LEFT">
+						<Offset>
+							<AbsDimension x="0" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Frame name="$parentTextBlock">
+				<Size>
+					<AbsDimension x="0" y="32" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentIconBtn" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="8" y="0" />
+						</Offset>
+					</Anchor>
+					<Anchor point="RIGHT" relativeTo="$parent" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="-6" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Layers>
+					<Layer level="OVERLAY">
+						<FontString name="$parentName" inherits="RMAFontString">
+							<Size>
+								<AbsDimension x="0" y="0" />
+							</Size>
+							<Anchors>
+								<Anchor point="TOPLEFT">
+									<Offset>
+										<AbsDimension x="0" y="-3" />
+									</Offset>
+								</Anchor>
+								<Anchor point="TOPRIGHT">
+									<Offset>
+										<AbsDimension x="0" y="-3" />
+									</Offset>
+								</Anchor>
+							</Anchors>
+						</FontString>
+						<FontString name="$parentSource" inherits="GameFontHighlightSmall">
+							<Size>
+								<AbsDimension x="0" y="0" />
+							</Size>
+							<Anchors>
+								<Anchor point="TOPLEFT">
+									<Offset>
+										<AbsDimension x="0" y="-16" />
+									</Offset>
+								</Anchor>
+								<Anchor point="RIGHT">
+									<Offset>
+										<AbsDimension x="0" y="0" />
+									</Offset>
+								</Anchor>
+							</Anchors>
+						</FontString>
+						<FontString name="$parentPlayers" inherits="GameFontHighlightSmall" justifyH="LEFT">
+							<Anchors>
+								<Anchor point="TOPLEFT" relativeTo="$parentName" relativePoint="BOTTOMLEFT">
+									<Offset>
+										<AbsDimension x="0" y="-2" />
+									</Offset>
+								</Anchor>
+								<Anchor point="TOPRIGHT" relativeTo="$parentName" relativePoint="BOTTOMRIGHT">
+									<Offset>
+										<AbsDimension x="0" y="-2" />
+									</Offset>
+								</Anchor>
+							</Anchors>
+						</FontString>
+					</Layer>
+				</Layers>
+			</Frame>
+			<Button name="$parentNameHotspot" enableMouse="true">
+				<Size>
+					<AbsDimension x="200" y="16" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentTextBlock" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="0" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentPlayersHotspot" enableMouse="true">
+				<Size>
+					<AbsDimension x="200" y="16" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMLEFT" relativeTo="$parentTextBlock" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="0" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+		</Frames>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture name="$parentBackground" file="Interface\Buttons\WHITE8x8">
+					<Anchors>
+						<Anchor point="TOPLEFT" />
+						<Anchor point="BOTTOMRIGHT" />
+					</Anchors>
+					<Color r="0.04" g="0.06" b="0.09" a="0.30" />
+				</Texture>
+			</Layer>
+			<Layer level="BORDER">
+				<Texture name="$parentTopSeparator" file="Interface\Buttons\WHITE8x8" hidden="true">
+					<Size>
+						<AbsDimension y="1" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" />
+						<Anchor point="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="-4" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+					<Color r="1" g="1" b="1" a="0.10" />
+				</Texture>
+				<Texture name="$parentBottomSeparator" file="Interface\Buttons\WHITE8x8">
+					<Size>
+						<AbsDimension y="1" />
+					</Size>
+					<Anchors>
+						<Anchor point="BOTTOMLEFT" />
+						<Anchor point="BOTTOMRIGHT">
+							<Offset>
+								<AbsDimension x="-4" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+					<Color r="1" g="1" b="1" a="0.08" />
+				</Texture>
+			</Layer>
+			<Layer level="OVERLAY">
+				<FontString name="$parentQuantity" inherits="GameFontNormalSmall">
+					<Anchors>
+						<Anchor point="BOTTOMRIGHT" relativeTo="$parentIconBtn" relativePoint="BOTTOMRIGHT">
+							<Offset>
+								<AbsDimension x="-2" y="2" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+					<Font font="Fonts\\FRIZQT__.TTF" height="10" flags="OUTLINE" />
+					<Color r="1" g="1" b="1" a="1" />
+				</FontString>
+			</Layer>
+		</Layers>
+	</Frame>
+	<Button name="RMAReservePlayerRowTemplate" virtual="true">
+		<Size>
+			<AbsDimension x="320" y="24" />
+		</Size>
+		<Frames>
+			<Frame name="$parentEditSlot">
+				<Size>
+					<AbsDimension x="20" y="20" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT">
+						<Offset>
+							<AbsDimension x="40" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Frame>
+			<Button name="$parentRemoveBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="20" y="18" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT">
+						<Offset>
+							<AbsDimension x="40" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<EditBox name="$parentQuantityEdit" inherits="RMANumericInputTemplate" letters="3" hidden="true" autoFocus="false">
+				<Size>
+					<AbsDimension x="34" y="18" />
+				</Size>
+				<Anchors>
+					<Anchor point="RIGHT">
+						<Offset>
+							<AbsDimension x="-8" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</EditBox>
+		</Frames>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<Texture name="$parentBackground" file="Interface\Buttons\WHITE8x8">
+					<Anchors>
+						<Anchor point="TOPLEFT" />
+						<Anchor point="BOTTOMRIGHT" />
+					</Anchors>
+					<Color r="0.04" g="0.06" b="0.09" a="0.30" />
+				</Texture>
+			</Layer>
+			<Layer level="BORDER">
+				<Texture name="$parentTopSeparator" file="Interface\Buttons\WHITE8x8" hidden="true">
+					<Size>
+						<AbsDimension y="1" />
+					</Size>
+					<Anchors>
+						<Anchor point="TOPLEFT" />
+						<Anchor point="TOPRIGHT">
+							<Offset>
+								<AbsDimension x="-4" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+					<Color r="1" g="1" b="1" a="0.10" />
+				</Texture>
+				<Texture name="$parentBottomSeparator" file="Interface\Buttons\WHITE8x8">
+					<Size>
+						<AbsDimension y="1" />
+					</Size>
+					<Anchors>
+						<Anchor point="BOTTOMLEFT" />
+						<Anchor point="BOTTOMRIGHT">
+							<Offset>
+								<AbsDimension x="-4" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+					<Color r="1" g="1" b="1" a="0.08" />
+				</Texture>
+			</Layer>
+			<Layer level="OVERLAY">
+				<FontString name="$parentName" inherits="GameFontHighlightSmall" justifyH="LEFT">
+					<Size>
+						<AbsDimension x="190" y="16" />
+					</Size>
+					<Anchors>
+						<Anchor point="LEFT" relativeTo="$parentEditSlot" relativePoint="RIGHT">
+							<Offset>
+								<AbsDimension x="8" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentQuantity" inherits="GameFontNormalSmall" justifyH="RIGHT">
+					<Size>
+						<AbsDimension x="34" y="16" />
+					</Size>
+					<Anchors>
+						<Anchor point="RIGHT">
+							<Offset>
+								<AbsDimension x="-8" y="0" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+					<Font font="Fonts\\FRIZQT__.TTF" height="11" flags="OUTLINE" />
+					<Color r="1" g="1" b="1" a="1" />
+				</FontString>
+			</Layer>
+		</Layers>
+	</Button>
+	<!-- ====== End Reserve List Templates ====== -->
+	<Frame name="RMAReserveListFrame" inherits="RMAWindowTemplate" toplevel="true" hidden="true" frameStrata="MEDIUM">
+		<Size>
+			<AbsDimension x="368" y="596" />
+		</Size>
+		<Anchors>
+			<Anchor point="CENTER" />
+		</Anchors>
+		<Layers>
+			<Layer level="ARTWORK">
+				<FontString name="$parentSoftResHelpText" inherits="GameFontNormalSmall" justifyH="LEFT" justifyV="TOP">
+					<Size>
+						<AbsDimension x="216" y="28" />
+					</Size>
+					<Anchors>
+						<Anchor point="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="16" y="40" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentSoftResStatusText" inherits="GameFontNormalSmall" justifyH="LEFT" justifyV="MIDDLE">
+					<Size>
+						<AbsDimension x="320" y="16" />
+					</Size>
+					<Anchors>
+						<Anchor point="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="16" y="12" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+					<Color r="1" g="1" b="1" a="1" />
+				</FontString>
+				<FontString name="$parentSoftResAcceptStr" inherits="GameFontNormalSmall" justifyH="LEFT" justifyV="MIDDLE">
+					<Size>
+						<AbsDimension x="74" y="16" />
+					</Size>
+					<Anchors>
+						<Anchor point="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="278" y="57" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentSoftResResponseWispStr" inherits="GameFontNormalSmall" justifyH="LEFT" justifyV="MIDDLE">
+					<Size>
+						<AbsDimension x="86" y="16" />
+					</Size>
+					<Anchors>
+						<Anchor point="BOTTOMLEFT">
+							<Offset>
+								<AbsDimension x="278" y="35" />
+							</Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Frames>
+			<!-- Scroll frame with scroll child -->
+			<ScrollFrame name="$parentScrollFrame" inherits="RMAListScrollFrameTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset>
+							<AbsDimension x="16" y="-38" />
+						</Offset>
+					</Anchor>
+					<Anchor point="BOTTOMRIGHT">
+						<Offset>
+							<AbsDimension x="-32" y="116" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<ScrollChild>
+					<Frame name="RMAReserveListFrameScrollChild">
+						<Size>
+							<AbsDimension x="1" y="1" />
+						</Size>
+					</Frame>
+				</ScrollChild>
+			</ScrollFrame>
+			<Button name="$parentClearBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="65" y="19" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPRIGHT" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="-27" y="-5" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentEditButton" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="100" y="24" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMLEFT" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="16" y="80" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentQueryButton" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="120" y="24" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOM" relativePoint="BOTTOM">
+						<Offset>
+							<AbsDimension x="0" y="80" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentImportButton" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="100" y="24" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMRIGHT" relativePoint="BOTTOMRIGHT">
+						<Offset>
+							<AbsDimension x="-16" y="80" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<CheckButton name="$parentSoftResAccept" inherits="InterfaceOptionsCheckButtonTemplate">
+				<Size>
+					<AbsDimension x="20" y="20" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="252" y="52" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<CheckButton name="$parentSoftResResponseWisp" inherits="InterfaceOptionsCheckButtonTemplate">
+				<Size>
+					<AbsDimension x="20" y="20" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="252" y="32" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</CheckButton>
+			<Button name="$parentWhisperHelpButton" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="96" y="20" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMRIGHT" relativePoint="BOTTOMRIGHT">
+						<Offset>
+							<AbsDimension x="-16" y="12" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+		</Frames>
+	</Frame>
+	<!-- ====== Start of Reserve Import Window ====== -->
+	<Frame name="RMAImportWindow" inherits="RMAWindowTemplate" toplevel="true" hidden="true" frameStrata="DIALOG">
+		<Size>
+			<AbsDimension x="400" y="390" />
+		</Size>
+		<Anchors>
+			<Anchor point="CENTER" />
+		</Anchors>
+		<Backdrop bgFile="Interface\DialogFrame\UI-DialogBox-Background" tile="true">
+			<TileSize>
+				<AbsValue val="6" />
+			</TileSize>
+			<EdgeSize>
+				<AbsValue val="6" />
+			</EdgeSize>
+			<BackgroundInsets>
+				<AbsInset top="3" right="3" bottom="2" left="2" />
+			</BackgroundInsets>
+		</Backdrop>
+		<Layers>
+			<Layer level="OVERLAY">
+			<FontString name="$parentHint" inherits="GameFontNormalSmall" justifyH="LEFT" justifyV="TOP">
+				<Size>
+					<AbsDimension x="360" y="24" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="20" y="-34" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<TextInsets>
+					<AbsInset top="0" right="0" bottom="0" left="0" />
+				</TextInsets>
+			</FontString>
+			<FontString name="$parentModeLabel" inherits="GameFontNormalSmall" justifyH="LEFT" justifyV="MIDDLE">
+				<Size>
+					<AbsDimension x="160" y="16" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="20" y="-58" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</FontString>
+			<FontString name="$parentFormatLabel" inherits="GameFontNormalSmall" justifyH="LEFT" justifyV="MIDDLE">
+				<Size>
+					<AbsDimension x="160" y="16" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="20" y="-108" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</FontString>
+			<FontString name="$parentStatus" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="MIDDLE">
+				<Size>
+					<AbsDimension x="360" y="18" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMLEFT" relativePoint="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="20" y="51" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</FontString>
+			</Layer>
+		</Layers>
+		<Frames>
+			<Button name="$parentModeMultiButton" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="120" y="24" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="20" y="-78" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentModePlusButton" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="120" y="24" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentModeMultiButton" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="14" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentFormatJsonButton" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="96" y="24" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="20" y="-128" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentFormatCsvButton" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="96" y="24" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentFormatJsonButton" relativePoint="TOPRIGHT">
+						<Offset>
+							<AbsDimension x="14" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Frame name="$parentEditBoxPanel">
+				<Size>
+					<AbsDimension x="300" y="130" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOP" relativePoint="TOP">
+						<Offset>
+							<AbsDimension x="0" y="-162" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<Backdrop bgFile="Interface\DialogFrame\UI-DialogBox-Background-Dark" edgeFile="Interface\Tooltips\UI-Tooltip-Border">
+					<EdgeSize>
+						<AbsValue val="12" />
+					</EdgeSize>
+					<BackgroundInsets>
+						<AbsInset top="2" right="2" bottom="2" left="2" />
+					</BackgroundInsets>
+				</Backdrop>
+			</Frame>
+			<!-- Multiline EditBox for CSV or encoded JSON -->
+			<ScrollFrame name="RMAImportScrollFrame" inherits="RMATextScrollFrameTemplate">
+				<Size>
+					<AbsDimension x="276" y="114" />
+				</Size>
+				<Anchors>
+					<Anchor point="TOPLEFT" relativeTo="$parentEditBoxPanel" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="10" y="-8" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<ScrollChild>
+					<EditBox name="RMAImportEditBox" multiLine="true" autoFocus="false" font="GameFontHighlightSmall">
+						<Size>
+							<AbsDimension x="244" y="114" />
+						</Size>
+					</EditBox>
+				</ScrollChild>
+			</ScrollFrame>
+			<!-- Import Button -->
+			<Button name="RMAImportConfirmButton" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="100" y="24" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMLEFT">
+						<Offset>
+							<AbsDimension x="20" y="20" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<!-- Cancel Button -->
+			<Button name="RMAImportCancelButton" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="100" y="24" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMRIGHT">
+						<Offset>
+							<AbsDimension x="-20" y="20" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+		</Frames>
+	</Frame>
+	<!-- ====== End Reserve Import Window ====== -->
+	<!-- ====== End Reserve List Window ====== -->
+</Ui>
+

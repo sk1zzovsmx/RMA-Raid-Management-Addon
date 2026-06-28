@@ -1,0 +1,25 @@
+.codex/
+.agents/
+.vscode/
+.venv/
+.mcp.json
+
+# Local tooling, notes, and generated development state
+AGENTS.md
+docs/
+tests/
+tools/
+.luacheckrc
+.stylua.toml
+.styluaignore
+
+# Caches and generated artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+dist/
+*.zip
+*.sha256
+*.log
+FrameXML.log
