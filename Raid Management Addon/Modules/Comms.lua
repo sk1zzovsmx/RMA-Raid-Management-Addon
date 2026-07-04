@@ -26,10 +26,10 @@ local Timer = feature.Timer
 
 Comms._addonQueue = Comms._addonQueue or {}
 Comms._addonQueueTimer = Comms._addonQueueTimer
-Comms._addonQueueFlushing = Comms._addonQueueFlushing or false
 
 local COMMS_ADDON_QUEUE_BURST = 4
 local COMMS_ADDON_QUEUE_DELAY_SECONDS = 0.08
+local packFieldsBuffer = {}
 
 if Timer and Timer.BindMixin then
     Timer.BindMixin(Comms, "Modules/Comms")
@@ -48,11 +48,7 @@ local function getUnknownText()
 end
 
 local function getBase64()
-    if Database and type(Database.GetFeatureShared) == "function" then
-        local shared = Database.GetFeatureShared()
-        return shared and shared.Base64
-    end
-    return feature.Base64
+    return addon.Base64 or feature.Base64
 end
 
 local function encodeCommsPayloadText(value)
@@ -125,11 +121,14 @@ end
 local function packCommsPayloadFields(sep, ...)
     local delimiter = tostring(sep or "|")
     local n = select("#", ...)
-    local out = {}
     for i = 1, n do
-        out[i] = tostring(select(i, ...) or "")
+        packFieldsBuffer[i] = tostring(select(i, ...) or "")
     end
-    return tconcat(out, delimiter)
+    local result = tconcat(packFieldsBuffer, delimiter, 1, n)
+    for i = 1, n do
+        packFieldsBuffer[i] = nil
+    end
+    return result
 end
 
 local function splitVersionPayload(msg)
@@ -250,8 +249,6 @@ local function flushAddonQueue(limit)
             sent = sent + 1
         end
     end
-    Comms._addonQueueFlushing = false
-
     if #queue > 0 then
         scheduleAddonQueueFlush()
     end
@@ -270,7 +267,6 @@ function Comms.QueueAddonMessage(prefix, msg, channel, target, opts)
             channel = channel,
             target = (type(target) == "string" and target ~= "" and target) or nil,
         }
-        Comms._addonQueueFlushing = true
         if scheduleAddonQueueFlush() then
             return true
         end
@@ -417,7 +413,7 @@ end
 
 do
     local name = "Modules/Comms"
-    local deps = { "Init" }
+    local deps = { "Init", "Modules/Timer", "Modules/Base64" }
     local registry = feature.ModuleRegistry
     if registry then
         registry.AddModule(name, { deps = deps })

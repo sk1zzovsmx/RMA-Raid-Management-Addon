@@ -11,7 +11,8 @@ policy surface that was intentionally kept from the newer branch state.
 - `ARCHITECTURE.md` maps the runtime ownership boundaries and TOC load layers.
 - `DEVELOPMENT.md` defines the development workflow for WotLK 3.3.5a work.
 - `SAVED_VARIABLES.md` documents the `RMA_*` persistence contract.
-- `VALIDATION.md` documents static and in-game validation gates.
+- `VALIDATION.md` documents static/offline validation gates and non-blocking
+  manual in-game acceptance.
 - `GREENFIELD_REWRITE_CONTRACT.md` is the preserved rewrite contract and batch
   coherence policy.
 
@@ -28,6 +29,6 @@ agent skill folder and can be run through the project `.venv`:
 git diff --check
 ```
 
-Static checks are necessary but not sufficient for runtime confidence. UI,
-combat-lockdown, loot, sync, and SavedVariables behavior still need a real
-WotLK 3.3.5a client smoke test.
+Static checks are the required Codex completion gate. In-game validation is a
+separate manual acceptance activity and is not required for Codex commit
+readiness unless explicitly requested.

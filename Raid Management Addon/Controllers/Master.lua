@@ -211,12 +211,56 @@ do
         return uiState.FrameName
     end
 
-    local function getNamedPart(suffix)
+    local MASTER_REF_SUFFIXES = {
+        "AwardBtn",
+        "BankBtn",
+        "ClearBtn",
+        "ConfigBtn",
+        "CountdownBtn",
+        "DisenchantBtn",
+        "FreeBtn",
+        "HoldBtn",
+        "ItemBtn",
+        "LootCounterBtn",
+        "MSBtn",
+        "OSBtn",
+        "ReserveListBtn",
+        "RollBtn",
+        "SRBtn",
+        "SelectItemBtn",
+        "SpamLootBtn",
+        "Status",
+    }
+
+    local function acquireMasterRefs()
         local frameName = getFrameName()
         if not frameName then
             return nil
         end
-        return _G[frameName .. suffix]
+        local refs = module._refs
+        if type(refs) ~= "table" or refs.frameName ~= frameName then
+            refs = { frameName = frameName }
+            module._refs = refs
+        end
+        for i = 1, #MASTER_REF_SUFFIXES do
+            local suffix = MASTER_REF_SUFFIXES[i]
+            if refs[suffix] == nil then
+                refs[suffix] = _G[frameName .. suffix] or false
+            end
+        end
+        return refs
+    end
+
+    local function getNamedPart(suffix)
+        local refs = acquireMasterRefs()
+        if refs and refs[suffix] == nil then
+            refs[suffix] = _G[refs.frameName .. suffix] or false
+        end
+        local ref = refs and refs[suffix] or nil
+        if ref == false then
+            return nil
+        end
+        return ref
     end
 
     -- Module-level helper: wrap a click handler ensuring master-only access.
@@ -829,7 +873,7 @@ do
         end
 
         invalidateRollUiModel()
-        buildRollUiModel(true)
+        buildRollUiModel()
         if not pickMode then
             Comms.Sync("RMA-RollWinner", name)
         end
@@ -931,12 +975,12 @@ do
         if currentWinner and currentWinner ~= "" then
             return currentWinner
         end
-        local activeModel = model or (buildRollUiModel and buildRollUiModel(true)) or nil
+        local activeModel = model or (buildRollUiModel and buildRollUiModel()) or nil
         return RollsApi.GetResolvedWinner(Rolls, activeModel)
     end
 
     local function getResolvedRollWinnerName(model)
-        local activeModel = model or (buildRollUiModel and buildRollUiModel(true)) or nil
+        local activeModel = model or (buildRollUiModel and buildRollUiModel()) or nil
         return RollsApi.GetResolvedWinner(Rolls, activeModel)
     end
 
@@ -1101,113 +1145,105 @@ do
         end
     end
 
+    local function updateEnabledState(cache, key, frame, enabled)
+        enabled = enabled and true or false
+        if frame and cache[key] ~= enabled then
+            Primitives.SetEnabled(frame, enabled)
+            cache[key] = enabled
+        end
+    end
+
+    local function updateGlowState(cache, key, frame, enabled, r, g, b, style)
+        local token = enabled and ("1|" .. tostring(style or "")) or "0"
+        if frame and cache[key] ~= token then
+            Primitives.SetButtonGlow(frame, enabled, r, g, b, style)
+            cache[key] = token
+        end
+    end
+
+    local function updateTextState(cache, key, frame, text)
+        if frame and cache[key] ~= text then
+            frame:SetText(text)
+            cache[key] = text
+        end
+    end
+
+    local function updateTooltipState(cache, key, frame, title, text)
+        if not frame then
+            return
+        end
+        local token = tostring(title or "") .. "\031" .. tostring(text or "")
+        if cache[key] ~= token then
+            UI.Tooltips.Bind(frame, text, nil, title)
+            cache[key] = token
+        end
+    end
+
+    local function updateItemButtonState(cache, itemBtn, enabled)
+        enabled = enabled and true or false
+        if itemBtn and cache.itemBtn ~= enabled then
+            Primitives.SetEnabled(itemBtn, enabled)
+            local texture = itemBtn:GetNormalTexture()
+            if texture and texture.SetDesaturated then
+                texture:SetDesaturated(not enabled)
+            end
+            cache.itemBtn = enabled
+        end
+    end
+
     local function updateMasterButtonsIfChanged(state)
         local buttons = module._lastUIState.buttons
         local texts = module._lastUIState.texts
         local tooltips = module._lastUIState.tooltips
         local glows = module._lastUIState.glows
-        local frameName = getFrameName()
-        if not frameName then
+        local refs = acquireMasterRefs()
+        if not refs then
             return
         end
 
-        local function updateEnabled(key, frame, enabled)
-            enabled = enabled and true or false
-            if buttons[key] ~= enabled then
-                Primitives.SetEnabled(frame, enabled)
-                buttons[key] = enabled
-            end
-        end
+        updateTextState(texts, "countdown", refs.CountdownBtn, state.countdownText)
+        updateTextState(texts, "award", refs.AwardBtn, state.awardText)
+        updateTextState(texts, "selectItem", refs.SelectItemBtn, state.selectItemText)
+        updateTextState(texts, "spamLoot", refs.SpamLootBtn, state.spamLootText)
+        updateTextState(texts, "status", refs.Status, state.statusText)
 
-        local function updateGlow(key, frame, enabled, r, g, b, style)
-            local token
-            if enabled then
-                token = "1|" .. tostring(style or "")
-            else
-                token = "0"
-            end
-            if glows[key] ~= token then
-                Primitives.SetButtonGlow(frame, enabled, r, g, b, style)
-                glows[key] = token
-            end
-        end
+        updateEnabledState(buttons, "selectItem", refs.SelectItemBtn, state.canSelectItem)
+        updateEnabledState(buttons, "spamLoot", refs.SpamLootBtn, state.canSpamLoot)
+        updateEnabledState(buttons, "ms", refs.MSBtn, state.canStartRolls)
+        updateEnabledState(buttons, "os", refs.OSBtn, state.canStartRolls)
+        updateEnabledState(buttons, "sr", refs.SRBtn, state.canStartSR)
+        updateEnabledState(buttons, "free", refs.FreeBtn, state.canStartRolls)
+        updateEnabledState(buttons, "countdown", refs.CountdownBtn, state.canCountdown)
+        updateEnabledState(buttons, "hold", refs.HoldBtn, state.canHold)
+        updateEnabledState(buttons, "bank", refs.BankBtn, state.canBank)
+        updateEnabledState(buttons, "disenchant", refs.DisenchantBtn, state.canDisenchant)
+        updateEnabledState(buttons, "award", refs.AwardBtn, state.canAward)
+        updateTextState(texts, "reserveList", refs.ReserveListBtn, state.reserveListText)
+        updateEnabledState(buttons, "reserveList", refs.ReserveListBtn, state.canReserveList)
+        updateEnabledState(buttons, "roll", refs.RollBtn, state.canRoll)
+        updateEnabledState(buttons, "clear", refs.ClearBtn, state.canClear)
+        updateItemButtonState(buttons, refs.ItemBtn, state.canChangeItem)
+        updateGlowState(glows, "sr", refs.SRBtn, state.glowSR, 0.20, 0.60, 1.00, "buttonOverlay")
+        updateGlowState(glows, "holdSuggestion", refs.HoldBtn, state.glowHoldSuggestion, 0.85, 0.85, 0.85, "buttonOverlay")
+        updateGlowState(glows, "bankSuggestion", refs.BankBtn, state.glowBankSuggestion, 1.00, 0.65, 0.20, "buttonOverlay")
+        updateGlowState(glows, "disenchantSuggestion", refs.DisenchantBtn, state.glowDisenchantSuggestion, 0.55, 0.75, 1.00, "buttonOverlay")
 
-        local function updateItemState(enabled)
-            local itemBtn = getNamedPart("ItemBtn")
-            if itemBtn and buttons.itemBtn ~= enabled then
-                Primitives.SetEnabled(itemBtn, enabled)
-                local texture = itemBtn:GetNormalTexture()
-                if texture and texture.SetDesaturated then
-                    texture:SetDesaturated(not enabled)
-                end
-                buttons.itemBtn = enabled
-            end
-        end
-
-        local function updateText(key, frame, text)
-            if texts[key] ~= text then
-                frame:SetText(text)
-                texts[key] = text
-            end
-        end
-
-        local function updateTooltip(key, frame, title, text)
-            local token
-            if not frame then
-                return
-            end
-            token = tostring(title or "") .. "\031" .. tostring(text or "")
-            if tooltips[key] ~= token then
-                UI.Tooltips.Bind(frame, text, nil, title)
-                tooltips[key] = token
-            end
-        end
-
-        updateText("countdown", getNamedPart("CountdownBtn"), state.countdownText)
-        updateText("award", getNamedPart("AwardBtn"), state.awardText)
-        updateText("selectItem", getNamedPart("SelectItemBtn"), state.selectItemText)
-        updateText("spamLoot", getNamedPart("SpamLootBtn"), state.spamLootText)
-        if getNamedPart("Status") then
-            updateText("status", getNamedPart("Status"), state.statusText)
-        end
-
-        updateEnabled("selectItem", getNamedPart("SelectItemBtn"), state.canSelectItem)
-        updateEnabled("spamLoot", getNamedPart("SpamLootBtn"), state.canSpamLoot)
-        updateEnabled("ms", getNamedPart("MSBtn"), state.canStartRolls)
-        updateEnabled("os", getNamedPart("OSBtn"), state.canStartRolls)
-        updateEnabled("sr", getNamedPart("SRBtn"), state.canStartSR)
-        updateEnabled("free", getNamedPart("FreeBtn"), state.canStartRolls)
-        updateEnabled("countdown", getNamedPart("CountdownBtn"), state.canCountdown)
-        updateEnabled("hold", getNamedPart("HoldBtn"), state.canHold)
-        updateEnabled("bank", getNamedPart("BankBtn"), state.canBank)
-        updateEnabled("disenchant", getNamedPart("DisenchantBtn"), state.canDisenchant)
-        updateEnabled("award", getNamedPart("AwardBtn"), state.canAward)
-        updateText("reserveList", getNamedPart("ReserveListBtn"), state.reserveListText)
-        updateEnabled("reserveList", getNamedPart("ReserveListBtn"), state.canReserveList)
-        updateEnabled("roll", getNamedPart("RollBtn"), state.canRoll)
-        updateEnabled("clear", getNamedPart("ClearBtn"), state.canClear)
-        updateItemState(state.canChangeItem)
-        updateGlow("sr", getNamedPart("SRBtn"), state.glowSR, 0.20, 0.60, 1.00, "buttonOverlay")
-        updateGlow("holdSuggestion", getNamedPart("HoldBtn"), state.glowHoldSuggestion, 0.85, 0.85, 0.85, "buttonOverlay")
-        updateGlow("bankSuggestion", getNamedPart("BankBtn"), state.glowBankSuggestion, 1.00, 0.65, 0.20, "buttonOverlay")
-        updateGlow("disenchantSuggestion", getNamedPart("DisenchantBtn"), state.glowDisenchantSuggestion, 0.55, 0.75, 1.00, "buttonOverlay")
-
-        updateTooltip("config", getNamedPart("ConfigBtn"), L.BtnConfigure, state.configTooltip)
-        updateTooltip("selectItem", getNamedPart("SelectItemBtn"), state.selectItemText, state.selectItemTooltip)
-        updateTooltip("spamLoot", getNamedPart("SpamLootBtn"), state.spamLootText, state.spamLootTooltip)
-        updateTooltip("ms", getNamedPart("MSBtn"), L.BtnMS, state.msTooltip)
-        updateTooltip("os", getNamedPart("OSBtn"), L.BtnOS, state.osTooltip)
-        updateTooltip("sr", getNamedPart("SRBtn"), L.BtnSR, state.srTooltip)
-        updateTooltip("free", getNamedPart("FreeBtn"), L.BtnFree, state.freeTooltip)
-        updateTooltip("countdown", getNamedPart("CountdownBtn"), state.countdownText, state.countdownTooltip)
-        updateTooltip("award", getNamedPart("AwardBtn"), state.awardText, state.awardTooltip)
-        updateTooltip("roll", getNamedPart("RollBtn"), L.BtnRoll, state.rollTooltip)
-        updateTooltip("clear", getNamedPart("ClearBtn"), L.BtnClear, state.clearTooltip)
-        updateTooltip("hold", getNamedPart("HoldBtn"), L.BtnHold, state.holdTooltip)
-        updateTooltip("bank", getNamedPart("BankBtn"), L.BtnBank, state.bankTooltip)
-        updateTooltip("disenchant", getNamedPart("DisenchantBtn"), L.BtnDisenchant, state.disenchantTooltip)
-        updateTooltip("reserveList", getNamedPart("ReserveListBtn"), state.reserveListText, state.reserveListTooltip)
-        updateTooltip("lootCounter", getNamedPart("LootCounterBtn"), L.BtnLootCounter, state.lootCounterTooltip)
+        updateTooltipState(tooltips, "config", refs.ConfigBtn, L.BtnConfigure, state.configTooltip)
+        updateTooltipState(tooltips, "selectItem", refs.SelectItemBtn, state.selectItemText, state.selectItemTooltip)
+        updateTooltipState(tooltips, "spamLoot", refs.SpamLootBtn, state.spamLootText, state.spamLootTooltip)
+        updateTooltipState(tooltips, "ms", refs.MSBtn, L.BtnMS, state.msTooltip)
+        updateTooltipState(tooltips, "os", refs.OSBtn, L.BtnOS, state.osTooltip)
+        updateTooltipState(tooltips, "sr", refs.SRBtn, L.BtnSR, state.srTooltip)
+        updateTooltipState(tooltips, "free", refs.FreeBtn, L.BtnFree, state.freeTooltip)
+        updateTooltipState(tooltips, "countdown", refs.CountdownBtn, state.countdownText, state.countdownTooltip)
+        updateTooltipState(tooltips, "award", refs.AwardBtn, state.awardText, state.awardTooltip)
+        updateTooltipState(tooltips, "roll", refs.RollBtn, L.BtnRoll, state.rollTooltip)
+        updateTooltipState(tooltips, "clear", refs.ClearBtn, L.BtnClear, state.clearTooltip)
+        updateTooltipState(tooltips, "hold", refs.HoldBtn, L.BtnHold, state.holdTooltip)
+        updateTooltipState(tooltips, "bank", refs.BankBtn, L.BtnBank, state.bankTooltip)
+        updateTooltipState(tooltips, "disenchant", refs.DisenchantBtn, L.BtnDisenchant, state.disenchantTooltip)
+        updateTooltipState(tooltips, "reserveList", refs.ReserveListBtn, state.reserveListText, state.reserveListTooltip)
+        updateTooltipState(tooltips, "lootCounter", refs.LootCounterBtn, L.BtnLootCounter, state.lootCounterTooltip)
     end
 
     local function refreshDropDowns(force)
@@ -2485,7 +2521,8 @@ do
             module._dirtyFlags.buttons = true
         end
 
-        local rollModel = buildRollUiModel(true) or {}
+        invalidateRollUiModel()
+        local rollModel = buildRollUiModel() or {}
         updateRollListRefreshToken(rollModel)
 
         local displayedWinner = getDisplayedWinnerName(rollModel)
@@ -3804,7 +3841,7 @@ do
             end
 
             invalidateRollUiModel()
-            local rollModel = buildRollUiModel(true)
+            local rollModel = buildRollUiModel()
             lootState.winner = rollModel and rollModel.winner or nil
         end
 

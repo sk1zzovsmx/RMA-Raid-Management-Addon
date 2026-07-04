@@ -45,10 +45,10 @@ Modules\Dataset\LootSourcesData.lua
 Modules\LootSources.lua
 Modules\Dataset\IgnoredItems.lua
 Modules\Dataset\IgnoredMobs.lua
-Modules\Comms.lua
 Modules\Time.lua
 Modules\Base64.lua
 Modules\Json.lua
+Modules\Comms.lua
 Modules\Sort.lua
 Modules\Features.lua
 Modules\ModuleRegistry.lua

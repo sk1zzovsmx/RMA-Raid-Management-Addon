@@ -15,6 +15,7 @@ local tinsert, tremove = table.insert, table.remove
 local pairs, type = pairs, type
 local tostring, tonumber = tostring, tonumber
 local tconcat = table.concat
+local format = string.format
 
 -- Raid storage service.
 do
@@ -145,6 +146,18 @@ do
         return runtime
     end
 
+    local function ensureSyncRevision(raid)
+        if type(raid) ~= "table" then
+            return 0
+        end
+        local runtime = ensureRuntimeTable(raid)
+        runtime.syncRevision = tonumber(runtime.syncRevision) or 0
+        if type(runtime.lootSyncRevisionByNid) ~= "table" then
+            runtime.lootSyncRevisionByNid = {}
+        end
+        return runtime.syncRevision
+    end
+
     local function acquireRuntimeIndexMap(runtime, key)
         local map = clearMap(runtime[key])
         runtime[key] = map
@@ -160,7 +173,7 @@ do
         return maps
     end
 
-    local function appendRuntimeIndexList(indexMap, key, value)
+    local function appendRuntimeIndexList(indexMap, key, value, dedupe)
         if key == nil or value == nil then
             return
         end
@@ -169,9 +182,11 @@ do
             list = {}
             indexMap[key] = list
         end
-        for i = 1, #list do
-            if list[i] == value then
-                return
+        if dedupe == true then
+            for i = 1, #list do
+                if list[i] == value then
+                    return
+                end
             end
         end
         list[#list + 1] = value
@@ -215,12 +230,12 @@ do
 
         local bossNid = tonumber(loot.bossNid)
         if bossNid and bossNid > 0 then
-            appendRuntimeIndexList(runtime.lootIdxByBossNid, bossNid, resolvedIndex)
+            appendRuntimeIndexList(runtime.lootIdxByBossNid, bossNid, resolvedIndex, replaceExisting == true)
         end
 
         local looterNid = tonumber(loot.looterNid)
         if looterNid and looterNid > 0 then
-            appendRuntimeIndexList(runtime.lootIdxByLooterNid, looterNid, resolvedIndex)
+            appendRuntimeIndexList(runtime.lootIdxByLooterNid, looterNid, resolvedIndex, replaceExisting == true)
         end
 
         return true
@@ -246,19 +261,16 @@ do
     end
 
     local function buildRuntimeSignature(raid, players, bosses, lootRows, attendance)
-        return tostring(#players)
-            .. "|"
-            .. tostring(#bosses)
-            .. "|"
-            .. tostring(#lootRows)
-            .. "|"
-            .. tostring(#attendance)
-            .. "|"
-            .. tostring(tonumber(raid.nextPlayerNid) or 1)
-            .. "|"
-            .. tostring(tonumber(raid.nextBossNid) or 1)
-            .. "|"
-            .. tostring(tonumber(raid.nextLootNid) or 1)
+        return format(
+            "%d|%d|%d|%d|%d|%d|%d",
+            #players,
+            #bosses,
+            #lootRows,
+            #attendance,
+            tonumber(raid.nextPlayerNid) or 1,
+            tonumber(raid.nextBossNid) or 1,
+            tonumber(raid.nextLootNid) or 1
+        )
     end
 
     local function getRuntimeCollections(raid)
@@ -732,6 +744,100 @@ do
             return runtime
         end
         return buildRuntimeIndexesForNormalizedRaid(raid)
+    end
+
+    function module:GetRaidSyncRevision(raid)
+        return ensureSyncRevision(raid)
+    end
+
+    function module:SetRaidSyncRevision(raid, revision, reason)
+        if type(raid) ~= "table" then
+            return 0
+        end
+        local runtime = ensureRuntimeTable(raid)
+        local resolvedRevision = tonumber(revision) or 0
+        if resolvedRevision < 0 then
+            resolvedRevision = 0
+        end
+        runtime.syncRevision = resolvedRevision
+        runtime.lastSyncRevisionReason = tostring(reason or "sync")
+        if type(runtime.lootSyncRevisionByNid) ~= "table" then
+            runtime.lootSyncRevisionByNid = {}
+        end
+        return resolvedRevision
+    end
+
+    function module:TouchRaidSyncRevision(raid, reason)
+        if type(raid) ~= "table" then
+            return 0
+        end
+        local runtime = ensureRuntimeTable(raid)
+        runtime.syncRevision = (tonumber(runtime.syncRevision) or 0) + 1
+        local resolvedReason = tostring(reason or "change")
+        runtime.lastSyncRevisionReason = resolvedReason
+        if type(runtime.lootSyncRevisionByNid) ~= "table" then
+            runtime.lootSyncRevisionByNid = {}
+        end
+        if resolvedReason ~= "loot_row" then
+            runtime.fullSyncRevision = runtime.syncRevision
+        end
+        return runtime.syncRevision
+    end
+
+    function module:MarkLootSyncRevision(raid, loot, reason)
+        if type(raid) ~= "table" or type(loot) ~= "table" then
+            return 0
+        end
+        local lootNid = tonumber(loot.lootNid)
+        if not lootNid or lootNid <= 0 then
+            return self:TouchRaidSyncRevision(raid, reason or "loot")
+        end
+        local revision = self:TouchRaidSyncRevision(raid, reason or "loot_row")
+        local runtime = ensureRuntimeTable(raid)
+        if type(runtime.lootSyncRevisionByNid) ~= "table" then
+            runtime.lootSyncRevisionByNid = {}
+        end
+        runtime.lootSyncRevisionByNid[lootNid] = revision
+        return revision
+    end
+
+    function module:SetLootSyncRevision(raid, loot, revision)
+        if type(raid) ~= "table" or type(loot) ~= "table" then
+            return 0
+        end
+        local lootNid = tonumber(loot.lootNid)
+        if not lootNid or lootNid <= 0 then
+            return self:SetRaidSyncRevision(raid, revision, "delta")
+        end
+        local resolvedRevision = self:SetRaidSyncRevision(raid, revision, "delta")
+        local runtime = ensureRuntimeTable(raid)
+        if type(runtime.lootSyncRevisionByNid) ~= "table" then
+            runtime.lootSyncRevisionByNid = {}
+        end
+        runtime.lootSyncRevisionByNid[lootNid] = resolvedRevision
+        return resolvedRevision
+    end
+
+    function module:RequiresFullSyncSince(raid, sinceRevision)
+        if type(raid) ~= "table" then
+            return true
+        end
+        local runtime = ensureRuntimeTable(raid)
+        local fullSyncRevision = tonumber(runtime.fullSyncRevision) or 0
+        return fullSyncRevision > (tonumber(sinceRevision) or 0)
+    end
+
+    function module:GetLootSyncRevision(raid, loot)
+        if type(raid) ~= "table" or type(loot) ~= "table" then
+            return 0
+        end
+        local lootNid = tonumber(loot.lootNid)
+        if not lootNid or lootNid <= 0 then
+            return 0
+        end
+        local runtime = ensureRuntimeTable(raid)
+        local revisions = runtime.lootSyncRevisionByNid
+        return tonumber(type(revisions) == "table" and revisions[lootNid]) or tonumber(loot.syncRevision) or 0
     end
 
     function module:UpsertLootIndex(raid, loot, index)

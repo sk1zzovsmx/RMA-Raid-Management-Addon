@@ -10,7 +10,7 @@ local feature = addon.Database.GetFeatureShared()
 local L = feature.L
 local Diag = feature.Diag
 
-local type, pairs, pcall, tostring = type, pairs, pcall, tostring
+local type, pcall, tostring = type, pcall, tostring
 
 local Bus = feature.Bus or {}
 addon.Bus = Bus
@@ -20,65 +20,107 @@ local events = Bus._events or {}
 Bus._events = events
 
 -- ----- Private helpers ----- --
+local function getListenerList(eventName)
+    local listenerList = events[eventName]
+    if not listenerList then
+        listenerList = {
+            items = {},
+            indexByToken = {},
+            dispatchDepth = 0,
+            dirty = false,
+        }
+        events[eventName] = listenerList
+    end
+    return listenerList
+end
+
+local function compactListenerList(listenerList)
+    local compacted = {}
+    local indexByToken = {}
+
+    for i = 1, #listenerList.items do
+        local row = listenerList.items[i]
+        if row and not row.removed then
+            compacted[#compacted + 1] = row
+            indexByToken[row.token.t] = #compacted
+        end
+    end
+
+    listenerList.items = compacted
+    listenerList.indexByToken = indexByToken
+    listenerList.dirty = false
+end
+
 -- ----- Public methods ----- --
 function Bus.RegisterCallback(eventName, callback)
     if not eventName or type(callback) ~= "function" then
         error(L.StrCbErrUsage)
     end
 
-    local listeners = events[eventName]
-    if not listeners then
-        listeners = {}
-        events[eventName] = listeners
-    end
+    local listenerList = getListenerList(eventName)
+    local token = { e = eventName, t = {} }
+    local row = {
+        token = token,
+        callback = callback,
+    }
+    listenerList.items[#listenerList.items + 1] = row
+    listenerList.indexByToken[token.t] = #listenerList.items
 
-    local token = {}
-    listeners[token] = callback
-
-    return { e = eventName, t = token }
+    return token
 end
 
--- Reusable dispatch buffers keyed by nesting depth to keep nested TriggerEvent()
--- calls isolated while still avoiding per-fire table allocation.
-local dispatchStack = {}
-local dispatchDepth = 0
+function Bus.UnregisterCallback(token)
+    if not (token and token.e and token.t) then
+        return false
+    end
+
+    local listenerList = events[token.e]
+    if not listenerList then
+        return false
+    end
+
+    local index = listenerList.indexByToken[token.t]
+    if not index then
+        return false
+    end
+
+    local row = listenerList.items[index]
+    if row then
+        row.removed = true
+    end
+    listenerList.indexByToken[token.t] = nil
+
+    if listenerList.dispatchDepth > 0 then
+        listenerList.dirty = true
+    else
+        compactListenerList(listenerList)
+    end
+
+    return true
+end
 
 function Bus.TriggerEvent(eventName, ...)
-    local listeners = events[eventName]
-    if not listeners then
+    local listenerList = events[eventName]
+    if not listenerList then
         return
     end
 
-    local dispatchBuf
-    local dispatchCount = 0
-    local depth
-
-    dispatchDepth = dispatchDepth + 1
-    depth = dispatchDepth
-    dispatchBuf = dispatchStack[depth]
-    if not dispatchBuf then
-        dispatchBuf = {}
-        dispatchStack[depth] = dispatchBuf
-    end
-
-    for token in pairs(listeners) do
-        dispatchCount = dispatchCount + 1
-        dispatchBuf[dispatchCount] = token
-    end
-
-    for i = 1, dispatchCount do
-        local token = dispatchBuf[i]
-        dispatchBuf[i] = nil
-        local fn = listeners[token]
-        if fn then
+    listenerList.dispatchDepth = listenerList.dispatchDepth + 1
+    for i = 1, #listenerList.items do
+        local row = listenerList.items[i]
+        if row and not row.removed then
+            local fn = row.callback
             local ok, err = pcall(fn, eventName, ...)
             if not ok then
                 addon:error((Diag.E.LogUtilsCallbackExec):format(tostring(fn), tostring(eventName), tostring(err)))
             end
         end
     end
+    listenerList.dispatchDepth = listenerList.dispatchDepth - 1
 
-    dispatchDepth = depth - 1
+    if listenerList.dispatchDepth == 0 and listenerList.dirty then
+        compactListenerList(listenerList)
+    end
 end
 
 local registry = feature.ModuleRegistry

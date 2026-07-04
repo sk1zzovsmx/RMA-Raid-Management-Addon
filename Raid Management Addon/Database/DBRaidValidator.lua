@@ -12,6 +12,7 @@ local Database = feature.Database
 local IgnoredMobs = feature.IgnoredMobs
 
 local pairs, type, tonumber = pairs, type, tonumber
+local strsub = string.sub
 local tostring = tostring
 local IsTrashMobName = IgnoredMobs.IsTrashMobName
 
@@ -85,7 +86,7 @@ do
 
     local function validateRaidSourceKeys(result, raid)
         for key in pairs(raid) do
-            if type(key) == "string" and key:sub(1, 1) == "_" and key ~= "_runtime" then
+            if type(key) == "string" and strsub(key, 1, 1) == "_" and key ~= "_runtime" then
                 pushDetail(result, "E", "RUNTIME_OUTSIDE", { key = key })
             end
         end

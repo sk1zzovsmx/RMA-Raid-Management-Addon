@@ -633,6 +633,12 @@ do
         return raid
     end
 
+    local function isCurrentSchema(raid, fromVersion, toVersion)
+        local currentVersion = tonumber(toVersion) or module:GetCurrentVersion()
+        local storedVersion = tonumber(fromVersion) or tonumber(raid and raid.schemaVersion) or 1
+        return storedVersion >= currentVersion
+    end
+
     -- ----- Public methods ----- --
     function module:GetCurrentVersion()
         local version = Database.GetRaidSchemaVersion() or 1
@@ -646,6 +652,9 @@ do
     function module:MigrateRaidToCurrentSchema(raid, fromVersion, toVersion)
         local currentVersion = tonumber(toVersion) or self:GetCurrentVersion()
         local storedVersion = tonumber(fromVersion) or 1
+        if isCurrentSchema(raid, fromVersion, currentVersion) then
+            return raid
+        end
         if currentVersion >= 6 and storedVersion < 6 then
             migrateSharedLootSources(raid)
         end

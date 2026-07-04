@@ -37,6 +37,7 @@ local pairs, select, type = pairs, select, type
 local setmetatable = setmetatable
 local tostring, tonumber = tostring, tonumber
 local tsort = table.sort
+local GetTime = _G.GetTime
 local GetRealmName = _G.GetRealmName
 local UnitIsGroupAssistant = _G.UnitIsGroupAssistant
 local UnitIsGroupLeader = _G.UnitIsGroupLeader
@@ -44,6 +45,22 @@ local UnitIsGroupLeader = _G.UnitIsGroupLeader
 local Database = addon.Database
 local Diagnose = addon.Diagnose
 local DEFAULT_PERF_THRESHOLD_MS = 5
+local featureShared
+local FEATURE_CONSTANT_KEYS = {
+    ITEM_LINK_PATTERN = true,
+    rollTypes = true,
+    lootTypesColored = true,
+    itemColors = true,
+    RAID_TARGET_MARKERS = true,
+    K_COLOR = true,
+    RT_COLOR = true,
+}
+local FEATURE_RUNTIME_KEYS = {
+    coreState = true,
+    raidState = true,
+    lootState = true,
+    itemInfo = true,
+}
 
 local function markBootstrapModuleLoaded()
     -- Bootstrap exception: ModuleRegistry may not be loaded yet.
@@ -174,23 +191,21 @@ addon._PerfStart = function(self)
     if not self.hasPerf then
         return nil
     end
-    local getTime = _G.GetTime
-    if type(getTime) ~= "function" then
+    if type(GetTime) ~= "function" then
         return nil
     end
-    return getTime()
+    return GetTime()
 end
 
 addon._PerfFinish = function(self, label, startedAt, details)
     if not (self.hasPerf and startedAt) then
         return nil
     end
-    local getTime = _G.GetTime
-    if type(getTime) ~= "function" then
+    if type(GetTime) ~= "function" then
         return nil
     end
 
-    local elapsedMs = (getTime() - startedAt) * 1000
+    local elapsedMs = (GetTime() - startedAt) * 1000
     recordPerfStat(label, elapsedMs)
     if elapsedMs < getPerfThresholdMs() then
         return elapsedMs
@@ -429,75 +444,69 @@ function Database.GetItemIndex()
     return tonumber(lootState.currentItemIndex) or 0
 end
 
-function Database.GetFeatureShared()
-    local constants = addon.C or {}
+local function getFeatureRuntimeValue(key)
     local core = addon.Database
     local state, lootState, itemInfo, raidState = core.EnsureLootRuntimeState()
+    if key == "coreState" then
+        return state
+    end
+    if key == "raidState" then
+        return raidState
+    end
+    if key == "lootState" then
+        return lootState
+    end
+    if key == "itemInfo" then
+        return itemInfo
+    end
+    return nil
+end
 
-    return {
-        L = addon.L,
-        Diag = Diag,
-        Options = addon.Options,
-        Events = addon.Events,
-        Features = addon.Features,
-        C = constants,
-        Database = core,
-        DB = addon.DB,
-        DBManager = addon.DBManager,
-        DBSchema = addon.DBSchema,
-        ModuleRegistry = addon.ModuleRegistry,
-        Bus = addon.Bus,
-
-        Strings = addon.Strings,
-        Colors = addon.Colors,
-        Time = addon.Time,
-        Timer = addon.Timer,
-        Base64 = addon.Base64,
-        Json = addon.Json,
-        Comms = addon.Comms,
-        Sort = addon.Sort,
-        Item = addon.Item,
-        LootSourcesData = addon.LootSourcesData,
-        LootSources = addon.LootSources,
-        LootSourceCandidates = addon.LootSourceCandidates,
-        IgnoredItems = addon.IgnoredItems,
-        IgnoredMobs = addon.IgnoredMobs,
-
-        UI = addon.UI,
-
-        Services = addon.Services,
-        Controllers = addon.Controllers,
-        Widgets = addon.Widgets,
-        Minimap = addon.Minimap,
-
-        EnsureServiceNamespace = core.EnsureServiceNamespace,
-        MakeModuleFrameGetter = core.MakeModuleFrameGetter,
-
-        UnitIsGroupLeader = addon.UnitIsGroupLeader,
-        UnitIsGroupAssistant = addon.UnitIsGroupAssistant,
-        GetGroupTypeAndCount = addon.GetGroupTypeAndCount,
-        GetClassColor = addon.GetClassColor,
-        Deformat = addon.Deformat,
-        BossIDs = addon.BossIDs,
-        GetCreatureId = addon.GetCreatureId,
-        tContains = _G.tContains,
-
-        ITEM_LINK_PATTERN = constants.ITEM_LINK_PATTERN,
-        rollTypes = constants.rollTypes,
-        lootTypesColored = constants.lootTypesColored,
-        itemColors = constants.itemColors,
-        RAID_TARGET_MARKERS = constants.RAID_TARGET_MARKERS,
-        K_COLOR = constants.K_COLOR,
-        RT_COLOR = constants.RT_COLOR,
-
-        coreState = state,
-        raidState = raidState,
-        lootState = lootState,
-        itemInfo = itemInfo,
-        GetItemIndex = core.GetItemIndex or function()
+local function getFeatureSharedValue(key)
+    if key == "Diag" then
+        return Diag
+    end
+    if key == "Database" then
+        return addon.Database
+    end
+    if key == "EnsureServiceNamespace" then
+        return addon.Database.EnsureServiceNamespace
+    end
+    if key == "MakeModuleFrameGetter" then
+        return addon.Database.MakeModuleFrameGetter
+    end
+    if key == "GetItemIndex" then
+        return addon.Database.GetItemIndex or function()
             return 0
-        end,
-    }
+        end
+    end
+    if key == "tContains" then
+        return _G.tContains
+    end
+    if FEATURE_RUNTIME_KEYS[key] then
+        return getFeatureRuntimeValue(key)
+    end
+    if FEATURE_CONSTANT_KEYS[key] then
+        return (addon.C or {})[key]
+    end
+    return addon[key]
+end
+
+function Database.GetFeatureShared()
+    if not featureShared then
+        featureShared = setmetatable({}, {
+            __index = function(_, key)
+                return getFeatureSharedValue(key)
+            end,
+            __newindex = function(t, key, value)
+                if FEATURE_RUNTIME_KEYS[key] then
+                    return
+                end
+                rawset(t, key, value)
+            end,
+        })
+    end
+    return featureShared
 end
 
 do
@@ -896,6 +905,10 @@ do
         PLAYER_REGEN_ENABLED = "PLAYER_REGEN_ENABLED",
         PLAYER_LOGOUT = "PLAYER_LOGOUT",
     }
+    local ADDON_EVENTS_COUNT = 0
+    for _ in pairs(addonEvents) do
+        ADDON_EVENTS_COUNT = ADDON_EVENTS_COUNT + 1
+    end
 
     do
         local wowBusEvents = {
@@ -960,7 +973,7 @@ do
             self:RegisterEvent(event)
         end
         if isDebugEnabled() then
-            addon:debug(Diag.D.LogDatabaseEventsRegistered:format(addon.tLength(addonEvents)))
+            addon:debug(Diag.D.LogDatabaseEventsRegistered:format(ADDON_EVENTS_COUNT))
         end
         self:RAID_ROSTER_UPDATE(true)
     end

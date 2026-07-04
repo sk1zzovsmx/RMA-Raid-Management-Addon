@@ -7,6 +7,7 @@ local addon = select(2, ...)
 local feature = addon.Database.GetFeatureShared()
 
 local Services = feature.Services
+local Database = feature.Database
 local Time = feature.Time
 
 local tinsert = table.insert
@@ -75,6 +76,10 @@ function Records.Append(raid, args)
         return nil, 0
     end
     tinsert(raid.loot, row)
+    local raidStore = Database and Database.GetRaidStoreOrNil and Database.GetRaidStoreOrNil("Loot.Records.Append", { "MarkLootSyncRevision" })
+    if raidStore and raidStore.MarkLootSyncRevision then
+        raidStore:MarkLootSyncRevision(raid, row, "loot_row")
+    end
     return row, lootNid, #raid.loot
 end
 
@@ -84,6 +89,7 @@ if registry and type(registry.AddModule) == "function" and type(registry.SetLoad
         deps = {
             "Init",
             "Modules/ModuleRegistry",
+            "Database/DBRaidStore",
             "Modules/Time",
         },
     })

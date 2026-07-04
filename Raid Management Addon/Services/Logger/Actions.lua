@@ -74,6 +74,20 @@ local activeLootSourceRebuild
 
 -- ----- Private helpers ----- --
 
+local function markLootSyncRevision(raid, loot, reason)
+    local raidStore = Database and Database.GetRaidStoreOrNil and Database.GetRaidStoreOrNil("Logger.Actions.MarkLootSyncRevision", { "MarkLootSyncRevision" })
+    if raidStore and raidStore.MarkLootSyncRevision then
+        raidStore:MarkLootSyncRevision(raid, loot, reason or "loot")
+    end
+end
+
+local function touchRaidSyncRevision(raid, reason)
+    local raidStore = Database and Database.GetRaidStoreOrNil and Database.GetRaidStoreOrNil("Logger.Actions.TouchRaidSyncRevision", { "TouchRaidSyncRevision" })
+    if raidStore and raidStore.TouchRaidSyncRevision then
+        raidStore:TouchRaidSyncRevision(raid, reason or "loot")
+    end
+end
+
 trimText = function(value)
     if Strings.TrimText then
         return Strings.TrimText(value or "")
@@ -918,6 +932,7 @@ function Actions:SetLootEntry(raidID, lootNid, looter, rollType, rollValue, sour
     if not ok then
         return false
     end
+    markLootSyncRevision(raid, it, "loot_row")
 
     local recordedLooterName = Store._ResolveLootLooterName(raid, it)
     if addon.hasDebug then
@@ -991,6 +1006,7 @@ function Actions:DeleteLootMany(rID, lootNids, opts)
     end
 
     if removed > 0 then
+        touchRaidSyncRevision(raid, "loot_delete")
         commitRaidSelections(raid, opts)
     end
     return removed
@@ -1066,6 +1082,7 @@ function Actions:DeleteRaidAttendeeMany(rID, playerNids, opts)
 
     opts = opts or {}
     opts.clearPlayers = true
+    touchRaidSyncRevision(raid, "loot_delete")
     commitRaidSelections(raid, opts)
     return removed
 end

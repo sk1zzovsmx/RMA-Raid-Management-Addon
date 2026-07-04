@@ -11,7 +11,7 @@ The current implementation is a behavioral reference and a source of product int
 - `architecture_goal`: `build one coherent architecture with clear ownership, stable data flow, minimal accidental API surface, and appropriate file boundaries`
 - `anti_goal`: `do not keep wrappers, file splits, tests, or behavior only because the current implementation has them`
 - `bug_for_bug_policy`: `forbidden; broken behavior must be fixed with a documented behavior delta`
-- `committable_standard`: `a batch is committable only when behavior, architecture, docs, tests, TOC, registry, and validation gates agree`
+- `committable_standard`: `a batch is committable only when behavior, architecture, docs, tests, TOC, registry, and static/offline validation gates agree`
 
 ## Identity
 
@@ -129,7 +129,7 @@ The following prefixes are externally visible protocol identifiers and must rema
 - `rule`: `XML may define layout, templates, frame names, anchors, dimensions, and static visual structure only`
 - `forbidden`: `XML <Scripts>, <OnLoad>, <OnClick>, <OnShow>, <OnHide>, or other script handlers`
 - `lua_binding_rule`: `all behavior, event binding, state updates, button actions, list refreshes, and dynamic text/icon updates must be bound from Lua`
-- `ui_migration_rule`: `renaming XML frames is allowed only in a coherent batch that updates all Lua references, docs, tests, and smoke notes`
+- `ui_migration_rule`: `renaming XML frames is allowed only in a coherent batch that updates all Lua references, docs, tests, and offline validation notes`
 
 ## Product Behavior Contract
 
@@ -245,7 +245,7 @@ When current behavior is changed, the batch must record:
 - whether the old behavior was a bug, unsafe behavior, confusing UX, or obsolete implementation detail
 - compatibility impact
 - migration impact, if any
-- tests or smoke checks that prove the intended behavior
+- tests or static/offline checks that prove the intended behavior where possible
 
 External command/SavedVariables/protocol changes require a stronger compatibility note than private implementation changes.
 
@@ -286,6 +286,38 @@ Review and rewrite in product-oriented areas rather than isolated files:
 - Do not add generic `Utils`, `Common`, `Shared`, or catch-all `Helpers` modules just because code looks similar.
 - Local duplication may remain only when variants have materially different semantics, caller state, runtime constraints, or failure behavior.
 - DRY convergence must reduce duplicated semantics, caller complexity, public API surface, dependency count, or defect risk.
+
+## API Deduplication and Reuse Goal
+
+GREENFIELD_REWRITE should reduce redundant Lua APIs and duplicated behavior
+across controllers, widgets, and services. The goal is not merely fewer lines or
+more shared functions; the goal is a smaller, clearer, more reusable API surface
+with ownership that matches the product domain.
+
+Shared APIs are allowed only when they create a clearer owner, stabilize a real
+contract, reduce caller complexity, or centralize one domain rule.
+
+Do not create generic catch-all utility modules. Shared logic belongs to the
+nearest cohesive owner:
+
+- domain/service owner for business rules
+- UI primitive, list, or widget owner for repeated UI construction
+- database owner for persistence and schema behavior
+- entrypoint owner for slash and minimap routing
+- runtime infrastructure owner for timers, events, comms, and module loading
+
+Duplicated code may remain local when variants have different semantics,
+different failure behavior, different runtime constraints, or different caller
+state.
+
+A deduplication batch must report:
+
+- duplicate APIs removed, merged, or intentionally left local
+- new owner, if any
+- callers updated
+- wrappers deleted
+- behavior preserved or behavior delta documented
+- static/offline validation run or unavailable gates reported
 
 ## Facade and Wrapper Policy
 
@@ -339,7 +371,7 @@ Tests must **not** lock:
 ## Verification Status
 
 - `goal`: `passing tests is required but not sufficient; each batch must also be architecturally defensible and product-improving`
-- `review_steps`: `implementation`, `behavior delta review`, `architecture/cohesion review`, `quality review`, `runtime smoke review when applicable`
+- `review_steps`: `implementation`, `behavior delta review`, `architecture/cohesion review`, `quality review`, `static/offline validation review`
 - `gate_stack`: `Python tests`, `tools/check-rma.ps1`, `stylua --check`, `luacheck`, `TOC validator`, `Lua 5.1 validator`, `xpcall scan`, `XML handler scan`, `git diff --check`
 
 ## Validation Commands
@@ -358,7 +390,16 @@ Run or explicitly report why a command could not be run:
 
 ## Runtime Smoke Checklist
 
-Static validation is not enough for WoW runtime behavior. Runtime-critical batches must include a smoke note for relevant cases:
+Static validation is the required Codex gate. Real-client testing is manual
+acceptance and is not required for Codex completion or commit readiness unless
+the user explicitly asks for it. For behavior that cannot be proven offline,
+record:
+
+```text
+runtime smoke: not required by project workflow
+```
+
+When manual acceptance is explicitly requested, relevant checks include:
 
 - open `/rma`, `/rma config`, `/rma ml`, `/rma counter`, `/rma history`, `/rma attendance`, `/rma res`, `/rma rw`, `/rma lfm`
 - start and resolve MS/OS/SoftRes/Free roll sessions
@@ -390,34 +431,59 @@ evidence to justify a dedicated artifact.
 
 If `AGENTS.md` remains ignored, tracked docs/tests/tools must carry the committable GREENFIELD_REWRITE policy, or `AGENTS.md` must be made intentionally trackable.
 
-## Batch Workflow
+## Batch Blueprint Workflow
 
-Before implementation:
+Each GREENFIELD_REWRITE batch must start with a preassembled technical
+blueprint before code is edited. The blueprint is not a mega-patch; it is a
+small implementation map that makes the rewrite deliberate, reviewable, and
+reversible.
 
-- identify macro area
-- identify preserved external behavior
-- identify intended improvement
-- identify data migration risk
-- identify WoW runtime risk
-- identify tests and smoke checks
-- identify likely files to keep, merge, rework, or delete
+1. Large-scale analysis:
+   map TOC/load order, current owners, duplicated APIs, callers,
+   SavedVariables, slash commands, addon-message prefixes, XML frames,
+   controller/widget/service boundaries, and available static/offline gates.
 
-During implementation:
+2. Problem identification:
+   classify the actual issues, such as redundant APIs, wrong owner,
+   pass-through wrapper, controller-owned domain logic, service-owned frame
+   detail, accidental public API, or duplication that should intentionally stay
+   local because semantics differ.
 
-- work in small vertical slices where possible
-- keep domain policy out of UI glue
-- keep frame layout out of services
-- remove pass-through wrappers as they are encountered
-- update TOC and registry dependencies in the same batch as file changes
-- update tests when behavior is intentionally improved
+3. Batch design:
+   name the selected problem, intended improvement, new owner if any, APIs to
+   remove or merge, callers to update, public contracts that must remain
+   untouched, TOC/registry impact, docs impact, and validation plan.
 
-After implementation:
+4. Offline test or characterization:
+   write or update tests first when the behavior is testable offline. When a
+   direct test is not practical, define the exact static checks, source scans,
+   and acceptance assertions that will prove the batch offline.
 
-- produce behavior delta report
-- produce cohesion/file-boundary report for touched areas
-- produce DRY/wrapper reduction report when applicable
-- run validation gates or report unavailable gates
-- update docs and residual work map
+5. Snippet blueprint:
+   describe the planned snippets before applying them, including target files,
+   new APIs, deleted wrappers, caller rewrites, unchanged public contracts, and
+   rollback boundaries.
+
+6. Snippet application:
+   apply small reversible patches. Keep domain policy out of UI glue, keep
+   frame layout out of services, remove pass-through wrappers in the same batch
+   as caller rewrites, and update TOC/registry dependencies with file changes.
+
+7. Integration verification:
+   run available static/offline gates, including TOC, Lua 5.1, xpcall, XML
+   handler scan, tests, docs checks, and `git diff --check`, or report
+   unavailable gates honestly.
+
+8. Post-implementation large-scale analysis:
+   rescan touched macro areas for leftover duplicate APIs, stale wrappers,
+   unmigrated callers, accidental public exports, TOC drift, registry drift,
+   docs drift, and new coupling.
+
+9. Correction and commit:
+   fix findings from verification or post-analysis, then commit only when the
+   batch is coherent. The commit report must cover behavior delta, cohesion
+   change, duplicate APIs removed or intentionally retained, callers updated,
+   validation run, and residual risks.
 
 ## Commit Coherence Policy
 
@@ -460,5 +526,5 @@ A GREENFIELD_REWRITE batch is complete only when:
 - touched code has clear ownership
 - tests protect behavior rather than temporary internals
 - validation gates are run or honestly reported as unavailable
-- runtime smoke risk is documented for in-game-only behavior
+- in-game-only behavior is reported as not covered by static/offline validation
 - residual work is recorded instead of hidden

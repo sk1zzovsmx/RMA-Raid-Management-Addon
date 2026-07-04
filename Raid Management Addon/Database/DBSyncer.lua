@@ -26,6 +26,7 @@ local pairs, type, select = pairs, type, select
 local strsub = string.sub
 local tonumber, tostring = tonumber, tostring
 local floor = math.floor
+local format = string.format
 
 local GetTime = _G.GetTime
 local GetNumRaidMembers = _G.GetNumRaidMembers
@@ -47,7 +48,8 @@ do
 
     -- ----- Internal state ----- --
     local COMM_PREFIX = "RMALogSync"
-    local PROTOCOL_VERSION = 1
+    local LEGACY_PROTOCOL_VERSION = 1
+    local PROTOCOL_VERSION = 2
 
     local FIELD_SEP = "\t"
     local splitFields = Payload.SplitFields
@@ -55,17 +57,22 @@ do
 
     local MSG_REQUEST = "RQ"
     local MSG_SNAPSHOT = "SN"
+    local MSG_DELTA = "DL"
 
     local MODE_REQ = "REQ"
     local MODE_PUSH = "PUSH"
     local MODE_SYNC = "SYNC"
 
-    local MAX_CHUNK_SIZE = 180
+    local MAX_CHUNK_SIZE = 220
+    local MAX_DELTA_ROWS = 50
     local REQUEST_TTL_SECONDS = 30
     local INCOMING_TTL_SECONDS = 45
     local REQUEST_RATE_WINDOW_SECONDS = 30
     local REQUEST_RATE_MAX_PER_SENDER = 6
     local REQUEST_RATE_PRUNE_SECONDS = REQUEST_RATE_WINDOW_SECONDS * 2
+    local OUTGOING_RATE_WINDOW_SECONDS = 30
+    local OUTGOING_RATE_MAX_PER_TARGET = 4
+    local OUTGOING_RATE_PRUNE_SECONDS = OUTGOING_RATE_WINDOW_SECONDS * 2
     local SYNC_OFFICER_LOOKUP_GRACE_SECONDS = 2
     local PASSIVE_CLEANUP_INTERVAL_SECONDS = 5
     local PERSISTENT_SYNC_INTERVAL_SECONDS = 120
@@ -82,15 +89,24 @@ do
     module._incoming = module._incoming or {}
     module._pendingRequests = module._pendingRequests or {}
     module._requestRate = module._requestRate or {}
+    module._outgoingRate = module._outgoingRate or {}
+    module._outgoingCompressionByRequest = module._outgoingCompressionByRequest or {}
     module._nextRequestId = tonumber(module._nextRequestId) or 0
     module._nextPassiveCleanupAt = tonumber(module._nextPassiveCleanupAt) or 0
     module._persistentSyncHandle = module._persistentSyncHandle or nil
     module._persistentSyncCallbacksBound = module._persistentSyncCallbacksBound or false
+    local chunkMessageBuffer = {}
     if Timer and Timer.BindMixin then
         Timer.BindMixin(module, "Database/DBSyncer")
     end
 
     -- ----- Private helpers ----- --
+    local function clearChunkMessageBuffer()
+        for key in pairs(chunkMessageBuffer) do
+            chunkMessageBuffer[key] = nil
+        end
+    end
+
     local function nowSec()
         return (GetTime and GetTime()) or 0
     end
@@ -154,6 +170,14 @@ do
                 module._requestRate[sender] = nil
             end
         end
+
+        for target, st in pairs(module._outgoingRate) do
+            local stamp = tonumber(st and st.windowStart) or tonumber(st and st.lastSeen) or now
+            local age = now - stamp
+            if age > OUTGOING_RATE_PRUNE_SECONDS then
+                module._outgoingRate[target] = nil
+            end
+        end
     end
 
     local function cleanupExpiredStatePassive()
@@ -215,6 +239,56 @@ do
         end
 
         return true, sender
+    end
+
+    local function normalizeOutgoingTarget(target, mode)
+        local normalized = normalizeSender(target)
+        if normalized and normalized ~= "" then
+            return normalized
+        end
+        if target and target ~= "" then
+            return tostring(target)
+        end
+        if mode and mode ~= "" then
+            return tostring(mode)
+        end
+        return "GROUP"
+    end
+
+    local function allowOutgoingRequest(target, mode)
+        local key = normalizeOutgoingTarget(target, mode)
+        local now = nowSec()
+        local rate = module._outgoingRate[key]
+        if not rate then
+            module._outgoingRate[key] = {
+                windowStart = now,
+                lastSeen = now,
+                count = 1,
+                warned = false,
+            }
+            return true, key
+        end
+
+        local windowStart = tonumber(rate.windowStart) or now
+        if (now - windowStart) > OUTGOING_RATE_WINDOW_SECONDS then
+            rate.windowStart = now
+            rate.lastSeen = now
+            rate.count = 1
+            rate.warned = false
+            return true, key
+        end
+
+        rate.lastSeen = now
+        rate.count = (tonumber(rate.count) or 0) + 1
+        if rate.count > OUTGOING_RATE_MAX_PER_TARGET then
+            if not rate.warned then
+                addon:warn((Diag.W.LogSyncRequestRateLimited):format(tostring(key), rate.count, OUTGOING_RATE_WINDOW_SECONDS))
+                rate.warned = true
+            end
+            return false, key
+        end
+
+        return true, key
     end
 
     local function canAnswerRequests(channel)
@@ -289,7 +363,29 @@ do
     end
 
     local function buildIncomingSnapshotKey(sender, requestId, mode, raidNid)
-        return tostring(sender) .. "|" .. tostring(requestId) .. "|" .. mode .. "|" .. tostring(raidNid)
+        return format(
+            "%s|%s|%s|%s",
+            tostring(sender),
+            tostring(requestId),
+            tostring(mode),
+            tostring(raidNid)
+        )
+    end
+
+    local function shouldCompressOutgoingPayload(requestId)
+        return module._outgoingCompressionByRequest[tostring(requestId or "")] == true
+    end
+
+    local function setOutgoingCompressionSupport(requestId, supportsCompression)
+        local key = tostring(requestId or "")
+        if key == "" then
+            return
+        end
+        if supportsCompression == true then
+            module._outgoingCompressionByRequest[key] = true
+        else
+            module._outgoingCompressionByRequest[key] = nil
+        end
     end
 
     local function sendRequest(mode, requestId, raidRef, signature, target)
@@ -303,7 +399,9 @@ do
             tonumber(raidRef) or 0,
             SnapshotPayload.EncodeText(signature.zone),
             tonumber(signature.size) or 0,
-            tonumber(signature.diff) or 0
+            tonumber(signature.diff) or 0,
+            tonumber(signature.sinceRevision) or 0,
+            signature.supportsCompression == true and 1 or 0
         )
         sendAddonPayload(target, payload)
         Metrics.RecordOutgoingRequest(mode, #payload)
@@ -312,28 +410,67 @@ do
         end
     end
 
-    local function sendSnapshot(target, requestId, mode, raid)
-        local payload = SnapshotPayload.Build(raid)
-        if not payload then
-            return
-        end
-
-        local encodedPayload = SnapshotPayload.EncodeText(payload)
+    local function sendChunkedPayload(kind, target, requestId, mode, raidNid, payload)
+        local encodedPayload = SnapshotPayload.EncodeTransportText(payload, { compress = shouldCompressOutgoingPayload(requestId) })
         local payloadLen = #encodedPayload
         local totalChunks = floor((payloadLen + MAX_CHUNK_SIZE - 1) / MAX_CHUNK_SIZE)
         if totalChunks < 1 then
             totalChunks = 1
         end
 
+        clearChunkMessageBuffer()
+        chunkMessageBuffer[1] = kind
+        chunkMessageBuffer[2] = PROTOCOL_VERSION
+        chunkMessageBuffer[3] = requestId
+        chunkMessageBuffer[4] = mode
+        chunkMessageBuffer[5] = tonumber(raidNid) or 0
+        chunkMessageBuffer[7] = totalChunks
+
         for idx = 1, totalChunks do
             local fromPos = ((idx - 1) * MAX_CHUNK_SIZE) + 1
             local toPos = fromPos + MAX_CHUNK_SIZE - 1
-            local chunk = strsub(encodedPayload, fromPos, toPos)
-            local msg = packFields(FIELD_SEP, MSG_SNAPSHOT, PROTOCOL_VERSION, requestId, mode, tonumber(raid.raidNid) or 0, idx, totalChunks, chunk)
+            chunkMessageBuffer[6] = idx
+            chunkMessageBuffer[8] = strsub(encodedPayload, fromPos, toPos)
 
+            local msg = packFields(
+                FIELD_SEP,
+                chunkMessageBuffer[1],
+                chunkMessageBuffer[2],
+                chunkMessageBuffer[3],
+                chunkMessageBuffer[4],
+                chunkMessageBuffer[5],
+                chunkMessageBuffer[6],
+                chunkMessageBuffer[7],
+                chunkMessageBuffer[8]
+            )
             sendAddonPayload(target, msg)
         end
+
+        clearChunkMessageBuffer()
         Metrics.RecordOutgoingSnapshot(mode, payloadLen, totalChunks)
+        setOutgoingCompressionSupport(requestId, false)
+        return true, totalChunks, payloadLen
+    end
+
+    local function sendDelta(target, requestId, mode, raid, sinceRevision)
+        local payload, deltaRows = SnapshotPayload.BuildDelta(raid, sinceRevision)
+        if not payload or (tonumber(deltaRows) or 0) > MAX_DELTA_ROWS then
+            return false
+        end
+
+        return sendChunkedPayload(MSG_DELTA, target, requestId, mode, raid.raidNid, payload)
+    end
+
+    local function sendSnapshot(target, requestId, mode, raid)
+        local payload = SnapshotPayload.Build(raid)
+        if not payload then
+            return
+        end
+
+        local ok, totalChunks, payloadLen = sendChunkedPayload(MSG_SNAPSHOT, target, requestId, mode, raid.raidNid, payload)
+        if not ok then
+            return
+        end
 
         if isDebugEnabled() then
             addon:debug((Diag.D.LogSyncSnapshotSent):format(tostring(target or "GROUP"), tostring(requestId), tostring(raid.raidNid), totalChunks, payloadLen))
@@ -505,6 +642,11 @@ do
         if isDebugEnabled() then
             addon:debug((Diag.D.LogSyncRequestReceived):format(tostring(sender), tostring(requestId), tostring(raidRef)))
         end
+        local sinceRevision = tonumber(signature and signature.sinceRevision) or 0
+        setOutgoingCompressionSupport(requestId, signature and signature.supportsCompression == true)
+        if mode == MODE_SYNC and sinceRevision > 0 and sendDelta(rawSender, requestId, mode, raid, sinceRevision) then
+            return
+        end
         sendSnapshot(rawSender, requestId, mode, raid)
     end
 
@@ -576,6 +718,42 @@ do
         end
 
         refreshLoggerUi(raidId)
+    end
+
+    local function onDeltaReady(sender, requestId, mode, delta)
+        if mode ~= MODE_SYNC then
+            completeRequest(requestId)
+            return
+        end
+
+        local currentRaid, currentId = SnapshotImport.GetCurrentRaidRecord()
+        local pending = module._pendingRequests[requestId]
+        if not currentRaid then
+            addon:warn(L.MsgLoggerSyncNoCurrent)
+            completeRequest(requestId)
+            return
+        end
+        if tonumber(currentRaid.raidNid) ~= tonumber(delta.header and delta.header.raidNid) then
+            rejectSyncSender(pending, sender, requestId, "raid_mismatch")
+            return
+        end
+
+        local ok, raid = pcall(SnapshotImport.ApplyDeltaToRaid, currentRaid, delta)
+        if not ok then
+            addon:error((Diag.E.LogSyncMergeFailed):format(tostring(sender), tostring(requestId), tostring(delta.header.raidNid), tostring(raid)))
+            rejectSyncSender(pending, sender, requestId, "merge_failed")
+            return
+        end
+        if not raid then
+            addon:error((Diag.E.LogSyncMergeFailed):format(tostring(sender), tostring(requestId), tostring(delta.header.raidNid), "nil_result"))
+            rejectSyncSender(pending, sender, requestId, "merge_failed")
+            return
+        end
+
+        addon:info(L.MsgLoggerSyncApplied:format(tonumber(currentId) or 0, tostring(sender)))
+        cleanupIncomingByRequest(requestId, MODE_SYNC)
+        completeRequest(requestId)
+        refreshLoggerUi(currentId)
     end
 
     local function shouldIgnoreSnapshotSender(sender, requestId, mode, raidNid, pending, isPush, isSync)
@@ -695,7 +873,7 @@ do
 
         Metrics.RecordIncomingSnapshotComplete(mode)
         local encodedPayload = tconcat(state.parts, "")
-        local payload = SnapshotPayload.DecodeText(encodedPayload)
+        local payload = SnapshotPayload.DecodeTransportText(encodedPayload)
         if payload == nil then
             addon:warn((Diag.W.LogSyncDecodeFailed):format(tostring(sender), tostring(requestId), tostring(raidNid)))
             finalizeSnapshotFailure(isSync, pending, sender, requestId, "decode_failed")
@@ -709,7 +887,8 @@ do
             return
         end
 
-        if tonumber(snapshot.header.protocolVersion) ~= PROTOCOL_VERSION then
+        local snapshotVersion = tonumber(snapshot.header.protocolVersion)
+        if snapshotVersion ~= PROTOCOL_VERSION and snapshotVersion ~= LEGACY_PROTOCOL_VERSION then
             if isDebugEnabled() then
                 addon:debug((Diag.D.LogSyncVersionMismatch):format(tostring(sender), tostring(snapshot.header.protocolVersion), PROTOCOL_VERSION))
             end
@@ -718,6 +897,78 @@ do
         end
 
         onSnapshotReady(sender, requestId, mode, snapshot)
+    end
+
+    local function handleIncomingDelta(sender, requestId, mode, raidNid, partIndex, partCount, chunkData)
+        local pending = module._pendingRequests[requestId]
+        local isSync = (mode == MODE_SYNC)
+
+        if mode ~= MODE_SYNC or shouldIgnoreSnapshotSender(sender, requestId, mode, raidNid, pending, false, isSync) then
+            return
+        end
+
+        if partIndex < 1 or partCount < 1 or partIndex > partCount then
+            addon:warn((Diag.W.LogSyncChunkMalformed):format(tostring(sender), tostring(requestId), tostring(partIndex), tostring(partCount)))
+            return
+        end
+
+        local key, state = getOrCreateIncomingSnapshotState(sender, requestId, mode, raidNid, partCount, pending, isSync)
+        if not state then
+            return
+        end
+
+        if state.total ~= partCount then
+            addon:warn((Diag.W.LogSyncChunkPartCountChanged):format(tostring(sender), tostring(requestId), tostring(raidNid), tonumber(state.total) or 0, tonumber(partCount) or 0))
+            state.total = partCount
+            state.got = 0
+            state.parts = {}
+            state.createdAt = nowSec()
+        end
+
+        if state.parts[partIndex] == nil then
+            state.parts[partIndex] = chunkData or ""
+            state.got = state.got + 1
+            Metrics.RecordIncomingSnapshotChunk(mode, #(chunkData or ""))
+        end
+
+        if state.got < state.total then
+            return
+        end
+
+        for i = 1, state.total do
+            local piece = state.parts[i]
+            if piece == nil then
+                module._incoming[key] = nil
+                return
+            end
+        end
+        module._incoming[key] = nil
+
+        Metrics.RecordIncomingSnapshotComplete(mode)
+        local encodedPayload = tconcat(state.parts, "")
+        local payload = SnapshotPayload.DecodeTransportText(encodedPayload)
+        if payload == nil then
+            addon:warn((Diag.W.LogSyncDecodeFailed):format(tostring(sender), tostring(requestId), tostring(raidNid)))
+            finalizeSnapshotFailure(isSync, pending, sender, requestId, "decode_failed")
+            return
+        end
+
+        local delta = SnapshotPayload.ParseDelta(payload)
+        if not delta then
+            addon:warn((Diag.W.LogSyncParseFailed):format(tostring(sender), tostring(requestId), tostring(raidNid)))
+            finalizeSnapshotFailure(isSync, pending, sender, requestId, "parse_failed")
+            return
+        end
+
+        if tonumber(delta.header.protocolVersion) ~= PROTOCOL_VERSION then
+            if isDebugEnabled() then
+                addon:debug((Diag.D.LogSyncVersionMismatch):format(tostring(sender), tostring(delta.header.protocolVersion), PROTOCOL_VERSION))
+            end
+            finalizeSnapshotFailure(isSync, pending, sender, requestId, "version_mismatch")
+            return
+        end
+
+        onDeltaReady(sender, requestId, mode, delta)
     end
 
     -- ----- Public methods ----- --
@@ -749,6 +1000,11 @@ do
             return false
         end
 
+        local allowed = allowOutgoingRequest(target, MODE_REQ)
+        if not allowed then
+            return false, "rate_limited"
+        end
+
         local requestId = nextRequestId(self)
 
         trackPendingRequest(self, requestId, {
@@ -760,7 +1016,7 @@ do
             completed = false,
         })
 
-        sendRequest(MODE_REQ, requestId, requestRef, nil, target)
+        sendRequest(MODE_REQ, requestId, requestRef, { supportsCompression = true }, target)
         addon:info(L.MsgLoggerReqSent:format(tostring(requestRef), tostring(target)))
         return true
     end
@@ -787,6 +1043,11 @@ do
             return false
         end
 
+        local allowed = allowOutgoingRequest(target, MODE_PUSH)
+        if not allowed then
+            return false, "rate_limited"
+        end
+
         local requestId = nextRequestId(self)
 
         sendSnapshot(target, requestId, MODE_PUSH, raid)
@@ -806,6 +1067,9 @@ do
         end
 
         local signature = SnapshotImport.BuildSignatureFromRaid(currentRaid)
+        local raidStore = Database.GetRaidStoreOrNil("DBSyncer.RequestLoggerSync", { "GetRaidSyncRevision" })
+        signature.sinceRevision = raidStore and raidStore:GetRaidSyncRevision(currentRaid) or 0
+        signature.supportsCompression = true
         local requestId = nextRequestId(syncer)
 
         trackPendingRequest(syncer, requestId, {
@@ -919,7 +1183,7 @@ do
 
         local kind = fields[1]
         local version = parseNumber(fields[2], 0)
-        if version ~= PROTOCOL_VERSION then
+        if version ~= PROTOCOL_VERSION and version ~= LEGACY_PROTOCOL_VERSION then
             if isDebugEnabled() then
                 addon:debug((Diag.D.LogSyncVersionMismatch):format(tostring(sender), tostring(version), PROTOCOL_VERSION))
             end
@@ -952,6 +1216,8 @@ do
                 zone = zone,
                 size = sigSize,
                 diff = sigDiff,
+                sinceRevision = (version == PROTOCOL_VERSION) and parseNumber(fields[9], 0) or 0,
+                supportsCompression = version == PROTOCOL_VERSION and parseNumber(fields[10], 0) == 1,
             }
 
             Metrics.RecordIncomingRequest(mode, #msg)
@@ -975,6 +1241,25 @@ do
 
             local senderName = normalizeSender(sender) or tostring(sender)
             handleIncomingSnapshot(senderName, requestId, mode, raidNid, partIndex, partCount, chunkData)
+            return
+        end
+
+        if kind == MSG_DELTA and version == PROTOCOL_VERSION and n >= 8 then
+            local mode = tostring(fields[4] or "")
+            if mode ~= MODE_SYNC then
+                return
+            end
+
+            local raidNid = parseNumber(fields[5], nil)
+            local partIndex = parseNumber(fields[6], 0)
+            local partCount = parseNumber(fields[7], 0)
+            local chunkData = fields[8] or ""
+            if not raidNid then
+                return
+            end
+
+            local senderName = normalizeSender(sender) or tostring(sender)
+            handleIncomingDelta(senderName, requestId, mode, raidNid, partIndex, partCount, chunkData)
         end
     end
 end

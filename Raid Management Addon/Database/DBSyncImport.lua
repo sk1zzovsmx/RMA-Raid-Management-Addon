@@ -346,6 +346,67 @@ function SnapshotImport.ApplySnapshotToRaid(raid, snapshot, updateMeta)
     end
 
     applySnapshotNextNids(raid, header)
+    local raidStore = Database.GetRaidStoreOrNil("DBSyncImport.ApplySnapshotToRaid", { "SetRaidSyncRevision" })
+    if raidStore and raidStore.SetRaidSyncRevision then
+        raidStore:SetRaidSyncRevision(raid, tonumber(header.revision) or 0, "snapshot")
+    end
+    return finalizeSnapshotRaid(raid)
+end
+
+function SnapshotImport.ApplyDeltaToRaid(raid, delta)
+    if not (raid and delta and delta.header) then
+        return nil
+    end
+
+    raid.loot = raid.loot or {}
+    local _, playerNidByName, validPlayerNids = SnapshotPayload.BuildPlayerNameMaps(raid.players)
+    local lootIdx = buildNidIndex(raid.loot, "lootNid")
+    local raidStore = Database.GetRaidStoreOrNil("DBSyncImport.ApplyDeltaToRaid", { "SetRaidSyncRevision", "SetLootSyncRevision" })
+
+    for i = 1, #(delta.loot or {}) do
+        local src = delta.loot[i]
+        local nid = tonumber(src and src.lootNid)
+        if nid and nid > 0 then
+            local dst = upsertByNid(raid.loot, lootIdx, nid)
+            local count = tonumber(src.itemCount) or 1
+            if count < 1 then
+                count = 1
+            end
+
+            dst.lootNid = nid
+            dst.itemId = tonumber(src.itemId) or dst.itemId
+            dst.itemName = src.itemName or dst.itemName
+            dst.itemString = src.itemString or dst.itemString
+            dst.itemLink = src.itemLink or dst.itemLink
+            dst.itemRarity = tonumber(src.itemRarity) or dst.itemRarity
+            if src.itemTexture and src.itemTexture ~= "" then
+                dst.itemTexture = src.itemTexture
+            end
+            dst.itemCount = count
+
+            local looterNid = tonumber(src.looterNid)
+            if not looterNid and type(src.looterName) == "string" then
+                looterNid = playerNidByName[NormalizeLower(src.looterName, true)]
+            end
+            if looterNid and looterNid > 0 and validPlayerNids[looterNid] then
+                dst.looterNid = looterNid
+            end
+            dst.looter = nil
+            dst.rollType = tonumber(src.rollType) or 0
+            dst.rollValue = tonumber(src.rollValue) or 0
+            dst.bossNid = tonumber(src.bossNid) or 0
+            dst.time = tonumber(src.time) or dst.time
+
+            if raidStore and raidStore.SetLootSyncRevision then
+                raidStore:SetLootSyncRevision(raid, dst, tonumber(src.syncRevision) or tonumber(delta.header.revision) or 0)
+            end
+        end
+    end
+
+    applySnapshotNextNids(raid, delta.header)
+    if raidStore and raidStore.SetRaidSyncRevision then
+        raidStore:SetRaidSyncRevision(raid, tonumber(delta.header.revision) or 0, "delta")
+    end
     return finalizeSnapshotRaid(raid)
 end
 

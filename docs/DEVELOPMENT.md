@@ -72,10 +72,11 @@ git diff --check
 git status --short --branch
 ```
 
-## In-Game Smoke Test
+## Manual In-Game Acceptance
 
 Static checks cannot prove protected-action, UI, SavedVariables, sync, or server
-chat behavior. After relevant runtime changes, test in a WotLK 3.3.5a client:
+chat behavior. In-game validation is manual acceptance, not a blocking Codex
+gate. When requested, test in a WotLK 3.3.5a client:
 
 - login with no Lua errors
 - `/rma` opens help

@@ -1,7 +1,8 @@
 # RMA Validation Gates
 
-Validation is split into static gates and real-client smoke tests. Passing
-static gates does not prove WotLK runtime behavior.
+Codex completion and commit readiness are based on static/offline validation.
+Real-client testing is manual acceptance and is not a blocking gate unless the
+user explicitly asks for it.
 
 ## Static Gate
 
@@ -44,9 +45,11 @@ SavedVariables, or addon-message prefixes, review `ARCHITECTURE.md` and the
 GREENFIELD_REWRITE contract for drift. If a real API extractor is restored
 later, document its exact command here.
 
-## In-Game Runtime Gate
+## Manual In-Game Acceptance
 
-Run this after runtime, TOC, SavedVariables, sync, combat, or UI changes:
+Static checks cannot prove protected-action, UI, SavedVariables, sync, combat,
+or server chat behavior. These checks are useful manual acceptance steps when
+requested, but Codex should not block completion on them:
 
 - login with no Lua errors
 - `/rma` prints help
@@ -57,4 +60,8 @@ Run this after runtime, TOC, SavedVariables, sync, combat, or UI changes:
 - addon-message sync still uses `RMA*` prefixes and handles mismatched versions
   predictably
 
-Record which parts were static-only and which were validated in the real client.
+When no in-game validation was requested, report it as:
+
+```text
+runtime smoke: not required by project workflow
+```
