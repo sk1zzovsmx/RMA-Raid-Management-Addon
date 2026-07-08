@@ -27,6 +27,8 @@ local pairs, ipairs, type = pairs, ipairs, type
 local strlen = string.len
 local strsub = string.sub
 local strmatch = string.match
+local _G = _G
+local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "Raid roster count API is not initialized")
 local tostring, tonumber = tostring, tonumber
 local getRaidRosterInfo = GetRaidRosterInfo
 local UnitRace, UnitSex = UnitRace, UnitSex
@@ -475,7 +477,7 @@ do
 		local playersByName = runtime and runtime.playersByName or {}
 
 		local prevNumRaid = numRaid
-		local n = GetNumRaidMembers()
+		local n = tonumber(GetNumRaidMembers()) or 0
 
 		-- Keep local raid-size cache in sync.
 		numRaid = n

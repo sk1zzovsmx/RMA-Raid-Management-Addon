@@ -207,9 +207,7 @@ do
 	module._announced = false
 	module._cachedRosterVersion = nil
 	local ROLL_WINNER_PREFIX = "RMA-RollWinner"
-	if type(_G.RegisterAddonMessagePrefix) == "function" then
-		_G.RegisterAddonMessagePrefix(ROLL_WINNER_PREFIX)
-	end
+	Comms.RegisterPrefixIfAvailable(ROLL_WINNER_PREFIX)
 	local ROLL_WINNERS_CTX = "MLRollWinners"
 	local ROLL_SELECTION_MODE = {
 		AUTO = "AUTO",

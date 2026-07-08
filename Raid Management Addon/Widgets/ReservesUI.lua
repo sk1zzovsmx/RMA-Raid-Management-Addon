@@ -1032,7 +1032,7 @@ do
 		if type(UnitInRaid) == "function" and UnitInRaid("player") then
 			return true
 		end
-		if (tonumber(GetNumRaidMembers()) or 0) > 0 then
+		if addon.IsInRaid() then
 			return true
 		end
 		return false

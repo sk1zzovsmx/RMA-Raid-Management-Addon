@@ -112,7 +112,7 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertIn('"RMA realm name API is not initialized"', src)
         self.assertNotIn('GetRealmName and GetRealmName() or ""', src)
 
-    def test_init_resolves_group_rank_with_wotlk_safe_fallbacks(self):
+    def test_init_resolves_group_rank_with_wow_safe_fallbacks(self):
         src = read(INIT)
         self.assertIn("local UnitIsGroupLeader = _G.UnitIsGroupLeader", src)
         self.assertIn("local UnitIsGroupAssistant = _G.UnitIsGroupAssistant", src)
@@ -128,6 +128,12 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertIn("local function isInGroup()", src)
         self.assertIn("local function isGroupLeader(unit)", src)
         self.assertIn("local function isGroupAssistant(unit)", src)
+        self.assertIn("function Database.GetUnitRank(unit, fallback)", src)
+        self.assertIn("addon.IsInRaid = isInRaid", src)
+        self.assertIn("addon.IsInGroup = isInGroup", src)
+        self.assertNotIn("addon.Client", src)
+        self.assertNotIn("feature.Client", src)
+        self.assertNotIn("function Client.", src)
         self.assertNotIn('"RMA raid membership API is not initialized"', src)
         self.assertNotIn('"RMA raid leader API is not initialized"', src)
         self.assertNotIn('"RMA raid officer API is not initialized"', src)
@@ -362,7 +368,7 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
             r"local\s+normalizeSender\s*=\s*Comms\.NormalizeSender\s+or\s+function",
         )
 
-    def test_db_syncer_depends_on_wotlk_time_and_raid_count_without_zero_fallbacks(self):
+    def test_db_syncer_depends_on_wow_time_and_raid_count_without_zero_fallbacks(self):
         syncer = read(DB_SYNCER)
 
         self.assertIn("local GetTime = assert(", syncer)
@@ -371,6 +377,8 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertIn("local GetNumRaidMembers = assert(", syncer)
         self.assertIn("_G.GetNumRaidMembers", syncer)
         self.assertIn('"DBSyncer raid member count API is not initialized"', syncer)
+        self.assertIn("tonumber(GetNumRaidMembers()) or 0", syncer)
+        self.assertNotIn("Client.GetRaidMemberCount()", syncer)
         self.assertIn("local GetRaidRosterInfo = assert(", syncer)
         self.assertIn("_G.GetRaidRosterInfo", syncer)
         self.assertIn('"DBSyncer raid roster API is not initialized"', syncer)
@@ -1053,7 +1061,7 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
             self.assertNotIn("if Database and Database.StripRuntimeRaidCaches then", source)
             self.assertNotIn("raid._runtime = nil", source)
 
-    def test_reserves_ui_depends_on_wotlk_raid_time_and_unit_apis_without_local_fallbacks(self):
+    def test_reserves_ui_depends_on_wow_raid_time_and_unit_apis_without_local_fallbacks(self):
         reserves_ui = read(RESERVES_UI)
 
         self.assertIn("local GetTime = assert(", reserves_ui)
@@ -1062,6 +1070,10 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertIn("local GetNumRaidMembers = assert(", reserves_ui)
         self.assertIn("_G.GetNumRaidMembers", reserves_ui)
         self.assertIn('"Reserves UI raid member count API is not initialized"', reserves_ui)
+        self.assertIn("tonumber(GetNumRaidMembers()) or 0", reserves_ui)
+        self.assertIn("addon.IsInRaid()", reserves_ui)
+        self.assertNotIn("Client.GetRaidMemberCount()", reserves_ui)
+        self.assertNotIn("Client.IsInRaid()", reserves_ui)
         self.assertIn("local UnitName = assert(", reserves_ui)
         self.assertIn("_G.UnitName", reserves_ui)
         self.assertIn('"Reserves UI unit name API is not initialized"', reserves_ui)
@@ -1087,7 +1099,7 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertNotIn("local InternalEvents = Events.Internal", reserves_ui)
         self.assertNotIn("Bus.RegisterCallback(InternalEvents.ReservesDataChanged", reserves_ui)
 
-    def test_comms_depends_on_wotlk_send_and_player_name_apis_without_local_fallbacks(self):
+    def test_comms_depends_on_wow_send_and_player_name_apis_without_local_fallbacks(self):
         comms = read(COMMS)
 
         self.assertIn("local SendAddonMessage = assert(", comms)
@@ -1106,14 +1118,20 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertIn("_G.IsInInstance", comms)
         self.assertIn('"Comms instance state API is not initialized"', comms)
         self.assertIn("local GetNumRaidMembers = assert(", comms)
-        self.assertIn("_G.GetNumRaidMembers", comms)
-        self.assertIn('"Comms raid member count API is not initialized"', comms)
         self.assertIn("local GetNumPartyMembers = assert(", comms)
-        self.assertIn("_G.GetNumPartyMembers", comms)
+        self.assertIn('"Comms raid member count API is not initialized"', comms)
         self.assertIn('"Comms party member count API is not initialized"', comms)
-        self.assertIn("local RegisterAddonMessagePrefix = _G.RegisterAddonMessagePrefix", comms)
-        self.assertIn("local function registerAddonMessagePrefix(prefix)", comms)
-        self.assertIn('if type(RegisterAddonMessagePrefix) == "function" then', comms)
+        self.assertIn("tonumber(GetNumRaidMembers()) or 0", comms)
+        self.assertIn("tonumber(GetNumPartyMembers()) or 0", comms)
+        self.assertIn("function Comms.RegisterPrefixIfAvailable(prefix)", comms)
+        self.assertIn('if type(_G.RegisterAddonMessagePrefix) ~= "function" then', comms)
+        self.assertIn("_G.RegisterAddonMessagePrefix(prefix)", comms)
+        self.assertIn("Comms.RegisterPrefixIfAvailable(VERSION_PREFIX)", comms)
+        self.assertNotIn("Client.GetRaidMemberCount()", comms)
+        self.assertNotIn("Client.GetPartyMemberCount()", comms)
+        self.assertNotIn("Client.RegisterAddonMessagePrefix", comms)
+        self.assertNotIn("local RegisterAddonMessagePrefix = _G.RegisterAddonMessagePrefix", comms)
+        self.assertNotIn("local function registerAddonMessagePrefix(prefix)", comms)
         self.assertNotIn('"Comms addon-message prefix registration API is not initialized"', comms)
         self.assertIn('"Modules/Strings"', comms)
         self.assertIn("local NormalizeName = assert(", comms)
@@ -1260,10 +1278,11 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
             'assert(Comms.SendAddonWhisper, "Reserves sync whisper transport is not initialized")',
             reserves_sync,
         )
-        self.assertIn("local RegisterAddonMessagePrefix = _G.RegisterAddonMessagePrefix", reserves_sync)
-        self.assertIn('if type(RegisterAddonMessagePrefix) == "function" then', reserves_sync)
+        self.assertIn("Comms.RegisterPrefixIfAvailable(PREFIX)", reserves_sync)
+        self.assertNotIn("local Client = assert(feature.Client", reserves_sync)
+        self.assertNotIn("Client.RegisterAddonMessagePrefix(PREFIX)", reserves_sync)
+        self.assertNotIn("local RegisterAddonMessagePrefix = _G.RegisterAddonMessagePrefix", reserves_sync)
         self.assertNotIn('"Reserves sync prefix registration API is not initialized"', reserves_sync)
-        self.assertIn("RegisterAddonMessagePrefix(PREFIX)", reserves_sync)
         self.assertIn('local Payload = assert(Comms.Payload, "Comms payload helpers are not initialized")', reserves_sync)
         self.assertIn("local ok = Comms.Sync(PREFIX, payload.PackFields", reserves_sync)
         self.assertNotIn("local Payload = Comms and Comms.Payload or nil", reserves_sync)
@@ -1727,16 +1746,17 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
             r"local\s+resolveItemKey\s*=\s*Item\.GetItemKey\s+or\s+function",
         )
 
-    def test_loot_distribution_session_depends_on_wotlk_time_api_without_local_fallbacks(self):
+    def test_loot_distribution_session_depends_on_wow_time_api_without_local_fallbacks(self):
         distribution = read(LOOT_DISTRIBUTION_SESSION)
 
         self.assertIn("local GetTime = assert(", distribution)
         self.assertIn("_G.GetTime", distribution)
         self.assertIn('"Loot distribution time API is not initialized"', distribution)
-        self.assertIn("local RegisterAddonMessagePrefix = _G.RegisterAddonMessagePrefix", distribution)
-        self.assertIn('if type(RegisterAddonMessagePrefix) == "function" then', distribution)
+        self.assertIn("Comms.RegisterPrefixIfAvailable(PREFIX)", distribution)
+        self.assertNotIn("local Client = assert(feature.Client", distribution)
+        self.assertNotIn("Client.RegisterAddonMessagePrefix(PREFIX)", distribution)
+        self.assertNotIn("local RegisterAddonMessagePrefix = _G.RegisterAddonMessagePrefix", distribution)
         self.assertNotIn('"Loot distribution prefix registration API is not initialized"', distribution)
-        self.assertIn("RegisterAddonMessagePrefix(PREFIX)", distribution)
         self.assertNotIn("local getTime = _G.GetTime", distribution)
         self.assertNotIn('type(getTime) == "function"', distribution)
         self.assertNotIn("local register = _G.RegisterAddonMessagePrefix", distribution)
@@ -2043,12 +2063,14 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertNotIn('type(module.IsPlayerInRaid) == "function"', capabilities)
         self.assertNotIn("Database.GetUnitRank and", capabilities)
 
-    def test_raid_attendance_depends_on_wotlk_roster_apis_without_local_fallbacks(self):
+    def test_raid_attendance_depends_on_wow_roster_apis_without_local_fallbacks(self):
         attendance = read(RAID_ATTENDANCE)
 
         self.assertIn("local GetNumRaidMembers = assert(", attendance)
-        self.assertIn("GetNumRaidMembers,", attendance)
         self.assertIn('"Raid attendance roster count API is not initialized"', attendance)
+        self.assertIn("tonumber(GetNumRaidMembers()) or 0", attendance)
+        self.assertNotIn("local Client = assert(feature.Client", attendance)
+        self.assertNotIn("Client.GetRaidMemberCount()", attendance)
         self.assertIn("local GetRaidRosterInfo = assert(", attendance)
         self.assertIn("GetRaidRosterInfo,", attendance)
         self.assertIn('"Raid attendance roster info API is not initialized"', attendance)

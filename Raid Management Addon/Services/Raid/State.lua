@@ -44,6 +44,7 @@ local UnitIsDead = UnitIsDead
 local UnitName = assert(_G.UnitName, "Raid state unit name API is not initialized")
 local UnitRace = UnitRace
 local GetInstanceInfo = assert(_G.GetInstanceInfo, "Raid state instance info API is not initialized")
+local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "Raid state roster count API is not initialized")
 local GetGroupTypeAndCount = feature.GetGroupTypeAndCount
 local BossIDs = feature.BossIDs
 local GetCreatureId = assert(feature.GetCreatureId, "Raid state creature-id helper is not initialized")
@@ -1449,7 +1450,7 @@ do
 			return false
 		end
 
-		local num = GetNumRaidMembers()
+		local num = tonumber(GetNumRaidMembers()) or 0
 		if num == 0 then
 			return false
 		end
@@ -1802,7 +1803,7 @@ do
 		if UnitInRaid("player") then
 			return true
 		end
-		return (GetNumRaidMembers() or 0) > 0
+		return (tonumber(GetNumRaidMembers()) or 0) > 0
 	end
 
 	-- Returns raid size: 10 or 25.

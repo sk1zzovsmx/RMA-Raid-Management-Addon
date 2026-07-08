@@ -19,7 +19,6 @@ local pairs, tostring, tonumber, type = pairs, tostring, tonumber, type
 local _G = _G
 local UnitName = assert(_G.UnitName, "Reserves sync unit name API is not initialized")
 local GetTime = assert(_G.GetTime, "Reserves sync time API is not initialized")
-local RegisterAddonMessagePrefix = _G.RegisterAddonMessagePrefix
 
 -- ----- Internal state ----- --
 feature.EnsureServiceNamespace("Reserves")
@@ -61,9 +60,7 @@ local function requirePayload()
 end
 
 local function ensurePrefix()
-	if type(RegisterAddonMessagePrefix) == "function" then
-		RegisterAddonMessagePrefix(PREFIX)
-	end
+	Comms.RegisterPrefixIfAvailable(PREFIX)
 end
 
 local function getIncomingNow()

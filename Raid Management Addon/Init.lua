@@ -507,6 +507,8 @@ do
 
 	Compat:Embed(addon) -- mixin: After, UnitIterator, GetCreatureId, etc.
 	addon.Debugger:Embed(addon)
+	addon.IsInRaid = isInRaid
+	addon.IsInGroup = isInGroup
 
 	-- Remove global timer APIs injected by LibCompat:Embed. Modules must use
 	-- the addon.Timer mixin (Timer.BindMixin + self:ScheduleTimer/...).

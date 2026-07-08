@@ -21,7 +21,6 @@ local UnitName = assert(_G.UnitName, "Comms unit name API is not initialized")
 local IsInInstance = assert(_G.IsInInstance, "Comms instance state API is not initialized")
 local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "Comms raid member count API is not initialized")
 local GetNumPartyMembers = assert(_G.GetNumPartyMembers, "Comms party member count API is not initialized")
-local RegisterAddonMessagePrefix = _G.RegisterAddonMessagePrefix
 
 local Comms = feature.Comms or {}
 addon.Comms = Comms
@@ -140,10 +139,15 @@ local function packCommsPayloadFields(sep, ...)
 	return result
 end
 
-local function registerAddonMessagePrefix(prefix)
-	if type(RegisterAddonMessagePrefix) == "function" then
-		RegisterAddonMessagePrefix(prefix)
+function Comms.RegisterPrefixIfAvailable(prefix)
+	if type(prefix) ~= "string" or prefix == "" then
+		return false
 	end
+	if type(_G.RegisterAddonMessagePrefix) ~= "function" then
+		return false
+	end
+	_G.RegisterAddonMessagePrefix(prefix)
+	return true
 end
 
 local function splitVersionPayload(msg)
@@ -358,7 +362,7 @@ function Comms.NextRequestId(owner, fieldName)
 end
 
 function Comms:EnsureVersionPrefix()
-	registerAddonMessagePrefix(VERSION_PREFIX)
+	Comms.RegisterPrefixIfAvailable(VERSION_PREFIX)
 end
 
 function Comms.GetVersionInfo()

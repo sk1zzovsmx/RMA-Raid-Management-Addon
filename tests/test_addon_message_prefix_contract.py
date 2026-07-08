@@ -18,17 +18,19 @@ class AddonMessagePrefixContractTest(unittest.TestCase):
         syncer = read(DB_SYNCER)
 
         self.assertIn('local COMM_PREFIX = "RMALogSync"', syncer)
-        self.assertIn("local RegisterAddonMessagePrefix = _G.RegisterAddonMessagePrefix", syncer)
-        self.assertIn("registerAddonMessagePrefix(COMM_PREFIX)", syncer)
-        self.assertIn('if type(RegisterAddonMessagePrefix) == "function" then', syncer)
+        self.assertIn("Comms.RegisterPrefixIfAvailable(COMM_PREFIX)", syncer)
+        self.assertNotIn("local RegisterAddonMessagePrefix = _G.RegisterAddonMessagePrefix", syncer)
+        self.assertNotIn("registerAddonMessagePrefix(COMM_PREFIX)", syncer)
         self.assertIn("function module:OnAddonMessage(prefix, msg, channel, sender)", syncer)
 
     def test_roll_winner_broadcast_registers_public_rma_prefix_before_sync(self):
         master = read(MASTER)
 
         self.assertIn('local ROLL_WINNER_PREFIX = "RMA-RollWinner"', master)
-        self.assertIn('if type(_G.RegisterAddonMessagePrefix) == "function" then', master)
-        self.assertIn("_G.RegisterAddonMessagePrefix(ROLL_WINNER_PREFIX)", master)
+        self.assertIn("Comms.RegisterPrefixIfAvailable(ROLL_WINNER_PREFIX)", master)
+        self.assertNotIn("local Client = assert(feature.Client", master)
+        self.assertNotIn('if type(_G.RegisterAddonMessagePrefix) == "function" then', master)
+        self.assertNotIn("_G.RegisterAddonMessagePrefix(ROLL_WINNER_PREFIX)", master)
         self.assertNotIn("local RegisterAddonMessagePrefix = _G.RegisterAddonMessagePrefix", master)
         self.assertNotIn("registerAddonMessagePrefix(ROLL_WINNER_PREFIX)", master)
         self.assertIn("Comms.Sync(ROLL_WINNER_PREFIX, name)", master)

@@ -20,7 +20,6 @@ local InternalEvents = assert(Events.Internal, "Loot distribution internal event
 
 local _G = _G
 local GetTime = assert(_G.GetTime, "Loot distribution time API is not initialized")
-local RegisterAddonMessagePrefix = _G.RegisterAddonMessagePrefix
 local GetPlayerName = assert(Database.GetPlayerName, "Loot distribution player-name resolver is not initialized")
 local SendSync = assert(Comms.Sync, "Loot distribution sync sender is not initialized")
 local QueueAddonMessage = assert(Comms.QueueAddonMessage, "Loot distribution direct sender is not initialized")
@@ -86,9 +85,7 @@ local function getIncomingNow()
 end
 
 local function ensurePrefix()
-	if type(RegisterAddonMessagePrefix) == "function" then
-		RegisterAddonMessagePrefix(PREFIX)
-	end
+	Comms.RegisterPrefixIfAvailable(PREFIX)
 end
 
 local encodeText = Payload.EncodeText

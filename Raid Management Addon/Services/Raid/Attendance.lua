@@ -21,8 +21,9 @@ local RaidRosterDeltaEvent =
 	assert(InternalEvents.RaidRosterDelta, "Raid attendance roster-delta event is not initialized")
 local RaidCreateEvent = assert(InternalEvents.RaidCreate, "Raid attendance raid-create event is not initialized")
 
-local GetNumRaidMembers = assert(GetNumRaidMembers, "Raid attendance roster count API is not initialized")
-local GetRaidRosterInfo = assert(GetRaidRosterInfo, "Raid attendance roster info API is not initialized")
+local _G = _G
+local GetRaidRosterInfo = assert(_G.GetRaidRosterInfo, "Raid attendance roster info API is not initialized")
+local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "Raid attendance roster count API is not initialized")
 
 local tinsert = table.insert
 local type, tonumber, strlower = type, tonumber, strlower
