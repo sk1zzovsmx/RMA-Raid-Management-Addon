@@ -275,13 +275,17 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
             'local IsWidgetRegistered = assert(UIWidgets.IsRegistered, "Slash widget registration resolver is not initialized")',
             slash_events,
         )
-        self.assertIn('local CallWidget = assert(UIWidgets.Call, "Slash widget dispatcher is not initialized")', slash_events)
+        self.assertIn(
+            'local CallWidgetMethod = assert(UIWidgets.CallMethod, "Slash widget method dispatcher is not initialized")',
+            slash_events,
+        )
         self.assertIn("if not IsWidgetEnabled(widgetId) then", slash_events)
         self.assertIn("if not IsWidgetRegistered(widgetId) then", slash_events)
-        self.assertIn("return CallWidget(widgetId, methodName, ...)", slash_events)
+        self.assertIn("return CallWidgetMethod(widgetId, methodName, ...)", slash_events)
         self.assertNotIn("UIWidgets and type(UIWidgets.IsEnabled)", slash_events)
         self.assertNotIn("UIWidgets and type(UIWidgets.IsRegistered)", slash_events)
         self.assertNotIn("UIWidgets and type(UIWidgets.Call)", slash_events)
+        self.assertNotIn("UIWidgets.Call(", slash_events)
 
     def test_trade_menu_registry_omits_unused_frame_dependency(self):
         trade_menu = read(TRADE_MENU)
@@ -409,16 +413,59 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertIn('Database.RequestControllerMethod("Master", "Toggle")', minimap)
         self.assertIn('callWidgetMethod("LootCounter", "Toggle")', minimap)
 
-    def test_widget_facade_invokes_registered_methods_with_self(self):
+    def test_widget_facade_separates_method_and_function_calls(self):
         facade = read(ADDON / "Modules" / "UI" / "Facade.lua")
 
-        self.assertIn("local SELF_METHODS = {", facade)
-        self.assertIn("Toggle = true", facade)
-        self.assertIn("ToggleImport = true", facade)
-        self.assertIn("AttachToMaster = true", facade)
-        self.assertIn("if SELF_METHODS[methodName] == true then", facade)
+        self.assertIn("local function getWidgetFunction(widgetId, methodName)", facade)
+        self.assertIn("function Widgets.CallMethod(widgetId, methodName, ...)", facade)
+        self.assertIn("function Widgets.CallFunction(widgetId, methodName, ...)", facade)
         self.assertIn("return fn(api, ...)", facade)
         self.assertIn("return fn(...)", facade)
+        self.assertNotIn("function Widgets.Call(", facade)
+        self.assertNotIn("SELF_METHODS", facade)
+        self.assertNotIn("methodName] == true", facade)
+
+    def test_widget_call_sites_use_explicit_method_or_function_dispatch(self):
+        runtime_files = [
+            path
+            for path in ADDON.rglob("*.lua")
+            if "Libs" not in path.parts
+        ]
+        for path in runtime_files:
+            src = read(path)
+            with self.subTest(path=path.relative_to(ADDON)):
+                self.assertNotIn("UI.Widgets.Call(", src)
+                self.assertNotIn("UIWidgets.Call(", src)
+
+        master = read(MASTER)
+        minimap = read(MINIMAP)
+        slash_events = read(SLASH_EVENTS)
+        reserves_ui = read(RESERVES_UI)
+
+        for call in (
+            'UI.Widgets.CallMethod("Config", "Toggle")',
+            'UI.Widgets.CallMethod("LootCounter", "AttachToMaster", frame)',
+            'UI.Widgets.CallMethod("Reserves", "Toggle")',
+            'UI.Widgets.CallMethod("Reserves", "ToggleImport")',
+            'UI.Widgets.CallMethod("LootCounter", "Toggle")',
+        ):
+            self.assertIn(call, master)
+
+        for call in (
+            'UI.Widgets.CallFunction("LootHints", "EnsureLootFrameHooks")',
+            'UI.Widgets.CallFunction("TradeMenu", "HideDropdowns")',
+            'UI.Widgets.CallFunction("TradeMenu", "RefreshDropdowns", manualState)',
+            'UI.Widgets.CallFunction("TradeMenu", "RefreshCandidate", "TRADE_SHOW")',
+            'UI.Widgets.CallFunction("RaidGrid", "ShowPicker", {',
+            'UI.Widgets.CallFunction("RaidGrid", "IsShown")',
+            'UI.Widgets.CallFunction("RaidGrid", "GetMode")',
+            'UI.Widgets.CallFunction("LootHints", "ApplyLootFrameReserveHints")',
+        ):
+            self.assertIn(call, master)
+
+        self.assertIn("return UIWidgets.CallMethod(widgetId, methodName, ...)", minimap)
+        self.assertIn("return CallWidgetMethod(widgetId, methodName, ...)", slash_events)
+        self.assertIn('UIWidgets.CallMethod("Reserves", "ToggleImport")', reserves_ui)
 
     def test_slash_events_routes_controllers_without_private_pass_through_wrapper(self):
         slash_events = read(SLASH_EVENTS)

@@ -44,7 +44,7 @@ local function callWidgetMethod(widgetId, methodName, ...)
 	if not isWidgetAvailable(widgetId) then
 		return nil
 	end
-	return UIWidgets.Call(widgetId, methodName, ...)
+	return UIWidgets.CallMethod(widgetId, methodName, ...)
 end
 
 -- ----- Internal state ----- --

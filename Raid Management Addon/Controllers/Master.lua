@@ -597,7 +597,7 @@ do
 		end
 
 		SetScriptSafely(refs.configBtn, "OnClick", function()
-			UI.Widgets.Call("Config", "Toggle")
+			UI.Widgets.CallMethod("Config", "Toggle")
 		end)
 		SetScriptSafely(refs.selectItemBtn, "OnClick", function(self, button)
 			if not ensureItemSelectionAccess() then
@@ -1014,7 +1014,7 @@ do
 	end
 
 	module._Private = Private
-	UI.Widgets.Call("LootHints", "EnsureLootFrameHooks")
+	UI.Widgets.CallFunction("LootHints", "EnsureLootFrameHooks")
 
 	local function resetItemCountAndRefresh(focus)
 		Private.ResetItemCount(focus)
@@ -1947,7 +1947,7 @@ do
 	local function completeManualTradeCloseSettle()
 		manualTradeCloseSettleHandle = nil
 		MasterService.Trade.SettleClose()
-		UI.Widgets.Call("TradeMenu", "HideDropdowns")
+		UI.Widgets.CallFunction("TradeMenu", "HideDropdowns")
 		module:RequestRefresh()
 	end
 
@@ -1955,11 +1955,11 @@ do
 		cancelManualTradeCloseSettle()
 		if not MasterService.Trade.HasClosePending() then
 			MasterService.Trade.Reset(true, true)
-			UI.Widgets.Call("TradeMenu", "HideDropdowns")
+			UI.Widgets.CallFunction("TradeMenu", "HideDropdowns")
 			return false
 		end
 
-		UI.Widgets.Call("TradeMenu", "HideDropdowns")
+		UI.Widgets.CallFunction("TradeMenu", "HideDropdowns")
 		manualTradeCloseSettleHandle = module:ScheduleTimer(completeManualTradeCloseSettle, 0)
 		if not manualTradeCloseSettleHandle then
 			completeManualTradeCloseSettle()
@@ -1971,7 +1971,7 @@ do
 		local failed = MasterService.Trade.CancelClose(message)
 		if failed then
 			cancelManualTradeCloseSettle()
-			UI.Widgets.Call("TradeMenu", "HideDropdowns")
+			UI.Widgets.CallFunction("TradeMenu", "HideDropdowns")
 			return true
 		end
 		return false
@@ -2094,7 +2094,7 @@ do
 			return
 		end
 		uiState.Loaded = true
-		UI.Widgets.Call("LootCounter", "AttachToMaster", frame)
+		UI.Widgets.CallMethod("LootCounter", "AttachToMaster", frame)
 		initItemButtonScripts()
 		if module._rollListController and module._rollListController.OnLoad and not frame._RMARollListBound then
 			module._rollListController:OnLoad(frame)
@@ -2244,15 +2244,15 @@ do
 	Private.BtnReserveList = function(_btn, _button)
 		local reserves = Services.Reserves
 		if reserves and reserves.HasData and reserves:HasData() then
-			UI.Widgets.Call("Reserves", "Toggle")
+			UI.Widgets.CallMethod("Reserves", "Toggle")
 		else
-			UI.Widgets.Call("Reserves", "ToggleImport")
+			UI.Widgets.CallMethod("Reserves", "ToggleImport")
 		end
 	end
 
 	-- Button: Loot Counter
 	Private.BtnLootCounter = function(_btn, _button)
-		UI.Widgets.Call("LootCounter", "Toggle")
+		UI.Widgets.CallMethod("LootCounter", "Toggle")
 	end
 
 	-- ============================================================================
@@ -3001,7 +3001,7 @@ do
 		lootState.currentRollType = rollTypes.MANUAL
 		local ok = assignItem(itemLink, data.playerName, rollTypes.MANUAL, 0)
 		if ok then
-			UI.Widgets.Call("RaidGrid", "Hide")
+			UI.Widgets.CallFunction("RaidGrid", "Hide")
 		end
 		return ok
 	end
@@ -3075,7 +3075,7 @@ do
 			title = title .. " (" .. (L.StrRaidGridDebugTitle or "Debug") .. ")"
 			debugFallback = true
 		end
-		UI.Widgets.Call("RaidGrid", "ShowPicker", {
+		UI.Widgets.CallFunction("RaidGrid", "ShowPicker", {
 			mode = debugFallback and "debug" or "award",
 			title = title,
 			texture = Private.GetSelectedMasterLootTexture(),
@@ -3100,7 +3100,7 @@ do
 		debugState.raidGridTargetCount = count or 25
 
 		local entries, total = MasterService.DebugRaidGrid.BuildRows(count, collectRaidGridRosterRows())
-		UI.Widgets.Call("RaidGrid", "ShowPicker", {
+		UI.Widgets.CallFunction("RaidGrid", "ShowPicker", {
 			mode = "debug",
 			title = (L.StrRaidGridDebugTitle or "Raid Grid Debug") .. " (" .. tostring(total) .. ")",
 			emptyText = L.StrRaidGridEmpty,
@@ -3115,7 +3115,10 @@ do
 	end
 
 	Private.RefreshManualAwardGrid = function()
-		if UI.Widgets.Call("RaidGrid", "IsShown") and UI.Widgets.Call("RaidGrid", "GetMode") == "award" then
+		if
+			UI.Widgets.CallFunction("RaidGrid", "IsShown")
+			and UI.Widgets.CallFunction("RaidGrid", "GetMode") == "award"
+		then
 			return Private.OpenManualAwardGrid()
 		end
 		return false
@@ -3193,7 +3196,7 @@ do
 		module._dirtyFlags.dropdowns = true
 		module._dirtyFlags.buttons = true
 		Private.HideBlizzardDropDownLists()
-		UI.Widgets.Call("RaidGrid", "Hide")
+		UI.Widgets.CallFunction("RaidGrid", "Hide")
 		module:RequestRefresh()
 		return true
 	end
@@ -3214,7 +3217,7 @@ do
 			title = title .. ": " .. field.label
 		end
 
-		UI.Widgets.Call("RaidGrid", "ShowPicker", {
+		UI.Widgets.CallFunction("RaidGrid", "ShowPicker", {
 			mode = "target",
 			title = title,
 			emptyText = L.StrRaidGridEmpty,
@@ -3557,7 +3560,7 @@ do
 	function module:LOOT_OPENED()
 		local perfTotal = addon.hasPerf and addon:_PerfStart() or nil
 		cancelLootClosedCleanup()
-		UI.Widgets.Call("LootHints", "ApplyLootFrameReserveHints")
+		UI.Widgets.CallFunction("LootHints", "ApplyLootFrameReserveHints")
 		if canHandleLootWindow() then
 			local debugEnabled = isDebugEnabled()
 			local raidNum = Database.GetCurrentRaid()
@@ -3638,8 +3641,8 @@ do
 
 	-- LOOT_CLOSED: Triggered when the loot window closes.
 	function module:LOOT_CLOSED()
-		UI.Widgets.Call("RaidGrid", "Hide")
-		UI.Widgets.Call("LootHints", "ClearLootFrameReserveHints")
+		UI.Widgets.CallFunction("RaidGrid", "Hide")
+		UI.Widgets.CallFunction("LootHints", "ClearLootFrameReserveHints")
 		if canHandleLootWindow() or lootState.opened == true then
 			if Raid.ClearLootWindowBossContext then
 				Raid:ClearLootWindowBossContext()
@@ -3670,7 +3673,7 @@ do
 	-- LOOT_SLOT_CLEARED: Triggered when an item is looted.
 	function module:LOOT_SLOT_CLEARED(clearedSlot)
 		local perfTotal = addon.hasPerf and addon:_PerfStart() or nil
-		UI.Widgets.Call("LootHints", "ApplyLootFrameReserveHints")
+		UI.Widgets.CallFunction("LootHints", "ApplyLootFrameReserveHints")
 		if canHandleLootWindow() then
 			module._PendingCounter:Confirm(clearedSlot, "LOOT_SLOT_CLEARED")
 			if canAutoManageLootFrame() then
@@ -3827,7 +3830,7 @@ do
 		if not RMATradeHandled then
 			local _, manualState = MasterService.Trade.ApplyAccept(playerAccepted, targetAccepted, isAddonDrivenTrade)
 			if manualState then
-				UI.Widgets.Call("TradeMenu", "RefreshDropdowns", manualState)
+				UI.Widgets.CallFunction("TradeMenu", "RefreshDropdowns", manualState)
 			end
 		end
 	end
@@ -3835,15 +3838,15 @@ do
 	function module:TRADE_SHOW()
 		cancelManualTradeCloseSettle()
 		MasterService.Trade.Reset(true, false)
-		UI.Widgets.Call("TradeMenu", "RefreshCandidate", "TRADE_SHOW")
+		UI.Widgets.CallFunction("TradeMenu", "RefreshCandidate", "TRADE_SHOW")
 	end
 
 	function module:TRADE_PLAYER_ITEM_CHANGED()
-		UI.Widgets.Call("TradeMenu", "RefreshCandidate", "TRADE_PLAYER_ITEM_CHANGED")
+		UI.Widgets.CallFunction("TradeMenu", "RefreshCandidate", "TRADE_PLAYER_ITEM_CHANGED")
 	end
 
 	function module:TRADE_TARGET_ITEM_CHANGED()
-		UI.Widgets.Call("TradeMenu", "RefreshCandidate", "TRADE_TARGET_ITEM_CHANGED")
+		UI.Widgets.CallFunction("TradeMenu", "RefreshCandidate", "TRADE_TARGET_ITEM_CHANGED")
 	end
 
 	-- TRADE_CLOSED: trade window closed (completed or canceled)
@@ -3856,7 +3859,7 @@ do
 	function module:TRADE_REQUEST_CANCEL()
 		cancelManualTradeCloseSettle()
 		MasterService.Trade.Reset(true, false)
-		UI.Widgets.Call("TradeMenu", "HideDropdowns")
+		UI.Widgets.CallFunction("TradeMenu", "HideDropdowns")
 		handleTradeClosedOrCancelled()
 	end
 
@@ -4117,7 +4120,7 @@ do
 
 		Private.BeginTradeItemState = function(itemLink, playerName, rollType, rollValue, isAwardRoll)
 			MasterService.Trade.Reset(true, false)
-			UI.Widgets.Call("TradeMenu", "HideDropdowns")
+			UI.Widgets.CallFunction("TradeMenu", "HideDropdowns")
 			Rolls:EnsureLootRollSession(
 				itemLink,
 				rollType,
@@ -4421,7 +4424,7 @@ do
 
 	-- Keep Master UI in sync when SoftRes data changes (import/clear), event-driven.
 	RegisterCallback(MasterEvents.ReservesDataChanged, function()
-		UI.Widgets.Call("LootHints", "ApplyLootFrameReserveHints")
+		UI.Widgets.CallFunction("LootHints", "ApplyLootFrameReserveHints")
 		requestCoalescedUiRefresh("reserves")
 	end)
 

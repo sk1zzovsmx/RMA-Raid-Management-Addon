@@ -15,7 +15,7 @@ local UI = feature.UI
 local UIWidgets = assert(UI.Widgets, "Slash widget facade is not initialized")
 local IsWidgetEnabled = assert(UIWidgets.IsEnabled, "Slash widget enabled resolver is not initialized")
 local IsWidgetRegistered = assert(UIWidgets.IsRegistered, "Slash widget registration resolver is not initialized")
-local CallWidget = assert(UIWidgets.Call, "Slash widget dispatcher is not initialized")
+local CallWidgetMethod = assert(UIWidgets.CallMethod, "Slash widget method dispatcher is not initialized")
 local Colors = feature.Colors
 local Strings = feature.Strings
 local Database = feature.Database
@@ -351,7 +351,7 @@ local function callWidgetMethod(widgetId, methodName, ...)
 		return nil
 	end
 
-	return CallWidget(widgetId, methodName, ...)
+	return CallWidgetMethod(widgetId, methodName, ...)
 end
 
 local function registerAliases(list, fn)

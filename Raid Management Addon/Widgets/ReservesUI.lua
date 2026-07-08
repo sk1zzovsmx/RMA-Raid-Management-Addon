@@ -1125,7 +1125,7 @@ do
 
 		if refs.importButton then
 			Frames.SetScriptSafely(refs.importButton, "OnClick", function()
-				UIWidgets.Call("Reserves", "ToggleImport")
+				UIWidgets.CallMethod("Reserves", "ToggleImport")
 			end)
 			if isDebugEnabled() then
 				addon:debug(Diag.D.LogReservesBindButton:format("ImportButton", "ToggleImport"))

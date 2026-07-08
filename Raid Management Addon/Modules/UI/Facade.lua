@@ -20,21 +20,6 @@ UI.Widgets = Widgets
 -- ----- Internal state ----- --
 Widgets._registry = Widgets._registry or {}
 
-local SELF_METHODS = {
-	ApplyMasterLootPreset = true,
-	AttachToMaster = true,
-	Default = true,
-	EnsureUI = true,
-	HideImport = true,
-	RequestLoggerMaintenance = true,
-	RequestLoggerSyncPanelAction = true,
-	RequestRaidWarningPanelAction = true,
-	RequestSpammerPanelAction = true,
-	Show = true,
-	Toggle = true,
-	ToggleImport = true,
-}
-
 -- ----- Private helpers ----- --
 local function isWidgetEnabled(widgetId)
 	if type(Features) ~= "table" then
@@ -81,7 +66,7 @@ function Widgets.Register(widgetId, apiTable)
 	return true
 end
 
-function Widgets.Call(widgetId, methodName, ...)
+local function getWidgetFunction(widgetId, methodName)
 	if not Widgets.IsEnabled(widgetId) then
 		return nil
 	end
@@ -93,8 +78,21 @@ function Widgets.Call(widgetId, methodName, ...)
 	if type(fn) ~= "function" then
 		return nil
 	end
-	if SELF_METHODS[methodName] == true then
-		return fn(api, ...)
+	return fn, api
+end
+
+function Widgets.CallMethod(widgetId, methodName, ...)
+	local fn, api = getWidgetFunction(widgetId, methodName)
+	if not fn then
+		return nil
+	end
+	return fn(api, ...)
+end
+
+function Widgets.CallFunction(widgetId, methodName, ...)
+	local fn = getWidgetFunction(widgetId, methodName)
+	if not fn then
+		return nil
 	end
 	return fn(...)
 end
