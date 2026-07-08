@@ -49,6 +49,7 @@ local Rolls = assert(Services.Rolls, "Master rolls service is not initialized")
 local Chat = assert(Services.Chat, "Master chat service is not initialized")
 local MasterService = assert(Services.Master, "Master service namespace is not initialized")
 local RollUiService = assert(MasterService.RollUi, "Master roll UI service is not initialized")
+local MultiAwardService = assert(MasterService.MultiAward, "Master multi-award service is not initialized")
 
 local InternalEvents = assert(Events.Internal, "Master controller internal events are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Master controller event publisher is not initialized")
@@ -409,6 +410,7 @@ do
 			addon:warn(Diag.W.ErrMLMultiSelectTooMany:format(maxSel))
 		end,
 	})
+	local multiAwardController
 
 	local function invalidateRollUiModel()
 		return rollUiController:Invalidate()
@@ -1218,140 +1220,6 @@ do
 	-- ============================================================================
 	-- Multi-award helpers
 	-- ============================================================================
-	local function collectMultiAwardNames(ma)
-		local names = {}
-		if not ma then
-			return names
-		end
-		local total = ma.total or (ma.winners and #ma.winners) or 0
-		for i = 1, total do
-			local winner = ma.winners and ma.winners[i]
-			if winner and winner.name then
-				names[#names + 1] = winner.name
-			end
-		end
-		return names
-	end
-
-	local function announceMultiAwardCompletion(ma)
-		if not (ma and ma.announceOnWin and not ma.congratsSent) then
-			return
-		end
-		local names = collectMultiAwardNames(ma)
-		if #names <= 0 then
-			return
-		end
-		if #names == 1 then
-			Announce(Chat, L.ChatAward:format(names[1], ma.itemLink))
-		else
-			Announce(Chat, L.ChatAwardMutiple:format(table.concat(names, ", "), ma.itemLink))
-		end
-		ma.congratsSent = true
-	end
-
-	local function cancelMultiAwardTimeout(ma)
-		if ma and ma.timeoutHandle then
-			module:CancelTimer(ma.timeoutHandle)
-			ma.timeoutHandle = nil
-		end
-	end
-
-	local function cancelMultiAwardDelay(ma)
-		if ma and ma.delayHandle then
-			module:CancelTimer(ma.delayHandle)
-			ma.delayHandle = nil
-		end
-		if ma then
-			ma.scheduled = false
-		end
-	end
-
-	local function armMultiAwardProgressTimeout(ma)
-		if not (ma and ma.active and not lootState.fromInventory) then
-			return
-		end
-		local timeout = tonumber(ML_MULTI_AWARD_TIMEOUT_SECONDS) or 0
-		ma.waitingForDecrement = true
-		if timeout <= 0 then
-			return
-		end
-
-		cancelMultiAwardTimeout(ma)
-		local expectedLessThan = tonumber(ma.lastCount) or 0
-		ma.timeoutHandle = module:ScheduleTimer(function()
-			local cur = lootState.multiAward
-			if cur ~= ma or not (cur and cur.active and cur.waitingForDecrement and not lootState.fromInventory) then
-				return
-			end
-			local observed = Loot:GetLootWindowItemCountByKey(cur.itemKey)
-			addon:warn(
-				Diag.W.ErrMLMultiAwardInterruptedTimeout:format(
-					timeout,
-					tostring(cur.itemLink),
-					expectedLessThan,
-					observed,
-					tostring(cur.lastClearedSlot or "?")
-				)
-			)
-			clearMultiAwardState(true)
-			module:RequestRefresh()
-		end, timeout)
-	end
-
-	clearMultiAwardState = function(resetItemCount)
-		local ma = lootState.multiAward
-		if ma then
-			ma.waitingForDecrement = false
-			cancelMultiAwardTimeout(ma)
-			cancelMultiAwardDelay(ma)
-		end
-		lootState.multiAward = nil
-		module._announced = false
-		if resetItemCount then
-			Private.ResetItemCount()
-		end
-	end
-
-	local function finalizeMultiAwardIfDone()
-		local ma = lootState.multiAward
-		if not ma then
-			return false
-		end
-		local total = ma.total or (ma.winners and #ma.winners) or 0
-		local pos = tonumber(ma.pos) or 1
-		if pos <= total then
-			return false
-		end
-		announceMultiAwardCompletion(ma)
-		clearMultiAwardState(true)
-		return true
-	end
-
-	local function buildMultiAwardWinners(target)
-		local selCount = rollUiController:GetSelectedCount()
-		local rollModel
-		local picked
-
-		if selCount > 0 then
-			rollModel = buildRollUiModel(true)
-			picked = rollUiController:GetSelectedWinnersOrdered(rollModel and rollModel.rows or nil)
-		end
-
-		local plan = LootAwardPlanner.BuildMultiAwardWinnersPlan({
-			target = target,
-			selectedCount = selCount,
-			pickedWinners = picked,
-		})
-		if plan and plan.clearSelection then
-			rollUiController:ClearAnchor()
-		end
-		if plan and plan.errType then
-			return nil, plan.errType, plan.wantedCount, plan.pickedCount
-		end
-
-		return plan and plan.winners
-	end
-
 	local function validateInventoryTradeUiSelection(target)
 		local selCount = rollUiController:GetSelectedCount()
 		local rollModel
@@ -1370,38 +1238,6 @@ do
 		return plan and plan.ok == true, plan and plan.errType, plan and plan.wantedCount, plan and plan.pickedCount
 	end
 
-	local function startMultiAwardSequence(itemLink, available, winners)
-		setItemCountValue(#winners, false)
-		local candidateSlots, candidateSlotMap = LootInventory.BuildMultiAwardSlotCandidates(itemLink)
-		local timeout = tonumber(ML_MULTI_AWARD_TIMEOUT_SECONDS) or 0
-
-		local plan = LootAwardPlanner.BuildMultiAwardState({
-			itemLink = itemLink,
-			available = available,
-			rollType = lootState.currentRollType,
-			winners = winners,
-			slotCandidates = candidateSlots,
-			slotCandidateMap = candidateSlotMap,
-			announceOnWin = GetOption("Master", "announceOnWin") == true,
-		})
-		lootState.multiAward = plan and plan.state or nil
-		if addon.hasDebug then
-			addon:debug(
-				Diag.D.LogMLMultiAwardStarted:format(
-					tostring(itemLink),
-					#winners,
-					available,
-					tconcat(candidateSlots, ","),
-					timeout
-				)
-			)
-		end
-
-		-- Suppress per-copy ChatAward spam during multi-award; announce once on completion.
-		module._announced = true
-		return assignItem(itemLink, winners[1].name, lootState.currentRollType, winners[1].roll)
-	end
-
 	local function computeTargetAndAvailability()
 		local plan = LootAwardPlanner.BuildAwardTargetPlan({
 			selectedItemCount = lootState.selectedItemCount,
@@ -1409,130 +1245,6 @@ do
 			rollsCount = lootState.rollsCount,
 		})
 		return plan.target, plan.available
-	end
-
-	local function tryAwardMultipleCopies(itemLink, target, available)
-		local winners, errType, wantedCount, pickedCount = buildMultiAwardWinners(target)
-		if errType == "empty_selection" then
-			addon:warn(L.ErrNoWinnerSelected)
-			Private.ResetItemCount()
-			return false
-		end
-		if errType == "not_enough_selection" then
-			addon:warn(Diag.W.ErrMLMultiSelectNotEnough:format(wantedCount or 0, pickedCount or 0))
-			Private.ResetItemCount()
-			return false
-		end
-		if errType == "empty_winners" or #winners <= 0 then
-			addon:warn(L.ErrNoWinnerSelected)
-			Private.ResetItemCount()
-			return false
-		end
-
-		local result = startMultiAwardSequence(itemLink, available, winners)
-		if result then
-			registerAwardedItem(1)
-			local done = finalizeMultiAwardIfDone()
-			if not done and lootState.multiAward and lootState.multiAward.active then
-				armMultiAwardProgressTimeout(lootState.multiAward)
-			end
-			module:RequestRefresh()
-			return true
-		end
-
-		clearMultiAwardState(true)
-		module:RequestRefresh()
-		return false
-	end
-
-	local function tryAwardSingleCopy(itemLink, winnerName)
-		local selectedWinner = winnerName or lootState.winner
-		local result =
-			assignItem(itemLink, selectedWinner, lootState.currentRollType, Rolls:GetHighestRoll(selectedWinner))
-		if result then
-			registerAwardedItem(1)
-		end
-		resetItemCountAndRefresh()
-		return result
-	end
-
-	local function continueMultiAwardOnLootSlotCleared(clearedSlot)
-		local ma = lootState.multiAward
-		if not (ma and ma.active and not lootState.fromInventory) then
-			return
-		end
-		local slot = tonumber(clearedSlot)
-		if slot then
-			ma.lastClearedSlot = slot
-		end
-
-		-- Prevent double-scheduling if the loot window fires multiple clear events quickly.
-		if ma.scheduled then
-			return
-		end
-
-		-- Gate: proceed only when the number of copies for this itemKey has decreased since last award.
-		local currentCount = Loot:GetLootWindowItemCountByKey(ma.itemKey)
-		if ma.lastCount and currentCount >= ma.lastCount then
-			return
-		end
-
-		ma.waitingForDecrement = false
-		cancelMultiAwardTimeout(ma)
-		local refreshedSlots, refreshedSlotMap = LootInventory.BuildMultiAwardSlotCandidates(ma.itemLink)
-		ma.slotCandidates = refreshedSlots
-		ma.slotCandidateMap = refreshedSlotMap
-		ma.lastCount = currentCount
-		local idx = tonumber(ma.pos) or 1
-		local entry = ma.winners and ma.winners[idx]
-		if not entry then
-			clearMultiAwardState(true)
-			module:RequestRefresh()
-			return
-		end
-
-		ma.scheduled = true
-		local delay = tonumber(C.ML_MULTI_AWARD_DELAY) or 0
-		if delay < 0 then
-			delay = 0
-		end
-
-		ma.delayHandle = module:ScheduleTimer(function()
-			local ma2 = lootState.multiAward
-			if not (ma2 and ma2.active and ma2.scheduled and not lootState.fromInventory) then
-				return
-			end
-			ma2.delayHandle = nil
-			ma2.scheduled = false
-
-			local idx2 = tonumber(ma2.pos) or 1
-			local e2 = ma2.winners and ma2.winners[idx2]
-			if not e2 then
-				clearMultiAwardState(true)
-				module:RequestRefresh()
-				return
-			end
-
-			-- Suppress per-copy ChatAward spam during multi-award; announce once on completion.
-			module._announced = true
-			ma2.currentWinner = e2.name
-			lootState.currentRollType = ma2.rollType
-			module:RequestRefresh()
-
-			local ok = assignItem(ma2.itemLink, e2.name, ma2.rollType, e2.roll)
-			if ok then
-				registerAwardedItem(1)
-				ma2.pos = idx2 + 1
-				local done = finalizeMultiAwardIfDone()
-				if not done and lootState.multiAward and lootState.multiAward.active then
-					armMultiAwardProgressTimeout(lootState.multiAward)
-				end
-				module:RequestRefresh()
-			else
-				clearMultiAwardState(true)
-				module:RequestRefresh()
-			end
-		end, delay)
 	end
 
 	-- ============================================================================
@@ -1637,17 +1349,14 @@ do
 			return result
 		end
 
-		local target, available = module._awardFlow.computeTargetAndAvailability()
+		local target, available = computeTargetAndAvailability()
 		if available > 1 then
-			return module._awardFlow.tryMultipleCopies(itemLink, target, available)
+			return multiAwardController:TryMultipleCopies(itemLink, target, available)
 		end
 
-		return module._awardFlow.trySingleCopy(itemLink, winnerName)
+		return multiAwardController:TrySingleCopy(itemLink, winnerName)
 	end
 
-	module._awardFlow.computeTargetAndAvailability = computeTargetAndAvailability
-	module._awardFlow.tryMultipleCopies = tryAwardMultipleCopies
-	module._awardFlow.trySingleCopy = tryAwardSingleCopy
 	module._awardFlow.handleRequest = handleAwardRequest
 
 	local function resetTradeState()
@@ -1726,6 +1435,57 @@ do
 			return true
 		end
 		return false
+	end
+
+	multiAwardController = MultiAwardService.CreateController({
+		awardPlanner = LootAwardPlanner,
+		inventory = LootInventory,
+		lootState = lootState,
+		rollUi = rollUiController,
+		scheduleTimer = function(callback, delay)
+			return module:ScheduleTimer(callback, delay)
+		end,
+		cancelTimer = function(handle)
+			return module:CancelTimer(handle)
+		end,
+		announce = function(message, channel)
+			return Announce(Chat, message, channel)
+		end,
+		debug = addon.hasDebug and function(message)
+			return addon:debug(message)
+		end or nil,
+		warn = addon.hasWarn and function(message)
+			return addon:warn(message)
+		end or nil,
+		registerAwardedItem = registerAwardedItem,
+		refresh = function()
+			return module:RequestRefresh()
+		end,
+		resetTradeState = resetTradeState,
+		assignItem = function(itemLink, playerName, rollType, rollValue)
+			return assignItem(itemLink, playerName, rollType, rollValue)
+		end,
+		setAnnounced = function(value)
+			module._announced = value == true
+		end,
+		setItemCountValue = setItemCountValue,
+		resetItemCount = function()
+			return Private.ResetItemCount()
+		end,
+		getLootWindowItemCountByKey = function(itemKey)
+			return Loot:GetLootWindowItemCountByKey(itemKey)
+		end,
+		L = L,
+		Diag = Diag,
+		getAnnounceOnWin = function()
+			return GetOption("Master", "announceOnWin") == true
+		end,
+		multiAwardTimeoutSeconds = ML_MULTI_AWARD_TIMEOUT_SECONDS,
+		multiAwardDelaySeconds = C.ML_MULTI_AWARD_DELAY,
+	})
+
+	clearMultiAwardState = function(resetItemCount)
+		return multiAwardController:Clear(resetItemCount)
 	end
 
 	local function setCurrentItemView(itemName, itemLink, itemTexture, itemColor)
@@ -3439,7 +3199,7 @@ do
 					Raid:NotifyLootWindowCleared()
 				end
 				-- Continue a multi-award sequence (loot window only).
-				continueMultiAwardOnLootSlotCleared(clearedSlot)
+				return multiAwardController:ContinueOnLootSlotCleared(clearedSlot)
 			end
 			if perfTotal then
 				addon:_PerfFinish(
@@ -4212,6 +3972,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Services/Master/ButtonState",
 			"Services/Master/RollRows",
 			"Services/Master/RollUi",
+			"Services/Master/MultiAward",
 			"Services/Master/AssignmentCandidates",
 			"Services/Master/AssignmentTargets",
 			"Services/Master/DebugRaidGrid",

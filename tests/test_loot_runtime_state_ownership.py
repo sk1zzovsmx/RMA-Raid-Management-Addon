@@ -18,6 +18,7 @@ TOC = ADDON / "Raid Management Addon.toc"
 ROLLS_SERVICE = ADDON / "Services" / "Rolls" / "Service.lua"
 MASTER_TRADE = ADDON / "Services" / "Master" / "Trade.lua"
 MASTER_FLOW_STATE = ADDON / "Services" / "Master" / "FlowState.lua"
+MASTER_MULTI_AWARD = ADDON / "Services" / "Master" / "MultiAward.lua"
 MASTER_CONTROLLER = ADDON / "Controllers" / "Master.lua"
 
 
@@ -165,19 +166,24 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
 
     def test_master_controller_reads_multi_award_count_from_loot_owner_without_private_bridge(self):
         master_controller = read(MASTER_CONTROLLER)
+        multi_award = read(MASTER_MULTI_AWARD)
 
         self.assertNotIn("local function getCurrentMultiAwardCount", master_controller)
         self.assertNotIn("getCurrentMultiAwardCount(", master_controller)
-        self.assertIn("Loot:GetLootWindowItemCountByKey(cur.itemKey)", master_controller)
-        self.assertIn("Loot:GetLootWindowItemCountByKey(ma.itemKey)", master_controller)
+        self.assertIn("getLootWindowItemCountByKey = function(itemKey)", master_controller)
+        self.assertIn("return Loot:GetLootWindowItemCountByKey(itemKey)", master_controller)
+        self.assertIn("local observed = controller.getLootWindowItemCountByKey(cur.itemKey)", multi_award)
+        self.assertIn("local currentCount = self.getLootWindowItemCountByKey(ma.itemKey)", multi_award)
 
     def test_master_controller_reads_multi_award_slot_candidates_from_inventory_owner_without_private_bridge(self):
         master_controller = read(MASTER_CONTROLLER)
+        multi_award = read(MASTER_MULTI_AWARD)
 
         self.assertNotIn("local function buildMultiAwardSlotCandidates", master_controller)
         self.assertNotIn("buildMultiAwardSlotCandidates(", master_controller)
-        self.assertIn("LootInventory.BuildMultiAwardSlotCandidates(itemLink)", master_controller)
-        self.assertIn("LootInventory.BuildMultiAwardSlotCandidates(ma.itemLink)", master_controller)
+        self.assertIn("inventory = LootInventory", master_controller)
+        self.assertIn("self.inventory.BuildMultiAwardSlotCandidates(itemLink)", multi_award)
+        self.assertIn("self.inventory.BuildMultiAwardSlotCandidates(ma.itemLink)", multi_award)
 
     def test_loot_passive_group_loot_uses_loot_runtime_state_owner(self):
         passive_group_loot = read(LOOT_PASSIVE_GROUP_LOOT)

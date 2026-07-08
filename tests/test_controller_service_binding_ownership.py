@@ -8,6 +8,7 @@ WARNINGS = ADDON / "Controllers" / "Warnings.lua"
 SPAMMER = ADDON / "Controllers" / "Spammer.lua"
 MASTER = ADDON / "Controllers" / "Master.lua"
 LOGGER = ADDON / "Controllers" / "Logger.lua"
+MASTER_MULTI_AWARD = ADDON / "Services" / "Master" / "MultiAward.lua"
 
 
 def read(path):
@@ -171,11 +172,12 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
 
     def test_master_controller_binds_chat_service_without_local_api_table(self):
         master = read(MASTER)
+        multi_award = read(MASTER_MULTI_AWARD)
 
         self.assertIn('local Chat = assert(Services.Chat, "Master chat service is not initialized")', master)
         self.assertIn('local Announce = requireServiceMethod("Chat", Chat, "Announce")', master)
-        self.assertIn("Announce(Chat, L.ChatAward:format(names[1], ma.itemLink))", master)
         self.assertIn('Announce(Chat, plan.header, "RAID")', master)
+        self.assertIn("controller.announce(controller.L.ChatAward:format(names[1], ma.itemLink))", multi_award)
         self.assertNotIn("local Chat = Services.Chat", master)
         self.assertNotIn("local ChatApi = {", master)
         self.assertNotIn("ChatApi.", master)
@@ -217,6 +219,31 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
         self.assertNotIn("Rolls and Rolls.GetRollSession", master)
         self.assertNotIn("Rolls and Rolls.GetDisplayModel", master)
         self.assertNotIn("Rolls and Rolls.BeginTieReroll", master)
+
+    def test_master_controller_binds_multi_award_service_without_local_helpers(self):
+        master = read(MASTER)
+
+        self.assertIn(
+            'local MultiAwardService = assert(MasterService.MultiAward, "Master multi-award service is not initialized")',
+            master,
+        )
+        self.assertNotIn("local MultiAwardService = MasterService.MultiAward", master)
+        self.assertNotIn("local function collectMultiAwardNames", master)
+        self.assertNotIn("local function announceMultiAwardCompletion", master)
+        self.assertNotIn("local function armMultiAwardProgressTimeout", master)
+        self.assertNotIn("local function buildMultiAwardWinners", master)
+        self.assertNotIn("local function startMultiAwardSequence", master)
+        self.assertNotIn("local function continueMultiAwardOnLootSlotCleared", master)
+        self.assertIn("multiAwardController = MultiAwardService.CreateController({", master)
+        self.assertIn("awardPlanner = LootAwardPlanner", master)
+        self.assertIn("inventory = LootInventory", master)
+        self.assertIn("lootState = lootState", master)
+        self.assertIn("rollUi = rollUiController", master)
+        self.assertIn("registerAwardedItem = registerAwardedItem", master)
+        self.assertIn("resetTradeState = resetTradeState", master)
+        self.assertIn("return multiAwardController:TryMultipleCopies(itemLink, target, available)", master)
+        self.assertIn("return multiAwardController:TrySingleCopy(itemLink, winnerName)", master)
+        self.assertIn("return multiAwardController:ContinueOnLootSlotCleared(clearedSlot)", master)
 
     def test_spammer_controller_reads_chat_runtime_state_without_private_facade(self):
         spammer = read(SPAMMER)
