@@ -17,7 +17,6 @@ local CreateListController = assert(Lists.CreateController, "Master roll list co
 local CreateRowRenderer = assert(Lists.CreateRowRenderer, "Master roll row renderer factory is not initialized")
 local MakeIndexedRowName = assert(Lists.MakeIndexedRowName, "Master indexed row-name factory is not initialized")
 local GetFrameRef = assert(Frames.GetRef, "Master frame ref resolver is not initialized")
-local GetNamedParts = assert(Frames.GetNamedParts, "Master named frame-parts resolver is not initialized")
 local SetScriptSafely = assert(Frames.SetScriptSafely, "Master frame script binder is not initialized")
 local BindModuleFrame = assert(Frames.BindModuleFrame, "Master module frame binder is not initialized")
 local MakeModuleFrameGetter =
@@ -51,6 +50,7 @@ local MasterService = assert(Services.Master, "Master service namespace is not i
 local RollUiService = assert(MasterService.RollUi, "Master roll UI service is not initialized")
 local MultiAwardService = assert(MasterService.MultiAward, "Master multi-award service is not initialized")
 local TradeExecutionService = assert(MasterService.TradeExecution, "Master trade execution service is not initialized")
+local ItemSelectionService = assert(MasterService.ItemSelection, "Master item selection service is not initialized")
 
 local InternalEvents = assert(Events.Internal, "Master controller internal events are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Master controller event publisher is not initialized")
@@ -200,8 +200,7 @@ do
 	module._dropDownDirty = true
 	module._dropDownsInitialized = false
 
-	local updateSelectionFrame
-	module._selectionButtons = module._selectionButtons or {}
+	module._itemSelectionState = module._itemSelectionState or { buttons = {} }
 
 	module._lastUIState = module._lastUIState
 		or {
@@ -431,6 +430,8 @@ do
 		end,
 	})
 	local multiAwardController
+	local tradeExecutionController
+	local itemSelectionController
 
 	local function invalidateRollUiModel()
 		return rollUiController:Invalidate()
@@ -470,21 +471,12 @@ do
 		itemBtn:RegisterForClicks("AnyUp")
 		itemBtn:RegisterForDrag("LeftButton")
 
-		-- Blizz-like gesture support:
-		-- - Click while holding an item on the cursor
-		-- - Drag&drop (release) an item onto the button
-		local function tryAcceptFromCursor()
-			if CursorHasItem and CursorHasItem() then
-				Private.TryAcceptInventoryItemFromCursor()
-			end
-		end
-
 		SetScriptSafely(itemBtn, "OnClick", function()
-			tryAcceptFromCursor()
+			itemSelectionController:TryAcceptFromCursor()
 		end)
 
 		SetScriptSafely(itemBtn, "OnReceiveDrag", function()
-			tryAcceptFromCursor()
+			itemSelectionController:TryAcceptFromCursor()
 		end)
 	end
 
@@ -1505,7 +1497,7 @@ do
 		multiAwardTimeoutSeconds = ML_MULTI_AWARD_TIMEOUT_SECONDS,
 		multiAwardDelaySeconds = C.ML_MULTI_AWARD_DELAY,
 	})
-	local tradeExecutionController = TradeExecutionService.CreateController({
+	tradeExecutionController = TradeExecutionService.CreateController({
 		trade = MasterService.Trade,
 		inventory = LootInventory,
 		awardPlanner = LootAwardPlanner,
@@ -1557,6 +1549,69 @@ do
 		error = function(message)
 			return addon:error(message)
 		end,
+	})
+	itemSelectionController = ItemSelectionService.CreateController({
+		state = module._itemSelectionState,
+		createFrame = CreateFrame,
+		getFrame = getFrame,
+		getFrameName = getFrameName,
+		getNamedParts = Frames.GetNamedParts,
+		setScriptSafely = SetScriptSafely,
+		getSelectItemButton = function()
+			return getNamedPart("SelectItemBtn")
+		end,
+		clearItemCountInput = function()
+			local itemCountBox = getNamedPart("ItemCount")
+			if itemCountBox then
+				UI.EditBoxes.Reset(itemCountBox, true)
+			end
+		end,
+		getLootItem = function(index)
+			return Loot.GetItem(index)
+		end,
+		getLootItemName = function(index)
+			return Loot.GetItemName(index)
+		end,
+		getLootItemTexture = function(index)
+			return Loot.GetItemTexture(index)
+		end,
+		addLootItem = function(itemLink, count)
+			return Loot:AddItem(itemLink, count)
+		end,
+		prepareLootItem = function()
+			return Loot:PrepareItem()
+		end,
+		inventory = LootInventory,
+		lootState = lootState,
+		itemInfo = itemInfo,
+		isCountdownRunning = isCountdownRunning,
+		onSelectLootItem = function(index)
+			module._announced = false
+			Loot:SelectItem(index)
+			resetItemCountAndRefresh()
+		end,
+		onInventoryItemApplied = function(focus)
+			return resetItemCountAndRefresh(focus)
+		end,
+		setAnnounced = function(value)
+			module._announced = value == true
+		end,
+		L = L,
+		wow = {
+			ClearCursor = assert(_G.ClearCursor, "Master item selection clear-cursor API is not initialized"),
+			CursorHasItem = assert(_G.CursorHasItem, "Master item selection cursor-item API is not initialized"),
+			GetCursorInfo = assert(_G.GetCursorInfo, "Master item selection cursor-info API is not initialized"),
+			GetContainerItemLink = assert(
+				_G.GetContainerItemLink,
+				"Master item selection container-item-link API is not initialized"
+			),
+		},
+		debug = addon.hasDebug and function(message)
+			return addon:debug(message)
+		end or nil,
+		warn = addon.hasWarn and function(message)
+			return addon:warn(message)
+		end or nil,
 	})
 
 	clearMultiAwardState = function(resetItemCount)
@@ -1653,9 +1708,7 @@ do
 		uiState.FrameName = BindModuleFrame(module, frame, {
 			enableDrag = true,
 			hookOnHide = function()
-				if module._selectionFrame then
-					module._selectionFrame:Hide()
-				end
+				itemSelectionController:HideFrame()
 			end,
 		}) or uiState.FrameName
 		if not uiState.FrameName then
@@ -1720,14 +1773,13 @@ do
 			itemInfo.isStack = nil
 			itemInfo.bagID = nil
 			itemInfo.slotID = nil
+			itemSelectionController:Reset()
 			if lootState.opened == true then
 				Loot:FetchLoot()
 			end
 		else
-			updateSelectionFrame()
-			if module._selectionFrame then
-				Primitives.Toggle(module._selectionFrame)
-			end
+			itemSelectionController:UpdateFrame()
+			itemSelectionController:ToggleFrame()
 		end
 		module:RequestRefresh()
 	end
@@ -1973,20 +2025,6 @@ do
 	-- Button: Disenchant item
 	Private.BtnDisenchant = function(_btn, _button)
 		return assignToTarget(rollTypes.DISENCHANT, "disenchanter")
-	end
-
-	-- Selects an item from the item selection frame.
-	Private.BtnSelectedItem = function(btn, _button)
-		if not btn then
-			return
-		end
-		local index = btn:GetID()
-		if index ~= nil then
-			module._announced = false
-			module._selectionFrame:Hide()
-			Loot:SelectItem(index)
-			resetItemCountAndRefresh()
-		end
 	end
 
 	-- Localizes UI frame elements.
@@ -2852,197 +2890,7 @@ do
 		end
 	end
 
-	local function getSelectionButtonRefs(btn)
-		return GetNamedParts(btn, {
-			name = "Name",
-			icon = "Icon",
-		})
-	end
-
-	local function anchorSelectionFrame()
-		if not module._selectionFrame then
-			return
-		end
-		local selectItemBtn = getNamedPart("SelectItemBtn")
-		if not selectItemBtn then
-			return
-		end
-		if module._selectionFrame.ClearAllPoints then
-			module._selectionFrame:ClearAllPoints()
-		end
-		if module._selectionFrame.SetPoint then
-			module._selectionFrame:SetPoint("TOPLEFT", selectItemBtn, "BOTTOMLEFT", 0, -3)
-		end
-	end
-
-	local function ensureSelectionButton(index)
-		local frameName = getFrameName()
-		if not frameName then
-			return nil
-		end
-		local btn = module._selectionButtons[index]
-		if btn then
-			return btn
-		end
-
-		local btnName = frameName .. "ItemSelectionBtn" .. index
-		btn = CreateFrame("Button", btnName, module._selectionFrame, "RMAItemSelectionButton")
-		btn:SetID(index)
-		if btn.RegisterForClicks then
-			btn:RegisterForClicks("AnyUp")
-		end
-		SetScriptSafely(btn, "OnClick", function(self, button)
-			Private.BtnSelectedItem(self, button)
-		end)
-		module._selectionButtons[index] = btn
-		return btn
-	end
-
-	local function createSelectionFrame()
-		if module._selectionFrame == nil then
-			local frame = getFrame()
-			if not frame then
-				return
-			end
-			local frameName = getFrameName()
-			local selectionName = frameName and (frameName .. "ItemSelectionFrame") or nil
-			module._selectionFrame = CreateFrame("Frame", selectionName, frame, "RMAItemSelectionFrame")
-			module._selectionFrame:Hide()
-		end
-		anchorSelectionFrame()
-		for i = 1, #module._selectionButtons do
-			local btn = module._selectionButtons[i]
-			if btn then
-				btn:Hide()
-			end
-		end
-	end
-
-	-- Updates the item selection frame with the current loot items.
-	function updateSelectionFrame()
-		createSelectionFrame()
-		if not module._selectionFrame then
-			return
-		end
-
-		local height = 5
-		for i = 1, lootState.lootCount do
-			local btn = ensureSelectionButton(i)
-			if btn then
-				local ui = getSelectionButtonRefs(btn)
-				btn:Show()
-				local itemName = Loot.GetItemName(i)
-				local itemNameBtn = ui and ui.name or nil
-				local item = Loot.GetItem(i)
-				local count = item and item.count or 1
-				if itemNameBtn then
-					if count and count > 1 then
-						itemNameBtn:SetText(itemName .. " x" .. count)
-					else
-						itemNameBtn:SetText(itemName)
-					end
-				end
-				local itemTexture = Loot.GetItemTexture(i)
-				local itemTextureBtn = ui and ui.icon or nil
-				if itemTextureBtn then
-					itemTextureBtn:SetTexture(itemTexture)
-				end
-				btn:SetPoint("TOPLEFT", module._selectionFrame, "TOPLEFT", 0, -height)
-				height = height + 37
-			end
-		end
-		for i = lootState.lootCount + 1, #module._selectionButtons do
-			local btn = module._selectionButtons[i]
-			if btn then
-				btn:Hide()
-			end
-		end
-		module._selectionFrame:SetHeight(height)
-		if lootState.lootCount <= 0 then
-			module._selectionFrame:Hide()
-		end
-	end
-
 	-- ----- Event Handlers & Callbacks ----- --
-
-	-- ============================================================================
-	-- Inventory / cursor helpers
-	-- ============================================================================
-	local function applyInventoryItem(itemLink, totalCount, inBag, inSlot, slotCount)
-		if isCountdownRunning() then
-			return false
-		end
-		if not itemLink then
-			return false
-		end
-		local itemCount = tonumber(totalCount) or 1
-		if itemCount < 1 then
-			itemCount = 1
-		end
-
-		-- Clear count:
-		local itemCountBox = getNamedPart("ItemCount")
-		if itemCountBox then
-			UI.EditBoxes.Reset(itemCountBox, true)
-		end
-
-		lootState.fromInventory = true
-		Loot:AddItem(itemLink, itemCount)
-		Loot:PrepareItem()
-		module._announced = false
-
-		itemInfo.bagID = inBag
-		itemInfo.slotID = inSlot
-		itemInfo.count = itemCount
-		itemInfo.isStack = (tonumber(slotCount) or 1) > 1
-
-		ClearCursor()
-		resetItemCountAndRefresh(true)
-		return true
-	end
-
-	-- Accept an item currently held on the cursor (bag click-pickup).
-	-- This is triggered by ItemBtn's OnClick.
-	Private.TryAcceptInventoryItemFromCursor = function()
-		if isCountdownRunning() then
-			return false
-		end
-		if not CursorHasItem or not CursorHasItem() then
-			return false
-		end
-
-		local infoType, itemId, itemLink = GetCursorInfo()
-		if infoType ~= "item" then
-			return false
-		end
-
-		local totalCount, bag, slot, slotCount, hasMatch = LootInventory.FindTradeableInventoryMatch(itemLink, itemId)
-		if not totalCount or totalCount < 1 then
-			local itemRef = tostring(itemLink or itemId or "unknown")
-			if hasMatch then
-				addon:warn(L.ErrMLInventorySoulbound:format(itemRef))
-				if addon.hasDebug then
-					addon:debug(Diag.D.LogMLInventorySoulbound:format(itemRef))
-				end
-			else
-				addon:warn(L.ErrMLInventoryItemMissing:format(itemRef))
-			end
-			ClearCursor()
-			return true
-		end
-
-		if not itemLink and bag and slot then
-			itemLink = GetContainerItemLink(bag, slot)
-		end
-		if not itemLink then
-			addon:warn(L.ErrMLInventoryItemMissing:format(tostring(itemLink or itemId or "unknown")))
-			ClearCursor()
-			return true
-		end
-
-		return applyInventoryItem(itemLink, totalCount, bag, slot, slotCount)
-	end
-
 	-- ============================================================================
 	-- Loot window helpers / event flow
 	-- ============================================================================
@@ -3165,7 +3013,7 @@ do
 			end
 			perfStep = addon.hasPerf and addon:_PerfStart() or nil
 			if canAutoManageLootFrame() then
-				updateSelectionFrame()
+				itemSelectionController:UpdateFrame()
 			end
 			if perfStep then
 				addon:_PerfFinish(
@@ -3260,7 +3108,7 @@ do
 					end
 				end
 				perfStep = addon.hasPerf and addon:_PerfStart() or nil
-				updateSelectionFrame()
+				itemSelectionController:UpdateFrame()
 				if perfStep then
 					addon:_PerfFinish(
 						"Master.LOOT_SLOT_CLEARED SelectionFrame",
@@ -3640,6 +3488,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Services/Master/AwardCounter",
 			"Services/Master/Trade",
 			"Services/Master/TradeExecution",
+			"Services/Master/ItemSelection",
 		},
 	})
 	registry.SetLoaded("Controllers/Master")

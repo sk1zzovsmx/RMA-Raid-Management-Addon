@@ -20,6 +20,7 @@ LOOT_COUNTER = ADDON / "Widgets" / "LootCounter.lua"
 RESERVES_UI = ADDON / "Widgets" / "ReservesUI.lua"
 CONFIG = ADDON / "Widgets" / "Config.lua"
 TRADE_MENU = ADDON / "Widgets" / "TradeMenu.lua"
+ITEM_SELECTION = ADDON / "Services" / "Master" / "ItemSelection.lua"
 
 
 def read(path):
@@ -133,13 +134,15 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
 
     def test_master_controller_depends_on_wotlk_create_frame_api_without_fallback_binding(self):
         master = read(MASTER)
+        item_selection = read(ITEM_SELECTION)
 
         self.assertIn("local CreateFrame = assert(", master)
         self.assertIn("_G.CreateFrame", master)
         self.assertIn('"Master controller frame creation API is not initialized"', master)
         self.assertIn('row = CreateFrame("Button", btnName, parent, "RMASelectPlayerTemplate")', master)
-        self.assertIn('btn = CreateFrame("Button", btnName, module._selectionFrame, "RMAItemSelectionButton")', master)
-        self.assertIn('module._selectionFrame = CreateFrame("Frame", selectionName, frame, "RMAItemSelectionFrame")', master)
+        self.assertIn("createFrame = CreateFrame", master)
+        self.assertIn('controller.createFrame("Button", btnName, state.frame, "RMAItemSelectionButton")', item_selection)
+        self.assertIn('controller.createFrame("Frame", selectionName, frame, "RMAItemSelectionFrame")', item_selection)
         self.assertNotIn("local createFrame = _G.CreateFrame", master)
         self.assertNotIn('type(createFrame) == "function"', master)
 
@@ -713,11 +716,10 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
 
     def test_master_frame_bindings_use_local_shared_frame_owner_bindings(self):
         master = read(MASTER)
+        item_selection = read(ITEM_SELECTION)
 
         self.assertIn("local GetFrameRef = assert(Frames.GetRef", master)
         self.assertIn('"Master frame ref resolver is not initialized"', master)
-        self.assertIn("local GetNamedParts = assert(Frames.GetNamedParts", master)
-        self.assertIn('"Master named frame-parts resolver is not initialized"', master)
         self.assertIn("local SetScriptSafely = assert(Frames.SetScriptSafely", master)
         self.assertIn('"Master frame script binder is not initialized"', master)
         self.assertIn("local BindModuleFrame = assert(Frames.BindModuleFrame", master)
@@ -729,12 +731,12 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertIn('"Master frame title binder is not initialized"', master)
         self.assertIn('local getFrame = MakeModuleFrameGetter(module, "RMAMaster")', master)
         self.assertIn('configBtn = GetFrameRef(frame, "ConfigBtn")', master)
-        self.assertIn("return GetNamedParts(btn, {", master)
+        self.assertIn("getNamedParts = Frames.GetNamedParts", master)
+        self.assertIn("return controller.getNamedParts(button, {", item_selection)
         self.assertIn('SetScriptSafely(itemBtn, "OnClick"', master)
         self.assertIn("uiState.FrameName = BindModuleFrame(module, frame, {", master)
         self.assertIn("SetFrameTitle(frameName, L.StrLootMaster)", master)
         self.assertNotIn("UI.Frames.GetRef", master)
-        self.assertNotIn("UI.Frames.GetNamedParts", master)
         self.assertNotIn("UI.Frames.SetScriptSafely", master)
         self.assertNotIn("UI.Frames.BindModuleFrame", master)
         self.assertNotIn("UI.Frames.SetFrameTitle", master)

@@ -7,6 +7,7 @@ MASTER_SERVICES = ROOT / "Raid Management Addon" / "Services" / "Master"
 MASTER_SERVICE = MASTER_SERVICES / "Service.lua"
 MASTER_ROLL_UI = MASTER_SERVICES / "RollUi.lua"
 MASTER_MULTI_AWARD = MASTER_SERVICES / "MultiAward.lua"
+MASTER_ITEM_SELECTION = MASTER_SERVICES / "ItemSelection.lua"
 MASTER_TRADE_EXECUTION = MASTER_SERVICES / "TradeExecution.lua"
 MASTER_CONTROLLER = ROOT / "Raid Management Addon" / "Controllers" / "Master.lua"
 MASTER_TOC = ROOT / "Raid Management Addon" / "Raid Management Addon.toc"
@@ -227,6 +228,41 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertLess(toc.index("Services\\Master\\Trade.lua"), toc.index("Services\\Master\\TradeExecution.lua"))
         self.assertLess(toc.index("Services\\Master\\TradeExecution.lua"), toc.index("Controllers\\Master.lua"))
 
+    def test_master_controller_delegates_item_selection_owner(self):
+        controller = read(MASTER_CONTROLLER)
+        item_selection = read_optional(MASTER_ITEM_SELECTION)
+        toc = read(MASTER_TOC)
+
+        self.assertNotIn("local function getSelectionButtonRefs", controller)
+        self.assertNotIn("local function anchorSelectionFrame", controller)
+        self.assertNotIn("local function ensureSelectionButton", controller)
+        self.assertNotIn("local function createSelectionFrame", controller)
+        self.assertNotIn("function updateSelectionFrame()", controller)
+        self.assertNotIn("Private.TryAcceptInventoryItemFromCursor = function", controller)
+
+        self.assertIn(
+            'local ItemSelectionService = assert(MasterService.ItemSelection, "Master item selection service is not initialized")',
+            controller,
+        )
+        self.assertIn("itemSelectionController = ItemSelectionService.CreateController({", controller)
+        self.assertIn("itemSelectionController:TryAcceptFromCursor()", controller)
+        self.assertIn("itemSelectionController:UpdateFrame()", controller)
+        self.assertIn("itemSelectionController:HideFrame()", controller)
+        self.assertIn("itemSelectionController:Reset()", controller)
+
+        self.assertIn("function ItemSelection.CreateController(opts)", item_selection)
+        self.assertIn("function controller:ApplyInventoryItem(itemLink, totalCount, bag, slot, slotCount)", item_selection)
+        self.assertIn("function controller:TryAcceptFromCursor()", item_selection)
+        self.assertIn("function controller:UpdateFrame()", item_selection)
+        self.assertIn("function controller:HideFrame()", item_selection)
+        self.assertIn("function controller:Reset()", item_selection)
+        self.assertIn('"RMAItemSelectionFrame"', item_selection)
+        self.assertIn('"RMAItemSelectionButton"', item_selection)
+
+        self.assertLess(toc.index("Services\\Master\\TradeExecution.lua"), toc.index("Services\\Master\\ItemSelection.lua"))
+        self.assertLess(toc.index("Services\\Master\\ItemSelection.lua"), toc.index("Widgets\\RaidGrid.lua"))
+        self.assertLess(toc.index("Services\\Master\\ItemSelection.lua"), toc.index("Controllers\\Master.lua"))
+
     def test_master_controller_uses_message_plan_owners_without_service_passthroughs(self):
         service = read_optional(MASTER_SERVICE)
         controller = read(MASTER_CONTROLLER)
@@ -353,6 +389,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
             "Services/Master/AwardCounter",
             "Services/Master/Trade",
             "Services/Master/TradeExecution",
+            "Services/Master/ItemSelection",
         )
 
         for dep in required_deps:

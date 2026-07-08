@@ -127,6 +127,7 @@ Services\Master\AwardCounter.lua
 Services\Master\RollAnnouncements.lua
 Services\Master\Trade.lua
 Services\Master\TradeExecution.lua
+Services\Master\ItemSelection.lua
 Widgets\RaidGrid.lua
 Widgets\TradeMenu.lua
 UI\Master.xml
