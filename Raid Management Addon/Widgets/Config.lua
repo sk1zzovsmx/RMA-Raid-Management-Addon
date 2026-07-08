@@ -1761,6 +1761,8 @@ do
 	end
 
 	UIWidgets.Register("Config", module)
+	UIWidgets.RegisterMethod("Config", "Toggle", module.Toggle)
+	UIWidgets.RegisterMethod("Config", "Default", module.Default)
 
 	RegisterCallback(OptionsLoadedEvent, function()
 		registerInterfaceOptionsPanel()

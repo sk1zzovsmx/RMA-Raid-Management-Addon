@@ -321,4 +321,7 @@ do
 	module.EnsureLootFrameHooks()
 
 	UIWidgets.Register("LootHints", module)
+	UIWidgets.RegisterFunction("LootHints", "ApplyLootFrameReserveHints", module.ApplyLootFrameReserveHints)
+	UIWidgets.RegisterFunction("LootHints", "ClearLootFrameReserveHints", module.ClearLootFrameReserveHints)
+	UIWidgets.RegisterFunction("LootHints", "EnsureLootFrameHooks", module.EnsureLootFrameHooks)
 end

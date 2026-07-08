@@ -1620,6 +1620,8 @@ do
 	end
 
 	UIWidgets.Register("Reserves", module)
+	UIWidgets.RegisterMethod("Reserves", "Toggle", module.Toggle)
+	UIWidgets.RegisterMethod("Reserves", "ToggleImport", module.ToggleImport)
 
 	RegisterCallback(ReservesDataChangedEvent, function()
 		module:RequestRefresh()

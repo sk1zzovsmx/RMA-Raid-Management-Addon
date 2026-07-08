@@ -478,4 +478,7 @@ end
 
 if UIWidgets.IsEnabled("TradeMenu") ~= false then
 	UIWidgets.Register("TradeMenu", module)
+	UIWidgets.RegisterFunction("TradeMenu", "HideDropdowns", module.HideDropdowns)
+	UIWidgets.RegisterFunction("TradeMenu", "RefreshDropdowns", module.RefreshDropdowns)
+	UIWidgets.RegisterFunction("TradeMenu", "RefreshCandidate", module.RefreshCandidate)
 end

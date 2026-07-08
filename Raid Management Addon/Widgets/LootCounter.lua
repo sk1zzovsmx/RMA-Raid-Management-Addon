@@ -795,4 +795,6 @@ do
 	RegisterCallback(RaidCreateEvent, requestRefresh)
 
 	UIWidgets.Register("LootCounter", module)
+	UIWidgets.RegisterMethod("LootCounter", "Toggle", module.Toggle)
+	UIWidgets.RegisterMethod("LootCounter", "AttachToMaster", module.AttachToMaster)
 end

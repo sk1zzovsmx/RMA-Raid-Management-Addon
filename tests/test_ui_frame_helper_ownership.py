@@ -307,6 +307,9 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
 
         self.assertIn("local UIWidgets = UI.Widgets", trade_menu)
         self.assertIn('UIWidgets.Register("TradeMenu", module)', trade_menu)
+        self.assertIn('UIWidgets.RegisterFunction("TradeMenu", "HideDropdowns", module.HideDropdowns)', trade_menu)
+        self.assertIn('UIWidgets.RegisterFunction("TradeMenu", "RefreshDropdowns", module.RefreshDropdowns)', trade_menu)
+        self.assertIn('UIWidgets.RegisterFunction("TradeMenu", "RefreshCandidate", module.RefreshCandidate)', trade_menu)
         self.assertIn('UIWidgets.IsEnabled("TradeMenu")', trade_menu)
         self.assertNotIn("UI and UI.Widgets or nil", trade_menu)
         self.assertNotIn("if UIWidgets and UIWidgets.IsEnabled then", trade_menu)
@@ -321,6 +324,18 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertIn("local UIWidgets = UI.Widgets", loot_hints)
         self.assertIn('if not UIWidgets.IsEnabled("LootHints") then', loot_hints)
         self.assertIn('UIWidgets.Register("LootHints", module)', loot_hints)
+        self.assertIn(
+            'UIWidgets.RegisterFunction("LootHints", "ApplyLootFrameReserveHints", module.ApplyLootFrameReserveHints)',
+            loot_hints,
+        )
+        self.assertIn(
+            'UIWidgets.RegisterFunction("LootHints", "ClearLootFrameReserveHints", module.ClearLootFrameReserveHints)',
+            loot_hints,
+        )
+        self.assertIn(
+            'UIWidgets.RegisterFunction("LootHints", "EnsureLootFrameHooks", module.EnsureLootFrameHooks)',
+            loot_hints,
+        )
         self.assertNotIn("UIWidgets and UIWidgets.IsEnabled", loot_hints)
         self.assertNotIn("UIWidgets and UIWidgets.Register", loot_hints)
 
@@ -333,6 +348,10 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertIn("local UIWidgets = UI.Widgets", raid_grid)
         self.assertIn('if not UIWidgets.IsEnabled("RaidGrid") then', raid_grid)
         self.assertIn('UIWidgets.Register("RaidGrid", module)', raid_grid)
+        self.assertIn('UIWidgets.RegisterFunction("RaidGrid", "ShowPicker", module.ShowPicker)', raid_grid)
+        self.assertIn('UIWidgets.RegisterFunction("RaidGrid", "Hide", module.Hide)', raid_grid)
+        self.assertIn('UIWidgets.RegisterFunction("RaidGrid", "IsShown", module.IsShown)', raid_grid)
+        self.assertIn('UIWidgets.RegisterFunction("RaidGrid", "GetMode", module.GetMode)', raid_grid)
         self.assertNotIn("UIWidgets and UIWidgets.IsEnabled", raid_grid)
         self.assertNotIn("UIWidgets and UIWidgets.Register", raid_grid)
 
@@ -420,9 +439,14 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
     def test_widget_facade_separates_method_and_function_calls(self):
         facade = read(ADDON / "Modules" / "UI" / "Facade.lua")
 
-        self.assertIn("local function getWidgetFunction(widgetId, methodName)", facade)
+        self.assertIn("local function registerCallable(widgetId, methodName, fn, style)", facade)
+        self.assertIn("local function getWidgetFunction(widgetId, methodName, style)", facade)
+        self.assertIn("function Widgets.RegisterMethod(widgetId, methodName, fn)", facade)
+        self.assertIn("function Widgets.RegisterFunction(widgetId, methodName, fn)", facade)
         self.assertIn("function Widgets.CallMethod(widgetId, methodName, ...)", facade)
         self.assertIn("function Widgets.CallFunction(widgetId, methodName, ...)", facade)
+        self.assertIn('local fn, api = getWidgetFunction(widgetId, methodName, "method")', facade)
+        self.assertIn('local fn = getWidgetFunction(widgetId, methodName, "function")', facade)
         self.assertIn("return fn(api, ...)", facade)
         self.assertIn("return fn(...)", facade)
         self.assertNotIn("function Widgets.Call(", facade)
@@ -828,15 +852,21 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
 
         self.assertIn("function module:AttachToMaster(masterFrame)", loot_counter)
         self.assertIn('UIWidgets.Register("LootCounter", module)', loot_counter)
+        self.assertIn('UIWidgets.RegisterMethod("LootCounter", "Toggle", module.Toggle)', loot_counter)
+        self.assertIn('UIWidgets.RegisterMethod("LootCounter", "AttachToMaster", module.AttachToMaster)', loot_counter)
         self.assertNotIn('UIWidgets.Register("LootCounter", {', loot_counter)
 
         self.assertIn("function module:Default()", config)
         self.assertIn('UIWidgets.Register("Config", module)', config)
+        self.assertIn('UIWidgets.RegisterMethod("Config", "Toggle", module.Toggle)', config)
+        self.assertIn('UIWidgets.RegisterMethod("Config", "Default", module.Default)', config)
         self.assertNotIn('UIWidgets.Register("Config", {', config)
 
         self.assertIn("function module:ToggleImport()", reserves_ui)
         self.assertIn("function module:HideImport()", reserves_ui)
         self.assertIn('UIWidgets.Register("Reserves", module)', reserves_ui)
+        self.assertIn('UIWidgets.RegisterMethod("Reserves", "Toggle", module.Toggle)', reserves_ui)
+        self.assertIn('UIWidgets.RegisterMethod("Reserves", "ToggleImport", module.ToggleImport)', reserves_ui)
         self.assertNotIn('UIWidgets.Register("Reserves", {', reserves_ui)
 
     def test_warnings_owns_its_list_panel_binding_without_single_use_scaffold(self):

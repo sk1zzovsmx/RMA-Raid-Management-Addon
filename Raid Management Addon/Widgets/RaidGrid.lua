@@ -507,4 +507,8 @@ do
 	RegisterCallback(SpecInspectUpdatedEvent, requestSpecRefresh)
 
 	UIWidgets.Register("RaidGrid", module)
+	UIWidgets.RegisterFunction("RaidGrid", "ShowPicker", module.ShowPicker)
+	UIWidgets.RegisterFunction("RaidGrid", "Hide", module.Hide)
+	UIWidgets.RegisterFunction("RaidGrid", "IsShown", module.IsShown)
+	UIWidgets.RegisterFunction("RaidGrid", "GetMode", module.GetMode)
 end
