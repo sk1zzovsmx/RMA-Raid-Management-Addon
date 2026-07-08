@@ -170,10 +170,10 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
 
         self.assertNotIn("local function getCurrentMultiAwardCount", master_controller)
         self.assertNotIn("getCurrentMultiAwardCount(", master_controller)
-        self.assertIn("getLootWindowItemCountByKey = function(itemKey)", master_controller)
-        self.assertIn("return Loot:GetLootWindowItemCountByKey(itemKey)", master_controller)
-        self.assertIn("local observed = controller.getLootWindowItemCountByKey(cur.itemKey)", multi_award)
-        self.assertIn("local currentCount = self.getLootWindowItemCountByKey(ma.itemKey)", multi_award)
+        self.assertNotIn("getLootWindowItemCountByKey = function(itemKey)", master_controller)
+        self.assertIn('local Loot = assert(Services.Loot, "Master multi-award loot service is not initialized")', multi_award)
+        self.assertIn("local observed = Loot:GetLootWindowItemCountByKey(cur.itemKey)", multi_award)
+        self.assertIn("local currentCount = Loot:GetLootWindowItemCountByKey(ma.itemKey)", multi_award)
 
     def test_master_controller_reads_multi_award_slot_candidates_from_inventory_owner_without_private_bridge(self):
         master_controller = read(MASTER_CONTROLLER)

@@ -1461,22 +1461,19 @@ do
 		refresh = function()
 			return module:RequestRefresh()
 		end,
-		resetTradeState = resetTradeState,
-		assignItem = function(itemLink, playerName, rollType, rollValue)
-			return assignItem(itemLink, playerName, rollType, rollValue)
-		end,
-		setAnnounced = function(value)
-			module._announced = value == true
-		end,
-		setItemCountValue = setItemCountValue,
-		resetItemCount = function()
-			return Private.ResetItemCount()
-		end,
-		getLootWindowItemCountByKey = function(itemKey)
-			return Loot:GetLootWindowItemCountByKey(itemKey)
-		end,
-		L = L,
-		Diag = Diag,
+		awardExecutor = {
+			Assign = function(_, itemLink, playerName, rollType, rollValue)
+				return assignItem(itemLink, playerName, rollType, rollValue)
+			end,
+		},
+		itemCount = {
+			Set = function(_, count, focus)
+				return setItemCountValue(count, focus)
+			end,
+			Reset = function(_, focus)
+				return Private.ResetItemCount(focus)
+			end,
+		},
 		getAnnounceOnWin = function()
 			return GetOption("Master", "announceOnWin") == true
 		end,
@@ -3423,7 +3420,10 @@ do
 			end
 			local output, whisper = buildAssignMessages(itemLink, playerName, rollType)
 
-			if output and not module._announced then
+			local suppressAwardAnnouncement = lootState.multiAward
+				and lootState.multiAward.active
+				and not lootState.fromInventory
+			if output and not module._announced and not suppressAwardAnnouncement then
 				Announce(Chat, output)
 				module._announced = true
 			end

@@ -8,9 +8,14 @@ local addon = select(2, ...)
 local feature = addon.Database.GetFeatureShared()
 
 local Master = feature.EnsureServiceNamespace("Master")
+local Services = feature.Services
 
 local MultiAward = Master.MultiAward or {}
 Master.MultiAward = MultiAward
+
+local Loot = assert(Services.Loot, "Master multi-award loot service is not initialized")
+local L = feature.L
+local Diag = feature.Diag
 
 local tonumber = tonumber
 local tostring = tostring
@@ -90,9 +95,9 @@ local function announceCompletion(controller, ma)
 
 	if type(controller.announce) == "function" then
 		if #names == 1 then
-			controller.announce(controller.L.ChatAward:format(names[1], ma.itemLink))
+			controller.announce(L.ChatAward:format(names[1], ma.itemLink))
 		else
-			controller.announce(controller.L.ChatAwardMutiple:format(tconcat(names, ", "), ma.itemLink))
+			controller.announce(L.ChatAwardMutiple:format(tconcat(names, ", "), ma.itemLink))
 		end
 	end
 	ma.congratsSent = true
@@ -120,10 +125,10 @@ local function armProgressTimeout(controller, ma)
 			return
 		end
 
-		local observed = controller.getLootWindowItemCountByKey(cur.itemKey)
+		local observed = Loot:GetLootWindowItemCountByKey(cur.itemKey)
 		if type(controller.warn) == "function" then
 			controller.warn(
-				controller.Diag.W.ErrMLMultiAwardInterruptedTimeout:format(
+				Diag.W.ErrMLMultiAwardInterruptedTimeout:format(
 					timeout,
 					tostring(cur.itemLink),
 					expectedLessThan,
@@ -156,17 +161,8 @@ function MultiAward.CreateController(opts)
 			"Master MultiAward awarded-item recorder is not initialized"
 		),
 		refresh = opts.refresh,
-		resetTradeState = opts.resetTradeState,
-		assignItem = assert(opts.assignItem, "Master MultiAward item assigner is not initialized"),
-		setAnnounced = assert(opts.setAnnounced, "Master MultiAward announcement state writer is not initialized"),
-		setItemCountValue = assert(opts.setItemCountValue, "Master MultiAward item-count setter is not initialized"),
-		resetItemCount = assert(opts.resetItemCount, "Master MultiAward item-count resetter is not initialized"),
-		getLootWindowItemCountByKey = assert(
-			opts.getLootWindowItemCountByKey,
-			"Master MultiAward loot-count resolver is not initialized"
-		),
-		L = assert(opts.L, "Master MultiAward localization table is not initialized"),
-		Diag = assert(opts.Diag, "Master MultiAward diagnostics table is not initialized"),
+		awardExecutor = assert(opts.awardExecutor, "Master MultiAward award executor is not initialized"),
+		itemCount = assert(opts.itemCount, "Master MultiAward item-count owner is not initialized"),
 		getAnnounceOnWin = opts.getAnnounceOnWin,
 		multiAwardTimeoutSeconds = opts.multiAwardTimeoutSeconds,
 		multiAwardDelaySeconds = opts.multiAwardDelaySeconds,
@@ -180,9 +176,8 @@ function MultiAward.CreateController(opts)
 			cancelDelay(self, ma)
 		end
 		self.lootState.multiAward = nil
-		self.setAnnounced(false)
 		if resetItemCount then
-			self.resetItemCount()
+			self.itemCount:Reset()
 		end
 	end
 
@@ -207,7 +202,7 @@ function MultiAward.CreateController(opts)
 			return false
 		end
 
-		self.setItemCountValue(#winners, false)
+		self.itemCount:Set(#winners, false)
 		local candidateSlots, candidateSlotMap = self.inventory.BuildMultiAwardSlotCandidates(itemLink)
 		local timeout = tonumber(self.multiAwardTimeoutSeconds) or 0
 		local plan = self.awardPlanner.BuildMultiAwardState({
@@ -223,7 +218,7 @@ function MultiAward.CreateController(opts)
 
 		if type(self.debug) == "function" then
 			self.debug(
-				self.Diag.D.LogMLMultiAwardStarted:format(
+				Diag.D.LogMLMultiAwardStarted:format(
 					tostring(itemLink),
 					#winners,
 					available,
@@ -233,8 +228,7 @@ function MultiAward.CreateController(opts)
 			)
 		end
 
-		self.setAnnounced(true)
-		return self.assignItem(itemLink, winners[1].name, self.lootState.currentRollType, winners[1].roll)
+		return self.awardExecutor:Assign(itemLink, winners[1].name, self.lootState.currentRollType, winners[1].roll)
 	end
 
 	function controller:FinalizeIfDone()
@@ -258,23 +252,23 @@ function MultiAward.CreateController(opts)
 		local winners, errType, wantedCount, pickedCount = self:BuildWinners(target)
 		if errType == "empty_selection" then
 			if type(self.warn) == "function" then
-				self.warn(self.L.ErrNoWinnerSelected)
+				self.warn(L.ErrNoWinnerSelected)
 			end
-			self.resetItemCount()
+			self.itemCount:Reset()
 			return false
 		end
 		if errType == "not_enough_selection" then
 			if type(self.warn) == "function" then
-				self.warn(self.Diag.W.ErrMLMultiSelectNotEnough:format(wantedCount or 0, pickedCount or 0))
+				self.warn(Diag.W.ErrMLMultiSelectNotEnough:format(wantedCount or 0, pickedCount or 0))
 			end
-			self.resetItemCount()
+			self.itemCount:Reset()
 			return false
 		end
 		if errType == "empty_winners" or type(winners) ~= "table" or #winners <= 0 then
 			if type(self.warn) == "function" then
-				self.warn(self.L.ErrNoWinnerSelected)
+				self.warn(L.ErrNoWinnerSelected)
 			end
-			self.resetItemCount()
+			self.itemCount:Reset()
 			return false
 		end
 
@@ -301,14 +295,14 @@ function MultiAward.CreateController(opts)
 	function controller:TrySingleCopy(itemLink, winnerName)
 		local selectedWinner = winnerName or self.lootState.winner
 		if not selectedWinner or selectedWinner == "" then
-			self.resetItemCount()
+			self.itemCount:Reset()
 			if type(self.refresh) == "function" then
 				self.refresh()
 			end
 			return false
 		end
 
-		local result = self.assignItem(
+		local result = self.awardExecutor:Assign(
 			itemLink,
 			selectedWinner,
 			self.lootState.currentRollType,
@@ -317,7 +311,7 @@ function MultiAward.CreateController(opts)
 		if result then
 			self.registerAwardedItem(1)
 		end
-		self.resetItemCount()
+		self.itemCount:Reset()
 		if type(self.refresh) == "function" then
 			self.refresh()
 		end
@@ -338,7 +332,7 @@ function MultiAward.CreateController(opts)
 			return false
 		end
 
-		local currentCount = self.getLootWindowItemCountByKey(ma.itemKey)
+		local currentCount = Loot:GetLootWindowItemCountByKey(ma.itemKey)
 		if ma.lastCount and currentCount >= ma.lastCount then
 			return false
 		end
@@ -385,14 +379,13 @@ function MultiAward.CreateController(opts)
 				return
 			end
 
-			self.setAnnounced(true)
 			ma2.currentWinner = e2.name
 			self.lootState.currentRollType = ma2.rollType
 			if type(self.refresh) == "function" then
 				self.refresh()
 			end
 
-			local ok = self.assignItem(ma2.itemLink, e2.name, ma2.rollType, e2.roll)
+			local ok = self.awardExecutor:Assign(ma2.itemLink, e2.name, ma2.rollType, e2.roll)
 			if ok then
 				self.registerAwardedItem(1)
 				ma2.pos = idx2 + 1
@@ -423,6 +416,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 		deps = {
 			"Init",
 			"Modules/ModuleRegistry",
+			"Services/Loot/Service",
 			"Services/Loot/AwardPlanner",
 			"Services/Loot/Inventory",
 			"Services/Master/RollUi",
