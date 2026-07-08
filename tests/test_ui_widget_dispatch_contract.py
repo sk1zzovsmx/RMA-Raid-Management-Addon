@@ -1,73 +1,90 @@
 from pathlib import Path
+import subprocess
+import textwrap
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-ADDON = ROOT / "Raid Management Addon"
+FACADE = ROOT / "Raid Management Addon" / "Modules" / "UI" / "Facade.lua"
 
 
-def read(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
+def run_lua(script: str) -> None:
+    subprocess.run(["lua.cmd", "-e", script], check=True, cwd=ROOT)
 
 
 class UiWidgetDispatchContractTests(unittest.TestCase):
-    def test_facade_exposes_explicit_registration_apis(self):
-        facade = read(ADDON / "Modules" / "UI" / "Facade.lua")
+    def test_method_and_function_dispatch_stay_separate(self):
+        script = textwrap.dedent(
+            f"""
+            local featureShared = {{
+                Features = {{}},
+                UI = {{}},
+                ModuleRegistry = nil,
+            }}
+            local addon = {{
+                Database = {{
+                    GetFeatureShared = function()
+                        return featureShared
+                    end,
+                }},
+            }}
 
-        self.assertIn("function Widgets.RegisterMethod(widgetId, methodName, fn)", facade)
-        self.assertIn('return registerCallable(widgetId, methodName, fn, "method")', facade)
-        self.assertIn("function Widgets.RegisterFunction(widgetId, methodName, fn)", facade)
-        self.assertIn('return registerCallable(widgetId, methodName, fn, "function")', facade)
-        self.assertNotIn("METHOD_STYLE_WHITELIST", facade)
-        self.assertNotIn("methodStyleWhitelist", facade)
+            local chunk = assert(loadfile("{str(FACADE).replace("\\", "\\\\")}"))
+            chunk("Raid Management Addon", addon)
 
-    def test_widget_modules_classify_registered_dispatch_callables(self):
-        config = read(ADDON / "Widgets" / "Config.lua")
-        loot_counter = read(ADDON / "Widgets" / "LootCounter.lua")
-        loot_hints = read(ADDON / "Widgets" / "LootHints.lua")
-        raid_grid = read(ADDON / "Widgets" / "RaidGrid.lua")
-        reserves_ui = read(ADDON / "Widgets" / "ReservesUI.lua")
-        trade_menu = read(ADDON / "Widgets" / "TradeMenu.lua")
+            local Widgets = assert(addon.UI and addon.UI.Widgets, "widget facade missing")
+            local widgetOwner = {{ owner = "widget-owner" }}
+            local methodCalls = 0
+            local functionCalls = 0
 
-        for line in (
-            'UIWidgets.RegisterMethod("Config", "Toggle", module.Toggle)',
-            'UIWidgets.RegisterMethod("Config", "Default", module.Default)',
-        ):
-            self.assertIn(line, config)
+            assert(Widgets.Register("DispatchSpec", widgetOwner) == true, "owner registration failed")
+            assert(
+                Widgets.RegisterMethod("DispatchSpec", "Ping", function(self, value)
+                    methodCalls = methodCalls + 1
+                    if self ~= widgetOwner then
+                        error("CallMethod did not pass the registered widget owner")
+                    end
+                    return self.owner .. ":" .. value
+                end) == true,
+                "method registration failed"
+            )
+            assert(
+                Widgets.RegisterFunction("DispatchSpec", "Pong", function(value)
+                    functionCalls = functionCalls + 1
+                    if value ~= "beta" then
+                        error("CallFunction unexpectedly passed method self")
+                    end
+                    return "function:" .. value
+                end) == true,
+                "function registration failed"
+            )
 
-        for line in (
-            'UIWidgets.RegisterMethod("LootCounter", "Toggle", module.Toggle)',
-            'UIWidgets.RegisterMethod("LootCounter", "AttachToMaster", module.AttachToMaster)',
-        ):
-            self.assertIn(line, loot_counter)
+            local methodResult = Widgets.CallMethod("DispatchSpec", "Ping", "alpha")
+            if methodResult ~= "widget-owner:alpha" then
+                error("unexpected method dispatch result: " .. tostring(methodResult))
+            end
 
-        for line in (
-            'UIWidgets.RegisterFunction("LootHints", "ApplyLootFrameReserveHints", module.ApplyLootFrameReserveHints)',
-            'UIWidgets.RegisterFunction("LootHints", "ClearLootFrameReserveHints", module.ClearLootFrameReserveHints)',
-            'UIWidgets.RegisterFunction("LootHints", "EnsureLootFrameHooks", module.EnsureLootFrameHooks)',
-        ):
-            self.assertIn(line, loot_hints)
+            local functionResult = Widgets.CallFunction("DispatchSpec", "Pong", "beta")
+            if functionResult ~= "function:beta" then
+                error("unexpected function dispatch result: " .. tostring(functionResult))
+            end
 
-        for line in (
-            'UIWidgets.RegisterFunction("RaidGrid", "ShowPicker", module.ShowPicker)',
-            'UIWidgets.RegisterFunction("RaidGrid", "Hide", module.Hide)',
-            'UIWidgets.RegisterFunction("RaidGrid", "IsShown", module.IsShown)',
-            'UIWidgets.RegisterFunction("RaidGrid", "GetMode", module.GetMode)',
-        ):
-            self.assertIn(line, raid_grid)
+            if Widgets.CallMethod("DispatchSpec", "Pong", "cross-method") ~= nil then
+                error("CallMethod fell back to a function registration")
+            end
+            if Widgets.CallFunction("DispatchSpec", "Ping", "cross-function") ~= nil then
+                error("CallFunction reached a method registration")
+            end
 
-        for line in (
-            'UIWidgets.RegisterMethod("Reserves", "Toggle", module.Toggle)',
-            'UIWidgets.RegisterMethod("Reserves", "ToggleImport", module.ToggleImport)',
-        ):
-            self.assertIn(line, reserves_ui)
-
-        for line in (
-            'UIWidgets.RegisterFunction("TradeMenu", "HideDropdowns", module.HideDropdowns)',
-            'UIWidgets.RegisterFunction("TradeMenu", "RefreshDropdowns", module.RefreshDropdowns)',
-            'UIWidgets.RegisterFunction("TradeMenu", "RefreshCandidate", module.RefreshCandidate)',
-        ):
-            self.assertIn(line, trade_menu)
+            if methodCalls ~= 1 then
+                error("method callable invoked " .. tostring(methodCalls) .. " times")
+            end
+            if functionCalls ~= 1 then
+                error("function callable invoked " .. tostring(functionCalls) .. " times")
+            end
+            """
+        )
+        run_lua(script)
 
 
 if __name__ == "__main__":
