@@ -149,6 +149,157 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
         )
         run_lua(script)
 
+    def test_start_sets_state_item_count_and_assigns_first_winner(self):
+        script = textwrap.dedent(
+            f"""
+            local addon = {{ Services = {{}} }}
+            local plannerArgs
+            local setCalls = {{}}
+            local assigned = {{}}
+            local debugs = {{}}
+            local shared = {{
+                EnsureServiceNamespace = function(name)
+                    addon.Services[name] = addon.Services[name] or {{}}
+                    return addon.Services[name]
+                end,
+                Services = {{
+                    Loot = {{
+                        GetLootWindowItemCountByKey = function()
+                            return 0
+                        end,
+                    }},
+                }},
+                L = {{
+                    ChatAward = "award %s %s",
+                    ChatAwardMutiple = "awards %s %s",
+                    ErrNoWinnerSelected = "no winner",
+                }},
+                Diag = {{
+                    W = {{
+                        ErrMLMultiSelectNotEnough = "need %d have %d",
+                        ErrMLMultiAwardInterruptedTimeout = "timeout %s %s %s %s %s",
+                    }},
+                    D = {{
+                        LogMLMultiAwardStarted = "start %s %s %s %s %s",
+                    }},
+                }},
+                ModuleRegistry = nil,
+            }}
+            addon.Database = {{
+                GetFeatureShared = function()
+                    return shared
+                end,
+            }}
+
+            local chunk = assert(loadfile("{str(MULTI_AWARD).replace("\\", "\\\\")}"))
+            chunk("Raid Management Addon", addon)
+
+            local lootState = {{ currentRollType = 3 }}
+            local controller = addon.Services.Master.MultiAward.CreateController({{
+                awardPlanner = {{
+                    BuildMultiAwardWinnersPlan = function()
+                        return {{ winners = {{}} }}
+                    end,
+                    BuildMultiAwardState = function(args)
+                        plannerArgs = args
+                        return {{
+                            state = {{
+                                active = true,
+                                itemLink = args.itemLink,
+                                itemKey = "key:1",
+                                winners = args.winners,
+                                total = #args.winners,
+                                pos = 2,
+                                rollType = args.rollType,
+                                lastCount = args.available,
+                                announceOnWin = args.announceOnWin,
+                            }},
+                        }}
+                    end,
+                }},
+                inventory = {{
+                    BuildMultiAwardSlotCandidates = function(itemLink)
+                        if itemLink ~= "|cffloot|Hitem:1|h[item]|h|r" then
+                            error("unexpected itemLink " .. tostring(itemLink))
+                        end
+                        return {{ 3, 4 }}, {{ [3] = true, [4] = true }}
+                    end,
+                }},
+                lootState = lootState,
+                rollUi = {{
+                    GetSelectedCount = function()
+                        return 0
+                    end,
+                }},
+                scheduleTimer = function()
+                    return {{}}
+                end,
+                cancelTimer = function()
+                end,
+                debug = function(message)
+                    debugs[#debugs + 1] = message
+                end,
+                registerAwardedItem = function()
+                end,
+                awardExecutor = {{
+                    Assign = function(_, itemLink, playerName, rollType, rollValue)
+                        assigned[#assigned + 1] = {{
+                            itemLink = itemLink,
+                            playerName = playerName,
+                            rollType = rollType,
+                            rollValue = rollValue,
+                        }}
+                        return true
+                    end,
+                }},
+                itemCount = {{
+                    Set = function(_, count, focus)
+                        setCalls[#setCalls + 1] = {{ count = count, focus = focus }}
+                    end,
+                    Reset = function()
+                    end,
+                }},
+                getAnnounceOnWin = function()
+                    return true
+                end,
+                multiAwardTimeoutSeconds = 7,
+            }})
+
+            local ok = controller:Start("|cffloot|Hitem:1|h[item]|h|r", 2, {{
+                {{ name = "Alpha", roll = 98 }},
+                {{ name = "Beta", roll = 77 }},
+            }})
+            if ok ~= true then
+                error("expected Start success")
+            end
+            if not plannerArgs then
+                error("expected planner args")
+            end
+            if plannerArgs.available ~= 2 or plannerArgs.rollType ~= 3 then
+                error("unexpected planner args")
+            end
+            if plannerArgs.announceOnWin ~= true then
+                error("expected announceOnWin true")
+            end
+            if #setCalls ~= 1 or setCalls[1].count ~= 2 or setCalls[1].focus ~= false then
+                error("expected itemCount:Set(2, false)")
+            end
+            if not (lootState.multiAward and lootState.multiAward.active) then
+                error("expected multiAward state")
+            end
+            if #assigned ~= 1 then
+                error("expected one assignment")
+            end
+            if assigned[1].playerName ~= "Alpha" or assigned[1].rollType ~= 3 or assigned[1].rollValue ~= 98 then
+                error("unexpected first assignment")
+            end
+            if debugs[1] ~= "start |cffloot|Hitem:1|h[item]|h|r 2 2 3,4 7" then
+                error("unexpected debug message " .. tostring(debugs[1]))
+            end
+        """
+        )
+        run_lua(script)
+
     def test_finalize_if_done_announces_and_clears_state(self):
         script = textwrap.dedent(
             f"""
@@ -263,6 +414,142 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
             end
             if announces[1] ~= "awards Alpha, Beta |cffloot|Hitem:1|h[item]|h|r" then
                 error("unexpected announcement " .. tostring(announces[1]))
+            end
+        """
+        )
+        run_lua(script)
+
+    def test_try_single_copy_uses_roll_ui_model_roll_and_resets(self):
+        script = textwrap.dedent(
+            f"""
+            local addon = {{ Services = {{}} }}
+            local assigned = {{}}
+            local resets = 0
+            local refreshes = 0
+            local registers = 0
+            local buildModelCalls = 0
+            local shared = {{
+                EnsureServiceNamespace = function(name)
+                    addon.Services[name] = addon.Services[name] or {{}}
+                    return addon.Services[name]
+                end,
+                Services = {{
+                    Loot = {{
+                        GetLootWindowItemCountByKey = function()
+                            return 0
+                        end,
+                    }},
+                }},
+                L = {{
+                    ChatAward = "award %s %s",
+                    ChatAwardMutiple = "awards %s %s",
+                    ErrNoWinnerSelected = "no winner",
+                }},
+                Diag = {{
+                    W = {{
+                        ErrMLMultiSelectNotEnough = "need %d have %d",
+                        ErrMLMultiAwardInterruptedTimeout = "timeout %s %s %s %s %s",
+                    }},
+                    D = {{
+                        LogMLMultiAwardStarted = "start %s %s %s %s %s",
+                    }},
+                }},
+                ModuleRegistry = nil,
+            }}
+            addon.Database = {{
+                GetFeatureShared = function()
+                    return shared
+                end,
+            }}
+
+            local chunk = assert(loadfile("{str(MULTI_AWARD).replace("\\", "\\\\")}"))
+            chunk("Raid Management Addon", addon)
+
+            local lootState = {{
+                currentRollType = 5,
+                winner = "Beta",
+            }}
+            local controller = addon.Services.Master.MultiAward.CreateController({{
+                awardPlanner = {{
+                    BuildMultiAwardWinnersPlan = function()
+                        return {{ winners = {{}} }}
+                    end,
+                    BuildMultiAwardState = function()
+                        return {{ state = {{}} }}
+                    end,
+                }},
+                inventory = {{
+                    BuildMultiAwardSlotCandidates = function()
+                        return {{}}, {{}}
+                    end,
+                }},
+                lootState = lootState,
+                rollUi = {{
+                    GetSelectedCount = function()
+                        return 0
+                    end,
+                    BuildModel = function()
+                        buildModelCalls = buildModelCalls + 1
+                        return {{
+                            rows = {{
+                                {{ name = "Alpha", roll = 12 }},
+                                {{ name = "Beta", roll = 77 }},
+                            }},
+                        }}
+                    end,
+                }},
+                scheduleTimer = function()
+                    return {{}}
+                end,
+                cancelTimer = function()
+                end,
+                registerAwardedItem = function(count)
+                    registers = registers + count
+                end,
+                refresh = function()
+                    refreshes = refreshes + 1
+                end,
+                awardExecutor = {{
+                    Assign = function(_, itemLink, playerName, rollType, rollValue)
+                        assigned[#assigned + 1] = {{
+                            itemLink = itemLink,
+                            playerName = playerName,
+                            rollType = rollType,
+                            rollValue = rollValue,
+                        }}
+                        return true
+                    end,
+                }},
+                itemCount = {{
+                    Set = function()
+                    end,
+                    Reset = function()
+                        resets = resets + 1
+                    end,
+                }},
+            }})
+
+            local ok = controller:TrySingleCopy("|cffloot|Hitem:2|h[other]|h|r")
+            if ok ~= true then
+                error("expected TrySingleCopy success")
+            end
+            if buildModelCalls ~= 1 then
+                error("expected BuildModel once, got " .. tostring(buildModelCalls))
+            end
+            if #assigned ~= 1 then
+                error("expected one assignment")
+            end
+            if assigned[1].playerName ~= "Beta" or assigned[1].rollType ~= 5 or assigned[1].rollValue ~= 77 then
+                error("unexpected single-award assignment")
+            end
+            if registers ~= 1 then
+                error("expected registerAwardedItem once")
+            end
+            if resets ~= 1 then
+                error("expected itemCount reset once")
+            end
+            if refreshes ~= 1 then
+                error("expected one refresh")
             end
         """
         )
