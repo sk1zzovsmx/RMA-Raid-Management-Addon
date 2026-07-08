@@ -103,3 +103,33 @@
 
 - `tools/check-rma.ps1` is still absent from this checkout, so that repo-local gate could not be run.
 - No live in-game trade smoke was run in this fix pass.
+
+---
+
+## Follow-up fix: remove Master tradeItem pass-through
+
+- Status: FIXED
+
+### Reviewer finding addressed
+
+- `Controllers/Master.lua` no longer defines a local `tradeItem` facade.
+- Trade call sites now call `tradeExecutionController:TradeItem(...)` directly.
+
+### Test hardening
+
+- `tests/test_master_service_namespace_ownership.py` now fails on both:
+  - `function tradeItem(itemLink, playerName, rollType, rollValue)`
+  - `tradeItem = function(itemLink, playerName, rollType, rollValue)`
+- The same test now asserts direct `tradeExecutionController:TradeItem(...)` controller call sites remain present.
+
+### Verification for follow-up fix
+
+- PASS `py -3 -m unittest tests.test_master_service_namespace_ownership`
+- PASS `py -3 -m unittest discover -s tests`
+- PASS `stylua --check "Raid Management Addon/Controllers/Master.lua"`
+- PASS `git diff --check`
+
+### Residual concerns
+
+- `tools/check-rma.ps1` was not run in this fix wave because the reviewer scope did not require it and the file is absent in this checkout per the prior Task 2 report.
+- No live in-game trade smoke was run in this fix pass.

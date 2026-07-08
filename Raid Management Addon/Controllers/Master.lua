@@ -220,7 +220,7 @@ do
 			buttons = true,
 		}
 
-	local assignItem, tradeItem, registerAwardedItem, clearMultiAwardState
+	local assignItem, registerAwardedItem, clearMultiAwardState
 	local updateRollSessionExpectedWinners
 	local Private = {}
 	module._awardFlow = module._awardFlow or {}
@@ -1364,7 +1364,12 @@ do
 					return false
 				end
 			end
-			local result = tradeItem(itemLink, winnerName, lootState.currentRollType, Rolls:GetHighestRoll(winnerName))
+			local result = tradeExecutionController:TradeItem(
+				itemLink,
+				winnerName,
+				lootState.currentRollType,
+				Rolls:GetHighestRoll(winnerName)
+			)
 			resetItemCountAndRefresh()
 			return result
 		end
@@ -1894,7 +1899,7 @@ do
 		local target = lootState[targetKey]
 		local ok
 		if lootState.fromInventory then
-			ok = tradeItem(itemLink, target, rollType, 0)
+			ok = tradeExecutionController:TradeItem(itemLink, target, rollType, 0)
 		else
 			ok = assignItem(itemLink, target, rollType, 0)
 		end
@@ -3453,15 +3458,6 @@ do
 		refreshCandidateUiState()
 		module:RequestRefresh()
 		return false
-	end
-
-	-- ============================================================================
-	-- Trade / inventory execution helpers
-	-- ============================================================================
-	do
-		tradeItem = function(itemLink, playerName, rollType, rollValue)
-			return tradeExecutionController:TradeItem(itemLink, playerName, rollType, rollValue)
-		end
 	end
 
 	-- ============================================================================

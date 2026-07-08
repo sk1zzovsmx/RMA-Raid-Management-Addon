@@ -178,6 +178,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertNotIn("Private.TryInitiateTrade = function", controller)
         self.assertNotIn("Private.BuildTradeUiNotificationPlan = function", controller)
         self.assertNotIn("function tradeItem(itemLink, playerName, rollType, rollValue)", controller)
+        self.assertNotIn("tradeItem = function(itemLink, playerName, rollType, rollValue)", controller)
         self.assertNotIn("Private.CompleteTraderKeepAward = function", controller)
         self.assertNotIn("Private.BeginTradeItemState = function", controller)
 
@@ -186,7 +187,11 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
             controller,
         )
         self.assertIn("tradeExecutionController = TradeExecutionService.CreateController({", controller)
-        self.assertIn("return tradeExecutionController:TradeItem(itemLink, playerName, rollType, rollValue)", controller)
+        self.assertIn(
+            "local result = tradeExecutionController:TradeItem(",
+            controller,
+        )
+        self.assertIn("ok = tradeExecutionController:TradeItem(itemLink, target, rollType, 0)", controller)
         self.assertIn("RMATradeHandled = tradeExecutionController:HandleAcceptedAwardTrade(playerAccepted, targetAccepted)", controller)
         self.assertNotIn("LootInventory.ResolveTradeAwardedCount()", trade_accept_update)
         self.assertNotIn("ensureTradeLootContext(", trade_accept_update)
