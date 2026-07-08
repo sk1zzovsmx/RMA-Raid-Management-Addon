@@ -20,7 +20,7 @@ LOOT_COUNTER = ADDON / "Widgets" / "LootCounter.lua"
 RESERVES_UI = ADDON / "Widgets" / "ReservesUI.lua"
 CONFIG = ADDON / "Widgets" / "Config.lua"
 TRADE_MENU = ADDON / "Widgets" / "TradeMenu.lua"
-ITEM_SELECTION = ADDON / "Services" / "Master" / "ItemSelection.lua"
+ITEM_SELECTION = ADDON / "Widgets" / "ItemSelection.lua"
 
 
 def read(path):

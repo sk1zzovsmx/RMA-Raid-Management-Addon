@@ -10,7 +10,7 @@ MASTER_MULTI_AWARD = MASTER_SERVICES / "MultiAward.lua"
 MASTER_ASSIGNMENT = MASTER_SERVICES / "Assignment.lua"
 MASTER_MESSAGES = MASTER_SERVICES / "Messages.lua"
 DEBUG_SERVICE = ROOT / "Raid Management Addon" / "Services" / "Debug.lua"
-MASTER_ITEM_SELECTION = MASTER_SERVICES / "ItemSelection.lua"
+ITEM_SELECTION_WIDGET = ROOT / "Raid Management Addon" / "Widgets" / "ItemSelection.lua"
 MASTER_TRADE_EXECUTION = MASTER_SERVICES / "TradeExecution.lua"
 MASTER_CONTROLLER = ROOT / "Raid Management Addon" / "Controllers" / "Master.lua"
 MASTER_TOC = ROOT / "Raid Management Addon" / "Raid Management Addon.toc"
@@ -231,9 +231,9 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertLess(toc.index("Services\\Master\\Trade.lua"), toc.index("Services\\Master\\TradeExecution.lua"))
         self.assertLess(toc.index("Services\\Master\\TradeExecution.lua"), toc.index("Controllers\\Master.lua"))
 
-    def test_master_controller_delegates_item_selection_owner(self):
+    def test_master_controller_uses_item_selection_widget_not_service(self):
         controller = read(MASTER_CONTROLLER)
-        item_selection = read_optional(MASTER_ITEM_SELECTION)
+        item_selection = read(ITEM_SELECTION_WIDGET)
         toc = read(MASTER_TOC)
 
         self.assertNotIn("local function getSelectionButtonRefs", controller)
@@ -244,10 +244,10 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertNotIn("Private.TryAcceptInventoryItemFromCursor = function", controller)
 
         self.assertIn(
-            'local ItemSelectionService = assert(MasterService.ItemSelection, "Master item selection service is not initialized")',
+            'local ItemSelectionWidget = assert(feature.Widgets.ItemSelection, "Master item selection widget is not initialized")',
             controller,
         )
-        self.assertIn("itemSelectionController = ItemSelectionService.CreateController({", controller)
+        self.assertIn("itemSelectionController = ItemSelectionWidget.CreateController({", controller)
         self.assertIn("itemSelectionController:TryAcceptFromCursor()", controller)
         self.assertIn("itemSelectionController:UpdateFrame()", controller)
         self.assertIn("itemSelectionController:HideFrame()", controller)
@@ -261,10 +261,13 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertIn("function controller:Reset()", item_selection)
         self.assertIn('"RMAItemSelectionFrame"', item_selection)
         self.assertIn('"RMAItemSelectionButton"', item_selection)
+        self.assertIn("Widgets.ItemSelection = ItemSelection", item_selection)
+        self.assertFalse((MASTER_SERVICES / "ItemSelection.lua").exists())
 
-        self.assertLess(toc.index("Services\\Master\\TradeExecution.lua"), toc.index("Services\\Master\\ItemSelection.lua"))
-        self.assertLess(toc.index("Services\\Master\\ItemSelection.lua"), toc.index("Widgets\\RaidGrid.lua"))
-        self.assertLess(toc.index("Services\\Master\\ItemSelection.lua"), toc.index("Controllers\\Master.lua"))
+        self.assertNotIn("Services\\Master\\ItemSelection.lua", toc)
+        self.assertLess(toc.index("Services\\Master\\TradeExecution.lua"), toc.index("Widgets\\ItemSelection.lua"))
+        self.assertLess(toc.index("Widgets\\ItemSelection.lua"), toc.index("Widgets\\RaidGrid.lua"))
+        self.assertLess(toc.index("Widgets\\ItemSelection.lua"), toc.index("Controllers\\Master.lua"))
 
     def test_master_controller_uses_single_message_plan_owner_without_micro_services(self):
         service = read_optional(MASTER_SERVICE)
@@ -479,7 +482,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
             "Services/Master/AwardCounter",
             "Services/Master/Trade",
             "Services/Master/TradeExecution",
-            "Services/Master/ItemSelection",
+            "Widgets/ItemSelection",
         )
 
         for dep in required_deps:

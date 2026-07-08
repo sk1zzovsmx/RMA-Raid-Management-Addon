@@ -1,16 +1,16 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
 -- shared: local feature = addon.Database.GetFeatureShared()
--- exports: addon.Services.Master.ItemSelection
+-- exports: addon.Widgets.ItemSelection
 -- events: none
--- notes: owns Master item-selection frame creation and inventory cursor acceptance
+-- notes: owns Master item-selection child frame creation and inventory cursor acceptance
 local addon = select(2, ...)
 local feature = addon.Database.GetFeatureShared()
 
-local Master = feature.EnsureServiceNamespace("Master")
+local Widgets = feature.Widgets
 
-local ItemSelection = Master.ItemSelection or {}
-Master.ItemSelection = ItemSelection
+local ItemSelection = Widgets.ItemSelection or {}
+Widgets.ItemSelection = ItemSelection
 
 local tonumber = tonumber
 local tostring = tostring
@@ -307,13 +307,13 @@ end
 
 local registry = feature.ModuleRegistry
 if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Master/ItemSelection", {
+	registry.AddModule("Widgets/ItemSelection", {
 		deps = {
 			"Init",
 			"Modules/ModuleRegistry",
 		},
 	})
-	registry.SetLoaded("Services/Master/ItemSelection")
+	registry.SetLoaded("Widgets/ItemSelection")
 end
 
 return ItemSelection

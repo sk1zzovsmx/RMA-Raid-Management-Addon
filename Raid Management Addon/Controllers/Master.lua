@@ -52,7 +52,7 @@ local MultiAwardService = assert(MasterService.MultiAward, "Master multi-award s
 local AssignmentService = assert(MasterService.Assignment, "Master assignment service is not initialized")
 local DebugService = assert(Services.Debug, "Debug service is not initialized")
 local TradeExecutionService = assert(MasterService.TradeExecution, "Master trade execution service is not initialized")
-local ItemSelectionService = assert(MasterService.ItemSelection, "Master item selection service is not initialized")
+local ItemSelectionWidget = assert(feature.Widgets.ItemSelection, "Master item selection widget is not initialized")
 
 local InternalEvents = assert(Events.Internal, "Master controller internal events are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Master controller event publisher is not initialized")
@@ -2028,7 +2028,7 @@ do
 			return addon:error(message)
 		end,
 	})
-	itemSelectionController = ItemSelectionService.CreateController({
+	itemSelectionController = ItemSelectionWidget.CreateController({
 		state = module._itemSelectionState,
 		createFrame = CreateFrame,
 		getFrame = getFrame,
@@ -3516,7 +3516,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Services/Master/AwardCounter",
 			"Services/Master/Trade",
 			"Services/Master/TradeExecution",
-			"Services/Master/ItemSelection",
+			"Widgets/ItemSelection",
 		},
 	})
 	registry.SetLoaded("Controllers/Master")
