@@ -436,8 +436,81 @@ function TradeExecution.CreateController(opts)
 		return true
 	end
 
-	function controller:CompleteInventoryAwardProgress(completedWinner, rollType, awardedCount)
-		return completeInventoryAwardProgress(self, completedWinner, rollType, awardedCount)
+	function controller:HandleAcceptedAwardTrade(playerAccepted, targetAccepted)
+		local tradeWinner = self.lootState.tradeWinner
+		if not (self.lootState.trader and tradeWinner and self.lootState.trader ~= tradeWinner) then
+			return false
+		end
+		if playerAccepted ~= 1 or targetAccepted ~= 1 then
+			return false
+		end
+
+		local itemLink = self.lootState.tradeItemLink or self.loot.GetItemLink()
+		local awardedCount = self.inventory.ResolveTradeAwardedCount()
+		local rollValue = self.rolls:GetHighestRoll(tradeWinner)
+		local lootNid, createdTradeOnly = self.ensureTradeLootContext(
+			itemLink,
+			tradeWinner,
+			self.lootState.currentRollType,
+			rollValue,
+			awardedCount,
+			"TRADE_ACCEPT_NO_CONTEXT"
+		)
+		if lootNid > 0 and createdTradeOnly and type(self.warn) == "function" then
+			self.warn(
+				Diag.W.LogTradeNoLootContextTradeOnly:format(
+					tostring(lootNid),
+					tostring(tradeWinner),
+					tostring(itemLink),
+					awardedCount
+				)
+			)
+		end
+
+		if type(self.debug) == "function" then
+			self.debug(
+				Diag.D.LogTradeCompleted:format(
+					tostring(self.lootState.currentRollItem),
+					tostring(tradeWinner),
+					tonumber(self.lootState.currentRollType) or -1,
+					rollValue
+				)
+			)
+		end
+		if lootNid > 0 then
+			local ok = self.requestLoggerLootLog(
+				lootNid,
+				tradeWinner,
+				self.lootState.currentRollType,
+				rollValue,
+				"TRADE_ACCEPT",
+				self.database.GetCurrentRaid()
+			)
+			if not ok then
+				self.error(
+					Diag.E.LogTradeLoggerLogFailed:format(
+						tostring(self.database.GetCurrentRaid()),
+						tostring(lootNid),
+						tostring(itemLink)
+					)
+				)
+			end
+		elseif type(self.warn) == "function" then
+			self.warn(
+				Diag.W.LogTradeCurrentRollItemMissingContext:format(
+					tostring(tradeWinner),
+					tostring(self.lootState.tradeItemId),
+					tostring(itemLink)
+				)
+			)
+		end
+
+		self.loot:SetDistributionState("item_done", {
+			itemLink = itemLink,
+			winnerName = tradeWinner,
+		})
+		completeInventoryAwardProgress(self, tradeWinner, self.lootState.currentRollType, awardedCount)
+		return true
 	end
 
 	function controller:TradeItem(itemLink, playerName, rollType, rollValue)

@@ -140,9 +140,10 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
         self.assertIn('assert(Loot._Inventory', master_controller)
         self.assertIn('assert(Loot._AwardPlanner', master_controller)
         self.assertNotIn("LootInventory.ResolveInventoryAwardedCountFromArgs", master_controller)
-        self.assertIn("LootInventory.ResolveTradeAwardedCount()", master_controller)
+        self.assertNotIn("LootInventory.ResolveTradeAwardedCount()", master_controller)
         self.assertNotIn("LootAwardPlanner.BuildTradeNotificationPlan", master_controller)
         self.assertIn("self.inventory.ResolveInventoryAwardedCountFromArgs", trade_execution)
+        self.assertIn("self.inventory.ResolveTradeAwardedCount()", trade_execution)
         self.assertIn("self.awardPlanner.BuildTradeNotificationPlan({", trade_execution)
         for bridge_name in (
             "ResolveTradeAwardedCount",

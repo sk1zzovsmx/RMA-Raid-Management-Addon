@@ -23,6 +23,19 @@ def read_optional(path):
     return read(path)
 
 
+def extract_method_body(text, signature):
+    start = text.index(signature)
+    body = text[start:]
+    next_method = body.find("\n\tfunction ", 1)
+    next_registry = body.find("\nlocal registry =", 1)
+    end = len(body)
+    if next_method != -1:
+        end = min(end, next_method)
+    if next_registry != -1:
+        end = min(end, next_registry)
+    return body[:end]
+
+
 class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
     def test_master_services_publish_through_shared_namespace_owner(self):
         service_files = sorted(MASTER_SERVICES.glob("*.lua"))
@@ -158,6 +171,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         controller = read(MASTER_CONTROLLER)
         trade_execution = read_optional(MASTER_TRADE_EXECUTION)
         toc = read(MASTER_TOC)
+        trade_accept_update = extract_method_body(controller, "function module:TRADE_ACCEPT_UPDATE(playerAccepted, targetAccepted)")
 
         self.assertNotIn("Private.ResolveTradeExecutionWinner = function", controller)
         self.assertNotIn("Private.PrepareTradeableItem = function", controller)
@@ -173,6 +187,11 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         )
         self.assertIn("tradeExecutionController = TradeExecutionService.CreateController({", controller)
         self.assertIn("return tradeExecutionController:TradeItem(itemLink, playerName, rollType, rollValue)", controller)
+        self.assertIn("RMATradeHandled = tradeExecutionController:HandleAcceptedAwardTrade(playerAccepted, targetAccepted)", controller)
+        self.assertNotIn("LootInventory.ResolveTradeAwardedCount()", trade_accept_update)
+        self.assertNotIn("ensureTradeLootContext(", trade_accept_update)
+        self.assertNotIn("requestLoggerLootLog(", trade_accept_update)
+        self.assertNotIn('Loot:SetDistributionState("item_done"', trade_accept_update)
 
         self.assertIn("function TradeExecution.CreateController(opts)", trade_execution)
         self.assertIn("function controller:ResolveWinner(playerName, isAwardRoll)", trade_execution)
@@ -189,7 +208,16 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
             "function controller:CompleteTraderKeepAward(itemLink, winnerName, rollType, rollValue, output, whisper)",
             trade_execution,
         )
+        self.assertIn(
+            "function controller:HandleAcceptedAwardTrade(playerAccepted, targetAccepted)",
+            trade_execution,
+        )
         self.assertIn("function controller:TradeItem(itemLink, playerName, rollType, rollValue)", trade_execution)
+        self.assertNotIn("function controller:CompleteInventoryAwardProgress(completedWinner, rollType, awardedCount)", trade_execution)
+        self.assertIn("local awardedCount = self.inventory.ResolveTradeAwardedCount()", trade_execution)
+        self.assertIn("local lootNid, createdTradeOnly = self.ensureTradeLootContext(", trade_execution)
+        self.assertIn("local ok = self.requestLoggerLootLog(", trade_execution)
+        self.assertIn('self.loot:SetDistributionState("item_done", {', trade_execution)
 
         self.assertLess(toc.index("Services\\Master\\Trade.lua"), toc.index("Services\\Master\\TradeExecution.lua"))
         self.assertLess(toc.index("Services\\Master\\TradeExecution.lua"), toc.index("Controllers\\Master.lua"))
