@@ -7,7 +7,8 @@ MASTER_SERVICES = ROOT / "Raid Management Addon" / "Services" / "Master"
 MASTER_SERVICE = MASTER_SERVICES / "Service.lua"
 MASTER_ROLL_UI = MASTER_SERVICES / "RollUi.lua"
 MASTER_MULTI_AWARD = MASTER_SERVICES / "MultiAward.lua"
-MASTER_ASSIGNMENT_UI = MASTER_SERVICES / "AssignmentUi.lua"
+MASTER_ASSIGNMENT = MASTER_SERVICES / "Assignment.lua"
+DEBUG_SERVICE = ROOT / "Raid Management Addon" / "Services" / "Debug.lua"
 MASTER_ITEM_SELECTION = MASTER_SERVICES / "ItemSelection.lua"
 MASTER_TRADE_EXECUTION = MASTER_SERVICES / "TradeExecution.lua"
 MASTER_CONTROLLER = ROOT / "Raid Management Addon" / "Controllers" / "Master.lua"
@@ -166,7 +167,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertNotIn("resetTradeState = opts.resetTradeState", multi_award)
 
         self.assertLess(toc.index("Services\\Master\\RollUi.lua"), toc.index("Services\\Master\\MultiAward.lua"))
-        self.assertLess(toc.index("Services\\Master\\MultiAward.lua"), toc.index("Services\\Master\\AssignmentHelpers.lua"))
+        self.assertLess(toc.index("Services\\Master\\MultiAward.lua"), toc.index("Services\\Master\\Assignment.lua"))
         self.assertLess(toc.index("Services\\Master\\MultiAward.lua"), toc.index("Controllers\\Master.lua"))
 
     def test_master_controller_delegates_inventory_trade_execution_to_owner(self):
@@ -283,10 +284,12 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertIn("MasterService.LootSpam.BuildPlan({", controller)
         self.assertIn("MasterService.RollAnnouncements.BuildPlan({", controller)
 
-    def test_master_controller_uses_assignment_grid_owners_without_service_passthroughs(self):
+    def test_master_assignment_service_is_pure_model_policy(self):
         service = read_optional(MASTER_SERVICE)
         controller = read(MASTER_CONTROLLER)
-        assignment_ui = read_optional(MASTER_ASSIGNMENT_UI)
+        assignment = read(MASTER_ASSIGNMENT)
+        debug_service = read(DEBUG_SERVICE)
+        toc = read(MASTER_TOC)
 
         for method in (
             "BuildAssignmentCandidateRows",
@@ -301,70 +304,83 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertNotIn('"Services/Master/AssignmentCandidates"', service)
         self.assertNotIn('"Services/Master/AssignmentTargets"', service)
         self.assertNotIn('"Services/Master/DebugRaidGrid"', service)
+        self.assertFalse((MASTER_SERVICES / "AssignmentUi.lua").exists())
+        self.assertFalse((MASTER_SERVICES / "AssignmentCandidates.lua").exists())
+        self.assertFalse((MASTER_SERVICES / "AssignmentTargets.lua").exists())
+        self.assertFalse((MASTER_SERVICES / "AssignmentHelpers.lua").exists())
+        self.assertFalse((MASTER_SERVICES / "DebugRaidGrid.lua").exists())
         self.assertNotIn("MasterService.AssignmentCandidates.BuildRows(", controller)
         self.assertNotIn("MasterService.DebugRaidGrid.IsFallbackEnabled(", controller)
         self.assertNotIn("MasterService.DebugRaidGrid.GetTargetCount(", controller)
         self.assertNotIn("MasterService.DebugRaidGrid.BuildRows(", controller)
         self.assertNotIn("MasterService.AssignmentTargets.BuildRows(", controller)
-        self.assertIn("assignmentCandidates = MasterService.AssignmentCandidates", controller)
-        self.assertIn("assignmentTargets = MasterService.AssignmentTargets", controller)
-        self.assertIn("debugRaidGrid = MasterService.DebugRaidGrid", controller)
-        self.assertIn("self.assignmentCandidates.BuildRows(collectMasterLootCandidates(self), self.getRaidGridPlayerClass)", assignment_ui)
-        self.assertIn("self.debugRaidGrid.IsFallbackEnabled(", assignment_ui)
-        self.assertIn("self.debugRaidGrid.GetTargetCount(", assignment_ui)
-        self.assertIn("self.debugRaidGrid.BuildRows(count, collectRaidGridRosterRows(self))", assignment_ui)
-        self.assertIn("controller.assignmentTargets.BuildRows(", assignment_ui)
-        self.assertIn("controller.state._dropDownData", assignment_ui)
-        self.assertIn("controller.getRaidGridPlayerClass", assignment_ui)
+        self.assertIn('local AssignmentService = assert(MasterService.Assignment, "Master assignment service is not initialized")', controller)
+        self.assertIn('local DebugService = assert(Services.Debug, "Debug service is not initialized")', controller)
+        self.assertIn("AssignmentService.BuildCandidateRows(collectMasterLootCandidates(), getRaidGridPlayerClass)", controller)
+        self.assertIn("AssignmentService.BuildTargetRows(module._dropDownData, getRaidGridPlayerClass)", controller)
+        self.assertIn("DebugService.IsRaidGridDebugFallbackEnabled(", controller)
+        self.assertIn("DebugService.GetRaidGridDebugTargetCount(debugState)", controller)
+        self.assertIn("DebugService.BuildRaidGridDebugRows(count, collectRaidGridRosterRows())", controller)
 
-    def test_master_controller_delegates_assignment_ui_owner(self):
+        self.assertIn("function Assignment.ResolveClass(classProvider, name)", assignment)
+        self.assertIn("function Assignment.BuildCandidateRows(candidates, classProvider)", assignment)
+        self.assertIn("function Assignment.BuildTargetRows(groupedNames, classProvider)", assignment)
+        self.assertIn("function module.BuildRaidGridDebugRows(count, rosterRows)", debug_service)
+        self.assertIn("function module.GetRaidGridDebugTargetCount(debugState)", debug_service)
+        self.assertIn("function module.IsRaidGridDebugFallbackEnabled(debugState, debugEnabled)", debug_service)
+
+        forbidden_service_ui = (
+            "UIDropDownMenu_",
+            "CloseDropDownMenus",
+            "DropDownList",
+            "ShowPopup",
+            "DefinePopup",
+            "UI.Widgets",
+            "CreateFrame",
+            "GetFrameRef",
+            "SetScript",
+            "HookScript",
+            "RaidGrid",
+        )
+        for token in forbidden_service_ui:
+            with self.subTest(token=token):
+                self.assertNotIn(token, assignment)
+
+        self.assertIn("Services\\Master\\Assignment.lua", toc)
+        self.assertNotIn("Services\\Master\\AssignmentUi.lua", toc)
+        self.assertNotIn("Services\\Master\\AssignmentCandidates.lua", toc)
+        self.assertNotIn("Services\\Master\\AssignmentTargets.lua", toc)
+        self.assertNotIn("Services\\Master\\AssignmentHelpers.lua", toc)
+        self.assertNotIn("Services\\Master\\DebugRaidGrid.lua", toc)
+        self.assertLess(toc.index("Services\\Master\\Assignment.lua"), toc.index("Controllers\\Master.lua"))
+
+    def test_master_controller_owns_assignment_ui_orchestration(self):
         controller = read(MASTER_CONTROLLER)
-        assignment_ui = read_optional(MASTER_ASSIGNMENT_UI)
         toc = read(MASTER_TOC)
 
-        self.assertNotIn("function initializeDropDowns()", controller)
-        self.assertNotIn("function prepareDropDowns()", controller)
-        self.assertNotIn("function updateDropDowns(frame)", controller)
-        self.assertNotIn("Private.OpenManualAwardGrid = function", controller)
-        self.assertNotIn("Private.RefreshManualAwardGrid = function", controller)
-        self.assertNotIn("Private.AcceptManualGridAward = function", controller)
+        self.assertNotIn("AssignmentUiService", controller)
+        self.assertNotIn("assignmentUiController", controller)
+        self.assertIn("Private.PrepareDropDowns = function()", controller)
+        self.assertIn("Private.InitializeDropDowns = function()", controller)
+        self.assertIn("local function updateAssignmentDropDown(frame)", controller)
+        self.assertIn("Private.OpenManualAwardGrid = function()", controller)
+        self.assertIn("Private.RefreshManualAwardGrid = function()", controller)
+        self.assertIn("Private.AcceptManualGridAward = function(data)", controller)
+        self.assertIn("Private.OnClickDropDown = function(_button, owner, value)", controller)
+        self.assertIn("UIDropDownMenu_Initialize(frame, Private.InitializeDropDownMenu)", controller)
+        self.assertIn("UI.Widgets.CallFunction(\"RaidGrid\", \"ShowPicker\"", controller)
+        self.assertIn("Private.OpenManualAwardGrid()", controller)
+        self.assertIn("Private.RefreshManualAwardGrid()", controller)
 
-        self.assertIn(
-            'local AssignmentUiService = assert(MasterService.AssignmentUi, "Master assignment UI service is not initialized")',
-            controller,
-        )
-        self.assertIn("assignmentUiController = AssignmentUiService.CreateController({", controller)
-        self.assertIn("assignmentUiController:PrepareDropDowns()", controller)
-        self.assertIn("assignmentUiController:InitializeDropDowns()", controller)
-        self.assertIn("assignmentUiController:UpdateDropDown(module._dropDownFrameHolder)", controller)
-        self.assertIn("assignmentUiController:OpenManualAwardGrid()", controller)
-        self.assertIn("assignmentUiController:RefreshManualAwardGrid()", controller)
+        self.assertLess(toc.index("Services\\Master\\Assignment.lua"), toc.index("Controllers\\Master.lua"))
 
-        self.assertIn("function AssignmentUi.CreateController(opts)", assignment_ui)
-        self.assertIn("function controller:PrepareDropDowns()", assignment_ui)
-        self.assertIn("function controller:InitializeDropDowns()", assignment_ui)
-        self.assertIn("function controller:UpdateDropDown(frame)", assignment_ui)
-        self.assertIn("function controller:OpenManualAwardGrid()", assignment_ui)
-        self.assertIn("function controller:RefreshManualAwardGrid()", assignment_ui)
-        self.assertIn("function controller:AcceptManualGridAward(data)", assignment_ui)
-
-        self.assertLess(toc.index("Services\\Master\\DebugRaidGrid.lua"), toc.index("Services\\Master\\AssignmentUi.lua"))
-        self.assertLess(toc.index("Services\\Master\\AssignmentUi.lua"), toc.index("Controllers\\Master.lua"))
-
-    def test_assignment_ui_owner_restores_raid_grid_unit_class_fallback(self):
+    def test_master_controller_restores_raid_grid_unit_class_fallback(self):
         controller = read(MASTER_CONTROLLER)
-        assignment_ui = read_optional(MASTER_ASSIGNMENT_UI)
 
-        self.assertIn("getUnitClass = UnitClass,", controller)
-        self.assertIn(
-            'getUnitClass = assert(opts.getUnitClass, "Master assignment UI unit-class resolver is not initialized")',
-            assignment_ui,
-        )
-
-        collect_roster_rows = extract_method_body(assignment_ui, "local function collectRaidGridRosterRows(controller)")
-        self.assertIn("local className = controller.getRaidGridPlayerClass(name)", collect_roster_rows)
+        collect_roster_rows = extract_method_body(controller, "local function collectRaidGridRosterRows()")
+        self.assertIn("local className = getRaidGridPlayerClass(name)", collect_roster_rows)
         self.assertIn("if not className then", collect_roster_rows)
-        self.assertIn("local _, classFileName = controller.getUnitClass(unit)", collect_roster_rows)
+        self.assertIn("local _, classFileName = UnitClass(unit)", collect_roster_rows)
         self.assertIn("className = classFileName", collect_roster_rows)
         self.assertIn("class = className", collect_roster_rows)
 
@@ -443,10 +459,8 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
             "Services/Master/RollRows",
             "Services/Master/RollUi",
             "Services/Master/MultiAward",
-            "Services/Master/AssignmentCandidates",
-            "Services/Master/AssignmentTargets",
-            "Services/Master/DebugRaidGrid",
-            "Services/Master/AssignmentUi",
+            "Services/Master/Assignment",
+            "Services/Debug",
             "Services/Master/AwardMessages",
             "Services/Master/LootSpam",
             "Services/Master/RollAnnouncements",

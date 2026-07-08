@@ -38,6 +38,21 @@ do
 	local syntheticByName = {}
 	local GetOption = Options.GetValue
 	local IsDebugEnabled = Options.IsDebugEnabled
+	local DEFAULT_RAID_GRID_DEBUG_COUNT = 25
+	local MAX_RAID_GRID_DEBUG_COUNT = 40
+	local MIN_RAID_GRID_DEBUG_COUNT = 1
+	local RAID_GRID_DEBUG_CLASSES = {
+		"WARRIOR",
+		"PALADIN",
+		"HUNTER",
+		"ROGUE",
+		"PRIEST",
+		"DEATHKNIGHT",
+		"SHAMAN",
+		"MAGE",
+		"WARLOCK",
+		"DRUID",
+	}
 
 	-- ----- Private helpers ----- --
 	local function normalizeSyntheticName(name)
@@ -56,6 +71,17 @@ do
 		for key in pairs(map) do
 			map[key] = nil
 		end
+	end
+
+	local function clampRaidGridDebugCount(count)
+		local total = tonumber(count) or DEFAULT_RAID_GRID_DEBUG_COUNT
+		total = math.floor(total)
+		if total < MIN_RAID_GRID_DEBUG_COUNT then
+			total = MIN_RAID_GRID_DEBUG_COUNT
+		elseif total > MAX_RAID_GRID_DEBUG_COUNT then
+			total = MAX_RAID_GRID_DEBUG_COUNT
+		end
+		return total
 	end
 
 	local function getDebugState()
@@ -493,6 +519,63 @@ do
 			tieCount = rollBatch.tieCount or 0,
 			tieRoll = rollBatch.tieRoll or 0,
 		}
+	end
+
+	function module.BuildRaidGridDebugRows(count, rosterRows)
+		local total = clampRaidGridDebugCount(count)
+		local result = {}
+		local seen = {}
+
+		if type(rosterRows) == "table" then
+			for i = 1, #rosterRows do
+				local row = rosterRows[i]
+				local name = row and row.name
+				if name and name ~= "" and not seen[name] then
+					tinsert(result, {
+						name = name,
+						displayName = name,
+						index = #result + 1,
+						class = row.class or RAID_GRID_DEBUG_CLASSES[(#result % #RAID_GRID_DEBUG_CLASSES) + 1],
+						debugOnly = true,
+						realRoster = true,
+					})
+					seen[name] = true
+				end
+			end
+		end
+
+		if #result > total then
+			total = #result
+		end
+
+		local fakeIndex = 1
+		while #result < total do
+			local name = "Player" .. tostring(fakeIndex)
+			fakeIndex = fakeIndex + 1
+			if not seen[name] then
+				tinsert(result, {
+					name = name,
+					displayName = name,
+					index = #result + 1,
+					class = RAID_GRID_DEBUG_CLASSES[(#result % #RAID_GRID_DEBUG_CLASSES) + 1],
+					debugOnly = true,
+				})
+				seen[name] = true
+			end
+		end
+
+		return result, total
+	end
+
+	function module.GetRaidGridDebugTargetCount(debugState)
+		return debugState and debugState.raidGridTargetCount or DEFAULT_RAID_GRID_DEBUG_COUNT
+	end
+
+	function module.IsRaidGridDebugFallbackEnabled(debugState, debugEnabled)
+		if debugState and debugState.raidGridTargetCount then
+			return true
+		end
+		return debugEnabled == true
 	end
 end
 

@@ -49,7 +49,8 @@ local Chat = assert(Services.Chat, "Master chat service is not initialized")
 local MasterService = assert(Services.Master, "Master service namespace is not initialized")
 local RollUiService = assert(MasterService.RollUi, "Master roll UI service is not initialized")
 local MultiAwardService = assert(MasterService.MultiAward, "Master multi-award service is not initialized")
-local AssignmentUiService = assert(MasterService.AssignmentUi, "Master assignment UI service is not initialized")
+local AssignmentService = assert(MasterService.Assignment, "Master assignment service is not initialized")
+local DebugService = assert(Services.Debug, "Debug service is not initialized")
 local TradeExecutionService = assert(MasterService.TradeExecution, "Master trade execution service is not initialized")
 local ItemSelectionService = assert(MasterService.ItemSelection, "Master item selection service is not initialized")
 
@@ -119,7 +120,24 @@ local CreateFrame = assert(_G.CreateFrame, "Master controller frame creation API
 local UnitName = assert(_G.UnitName, "Master controller unit name API is not initialized")
 local GetMasterLootCandidate =
 	assert(_G.GetMasterLootCandidate, "Master controller loot candidate API is not initialized")
+local GetRaidRosterInfo = assert(_G.GetRaidRosterInfo, "Master controller raid roster API is not initialized")
 local GetLootSlotInfo = assert(_G.GetLootSlotInfo, "Master controller loot slot info API is not initialized")
+local UIDropDownMenu_AddButton =
+	assert(_G.UIDropDownMenu_AddButton, "Master controller dropdown button API is not initialized")
+local UIDropDownMenu_CreateInfo =
+	assert(_G.UIDropDownMenu_CreateInfo, "Master controller dropdown info API is not initialized")
+local UIDropDownMenu_Initialize =
+	assert(_G.UIDropDownMenu_Initialize, "Master controller dropdown init API is not initialized")
+local UIDropDownMenu_JustifyText =
+	assert(_G.UIDropDownMenu_JustifyText, "Master controller dropdown justify API is not initialized")
+local UIDropDownMenu_SetButtonWidth =
+	assert(_G.UIDropDownMenu_SetButtonWidth, "Master controller dropdown button-width API is not initialized")
+local UIDropDownMenu_SetSelectedValue =
+	assert(_G.UIDropDownMenu_SetSelectedValue, "Master controller dropdown selected-value API is not initialized")
+local UIDropDownMenu_SetText =
+	assert(_G.UIDropDownMenu_SetText, "Master controller dropdown text API is not initialized")
+local UIDropDownMenu_SetWidth =
+	assert(_G.UIDropDownMenu_SetWidth, "Master controller dropdown width API is not initialized")
 local TradeExecutionWow = {
 	ClearCursor = assert(_G.ClearCursor, "Master trade execution clear-cursor API is not initialized"),
 	CursorHasItem = assert(_G.CursorHasItem, "Master trade execution cursor-item API is not initialized"),
@@ -384,6 +402,497 @@ do
 		return nil
 	end
 
+	local refreshDropDowns
+
+	local function getAssignmentFieldByKey(targetKey)
+		if targetKey == "holder" then
+			return {
+				stateKey = "holder",
+				raidKey = "holder",
+				frame = module._dropDownFrameHolder,
+				label = L.BtnHold,
+			}
+		elseif targetKey == "banker" then
+			return {
+				stateKey = "banker",
+				raidKey = "banker",
+				frame = module._dropDownFrameBanker,
+				label = L.BtnBank,
+			}
+		elseif targetKey == "disenchanter" then
+			return {
+				stateKey = "disenchanter",
+				raidKey = "disenchanter",
+				frame = module._dropDownFrameDisenchanter,
+				label = L.BtnDisenchant,
+			}
+		end
+		return nil
+	end
+
+	local function findDropDownField(frameNameFull)
+		if not frameNameFull then
+			return nil
+		end
+
+		local holderName = module._dropDownFrameHolder
+				and module._dropDownFrameHolder.GetName
+				and module._dropDownFrameHolder:GetName()
+			or nil
+		local bankerName = module._dropDownFrameBanker
+				and module._dropDownFrameBanker.GetName
+				and module._dropDownFrameBanker:GetName()
+			or nil
+		local disenchanterName = module._dropDownFrameDisenchanter
+				and module._dropDownFrameDisenchanter.GetName
+				and module._dropDownFrameDisenchanter:GetName()
+			or nil
+
+		if frameNameFull == holderName then
+			return { stateKey = "holder", raidKey = "holder", frame = module._dropDownFrameHolder }
+		elseif frameNameFull == bankerName then
+			return { stateKey = "banker", raidKey = "banker", frame = module._dropDownFrameBanker }
+		elseif frameNameFull == disenchanterName then
+			return {
+				stateKey = "disenchanter",
+				raidKey = "disenchanter",
+				frame = module._dropDownFrameDisenchanter,
+			}
+		end
+		return nil
+	end
+
+	local function collectMasterLootCandidates()
+		local result = {}
+		for i = 1, 40 do
+			local name = GetMasterLootCandidate(i)
+			if name and name ~= "" then
+				tinsert(result, {
+					name = name,
+					index = i,
+				})
+			end
+		end
+		return result
+	end
+
+	local function collectRaidGridRosterRows()
+		local result = {}
+		local seen = {}
+
+		for unit in addon.UnitIterator(true) do
+			local name = UnitName(unit)
+			if name and name ~= "" and not seen[name] then
+				local className = getRaidGridPlayerClass(name)
+				if not className then
+					local _, classFileName = UnitClass(unit)
+					className = classFileName
+				end
+				tinsert(result, {
+					name = name,
+					class = className,
+				})
+				seen[name] = true
+			end
+		end
+
+		return result
+	end
+
+	Private.HideBlizzardDropDownLists = function()
+		if type(_G.CloseDropDownMenus) == "function" then
+			_G.CloseDropDownMenus()
+		end
+		for i = 1, 2 do
+			local list = _G["DropDownList" .. i]
+			if list and list.Hide then
+				list:Hide()
+			end
+		end
+		_G.UIDROPDOWNMENU_OPEN_MENU = nil
+	end
+
+	Private.QueueHideBlizzardDropDownLists = function()
+		Private.HideBlizzardDropDownLists()
+		module:ScheduleTimer(Private.HideBlizzardDropDownLists, 0)
+	end
+
+	local function updateAssignmentDropDown(frame)
+		if not frame or not Database.GetCurrentRaid() then
+			return
+		end
+
+		local field = findDropDownField(frame:GetName())
+		if not field then
+			return
+		end
+
+		local raidStore = Database.GetRaidStoreOrNil("Master.UpdateAssignmentDropDown", { "GetRaidByIndex" })
+		local raid = raidStore and raidStore:GetRaidByIndex(Database.GetCurrentRaid()) or nil
+		if not raid then
+			return
+		end
+		lootState[field.stateKey] = raid[field.raidKey]
+
+		if lootState[field.stateKey] and Raid:GetUnitID(lootState[field.stateKey]) == "none" then
+			raid[field.raidKey] = nil
+			lootState[field.stateKey] = nil
+		end
+
+		if lootState[field.stateKey] then
+			UIDropDownMenu_SetText(field.frame, lootState[field.stateKey])
+			UIDropDownMenu_SetSelectedValue(field.frame, lootState[field.stateKey])
+			module._dirtyFlags.buttons = true
+		end
+	end
+
+	local function setAssignmentTarget(targetKey, playerName)
+		if not playerName or playerName == "" then
+			return false
+		end
+
+		local field = getAssignmentFieldByKey(targetKey)
+		if not field then
+			return false
+		end
+
+		local raidStore = Database.GetRaidStoreOrNil("Master.SetAssignmentTarget", { "GetRaidByIndex" })
+		local raidId = Database.GetCurrentRaid()
+		local raid = raidStore and raidId and raidStore:GetRaidByIndex(raidId) or nil
+		if raid then
+			raid[field.raidKey] = playerName
+		end
+		lootState[field.stateKey] = playerName
+
+		if field.frame then
+			UIDropDownMenu_SetText(field.frame, playerName)
+			UIDropDownMenu_SetSelectedValue(field.frame, playerName)
+		end
+
+		module._dropDownDirty = true
+		module._dirtyFlags.dropdowns = true
+		module._dirtyFlags.buttons = true
+		Private.HideBlizzardDropDownLists()
+		UI.Widgets.CallFunction("RaidGrid", "Hide")
+		module:RequestRefresh()
+		return true
+	end
+
+	local function ensureRaidGridConfirmPopup()
+		if IsPopupDefined("RMA_MASTER_LOOT_GRID_CONFIRM") then
+			return true
+		end
+
+		return DefinePopup("RMA_MASTER_LOOT_GRID_CONFIRM", {
+			text = L.PopupRaidGridConfirm or "Give %s to %s?",
+			button1 = _G.YES or _G.OKAY,
+			button2 = _G.NO or _G.CANCEL,
+			timeout = 0,
+			whileDead = 1,
+			hideOnEscape = 1,
+			OnAccept = function(_, data)
+				Private.AcceptManualGridAward(data)
+			end,
+		})
+	end
+
+	Private.ShowManualGridAwardConfirm = function(itemLink, playerName)
+		if not ensureRaidGridConfirmPopup() then
+			return false
+		end
+
+		local data = {
+			itemLink = itemLink,
+			itemText = itemLink or L.StrRaidGridTitle,
+			playerName = playerName,
+		}
+		return ShowPopup("RMA_MASTER_LOOT_GRID_CONFIRM", data.itemText, playerName, data)
+	end
+
+	local function handleManualGridEntry(entry)
+		if type(entry) ~= "table" or not entry.name then
+			return false
+		end
+
+		local itemLink = Private.GetSelectedMasterLootLink()
+		if not itemLink then
+			return false
+		end
+
+		local threshold = _G.MASTER_LOOT_THREHOLD or _G.MASTER_LOOT_THRESHOLD or 4
+		if Private.GetSelectedMasterLootQuality() >= threshold then
+			return Private.ShowManualGridAwardConfirm(itemLink, entry.name)
+		end
+		return Private.AcceptManualGridAward({
+			itemLink = itemLink,
+			playerName = entry.name,
+		})
+	end
+
+	local function openAssignmentTargetGrid(targetKey)
+		local field = getAssignmentFieldByKey(targetKey)
+		if not field then
+			return false
+		end
+
+		Private.QueueHideBlizzardDropDownLists()
+		Private.PrepareDropDowns()
+
+		local title = L.StrRaidGridTargetTitle
+		if field.label then
+			title = title .. ": " .. field.label
+		end
+
+		UI.Widgets.CallFunction("RaidGrid", "ShowPicker", {
+			mode = "target",
+			title = title,
+			emptyText = L.StrRaidGridEmpty,
+			entries = AssignmentService.BuildTargetRows(module._dropDownData, getRaidGridPlayerClass),
+			anchor = field.frame or getFrame(),
+			onSelect = function(entry)
+				return setAssignmentTarget(targetKey, entry and entry.name)
+			end,
+		})
+		return true
+	end
+
+	Private.OnClickDropDown = function(_button, owner, value)
+		if not owner or not value or not Database.GetCurrentRaid() then
+			return
+		end
+
+		local field = findDropDownField(owner:GetName())
+		if field then
+			setAssignmentTarget(field.stateKey, value)
+			return
+		end
+
+		UIDropDownMenu_SetText(owner, value)
+		UIDropDownMenu_SetSelectedValue(owner, value)
+		module._dropDownDirty = true
+		module._dirtyFlags.dropdowns = true
+		module._dirtyFlags.buttons = true
+		Private.HideBlizzardDropDownLists()
+		module:RequestRefresh()
+	end
+
+	Private.InitializeDropDownMenu = function()
+		if _G.UIDROPDOWNMENU_MENU_LEVEL == 2 then
+			local group = _G.UIDROPDOWNMENU_MENU_VALUE
+			local members = module._dropDownData[group]
+			if type(members) ~= "table" then
+				return
+			end
+			for key in pairs(members) do
+				local info = UIDropDownMenu_CreateInfo()
+				info.hasArrow = false
+				info.notCheckable = 1
+				info.text = key
+				info.func = function(button, owner, value)
+					return Private.OnClickDropDown(button, owner, value)
+				end
+				info.arg1 = _G.UIDROPDOWNMENU_OPEN_MENU
+				info.arg2 = key
+				UIDropDownMenu_AddButton(info, _G.UIDROPDOWNMENU_MENU_LEVEL)
+			end
+		end
+		if _G.UIDROPDOWNMENU_MENU_LEVEL == 1 then
+			for key in pairs(module._dropDownData) do
+				if module._dropDownGroupData[key] == true then
+					local info = UIDropDownMenu_CreateInfo()
+					info.hasArrow = 1
+					info.notCheckable = 1
+					info.text = (_G.GROUP or "Group") .. " " .. key
+					info.value = key
+					info.owner = _G.UIDROPDOWNMENU_OPEN_MENU
+					UIDropDownMenu_AddButton(info, _G.UIDROPDOWNMENU_MENU_LEVEL)
+				end
+			end
+		end
+	end
+
+	local function configureAssignDropDown(frame)
+		if not frame then
+			return
+		end
+		frame:SetWidth(module._assignDropDownButtonWidth)
+		UIDropDownMenu_SetWidth(frame, module._assignDropDownWidth)
+		UIDropDownMenu_SetButtonWidth(frame, module._assignDropDownButtonWidth)
+		UIDropDownMenu_JustifyText(frame, "LEFT")
+	end
+
+	local function hookDropDownOpen(frame, targetKey)
+		if not frame then
+			return
+		end
+
+		local button = _G[frame:GetName() .. "Button"]
+		if button and not button._RMAHooked then
+			Frames.HookScriptSafely(button, "OnClick", function()
+				refreshDropDowns(true)
+				openAssignmentTargetGrid(targetKey)
+			end)
+			button._RMAHooked = true
+		end
+	end
+
+	Private.PrepareDropDowns = function()
+		local rosterVersion = RaidApi.GetRosterVersion(Raid)
+		if rosterVersion and module._cachedRosterVersion == rosterVersion then
+			return
+		end
+		if rosterVersion ~= module._cachedRosterVersion then
+			RaidApi.RequestMasterLootCandidateRefresh(Raid)
+		end
+		module._cachedRosterVersion = rosterVersion
+		module._dropDownDirty = true
+		module._dirtyFlags.dropdowns = true
+
+		for i = 1, 8 do
+			local names = module._dropDownData[i]
+			if names then
+				twipe(names)
+			else
+				names = {}
+				module._dropDownData[i] = names
+			end
+		end
+
+		module._dropDownGroupData = module._dropDownGroupData or {}
+		twipe(module._dropDownGroupData)
+
+		for unit in addon.UnitIterator(true) do
+			local name = UnitName(unit)
+			if name and name ~= "" then
+				local subgroup = 1
+				local idx = tonumber(unit:match("^raid(%d+)$"))
+				if idx then
+					subgroup = (select(3, GetRaidRosterInfo(idx))) or 1
+				end
+
+				module._dropDownData[subgroup] = module._dropDownData[subgroup] or {}
+				module._dropDownData[subgroup][name] = name
+				module._dropDownGroupData[subgroup] = true
+			end
+		end
+
+		refreshDropDowns(true)
+	end
+
+	Private.InitializeDropDowns = function()
+		local frames = {
+			{ frame = module._dropDownFrameHolder, targetKey = "holder" },
+			{ frame = module._dropDownFrameBanker, targetKey = "banker" },
+			{ frame = module._dropDownFrameDisenchanter, targetKey = "disenchanter" },
+		}
+
+		for i = 1, #frames do
+			local entry = frames[i]
+			local frame = entry.frame
+			if frame then
+				UIDropDownMenu_Initialize(frame, Private.InitializeDropDownMenu)
+				configureAssignDropDown(frame)
+				hookDropDownOpen(frame, entry.targetKey)
+			end
+		end
+
+		module._dropDownsInitialized = true
+		refreshDropDowns(true)
+	end
+
+	Private.AcceptManualGridAward = function(data)
+		if type(data) ~= "table" or not data.playerName then
+			return false
+		end
+
+		local itemLink = data.itemLink or Private.GetSelectedMasterLootLink()
+		if not itemLink then
+			return false
+		end
+
+		lootState.currentRollType = rollTypes.MANUAL
+		local ok = assignItem(itemLink, data.playerName, rollTypes.MANUAL, 0)
+		if ok then
+			UI.Widgets.CallFunction("RaidGrid", "Hide")
+		end
+		return ok
+	end
+
+	Private.OpenManualAwardGrid = function()
+		if not (Raid and Raid.IsMasterLooter and Raid:IsMasterLooter()) then
+			return false
+		end
+		Private.QueueHideBlizzardDropDownLists()
+
+		local itemLink = Private.GetSelectedMasterLootLink()
+		local title = itemLink or L.StrRaidGridTitle
+		local entries = AssignmentService.BuildCandidateRows(collectMasterLootCandidates(), getRaidGridPlayerClass)
+		local debugFallback = false
+		if
+			#entries <= 0
+			and DebugService.IsRaidGridDebugFallbackEnabled(
+				feature.coreState and feature.coreState.debug or nil,
+				isDebugEnabled()
+			)
+		then
+			local debugState = feature.coreState and feature.coreState.debug or nil
+			local count = DebugService.GetRaidGridDebugTargetCount(debugState)
+			entries = DebugService.BuildRaidGridDebugRows(count, collectRaidGridRosterRows())
+			title = title .. " (" .. (L.StrRaidGridDebugTitle or "Debug") .. ")"
+			debugFallback = true
+		end
+
+		UI.Widgets.CallFunction("RaidGrid", "ShowPicker", {
+			mode = debugFallback and "debug" or "award",
+			title = title,
+			texture = Private.GetSelectedMasterLootTexture(),
+			count = Private.GetSelectedMasterLootCount(),
+			emptyText = L.StrRaidGridEmpty,
+			entries = entries,
+			anchor = Private.GetRaidGridFrameAnchor(),
+			closeOnSelect = not debugFallback,
+			onSelect = debugFallback and function()
+				return false
+			end or function(entry)
+				return handleManualGridEntry(entry)
+			end,
+		})
+		return true
+	end
+
+	Private.RefreshManualAwardGrid = function()
+		if
+			UI.Widgets.CallFunction("RaidGrid", "IsShown")
+			and UI.Widgets.CallFunction("RaidGrid", "GetMode") == "award"
+		then
+			return Private.OpenManualAwardGrid()
+		end
+		return false
+	end
+
+	Private.OpenDebugRaidGrid = function(count)
+		local debugState = feature.coreState and feature.coreState.debug or nil
+		if not debugState then
+			feature.coreState.debug = {}
+			debugState = feature.coreState.debug
+		end
+		debugState.raidGridTargetCount = count or 25
+
+		local entries, total = DebugService.BuildRaidGridDebugRows(count, collectRaidGridRosterRows())
+		UI.Widgets.CallFunction("RaidGrid", "ShowPicker", {
+			mode = "debug",
+			title = (L.StrRaidGridDebugTitle or "Raid Grid Debug") .. " (" .. tostring(total) .. ")",
+			emptyText = L.StrRaidGridEmpty,
+			entries = entries,
+			anchor = Private.GetRaidGridFrameAnchor(),
+			closeOnSelect = false,
+			onSelect = function()
+				return false
+			end,
+		})
+		return total
+	end
+
 	-- ============================================================================
 	-- Roll selection / UI model helpers
 	-- ============================================================================
@@ -418,7 +927,6 @@ do
 		end,
 	})
 	local multiAwardController
-	local assignmentUiController
 	local tradeExecutionController
 	local itemSelectionController
 
@@ -1040,16 +1548,16 @@ do
 		updateTooltipState(tooltips, "lootCounter", refs.LootCounterBtn, L.BtnLootCounter, state.lootCounterTooltip)
 	end
 
-	local function refreshDropDowns(force)
+	function refreshDropDowns(force)
 		if not module._dropDownsInitialized then
 			return
 		end
 		if not force and not module._dropDownDirty then
 			return
 		end
-		assignmentUiController:UpdateDropDown(module._dropDownFrameHolder)
-		assignmentUiController:UpdateDropDown(module._dropDownFrameBanker)
-		assignmentUiController:UpdateDropDown(module._dropDownFrameDisenchanter)
+		updateAssignmentDropDown(module._dropDownFrameHolder)
+		updateAssignmentDropDown(module._dropDownFrameBanker)
+		updateAssignmentDropDown(module._dropDownFrameDisenchanter)
 		module._dropDownDirty = false
 		module._dirtyFlags.dropdowns = false
 	end
@@ -1058,7 +1566,7 @@ do
 		module._cachedRosterVersion = nil
 		module._dropDownDirty = true
 		module._dirtyFlags.dropdowns = true
-		assignmentUiController:PrepareDropDowns()
+		Private.PrepareDropDowns()
 	end
 
 	function module._PendingCounter:Remove(index)
@@ -1466,62 +1974,6 @@ do
 		end,
 		multiAwardTimeoutSeconds = ML_MULTI_AWARD_TIMEOUT_SECONDS,
 		multiAwardDelaySeconds = C.ML_MULTI_AWARD_DELAY,
-	})
-	assignmentUiController = AssignmentUiService.CreateController({
-		state = module,
-		lootState = lootState,
-		database = Database,
-		raid = Raid,
-		raidApi = RaidApi,
-		assignmentCandidates = MasterService.AssignmentCandidates,
-		assignmentTargets = MasterService.AssignmentTargets,
-		debugRaidGrid = MasterService.DebugRaidGrid,
-		raidGrid = {
-			ShowPicker = function(args)
-				return UI.Widgets.CallFunction("RaidGrid", "ShowPicker", args)
-			end,
-			Hide = function()
-				return UI.Widgets.CallFunction("RaidGrid", "Hide")
-			end,
-			IsShown = function()
-				return UI.Widgets.CallFunction("RaidGrid", "IsShown")
-			end,
-			GetMode = function()
-				return UI.Widgets.CallFunction("RaidGrid", "GetMode")
-			end,
-		},
-		popup = {
-			Define = DefinePopup,
-			IsDefined = IsPopupDefined,
-			Show = ShowPopup,
-		},
-		requestRefresh = function()
-			return module:RequestRefresh()
-		end,
-		scheduleTimer = function(callback, delay)
-			return module:ScheduleTimer(callback, delay)
-		end,
-		hookScriptSafely = Frames.HookScriptSafely,
-		getFrame = getFrame,
-		unitIterator = addon.UnitIterator,
-		getUnitName = UnitName,
-		getUnitClass = UnitClass,
-		getMasterLootCandidate = GetMasterLootCandidate,
-		getRaidGridPlayerClass = getRaidGridPlayerClass,
-		getSelectedMasterLootLink = Private.GetSelectedMasterLootLink,
-		getSelectedMasterLootQuality = Private.GetSelectedMasterLootQuality,
-		getSelectedMasterLootTexture = Private.GetSelectedMasterLootTexture,
-		getSelectedMasterLootCount = Private.GetSelectedMasterLootCount,
-		getRaidGridFrameAnchor = Private.GetRaidGridFrameAnchor,
-		assignManualItem = function(itemLink, playerName)
-			lootState.currentRollType = rollTypes.MANUAL
-			return assignItem(itemLink, playerName, rollTypes.MANUAL, 0)
-		end,
-		isMasterLooter = function()
-			return Raid and Raid.IsMasterLooter and Raid:IsMasterLooter() or false
-		end,
-		isDebugEnabled = isDebugEnabled,
-		L = L,
 	})
 	tradeExecutionController = TradeExecutionService.CreateController({
 		trade = MasterService.Trade,
@@ -2135,8 +2587,8 @@ do
 		module._dropDownFrameHolder = getNamedPart("HoldDropDown")
 		module._dropDownFrameBanker = getNamedPart("BankDropDown")
 		module._dropDownFrameDisenchanter = getNamedPart("DisenchantDropDown")
-		assignmentUiController:PrepareDropDowns()
-		assignmentUiController:InitializeDropDowns()
+		Private.PrepareDropDowns()
+		Private.InitializeDropDowns()
 		refreshDropDowns(true)
 		uiState.Localized = true
 	end
@@ -2654,15 +3106,15 @@ do
 	end
 
 	function module:OPEN_MASTER_LOOT_LIST()
-		assignmentUiController:OpenManualAwardGrid()
+		Private.OpenManualAwardGrid()
 	end
 
 	function module:UPDATE_MASTER_LOOT_LIST()
-		assignmentUiController:RefreshManualAwardGrid()
+		Private.RefreshManualAwardGrid()
 	end
 
 	function module:ShowDebugRaidGrid(count)
-		return assignmentUiController:OpenDebugRaidGrid(count)
+		return Private.OpenDebugRaidGrid(count)
 	end
 
 	-- LOOT_SLOT_CLEARED: Triggered when an item is looted.
@@ -3058,10 +3510,8 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Services/Master/RollRows",
 			"Services/Master/RollUi",
 			"Services/Master/MultiAward",
-			"Services/Master/AssignmentCandidates",
-			"Services/Master/AssignmentTargets",
-			"Services/Master/DebugRaidGrid",
-			"Services/Master/AssignmentUi",
+			"Services/Master/Assignment",
+			"Services/Debug",
 			"Services/Master/AwardMessages",
 			"Services/Master/LootSpam",
 			"Services/Master/RollAnnouncements",

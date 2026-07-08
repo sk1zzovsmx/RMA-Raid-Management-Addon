@@ -1,17 +1,16 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
 -- shared: local feature = addon.Database.GetFeatureShared()
--- exports: addon.Services.Master.AssignmentTargets
+-- exports: addon.Services.Master.Assignment
 -- events: none
--- notes: pure Master assignment target row models
+-- notes: pure Master assignment row models and policy
 local addon = select(2, ...)
 local feature = addon.Database.GetFeatureShared()
 
 local Master = feature.EnsureServiceNamespace("Master")
 
-local AssignmentTargets = Master.AssignmentTargets or {}
-Master.AssignmentTargets = AssignmentTargets
-local AssignmentHelpers = Master.AssignmentHelpers
+local Assignment = Master.Assignment or {}
+Master.Assignment = Assignment
 
 local tinsert = table.insert
 local pairs = pairs
@@ -19,12 +18,37 @@ local type = type
 local tostring = tostring
 local tonumber = tonumber
 
--- ----- Internal state ----- --
-
--- ----- Private helpers ----- --
 -- ----- Public methods ----- --
 
-function AssignmentTargets.BuildRows(groupedNames, classProvider)
+function Assignment.ResolveClass(classProvider, name)
+	if type(classProvider) == "function" then
+		return classProvider(name)
+	end
+	return nil
+end
+
+function Assignment.BuildCandidateRows(candidates, classProvider)
+	local result = {}
+	if type(candidates) ~= "table" then
+		return result
+	end
+
+	for i = 1, #candidates do
+		local candidate = candidates[i]
+		local name = candidate and candidate.name
+		if name and name ~= "" then
+			tinsert(result, {
+				name = name,
+				displayName = name,
+				index = candidate.index or i,
+				class = Assignment.ResolveClass(classProvider, name),
+			})
+		end
+	end
+	return result
+end
+
+function Assignment.BuildTargetRows(groupedNames, classProvider)
 	local result = {}
 	if type(groupedNames) ~= "table" then
 		return result
@@ -38,7 +62,7 @@ function AssignmentTargets.BuildRows(groupedNames, classProvider)
 					name = name,
 					displayName = name,
 					group = group,
-					class = AssignmentHelpers.ResolveClass(classProvider, name),
+					class = Assignment.ResolveClass(classProvider, name),
 				})
 			end
 		end
@@ -55,12 +79,11 @@ end
 
 local registry = feature.ModuleRegistry
 if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Master/AssignmentTargets", {
+	registry.AddModule("Services/Master/Assignment", {
 		deps = {
 			"Init",
 			"Modules/ModuleRegistry",
-			"Services/Master/AssignmentHelpers",
 		},
 	})
-	registry.SetLoaded("Services/Master/AssignmentTargets")
+	registry.SetLoaded("Services/Master/Assignment")
 end

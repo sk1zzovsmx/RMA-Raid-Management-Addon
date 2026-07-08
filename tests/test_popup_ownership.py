@@ -11,7 +11,6 @@ MASTER = ADDON / "Controllers" / "Master.lua"
 LOGGER = ADDON / "Controllers" / "Logger.lua"
 RESERVES_UI = ADDON / "Widgets" / "ReservesUI.lua"
 CONFIG = ADDON / "Widgets" / "Config.lua"
-ASSIGNMENT_UI = ADDON / "Services" / "Master" / "AssignmentUi.lua"
 
 
 def read(path):
@@ -46,7 +45,6 @@ class PopupOwnershipTest(unittest.TestCase):
 
     def test_master_manual_grid_confirm_uses_popup_owner_api(self):
         master = read(MASTER)
-        assignment_ui = read(ASSIGNMENT_UI)
 
         self.assertIn('local DefinePopup = assert(Popups.Define, "Master popup definer is not initialized")', master)
         self.assertIn(
@@ -54,15 +52,11 @@ class PopupOwnershipTest(unittest.TestCase):
             master,
         )
         self.assertIn('local ShowPopup = assert(Popups.Show, "Master popup shower is not initialized")', master)
-        self.assertIn("popup = {", master)
-        self.assertIn("Define = DefinePopup,", master)
-        self.assertIn("IsDefined = IsPopupDefined,", master)
-        self.assertIn("Show = ShowPopup,", master)
-        self.assertIn('controller.popup.Define("RMA_MASTER_LOOT_GRID_CONFIRM"', assignment_ui)
-        self.assertIn('return controller.popup.Show("RMA_MASTER_LOOT_GRID_CONFIRM"', assignment_ui)
+        self.assertIn('DefinePopup("RMA_MASTER_LOOT_GRID_CONFIRM"', master)
+        self.assertIn('return ShowPopup("RMA_MASTER_LOOT_GRID_CONFIRM"', master)
         self.assertNotIn("not (Popups and Popups.Define and Popups.IsDefined)", master)
         self.assertNotIn("not (Popups and Popups.Show)", master)
-        self.assertNotIn("StaticPopupDialogs", assignment_ui)
+        self.assertNotIn("StaticPopupDialogs", master)
 
     def test_master_group_loot_restore_confirm_uses_popup_owner_api(self):
         master = read(MASTER)
