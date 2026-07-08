@@ -116,9 +116,14 @@ local function collectRaidGridRosterRows(controller)
 	for unit in controller.unitIterator(true) do
 		local name = controller.getUnitName(unit)
 		if name and name ~= "" and not seen[name] then
+			local className = controller.getRaidGridPlayerClass(name)
+			if not className then
+				local _, classFileName = controller.getUnitClass(unit)
+				className = classFileName
+			end
 			tinsert(result, {
 				name = name,
-				class = controller.getRaidGridPlayerClass(name),
+				class = className,
 			})
 			seen[name] = true
 		end
@@ -344,6 +349,7 @@ function AssignmentUi.CreateController(opts)
 		getFrame = assert(opts.getFrame, "Master assignment UI frame resolver is not initialized"),
 		unitIterator = assert(opts.unitIterator, "Master assignment UI unit iterator is not initialized"),
 		getUnitName = assert(opts.getUnitName, "Master assignment UI unit-name resolver is not initialized"),
+		getUnitClass = assert(opts.getUnitClass, "Master assignment UI unit-class resolver is not initialized"),
 		getMasterLootCandidate = assert(
 			opts.getMasterLootCandidate,
 			"Master assignment UI loot-candidate resolver is not initialized"

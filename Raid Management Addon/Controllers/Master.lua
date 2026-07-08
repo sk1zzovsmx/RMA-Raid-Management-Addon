@@ -1505,6 +1505,7 @@ do
 		getFrame = getFrame,
 		unitIterator = addon.UnitIterator,
 		getUnitName = UnitName,
+		getUnitClass = UnitClass,
 		getMasterLootCandidate = GetMasterLootCandidate,
 		getRaidGridPlayerClass = getRaidGridPlayerClass,
 		getSelectedMasterLootLink = Private.GetSelectedMasterLootLink,

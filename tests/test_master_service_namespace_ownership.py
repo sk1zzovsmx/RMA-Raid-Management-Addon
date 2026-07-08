@@ -351,6 +351,23 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertLess(toc.index("Services\\Master\\DebugRaidGrid.lua"), toc.index("Services\\Master\\AssignmentUi.lua"))
         self.assertLess(toc.index("Services\\Master\\AssignmentUi.lua"), toc.index("Controllers\\Master.lua"))
 
+    def test_assignment_ui_owner_restores_raid_grid_unit_class_fallback(self):
+        controller = read(MASTER_CONTROLLER)
+        assignment_ui = read_optional(MASTER_ASSIGNMENT_UI)
+
+        self.assertIn("getUnitClass = UnitClass,", controller)
+        self.assertIn(
+            'getUnitClass = assert(opts.getUnitClass, "Master assignment UI unit-class resolver is not initialized")',
+            assignment_ui,
+        )
+
+        collect_roster_rows = extract_method_body(assignment_ui, "local function collectRaidGridRosterRows(controller)")
+        self.assertIn("local className = controller.getRaidGridPlayerClass(name)", collect_roster_rows)
+        self.assertIn("if not className then", collect_roster_rows)
+        self.assertIn("local _, classFileName = controller.getUnitClass(unit)", collect_roster_rows)
+        self.assertIn("className = classFileName", collect_roster_rows)
+        self.assertIn("class = className", collect_roster_rows)
+
     def test_master_controller_uses_award_counter_owner_without_service_passthroughs(self):
         service = read_optional(MASTER_SERVICE)
         controller = read(MASTER_CONTROLLER)
