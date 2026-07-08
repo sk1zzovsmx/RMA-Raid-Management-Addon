@@ -31,8 +31,7 @@ local format = string.format
 local GetTime = assert(_G.GetTime, "DBSyncer time API is not initialized")
 local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "DBSyncer raid member count API is not initialized")
 local GetRaidRosterInfo = assert(_G.GetRaidRosterInfo, "DBSyncer raid roster API is not initialized")
-local RegisterAddonMessagePrefix =
-	assert(_G.RegisterAddonMessagePrefix, "DBSyncer prefix registration API is not initialized")
+local RegisterAddonMessagePrefix = _G.RegisterAddonMessagePrefix
 
 local NormalizeName = Strings.NormalizeName
 local NormalizeLower = Strings.NormalizeLower
@@ -50,6 +49,12 @@ local LoggerSelectRaidEvent =
 local RaidCreateEvent = assert(InternalEvents.RaidCreate, "DBSyncer raid-create event is not initialized")
 local BindTimerMixin = assert(Timer.BindMixin, "DBSyncer timer mixin is not initialized")
 
+local function registerAddonMessagePrefix(prefix)
+	if type(RegisterAddonMessagePrefix) == "function" then
+		RegisterAddonMessagePrefix(prefix)
+	end
+end
+
 -- Logger synchronization module.
 do
 	DB.Syncer = DB.Syncer or {}
@@ -57,7 +62,7 @@ do
 
 	-- ----- Internal state ----- --
 	local COMM_PREFIX = "RMALogSync"
-	RegisterAddonMessagePrefix(COMM_PREFIX)
+	registerAddonMessagePrefix(COMM_PREFIX)
 	local LEGACY_PROTOCOL_VERSION = 1
 	local PROTOCOL_VERSION = 2
 

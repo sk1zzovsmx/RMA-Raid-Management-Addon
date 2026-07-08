@@ -39,8 +39,16 @@ local tostring, tonumber = tostring, tonumber
 local tsort = table.sort
 local GetTime = assert(_G.GetTime, "RMA time API is not initialized")
 local GetRealmName = assert(_G.GetRealmName, "RMA realm name API is not initialized")
-local UnitIsGroupLeader = assert(_G.UnitIsGroupLeader, "RMA group leader API is not initialized")
-local UnitIsGroupAssistant = assert(_G.UnitIsGroupAssistant, "RMA group assistant API is not initialized")
+local UnitIsGroupLeader = _G.UnitIsGroupLeader
+local UnitIsGroupAssistant = _G.UnitIsGroupAssistant
+local IsInRaid = _G.IsInRaid
+local IsRaidLeader = _G.IsRaidLeader
+local IsRaidOfficer = _G.IsRaidOfficer
+local IsPartyLeader = _G.IsPartyLeader
+local GetPartyLeaderIndex = assert(_G.GetPartyLeaderIndex, "RMA party leader index API is not initialized")
+local GetRaidRosterInfo = assert(_G.GetRaidRosterInfo, "RMA raid roster API is not initialized")
+local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "RMA raid member count API is not initialized")
+local GetNumPartyMembers = assert(_G.GetNumPartyMembers, "RMA party member count API is not initialized")
 
 local Database = addon.Database
 local Diagnose = addon.Diagnose
@@ -312,11 +320,69 @@ function Database.GetRealmName()
 	return realm
 end
 
+local function getUnitIndex(unit)
+	if type(unit) ~= "string" then
+		return nil
+	end
+	return tonumber(unit:match("%d+"))
+end
+
+local function isInRaid()
+	if type(IsInRaid) == "function" then
+		return IsInRaid() and true or false
+	end
+	return (tonumber(GetNumRaidMembers()) or 0) > 0
+end
+
+local function isInGroup()
+	return isInRaid() or (tonumber(GetNumPartyMembers()) or 0) > 0
+end
+
+local function isGroupLeader(unit)
+	if type(UnitIsGroupLeader) == "function" then
+		return UnitIsGroupLeader(unit) and true or false
+	end
+	if not isInGroup() then
+		return false
+	end
+	if unit == "player" then
+		if isInRaid() then
+			return type(IsRaidLeader) == "function" and IsRaidLeader() and true or false
+		end
+		return type(IsPartyLeader) == "function" and IsPartyLeader() and true or false
+	end
+	local index = getUnitIndex(unit)
+	if not index then
+		return false
+	end
+	if isInRaid() then
+		return select(2, GetRaidRosterInfo(index)) == 2
+	end
+	return GetPartyLeaderIndex() == index
+end
+
+local function isGroupAssistant(unit)
+	if type(UnitIsGroupAssistant) == "function" then
+		return UnitIsGroupAssistant(unit) and true or false
+	end
+	if not isInRaid() then
+		return false
+	end
+	if unit == "player" then
+		return type(IsRaidOfficer) == "function" and IsRaidOfficer() and true or false
+	end
+	local index = getUnitIndex(unit)
+	if not index then
+		return false
+	end
+	return select(2, GetRaidRosterInfo(index)) == 1
+end
+
 function Database.GetUnitRank(unit, fallback)
-	if UnitIsGroupLeader(unit) then
+	if isGroupLeader(unit) then
 		return 2
 	end
-	if UnitIsGroupAssistant(unit) then
+	if isGroupAssistant(unit) then
 		return 1
 	end
 	return fallback or 0

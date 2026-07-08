@@ -22,7 +22,6 @@ local LootContext = module._Context
 
 -- ----- Private helpers ----- --
 local NormalizeText = assert(Strings.NormalizeText, "Loot context text normalizer is not initialized")
-local GetCurrentRaid = assert(Database.GetCurrentRaid, "Loot context current-raid resolver is not initialized")
 local EnsureRaidById = assert(Database.EnsureRaidById, "Loot context raid resolver is not initialized")
 local EnsureRaidSchema = assert(Database.EnsureRaidSchema, "Loot context raid schema normalizer is not initialized")
 
@@ -261,7 +260,8 @@ end
 function LootContext.ResolveRaidRecord(raidNum)
 	local resolvedRaidNum = raidNum
 	if not resolvedRaidNum then
-		resolvedRaidNum = GetCurrentRaid()
+		local getCurrentRaid = assert(Database.GetCurrentRaid, "Loot context current-raid resolver is not initialized")
+		resolvedRaidNum = getCurrentRaid()
 	end
 	if not resolvedRaidNum then
 		return resolvedRaidNum, nil

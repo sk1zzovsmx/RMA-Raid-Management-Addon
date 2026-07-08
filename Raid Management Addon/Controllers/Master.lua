@@ -206,10 +206,10 @@ do
 
 	module._announced = false
 	module._cachedRosterVersion = nil
-	local RegisterAddonMessagePrefix =
-		assert(_G.RegisterAddonMessagePrefix, "Master roll-winner prefix registration API is not initialized")
 	local ROLL_WINNER_PREFIX = "RMA-RollWinner"
-	RegisterAddonMessagePrefix(ROLL_WINNER_PREFIX)
+	if type(_G.RegisterAddonMessagePrefix) == "function" then
+		_G.RegisterAddonMessagePrefix(ROLL_WINNER_PREFIX)
+	end
 	local ROLL_WINNERS_CTX = "MLRollWinners"
 	local ROLL_SELECTION_MODE = {
 		AUTO = "AUTO",
@@ -3962,7 +3962,7 @@ do
 	-- Trade / inventory execution helpers
 	-- ============================================================================
 	do
-		local function resolveTradeExecutionWinner(playerName, isAwardRoll)
+		Private.ResolveTradeExecutionWinner = function(playerName, isAwardRoll)
 			if not isAwardRoll then
 				return nil
 			end
@@ -4026,7 +4026,7 @@ do
 			return done
 		end
 
-		local function prepareTradeableItem(itemLink)
+		Private.PrepareTradeableItem = function(itemLink)
 			local itemData = LootInventory.ResolveTradeableInventoryItem(
 				itemLink,
 				itemInfo.bagID,
@@ -4056,7 +4056,7 @@ do
 			return true
 		end
 
-		local function tryInitiateTrade(itemLink, playerName, isAwardRoll)
+		Private.TryInitiateTrade = function(itemLink, playerName, isAwardRoll)
 			local unit = Raid:GetUnitID(playerName)
 			if unit == "none" then
 				return true, nil
@@ -4072,7 +4072,7 @@ do
 				return true, L.ChatTrade:format(playerName, itemLink)
 			end
 
-			if not prepareTradeableItem(itemLink) then
+			if not Private.PrepareTradeableItem(itemLink) then
 				return false, nil
 			end
 
@@ -4098,7 +4098,7 @@ do
 			return true, nil
 		end
 
-		local function finalizeTradeNotifications(itemLink, playerName, rollType, rollValue, output, whisper)
+		Private.FinalizeTradeNotifications = function(itemLink, playerName, rollType, rollValue, output, whisper)
 			if module._announced then
 				return true
 			end
@@ -4117,7 +4117,7 @@ do
 			return true
 		end
 
-		local function beginTradeItemState(itemLink, playerName, rollType, rollValue, isAwardRoll)
+		Private.BeginTradeItemState = function(itemLink, playerName, rollType, rollValue, isAwardRoll)
 			MasterService.Trade.Reset(true, false)
 			UI.Widgets.Call("TradeMenu", "HideDropdowns")
 			Rolls:EnsureLootRollSession(
@@ -4130,7 +4130,7 @@ do
 			resetTradeState()
 
 			lootState.trader = Database.GetPlayerName()
-			local winnerName = resolveTradeExecutionWinner(playerName, isAwardRoll)
+			local winnerName = Private.ResolveTradeExecutionWinner(playerName, isAwardRoll)
 			lootState.tradeItemLink = itemLink
 			lootState.tradeItemId = Item.GetItemIdFromLink(itemLink)
 
@@ -4175,7 +4175,7 @@ do
 			return true, winnerName
 		end
 
-		local function applyTradeMarkerPlan(markerPlan)
+		Private.ApplyTradeMarkerPlan = function(markerPlan)
 			if type(markerPlan) ~= "table" then
 				return
 			end
@@ -4194,7 +4194,7 @@ do
 			end
 		end
 
-		local function buildTradeUiNotificationPlan(itemLink, playerName, winnerName, rollType, isAwardRoll)
+		Private.BuildTradeUiNotificationPlan = function(itemLink, playerName, winnerName, rollType, isAwardRoll)
 			local selectedWinners
 			local fallbackRolls
 			if isAwardRoll and (tonumber(lootState.selectedItemCount) or 1) > 1 then
@@ -4222,11 +4222,11 @@ do
 				},
 			})
 
-			applyTradeMarkerPlan(plan and plan.markerPlan)
+			Private.ApplyTradeMarkerPlan(plan and plan.markerPlan)
 			return plan and plan.keep, plan and plan.output, plan and plan.whisper
 		end
 
-		local function completeTraderKeepAward(itemLink, winnerName, rollType, rollValue, output, whisper)
+		Private.CompleteTraderKeepAward = function(itemLink, winnerName, rollType, rollValue, output, whisper)
 			if addon.hasDebug then
 				addon:debug(Diag.D.LogTradeTraderKeeps:format(tostring(itemLink), tostring(winnerName)))
 			end
@@ -4262,7 +4262,7 @@ do
 				end
 			end
 
-			finalizeTradeNotifications(itemLink, winnerName, rollType, rollValue, output, whisper)
+			Private.FinalizeTradeNotifications(itemLink, winnerName, rollType, rollValue, output, whisper)
 			Loot:SetDistributionState("item_done", {
 				itemLink = itemLink,
 				winnerName = winnerName,
@@ -4271,8 +4271,8 @@ do
 			return true
 		end
 
-		local function prepareExternalAwardTrade(itemLink, winnerName, isAwardRoll, output)
-			local ok, outputOverride = tryInitiateTrade(itemLink, winnerName, isAwardRoll)
+		Private.PrepareExternalAwardTrade = function(itemLink, winnerName, isAwardRoll, output)
+			local ok, outputOverride = Private.TryInitiateTrade(itemLink, winnerName, isAwardRoll)
 			if not ok then
 				return false, output
 			end
@@ -4285,26 +4285,33 @@ do
 				return
 			end
 			local isAwardRoll = (rollType and rollType >= rollTypes.MAINSPEC and rollType <= rollTypes.FREE)
-			local ok, winnerName = beginTradeItemState(itemLink, playerName, rollType, rollValue, isAwardRoll)
+			local ok, winnerName = Private.BeginTradeItemState(itemLink, playerName, rollType, rollValue, isAwardRoll)
 			if not ok then
 				return false
 			end
 
 			local keep, output, whisper =
-				buildTradeUiNotificationPlan(itemLink, playerName, winnerName, rollType, isAwardRoll)
+				Private.BuildTradeUiNotificationPlan(itemLink, playerName, winnerName, rollType, isAwardRoll)
 
 			if not keep and lootState.trader == winnerName then
-				return completeTraderKeepAward(itemLink, winnerName, rollType, rollValue, output, whisper)
+				return Private.CompleteTraderKeepAward(itemLink, winnerName, rollType, rollValue, output, whisper)
 			end
 
 			if not keep then
-				ok, output = prepareExternalAwardTrade(itemLink, winnerName, isAwardRoll, output)
+				ok, output = Private.PrepareExternalAwardTrade(itemLink, winnerName, isAwardRoll, output)
 				if not ok then
 					return false
 				end
 			end
 
-			return finalizeTradeNotifications(itemLink, winnerName or playerName, rollType, rollValue, output, whisper)
+			return Private.FinalizeTradeNotifications(
+				itemLink,
+				winnerName or playerName,
+				rollType,
+				rollValue,
+				output,
+				whisper
+			)
 		end
 	end
 
@@ -4314,13 +4321,13 @@ do
 	do
 		local GROUP_LOOT_RESTORE_POPUP_KEY = "RMA_CONFIRM_GROUP_LOOT_RESTORE"
 
-		local function restoreGroupLootFromPopup()
+		Private.RestoreGroupLootFromPopup = function()
 			if Raid and Raid.RestoreGroupLoot then
 				Raid:RestoreGroupLoot("popup")
 			end
 		end
 
-		local function registerWowForwarded(methodName)
+		Private.RegisterWowForwarded = function(methodName)
 			RegisterCallback(GetWowForwarded(methodName), function(_, ...)
 				local fn = module[methodName]
 				if fn then
@@ -4329,26 +4336,26 @@ do
 			end)
 		end
 
-		registerWowForwarded("LOOT_OPENED")
-		registerWowForwarded("LOOT_CLOSED")
-		registerWowForwarded("LOOT_SLOT_CLEARED")
-		registerWowForwarded("OPEN_MASTER_LOOT_LIST")
-		registerWowForwarded("UPDATE_MASTER_LOOT_LIST")
-		registerWowForwarded("PLAYER_TARGET_CHANGED")
-		registerWowForwarded("UI_ERROR_MESSAGE")
-		registerWowForwarded("UI_INFO_MESSAGE")
-		registerWowForwarded("TRADE_ACCEPT_UPDATE")
-		registerWowForwarded("TRADE_SHOW")
-		registerWowForwarded("TRADE_PLAYER_ITEM_CHANGED")
-		registerWowForwarded("TRADE_REQUEST_CANCEL")
-		registerWowForwarded("TRADE_TARGET_ITEM_CHANGED")
-		registerWowForwarded("TRADE_CLOSED")
+		Private.RegisterWowForwarded("LOOT_OPENED")
+		Private.RegisterWowForwarded("LOOT_CLOSED")
+		Private.RegisterWowForwarded("LOOT_SLOT_CLEARED")
+		Private.RegisterWowForwarded("OPEN_MASTER_LOOT_LIST")
+		Private.RegisterWowForwarded("UPDATE_MASTER_LOOT_LIST")
+		Private.RegisterWowForwarded("PLAYER_TARGET_CHANGED")
+		Private.RegisterWowForwarded("UI_ERROR_MESSAGE")
+		Private.RegisterWowForwarded("UI_INFO_MESSAGE")
+		Private.RegisterWowForwarded("TRADE_ACCEPT_UPDATE")
+		Private.RegisterWowForwarded("TRADE_SHOW")
+		Private.RegisterWowForwarded("TRADE_PLAYER_ITEM_CHANGED")
+		Private.RegisterWowForwarded("TRADE_REQUEST_CANCEL")
+		Private.RegisterWowForwarded("TRADE_TARGET_ITEM_CHANGED")
+		Private.RegisterWowForwarded("TRADE_CLOSED")
 
 		RegisterCallback(MasterEvents.RequestGroupLootRestorePrompt, function()
 			ShowConfirmPopup(
 				GROUP_LOOT_RESTORE_POPUP_KEY,
 				L.PopupGroupLootRestoreText,
-				restoreGroupLootFromPopup,
+				Private.RestoreGroupLootFromPopup,
 				GROUP_LOOT_RESTORE_POPUP_KEY,
 				{
 					button1 = L.BtnGroupLoot,

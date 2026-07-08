@@ -409,6 +409,17 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertIn('Database.RequestControllerMethod("Master", "Toggle")', minimap)
         self.assertIn('callWidgetMethod("LootCounter", "Toggle")', minimap)
 
+    def test_widget_facade_invokes_registered_methods_with_self(self):
+        facade = read(ADDON / "Modules" / "UI" / "Facade.lua")
+
+        self.assertIn("local SELF_METHODS = {", facade)
+        self.assertIn("Toggle = true", facade)
+        self.assertIn("ToggleImport = true", facade)
+        self.assertIn("AttachToMaster = true", facade)
+        self.assertIn("if SELF_METHODS[methodName] == true then", facade)
+        self.assertIn("return fn(api, ...)", facade)
+        self.assertIn("return fn(...)", facade)
+
     def test_slash_events_routes_controllers_without_private_pass_through_wrapper(self):
         slash_events = read(SLASH_EVENTS)
 
