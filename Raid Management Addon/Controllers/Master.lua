@@ -48,6 +48,7 @@ local Raid = assert(Services.Raid, "Master raid service is not initialized")
 local Rolls = assert(Services.Rolls, "Master rolls service is not initialized")
 local Chat = assert(Services.Chat, "Master chat service is not initialized")
 local MasterService = assert(Services.Master, "Master service namespace is not initialized")
+local RollUiService = assert(MasterService.RollUi, "Master roll UI service is not initialized")
 
 local InternalEvents = assert(Events.Internal, "Master controller internal events are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Master controller event publisher is not initialized")
@@ -208,15 +209,9 @@ do
 	module._cachedRosterVersion = nil
 	local ROLL_WINNER_PREFIX = "RMA-RollWinner"
 	Comms.RegisterPrefixIfAvailable(ROLL_WINNER_PREFIX)
-	local ROLL_WINNERS_CTX = "MLRollWinners"
-	local ROLL_SELECTION_MODE = {
-		AUTO = "AUTO",
-		MANUAL_SINGLE = "MANUAL_SINGLE",
-		MANUAL_MULTI = "MANUAL_MULTI",
-	}
 	module._rollUiState = module._rollUiState
 		or {
-			mode = ROLL_SELECTION_MODE.AUTO,
+			mode = RollUiService.Mode.AUTO,
 			sessionKey = nil,
 			showRollsOnly = true,
 			model = nil,
@@ -384,156 +379,39 @@ do
 	-- ============================================================================
 	-- Roll selection / UI model helpers
 	-- ============================================================================
-	local function resetRollWinnerSelection(mode)
-		UI.Selection.EnsureState(ROLL_WINNERS_CTX)
-		UI.Selection.SetAnchor(ROLL_WINNERS_CTX, nil)
-		module._rollUiState.mode = mode or ROLL_SELECTION_MODE.AUTO
-		module._rollUiState.model = nil
-	end
-
-	local function invalidateRollUiModel()
-		module._rollUiState.model = nil
-	end
-
 	local function getRollSelectionSessionKey()
 		local session = GetRollSession(Rolls)
 		return session and tostring(session.id) or nil
 	end
 
-	local function syncRollSelectionSession()
-		local sessionKey = getRollSelectionSessionKey()
-		if module._rollUiState.sessionKey == sessionKey then
-			return sessionKey
-		end
-		resetRollWinnerSelection(ROLL_SELECTION_MODE.AUTO)
-		module._rollUiState.sessionKey = sessionKey
-		return sessionKey
-	end
-
-	local isSelectableRollRow = MasterService.RollRows.IsSelectableRow
-
-	local function getSelectedRollWinnersOrdered(rows)
-		local selected = {}
-		if type(rows) ~= "table" then
-			return selected
-		end
-
-		for i = 1, #rows do
-			local row = rows[i]
-			if
-				row
-				and row.name
-				and isSelectableRollRow(row)
-				and UI.Selection.IsSelected(ROLL_WINNERS_CTX, row.name)
-			then
-				selected[#selected + 1] = {
-					name = row.name,
-					roll = tonumber(row.roll) or 0,
-				}
-			end
-		end
-
-		return selected
-	end
-
-	local function replaceRollWinnerSelection(names, mode)
-		local lastName = nil
-
-		resetRollWinnerSelection(mode)
-		if type(names) ~= "table" then
-			return 0
-		end
-
-		for i = 1, #names do
-			local name = names[i]
-			if type(name) == "string" and name ~= "" then
-				UI.Selection.Toggle(ROLL_WINNERS_CTX, name, true)
-				lastName = name
-			end
-		end
-
-		UI.Selection.SetAnchor(ROLL_WINNERS_CTX, lastName)
-		return UI.Selection.GetCount(ROLL_WINNERS_CTX) or 0
-	end
-
-	local function pruneRollWinnerSelection(rows)
-		local valid = {}
-		local selected = UI.Selection.GetSelected(ROLL_WINNERS_CTX) or {}
-		local changed = false
-		local ordered
-
-		if type(rows) ~= "table" then
-			return 0
-		end
-
-		for i = 1, #rows do
-			local row = rows[i]
-			if row and row.name and isSelectableRollRow(row) then
-				valid[row.name] = true
-			end
-		end
-
-		for i = 1, #selected do
-			local name = selected[i]
-			if not valid[name] then
-				UI.Selection.Toggle(ROLL_WINNERS_CTX, name, true)
-				changed = true
-			end
-		end
-
-		if changed then
-			ordered = getSelectedRollWinnersOrdered(rows)
-			UI.Selection.SetAnchor(ROLL_WINNERS_CTX, ordered[#ordered] and ordered[#ordered].name or nil)
-		end
-
-		return UI.Selection.GetCount(ROLL_WINNERS_CTX) or 0
-	end
-
 	local buildRollUiModel, selectRollWinnerRow
+	local rollUiController = RollUiService.CreateController({
+		getDisplayModel = function()
+			return GetDisplayModel(Rolls)
+		end,
+		getSessionKey = getRollSelectionSessionKey,
+		isFromInventory = function()
+			return lootState.fromInventory == true
+		end,
+		isSelectionBlocked = function()
+			return lootState.multiAward and lootState.multiAward.active
+		end,
+		onSelectionBlocked = function()
+			addon:warn(Diag.W.ErrMLMultiAwardInProgress)
+		end,
+		rollRows = MasterService.RollRows,
+		selection = UI.Selection,
+		state = module._rollUiState,
+		syncWinner = function(name)
+			Comms.Sync(ROLL_WINNER_PREFIX, name)
+		end,
+		warnTooMany = function(maxSel)
+			addon:warn(Diag.W.ErrMLMultiSelectTooMany:format(maxSel))
+		end,
+	})
 
-	local function applyRollWinnerSelection(name, pickMode, maxSel)
-		local isMulti
-		local isSelected
-		local currentCount
-
-		if not name or name == "" then
-			return false
-		end
-
-		if not pickMode then
-			UI.Selection.Toggle(ROLL_WINNERS_CTX, name, false, false)
-			UI.Selection.SetAnchor(ROLL_WINNERS_CTX, name)
-			module._rollUiState.mode = ROLL_SELECTION_MODE.MANUAL_SINGLE
-			return true
-		end
-
-		isMulti = UI.Selection.ResolveModifiers
-				and select(1, UI.Selection.ResolveModifiers(ROLL_WINNERS_CTX, { allowRange = false }))
-			or ((IsControlKeyDown and IsControlKeyDown()) or false)
-		isSelected = UI.Selection.IsSelected(ROLL_WINNERS_CTX, name)
-		currentCount = UI.Selection.GetCount(ROLL_WINNERS_CTX) or 0
-
-		if isMulti then
-			if (not isSelected) and currentCount >= maxSel then
-				if maxSel == 1 then
-					replaceRollWinnerSelection({ name }, ROLL_SELECTION_MODE.MANUAL_MULTI)
-					return true
-				end
-				addon:warn(Diag.W.ErrMLMultiSelectTooMany:format(maxSel))
-				return false
-			end
-			UI.Selection.Toggle(ROLL_WINNERS_CTX, name, true, true)
-		else
-			UI.Selection.Toggle(ROLL_WINNERS_CTX, name, false, false)
-		end
-
-		module._rollUiState.mode = ROLL_SELECTION_MODE.MANUAL_MULTI
-		if (UI.Selection.GetCount(ROLL_WINNERS_CTX) or 0) > 0 then
-			UI.Selection.SetAnchor(ROLL_WINNERS_CTX, name)
-		else
-			UI.Selection.SetAnchor(ROLL_WINNERS_CTX, nil)
-		end
-		return true
+	local function invalidateRollUiModel()
+		return rollUiController:Invalidate()
 	end
 
 	-- ============================================================================
@@ -789,163 +667,20 @@ do
 		return nil
 	end
 
-	Private.syncRollWinnerSelectionState = function(baseRows, resolution, selectionAllowed, requiredWinnerCount)
-		if selectionAllowed then
-			pruneRollWinnerSelection(baseRows)
-		elseif (UI.Selection.GetCount(ROLL_WINNERS_CTX) or 0) > 0 then
-			resetRollWinnerSelection(ROLL_SELECTION_MODE.AUTO)
-		end
-
-		local inventoryMultiSelectMode = lootState.fromInventory
-			and (requiredWinnerCount > 1 or module._rollUiState.mode == ROLL_SELECTION_MODE.MANUAL_MULTI)
-		local pickMode = selectionAllowed and ((not lootState.fromInventory) or inventoryMultiSelectMode)
-
-		if pickMode and module._rollUiState.mode == ROLL_SELECTION_MODE.AUTO then
-			local prefillNames = {}
-			for i = 1, #(resolution.autoWinners or {}) do
-				local winner = resolution.autoWinners[i]
-				if winner and winner.name then
-					prefillNames[#prefillNames + 1] = winner.name
-				end
-			end
-			replaceRollWinnerSelection(prefillNames, ROLL_SELECTION_MODE.AUTO)
-		elseif
-			not pickMode
-			and module._rollUiState.mode ~= ROLL_SELECTION_MODE.MANUAL_SINGLE
-			and (UI.Selection.GetCount(ROLL_WINNERS_CTX) or 0) > 0
-		then
-			resetRollWinnerSelection(ROLL_SELECTION_MODE.AUTO)
-		end
-
-		local selectionState = MasterService.RollRows.BuildSelectionState({
-			fromInventory = lootState.fromInventory,
-			mode = module._rollUiState.mode,
-			resolution = resolution,
-			requiredWinnerCount = requiredWinnerCount,
-			selectedWinners = getSelectedRollWinnersOrdered(baseRows),
-			selectionAllowed = selectionAllowed and true or false,
-		})
-		if selectionState.resetSelectionToAuto then
-			resetRollWinnerSelection(ROLL_SELECTION_MODE.AUTO)
-		end
-		return selectionState
-	end
-
-	Private.decorateRollUiRows = function(baseRows, resolution, selectionState)
-		return MasterService.RollRows.BuildModel({
-			rows = baseRows,
-			resolution = resolution,
-			selectionState = selectionState,
-			showRollsOnly = module._rollUiState.showRollsOnly == true,
-		})
-	end
-
 	buildRollUiModel = function(forceRefresh)
-		if forceRefresh ~= true and module._rollUiState.model then
-			return module._rollUiState.model
-		end
-
-		local model = GetDisplayModel(Rolls) or {}
-		local baseRows = model.rows or {}
-		local resolution = model.resolution or {}
-		local selectionAllowed = model.selectionAllowed == true
-		local requiredWinnerCount = tonumber(model.requiredWinnerCount) or 1
-
-		syncRollSelectionSession()
-		local selectionState =
-			Private.syncRollWinnerSelectionState(baseRows, resolution, selectionAllowed, requiredWinnerCount)
-		local decoratedRows, visibleRows = Private.decorateRollUiRows(baseRows, resolution, selectionState)
-
-		model.rows = decoratedRows
-		model.visibleRows = visibleRows
-		model.pickMode = selectionState.pickMode
-		model.msCount = selectionState.msCount
-		model.highlightTarget = selectionState.highlightTarget
-		model.winner = selectionState.winnerName
-		model.selectionAllowed = selectionState.selectionAllowed
-		model.showRollsOnly = module._rollUiState.showRollsOnly == true
-		module._rollUiState.model = model
-		return model
+		return rollUiController:BuildModel(forceRefresh)
 	end
 
 	selectRollWinnerRow = function(name)
-		local model = buildRollUiModel(true)
-		local rows = model and model.rows or {}
-		local requiredWinnerCount = tonumber(model and model.requiredWinnerCount) or 1
-		local pickMode = model and model.pickMode == true
-		local maxSel = requiredWinnerCount
-		local row
-
-		if not (model and model.selectionAllowed == true) then
-			return false
-		end
-
-		if lootState.multiAward and lootState.multiAward.active then
-			addon:warn(Diag.W.ErrMLMultiAwardInProgress)
-			return false
-		end
-
-		for i = 1, #rows do
-			if rows[i] and rows[i].name == name then
-				row = rows[i]
-				break
-			end
-		end
-
-		if not isSelectableRollRow(row) then
-			return false
-		end
-
-		if maxSel > #rows then
-			maxSel = #rows
-		end
-		if maxSel < 1 then
-			maxSel = 1
-		end
-
-		if not applyRollWinnerSelection(name, pickMode, maxSel) then
-			return false
-		end
-
-		invalidateRollUiModel()
-		buildRollUiModel()
-		if not pickMode then
-			Comms.Sync(ROLL_WINNER_PREFIX, name)
-		end
-		return true
+		return rollUiController:SelectWinnerRow(name)
 	end
 
 	local function copyVisibleRollRows(out)
-		local model = module._rollUiState.model
-		local visibleRows = model and model.visibleRows or {}
-
-		for i = 1, #visibleRows do
-			local source = visibleRows[i]
-			if source then
-				local copy = MasterService.RollRows.BuildListRow(source, i)
-				if copy then
-					out[#out + 1] = copy
-				end
-			end
-		end
+		return rollUiController:CopyVisibleRows(out)
 	end
 
 	local function getFocusedRollRowId()
-		local model = module._rollUiState.model
-		local visibleRows = model and model.visibleRows or nil
-
-		if type(visibleRows) ~= "table" then
-			return nil
-		end
-
-		for i = 1, #visibleRows do
-			local row = visibleRows[i]
-			if row and row.isFocused == true then
-				return i
-			end
-		end
-
-		return nil
+		return rollUiController:GetFocusedRowId()
 	end
 
 	local function onRollRowClick(self)
@@ -959,8 +694,7 @@ do
 	end
 
 	Private.RenderRollRowsFallback = function(frameName)
-		local model = module._rollUiState.model
-		local visibleRows = model and model.visibleRows or nil
+		local visibleRows = rollUiController:GetVisibleRows()
 		if type(visibleRows) ~= "table" or #visibleRows <= 0 or type(frameName) ~= "string" or frameName == "" then
 			return false
 		end
@@ -1594,13 +1328,13 @@ do
 	end
 
 	local function buildMultiAwardWinners(target)
-		local selCount = UI.Selection.GetCount(ROLL_WINNERS_CTX) or 0
+		local selCount = rollUiController:GetSelectedCount()
 		local rollModel
 		local picked
 
 		if selCount > 0 then
 			rollModel = buildRollUiModel(true)
-			picked = getSelectedRollWinnersOrdered(rollModel and rollModel.rows or nil)
+			picked = rollUiController:GetSelectedWinnersOrdered(rollModel and rollModel.rows or nil)
 		end
 
 		local plan = LootAwardPlanner.BuildMultiAwardWinnersPlan({
@@ -1609,8 +1343,7 @@ do
 			pickedWinners = picked,
 		})
 		if plan and plan.clearSelection then
-			UI.Selection.EnsureState(ROLL_WINNERS_CTX)
-			UI.Selection.SetAnchor(ROLL_WINNERS_CTX, nil)
+			rollUiController:ClearAnchor()
 		end
 		if plan and plan.errType then
 			return nil, plan.errType, plan.wantedCount, plan.pickedCount
@@ -1620,13 +1353,13 @@ do
 	end
 
 	local function validateInventoryTradeUiSelection(target)
-		local selCount = UI.Selection.GetCount(ROLL_WINNERS_CTX) or 0
+		local selCount = rollUiController:GetSelectedCount()
 		local rollModel
 		local picked
 
 		if selCount > 0 then
 			rollModel = buildRollUiModel(true)
-			picked = getSelectedRollWinnersOrdered(rollModel and rollModel.rows or nil)
+			picked = rollUiController:GetSelectedWinnersOrdered(rollModel and rollModel.rows or nil)
 		end
 
 		local plan = LootAwardPlanner.ValidateInventoryTradeSelection({
@@ -1837,7 +1570,7 @@ do
 				return false
 			end
 			module._announced = false
-			resetRollWinnerSelection(ROLL_SELECTION_MODE.AUTO)
+			rollUiController:ResetSelection(RollUiService.Mode.AUTO)
 			Announce(Chat, L.ChatTieReroll:format(tconcat(rerollNames or {}, ", "), Loot.GetItemLink() or ""))
 			Loot:SetDistributionState("tie_start", {
 				itemLink = Loot.GetItemLink(),
@@ -3973,7 +3706,7 @@ do
 			local multiInventoryAward = lootState.fromInventory and ((tonumber(lootState.selectedItemCount) or 1) > 1)
 			if multiInventoryAward then
 				local rollModel = buildRollUiModel(true)
-				local picked = getSelectedRollWinnersOrdered(rollModel and rollModel.rows or nil)
+				local picked = rollUiController:GetSelectedWinnersOrdered(rollModel and rollModel.rows or nil)
 				if picked[1] and picked[1].name then
 					winner = picked[1].name
 				end
@@ -3990,20 +3723,13 @@ do
 				return
 			end
 
-			local selCount = UI.Selection.GetCount(ROLL_WINNERS_CTX) or 0
+			local selCount = rollUiController:GetSelectedCount()
 			if selCount <= 0 then
 				lootState.winner = nil
 				return
 			end
 
-			if completedWinner and UI.Selection.IsSelected(ROLL_WINNERS_CTX, completedWinner) then
-				UI.Selection.Toggle(ROLL_WINNERS_CTX, completedWinner, true)
-				if UI.Selection.GetAnchor and UI.Selection.GetAnchor(ROLL_WINNERS_CTX) == completedWinner then
-					UI.Selection.SetAnchor(ROLL_WINNERS_CTX, nil)
-				end
-			end
-
-			invalidateRollUiModel()
+			rollUiController:DeselectWinner(completedWinner)
 			local rollModel = buildRollUiModel()
 			lootState.winner = rollModel and rollModel.winner or nil
 		end
@@ -4200,7 +3926,7 @@ do
 			local fallbackRolls
 			if isAwardRoll and (tonumber(lootState.selectedItemCount) or 1) > 1 then
 				local rollModel = buildRollUiModel(true)
-				selectedWinners = getSelectedRollWinnersOrdered(rollModel and rollModel.rows or nil)
+				selectedWinners = rollUiController:GetSelectedWinnersOrdered(rollModel and rollModel.rows or nil)
 				fallbackRolls = Rolls:GetRolls()
 			end
 
@@ -4485,6 +4211,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Services/Master/FlowState",
 			"Services/Master/ButtonState",
 			"Services/Master/RollRows",
+			"Services/Master/RollUi",
 			"Services/Master/AssignmentCandidates",
 			"Services/Master/AssignmentTargets",
 			"Services/Master/DebugRaidGrid",

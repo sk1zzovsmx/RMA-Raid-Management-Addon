@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MASTER_SERVICES = ROOT / "Raid Management Addon" / "Services" / "Master"
 MASTER_SERVICE = MASTER_SERVICES / "Service.lua"
+MASTER_ROLL_UI = MASTER_SERVICES / "RollUi.lua"
 MASTER_CONTROLLER = ROOT / "Raid Management Addon" / "Controllers" / "Master.lua"
 MASTER_TOC = ROOT / "Raid Management Addon" / "Raid Management Addon.toc"
 TRADE_MENU = ROOT / "Raid Management Addon" / "Widgets" / "TradeMenu.lua"
@@ -57,9 +58,11 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertIn("MasterService.ButtonState.ResolveAwardSelectionState(rollModel, isTieReroll)", controller)
         self.assertIn("MasterService.ButtonState.BuildState({", controller)
 
-    def test_master_controller_uses_roll_rows_owner_without_service_passthroughs(self):
+    def test_master_controller_delegates_roll_ui_state_to_owner(self):
         service = read_optional(MASTER_SERVICE)
         controller = read(MASTER_CONTROLLER)
+        roll_ui = read(MASTER_ROLL_UI)
+        toc = read(MASTER_TOC)
 
         for method in (
             "BuildRollSelectionState",
@@ -70,10 +73,32 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
             self.assertNotIn("function Master." + method, service)
             self.assertNotIn("MasterService." + method, controller)
 
-        self.assertIn("MasterService.RollRows.IsSelectableRow", controller)
-        self.assertIn("MasterService.RollRows.BuildSelectionState({", controller)
-        self.assertIn("MasterService.RollRows.BuildModel({", controller)
-        self.assertIn("MasterService.RollRows.BuildListRow(source, i)", controller)
+        self.assertIn('local RollUiService = assert(MasterService.RollUi, "Master roll UI service is not initialized")', controller)
+        self.assertIn("RollUiService.CreateController({", controller)
+        self.assertIn("rollRows = MasterService.RollRows", controller)
+        self.assertIn("selection = UI.Selection", controller)
+        self.assertIn("rollUiController:BuildModel(forceRefresh)", controller)
+        self.assertIn("rollUiController:SelectWinnerRow(name)", controller)
+        self.assertIn("rollUiController:CopyVisibleRows(out)", controller)
+        self.assertIn("rollUiController:GetFocusedRowId()", controller)
+        self.assertIn("rollUiController:GetVisibleRows()", controller)
+        self.assertNotIn("ROLL_WINNERS_CTX", controller)
+        self.assertNotIn("ROLL_SELECTION_MODE", controller)
+        self.assertNotIn("local function getSelectedRollWinnersOrdered", controller)
+        self.assertNotIn("UI.Selection.GetCount", controller)
+
+        self.assertIn("RollUi.ContextKey = ROLL_WINNERS_CTX", roll_ui)
+        self.assertIn("RollUi.Mode = MODE", roll_ui)
+        self.assertIn("function RollUi.CreateController(opts)", roll_ui)
+        self.assertIn("selection.GetCount(ROLL_WINNERS_CTX)", roll_ui)
+        self.assertIn("selection.Toggle(ROLL_WINNERS_CTX", roll_ui)
+        self.assertIn("selection.SetAnchor(ROLL_WINNERS_CTX", roll_ui)
+        self.assertIn("controller.rollRows.BuildSelectionState({", roll_ui)
+        self.assertIn("self.rollRows.BuildModel({", roll_ui)
+        self.assertIn("self.rollRows.BuildListRow(source, i)", roll_ui)
+
+        self.assertLess(toc.index("Services\\Master\\RollRows.lua"), toc.index("Services\\Master\\RollUi.lua"))
+        self.assertLess(toc.index("Services\\Master\\RollUi.lua"), toc.index("Controllers\\Master.lua"))
 
     def test_master_controller_uses_message_plan_owners_without_service_passthroughs(self):
         service = read_optional(MASTER_SERVICE)
@@ -190,6 +215,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
             "Services/Master/FlowState",
             "Services/Master/ButtonState",
             "Services/Master/RollRows",
+            "Services/Master/RollUi",
             "Services/Master/AssignmentCandidates",
             "Services/Master/AssignmentTargets",
             "Services/Master/DebugRaidGrid",

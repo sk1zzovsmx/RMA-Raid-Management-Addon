@@ -211,7 +211,8 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
                 self.assertIn(expected, master)
 
         self.assertIn("local session = GetRollSession(Rolls)", master)
-        self.assertIn("local model = GetDisplayModel(Rolls)", master)
+        self.assertIn("return GetDisplayModel(Rolls)", master)
+        self.assertIn("RollUiService.CreateController({", master)
         self.assertIn("BeginTieReroll(Rolls, resolution.tiedNames)", master)
         self.assertNotIn("Rolls and Rolls.GetRollSession", master)
         self.assertNotIn("Rolls and Rolls.GetDisplayModel", master)

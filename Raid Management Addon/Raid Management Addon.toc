@@ -115,6 +115,7 @@ Services\Master\SessionWinners.lua
 Services\Master\FlowState.lua
 Services\Master\ButtonState.lua
 Services\Master\RollRows.lua
+Services\Master\RollUi.lua
 Services\Master\AssignmentHelpers.lua
 Services\Master\AssignmentCandidates.lua
 Services\Master\AssignmentTargets.lua
