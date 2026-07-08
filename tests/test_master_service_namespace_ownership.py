@@ -7,6 +7,7 @@ MASTER_SERVICES = ROOT / "Raid Management Addon" / "Services" / "Master"
 MASTER_SERVICE = MASTER_SERVICES / "Service.lua"
 MASTER_ROLL_UI = MASTER_SERVICES / "RollUi.lua"
 MASTER_MULTI_AWARD = MASTER_SERVICES / "MultiAward.lua"
+MASTER_TRADE_EXECUTION = MASTER_SERVICES / "TradeExecution.lua"
 MASTER_CONTROLLER = ROOT / "Raid Management Addon" / "Controllers" / "Master.lua"
 MASTER_TOC = ROOT / "Raid Management Addon" / "Raid Management Addon.toc"
 TRADE_MENU = ROOT / "Raid Management Addon" / "Widgets" / "TradeMenu.lua"
@@ -153,6 +154,46 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertLess(toc.index("Services\\Master\\MultiAward.lua"), toc.index("Services\\Master\\AssignmentHelpers.lua"))
         self.assertLess(toc.index("Services\\Master\\MultiAward.lua"), toc.index("Controllers\\Master.lua"))
 
+    def test_master_controller_delegates_inventory_trade_execution_to_owner(self):
+        controller = read(MASTER_CONTROLLER)
+        trade_execution = read_optional(MASTER_TRADE_EXECUTION)
+        toc = read(MASTER_TOC)
+
+        self.assertNotIn("Private.ResolveTradeExecutionWinner = function", controller)
+        self.assertNotIn("Private.PrepareTradeableItem = function", controller)
+        self.assertNotIn("Private.TryInitiateTrade = function", controller)
+        self.assertNotIn("Private.BuildTradeUiNotificationPlan = function", controller)
+        self.assertNotIn("function tradeItem(itemLink, playerName, rollType, rollValue)", controller)
+        self.assertNotIn("Private.CompleteTraderKeepAward = function", controller)
+        self.assertNotIn("Private.BeginTradeItemState = function", controller)
+
+        self.assertIn(
+            'local TradeExecutionService = assert(MasterService.TradeExecution, "Master trade execution service is not initialized")',
+            controller,
+        )
+        self.assertIn("tradeExecutionController = TradeExecutionService.CreateController({", controller)
+        self.assertIn("return tradeExecutionController:TradeItem(itemLink, playerName, rollType, rollValue)", controller)
+
+        self.assertIn("function TradeExecution.CreateController(opts)", trade_execution)
+        self.assertIn("function controller:ResolveWinner(playerName, isAwardRoll)", trade_execution)
+        self.assertIn("function controller:PrepareTradeableItem(itemLink)", trade_execution)
+        self.assertIn(
+            "function controller:BeginTradeItemState(itemLink, playerName, rollType, rollValue, isAwardRoll)",
+            trade_execution,
+        )
+        self.assertIn(
+            "function controller:BuildNotificationPlan(itemLink, playerName, winnerName, rollType, isAwardRoll)",
+            trade_execution,
+        )
+        self.assertIn(
+            "function controller:CompleteTraderKeepAward(itemLink, winnerName, rollType, rollValue, output, whisper)",
+            trade_execution,
+        )
+        self.assertIn("function controller:TradeItem(itemLink, playerName, rollType, rollValue)", trade_execution)
+
+        self.assertLess(toc.index("Services\\Master\\Trade.lua"), toc.index("Services\\Master\\TradeExecution.lua"))
+        self.assertLess(toc.index("Services\\Master\\TradeExecution.lua"), toc.index("Controllers\\Master.lua"))
+
     def test_master_controller_uses_message_plan_owners_without_service_passthroughs(self):
         service = read_optional(MASTER_SERVICE)
         controller = read(MASTER_CONTROLLER)
@@ -278,6 +319,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
             "Services/Master/RollAnnouncements",
             "Services/Master/AwardCounter",
             "Services/Master/Trade",
+            "Services/Master/TradeExecution",
         )
 
         for dep in required_deps:

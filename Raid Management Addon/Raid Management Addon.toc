@@ -126,6 +126,7 @@ Services\Master\LootSpam.lua
 Services\Master\AwardCounter.lua
 Services\Master\RollAnnouncements.lua
 Services\Master\Trade.lua
+Services\Master\TradeExecution.lua
 Widgets\RaidGrid.lua
 Widgets\TradeMenu.lua
 UI\Master.xml

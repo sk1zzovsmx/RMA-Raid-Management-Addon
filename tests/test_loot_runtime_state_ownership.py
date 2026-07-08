@@ -17,6 +17,7 @@ RAID_STATE = ADDON / "Services" / "Raid" / "State.lua"
 TOC = ADDON / "Raid Management Addon.toc"
 ROLLS_SERVICE = ADDON / "Services" / "Rolls" / "Service.lua"
 MASTER_TRADE = ADDON / "Services" / "Master" / "Trade.lua"
+MASTER_TRADE_EXECUTION = ADDON / "Services" / "Master" / "TradeExecution.lua"
 MASTER_FLOW_STATE = ADDON / "Services" / "Master" / "FlowState.lua"
 MASTER_MULTI_AWARD = ADDON / "Services" / "Master" / "MultiAward.lua"
 MASTER_CONTROLLER = ADDON / "Controllers" / "Master.lua"
@@ -134,12 +135,15 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
     def test_master_controller_uses_award_owners_without_loot_service_bridges(self):
         master_controller = read(MASTER_CONTROLLER)
         loot_service = read(LOOT_SERVICE)
+        trade_execution = read(MASTER_TRADE_EXECUTION)
 
         self.assertIn('assert(Loot._Inventory', master_controller)
         self.assertIn('assert(Loot._AwardPlanner', master_controller)
-        self.assertIn("LootInventory.ResolveInventoryAwardedCountFromArgs", master_controller)
+        self.assertNotIn("LootInventory.ResolveInventoryAwardedCountFromArgs", master_controller)
         self.assertIn("LootInventory.ResolveTradeAwardedCount()", master_controller)
-        self.assertIn("LootAwardPlanner.BuildTradeNotificationPlan", master_controller)
+        self.assertNotIn("LootAwardPlanner.BuildTradeNotificationPlan", master_controller)
+        self.assertIn("self.inventory.ResolveInventoryAwardedCountFromArgs", trade_execution)
+        self.assertIn("self.awardPlanner.BuildTradeNotificationPlan({", trade_execution)
         for bridge_name in (
             "ResolveTradeAwardedCount",
             "ResolveInventoryAwardedCount",
@@ -258,11 +262,15 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
 
     def test_master_controller_inlines_trade_resolved_winner_without_private_pass_through(self):
         master_controller = read(MASTER_CONTROLLER)
+        trade_execution = read(MASTER_TRADE_EXECUTION)
 
         self.assertNotIn("local function getResolvedRollWinnerName", master_controller)
         self.assertNotIn("getResolvedRollWinnerName()", master_controller)
-        self.assertIn("local winnerModel = buildRollUiModel and buildRollUiModel() or nil", master_controller)
-        self.assertIn("local winner = playerName or Rolls:GetResolvedWinner(winnerModel)", master_controller)
+        self.assertNotIn("local winnerModel = buildRollUiModel and buildRollUiModel() or nil", master_controller)
+        self.assertNotIn("local winner = playerName or Rolls:GetResolvedWinner(winnerModel)", master_controller)
+        self.assertIn("function controller:ResolveWinner(playerName, isAwardRoll)", trade_execution)
+        self.assertIn("local winnerModel = self.buildRollUiModel and self.buildRollUiModel() or nil", trade_execution)
+        self.assertIn("local winner = playerName or self.rolls:GetResolvedWinner(winnerModel)", trade_execution)
 
     def test_master_controller_inlines_displayed_winner_without_private_pass_through(self):
         master_controller = read(MASTER_CONTROLLER)

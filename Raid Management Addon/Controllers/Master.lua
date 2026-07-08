@@ -50,6 +50,7 @@ local Chat = assert(Services.Chat, "Master chat service is not initialized")
 local MasterService = assert(Services.Master, "Master service namespace is not initialized")
 local RollUiService = assert(MasterService.RollUi, "Master roll UI service is not initialized")
 local MultiAwardService = assert(MasterService.MultiAward, "Master multi-award service is not initialized")
+local TradeExecutionService = assert(MasterService.TradeExecution, "Master trade execution service is not initialized")
 
 local InternalEvents = assert(Events.Internal, "Master controller internal events are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Master controller event publisher is not initialized")
@@ -87,7 +88,6 @@ local LoggerLootLogRequestEvent =
 	assert(InternalEvents.LoggerLootLogRequest, "Master controller logger loot-log request event is not initialized")
 
 local rollTypes = feature.rollTypes
-local RAID_TARGET_MARKERS = feature.RAID_TARGET_MARKERS
 local PENDING_AWARD_TTL_SECONDS = C.PENDING_AWARD_TTL_SECONDS
 local ML_MULTI_AWARD_TIMEOUT_SECONDS = C.ML_MULTI_AWARD_TIMEOUT_SECONDS
 local LOOT_CONTEXT_SESSION_TTL_SECONDS =
@@ -119,6 +119,28 @@ local UnitName = assert(_G.UnitName, "Master controller unit name API is not ini
 local GetMasterLootCandidate =
 	assert(_G.GetMasterLootCandidate, "Master controller loot candidate API is not initialized")
 local GetLootSlotInfo = assert(_G.GetLootSlotInfo, "Master controller loot slot info API is not initialized")
+local TradeExecutionWow = {
+	ClearCursor = assert(_G.ClearCursor, "Master trade execution clear-cursor API is not initialized"),
+	CursorHasItem = assert(_G.CursorHasItem, "Master trade execution cursor-item API is not initialized"),
+	GetContainerItemInfo = assert(
+		_G.GetContainerItemInfo,
+		"Master trade execution container-item-info API is not initialized"
+	),
+	GetContainerItemLink = assert(
+		_G.GetContainerItemLink,
+		"Master trade execution container-item-link API is not initialized"
+	),
+	InitiateTrade = assert(_G.InitiateTrade, "Master trade execution initiate-trade API is not initialized"),
+	PickupContainerItem = assert(
+		_G.PickupContainerItem,
+		"Master trade execution pickup-container-item API is not initialized"
+	),
+	SetRaidTarget = assert(_G.SetRaidTarget, "Master trade execution raid-target API is not initialized"),
+	CheckInteractDistance = assert(
+		_G.CheckInteractDistance,
+		"Master trade execution interact-distance API is not initialized"
+	),
+}
 
 local requireServiceMethod = Database.RequireServiceMethod
 
@@ -199,8 +221,6 @@ do
 		}
 
 	local assignItem, tradeItem, registerAwardedItem, clearMultiAwardState
-	local advanceInventoryWinnerSelection
-	local completeInventoryAwardProgress
 	local updateRollSessionExpectedWinners
 	local Private = {}
 	module._awardFlow = module._awardFlow or {}
@@ -1479,6 +1499,59 @@ do
 		end,
 		multiAwardTimeoutSeconds = ML_MULTI_AWARD_TIMEOUT_SECONDS,
 		multiAwardDelaySeconds = C.ML_MULTI_AWARD_DELAY,
+	})
+	local tradeExecutionController = TradeExecutionService.CreateController({
+		trade = MasterService.Trade,
+		inventory = LootInventory,
+		awardPlanner = LootAwardPlanner,
+		rollUi = rollUiController,
+		raid = Raid,
+		loot = Loot,
+		rolls = Rolls,
+		comms = Comms,
+		database = Database,
+		item = Item,
+		lootState = lootState,
+		itemInfo = itemInfo,
+		wow = TradeExecutionWow,
+		getOption = GetOption,
+		buildRollUiModel = buildRollUiModel,
+		buildLootRollSessionOptions = buildLootRollSessionOptions,
+		resetTradeState = resetTradeState,
+		hideTradeDropdowns = function()
+			return UI.Widgets.CallFunction("TradeMenu", "HideDropdowns")
+		end,
+		clearLootAndResetRecordedRolls = clearLootAndResetRecordedRolls,
+		ensureTradeLootContext = ensureTradeLootContext,
+		requestLoggerLootLog = requestLoggerLootLog,
+		registerAwardedItem = registerAwardedItem,
+		requestRefresh = function()
+			return module:RequestRefresh()
+		end,
+		announce = function(message, channel)
+			return Announce(Chat, message, channel)
+		end,
+		isAnnounced = function()
+			return module._announced == true
+		end,
+		setAnnounced = function(value)
+			module._announced = value == true
+		end,
+		isScreenshotWarn = function()
+			return module._screenshotWarn == true
+		end,
+		setScreenshotWarn = function(value)
+			module._screenshotWarn = value == true
+		end,
+		debug = addon.hasDebug and function(message)
+			return addon:debug(message)
+		end or nil,
+		warn = addon.hasWarn and function(message)
+			return addon:warn(message)
+		end or nil,
+		error = function(message)
+			return addon:error(message)
+		end,
 	})
 
 	clearMultiAwardState = function(resetItemCount)
@@ -3313,7 +3386,11 @@ do
 					itemLink = lootState.tradeItemLink or Loot.GetItemLink(),
 					winnerName = completedWinner,
 				})
-				completeInventoryAwardProgress(completedWinner, lootState.currentRollType, awardedCount)
+				tradeExecutionController:CompleteInventoryAwardProgress(
+					completedWinner,
+					lootState.currentRollType,
+					awardedCount
+				)
 				RMATradeHandled = true
 			end
 		end
@@ -3456,349 +3533,8 @@ do
 	-- Trade / inventory execution helpers
 	-- ============================================================================
 	do
-		Private.ResolveTradeExecutionWinner = function(playerName, isAwardRoll)
-			if not isAwardRoll then
-				return nil
-			end
-
-			local winnerModel = buildRollUiModel and buildRollUiModel() or nil
-			local winner = playerName or Rolls:GetResolvedWinner(winnerModel)
-			local multiInventoryAward = lootState.fromInventory and ((tonumber(lootState.selectedItemCount) or 1) > 1)
-			if multiInventoryAward then
-				local rollModel = buildRollUiModel(true)
-				local picked = rollUiController:GetSelectedWinnersOrdered(rollModel and rollModel.rows or nil)
-				if picked[1] and picked[1].name then
-					winner = picked[1].name
-				end
-			end
-
-			return winner
-		end
-
-		advanceInventoryWinnerSelection = function(completedWinner)
-			if not lootState.fromInventory then
-				return
-			end
-			if (tonumber(lootState.selectedItemCount) or 1) <= 1 then
-				return
-			end
-
-			local selCount = rollUiController:GetSelectedCount()
-			if selCount <= 0 then
-				lootState.winner = nil
-				return
-			end
-
-			rollUiController:DeselectWinner(completedWinner)
-			local rollModel = buildRollUiModel()
-			lootState.winner = rollModel and rollModel.winner or nil
-		end
-
-		completeInventoryAwardProgress = function(completedWinner, rollType, awardedCount)
-			if completedWinner and completedWinner ~= "" then
-				Raid:AddPlayerCountForRollType(completedWinner, rollType, awardedCount, Database.GetCurrentRaid())
-			end
-
-			local done = registerAwardedItem(awardedCount)
-			resetTradeState()
-			if not done then
-				advanceInventoryWinnerSelection(completedWinner)
-			end
-			if done then
-				Loot:ClearLoot()
-				Raid:ClearRaidIcons()
-			end
-			module._screenshotWarn = false
-			module:RequestRefresh()
-			return done
-		end
-
-		Private.PrepareTradeableItem = function(itemLink)
-			local itemData = LootInventory.ResolveTradeableInventoryItem(
-				itemLink,
-				itemInfo.bagID,
-				itemInfo.slotID,
-				lootState.selectedItemCount
-			)
-			if not itemData then
-				addon:warn(L.ErrMLInventoryItemMissing:format(tostring(itemLink)))
-				return false
-			end
-
-			itemInfo.bagID = itemData.bag
-			itemInfo.slotID = itemData.slot
-			itemInfo.slotCount = itemData.slotCount
-			itemInfo.isStack = itemData.slotCount > 1
-			itemInfo.count = itemData.totalCount
-
-			local ignoreStacks = GetOption("Loot", "ignoreStacks") == true
-			if itemInfo.isStack and not ignoreStacks then
-				if addon.hasDebug then
-					addon:debug(Diag.D.LogTradeStackBlocked:format(tostring(ignoreStacks), tostring(itemLink)))
-				end
-				addon:warn(L.ErrItemStack:format(itemLink))
-				return false
-			end
-
-			return true
-		end
-
-		Private.TryInitiateTrade = function(itemLink, playerName, isAwardRoll)
-			local unit = Raid:GetUnitID(playerName)
-			if unit == "none" then
-				return true, nil
-			end
-
-			if CheckInteractDistance(unit, 2) ~= 1 then
-				addon:warn(Diag.W.LogTradeDelayedOutOfRange:format(tostring(playerName), tostring(itemLink)))
-				Raid:ClearRaidIcons()
-				SetRaidTarget(lootState.trader, 1)
-				if isAwardRoll then
-					SetRaidTarget(playerName, 4)
-				end
-				return true, L.ChatTrade:format(playerName, itemLink)
-			end
-
-			if not Private.PrepareTradeableItem(itemLink) then
-				return false, nil
-			end
-
-			local _, startCount = GetContainerItemInfo(itemInfo.bagID, itemInfo.slotID)
-			itemInfo.tradeStartCount = tonumber(startCount) or tonumber(itemInfo.slotCount) or 1
-			itemInfo.tradeStartBag = itemInfo.bagID
-			itemInfo.tradeStartSlot = itemInfo.slotID
-			itemInfo.tradeStartItemLink = GetContainerItemLink(itemInfo.bagID, itemInfo.slotID)
-
-			ClearCursor()
-			PickupContainerItem(itemInfo.bagID, itemInfo.slotID)
-			if CursorHasItem() then
-				InitiateTrade(playerName)
-				if addon.hasDebug then
-					addon:debug(Diag.D.LogTradeInitiated:format(tostring(itemLink), tostring(playerName)))
-				end
-				if GetOption("Master", "screenReminder") and not module._screenshotWarn then
-					addon:warn(L.ErrScreenReminder)
-					module._screenshotWarn = true
-				end
-			end
-
-			return true, nil
-		end
-
-		Private.FinalizeTradeNotifications = function(itemLink, playerName, rollType, rollValue, output, whisper)
-			if module._announced then
-				return true
-			end
-
-			if output then
-				Announce(Chat, output)
-			end
-			if whisper then
-				if playerName == lootState.trader then
-					clearLootAndResetRecordedRolls()
-				else
-					Comms.SendWhisper(playerName, whisper)
-				end
-			end
-			module._announced = true
-			return true
-		end
-
-		Private.BeginTradeItemState = function(itemLink, playerName, rollType, rollValue, isAwardRoll)
-			MasterService.Trade.Reset(true, false)
-			UI.Widgets.CallFunction("TradeMenu", "HideDropdowns")
-			Rolls:EnsureLootRollSession(
-				itemLink,
-				rollType,
-				lootState.fromInventory and "inventory" or "lootWindow",
-				buildLootRollSessionOptions()
-			)
-
-			resetTradeState()
-
-			lootState.trader = Database.GetPlayerName()
-			local winnerName = Private.ResolveTradeExecutionWinner(playerName, isAwardRoll)
-			lootState.tradeItemLink = itemLink
-			lootState.tradeItemId = Item.GetItemIdFromLink(itemLink)
-
-			if isAwardRoll and (not winnerName or winnerName == "") then
-				addon:warn(L.ErrNoWinnerSelected)
-				resetTradeState()
-				return false, nil
-			end
-			if isAwardRoll then
-				local validation = Rolls:ValidateWinner(winnerName, itemLink, rollType)
-				if not (validation and validation.ok == true) then
-					addon:warn(
-						(validation and validation.warnMessage) or L.ErrMLWinnerIneligible:format(tostring(winnerName))
-					)
-					resetTradeState()
-					return false, nil
-				end
-			end
-			lootState.tradeWinner = winnerName
-			if isAwardRoll then
-				Loot:SetDistributionState("roll_end", {
-					itemLink = itemLink,
-					winnerName = winnerName,
-					rollValue = rollValue,
-					reason = "inventory_trade",
-				})
-			end
-
-			if addon.hasDebug then
-				addon:debug(
-					Diag.D.LogTradeStart:format(
-						tostring(itemLink),
-						tostring(lootState.trader),
-						tostring(winnerName or playerName),
-						tonumber(rollType) or -1,
-						tonumber(rollValue) or 0,
-						lootState.selectedItemCount or 1
-					)
-				)
-			end
-
-			return true, winnerName
-		end
-
-		Private.ApplyTradeMarkerPlan = function(markerPlan)
-			if type(markerPlan) ~= "table" then
-				return
-			end
-			if markerPlan.clearRaidIcons then
-				Raid:ClearRaidIcons()
-			end
-			local raidTargets = markerPlan.raidTargets
-			if type(raidTargets) ~= "table" then
-				return
-			end
-			for i = 1, #raidTargets do
-				local target = raidTargets[i]
-				if target and target.name and target.icon then
-					SetRaidTarget(target.name, target.icon)
-				end
-			end
-		end
-
-		Private.BuildTradeUiNotificationPlan = function(itemLink, playerName, winnerName, rollType, isAwardRoll)
-			local selectedWinners
-			local fallbackRolls
-			if isAwardRoll and (tonumber(lootState.selectedItemCount) or 1) > 1 then
-				local rollModel = buildRollUiModel(true)
-				selectedWinners = rollUiController:GetSelectedWinnersOrdered(rollModel and rollModel.rows or nil)
-				fallbackRolls = Rolls:GetRolls()
-			end
-
-			local plan = LootAwardPlanner.BuildTradeNotificationPlan({
-				itemLink = itemLink,
-				playerName = playerName,
-				winnerName = winnerName,
-				rollType = rollType,
-				isAwardRoll = isAwardRoll,
-				selectedItemCount = lootState.selectedItemCount,
-				traderName = lootState.trader,
-				selectedWinners = selectedWinners,
-				fallbackRolls = fallbackRolls,
-				raidTargetMarkers = RAID_TARGET_MARKERS,
-				options = {
-					announceOnWin = GetOption("Master", "announceOnWin") == true,
-					announceOnHold = GetOption("Master", "announceOnHold") == true,
-					announceOnBank = GetOption("Master", "announceOnBank") == true,
-					announceOnDisenchant = GetOption("Master", "announceOnDisenchant") == true,
-				},
-			})
-
-			Private.ApplyTradeMarkerPlan(plan and plan.markerPlan)
-			return plan and plan.keep, plan and plan.output, plan and plan.whisper
-		end
-
-		Private.CompleteTraderKeepAward = function(itemLink, winnerName, rollType, rollValue, output, whisper)
-			if addon.hasDebug then
-				addon:debug(Diag.D.LogTradeTraderKeeps:format(tostring(itemLink), tostring(winnerName)))
-			end
-			local awardedCount =
-				LootInventory.ResolveInventoryAwardedCountFromArgs(lootState.selectedItemCount, lootState.fromInventory)
-			local lootNid, createdTradeOnly =
-				ensureTradeLootContext(itemLink, winnerName, rollType, rollValue, awardedCount, "TRADE_KEEP_NO_CONTEXT")
-			if lootNid <= 0 then
-				addon:error(
-					Diag.E.LogTradeKeepLoggerFailed:format(
-						tostring(Database.GetCurrentRaid()),
-						tostring(lootNid),
-						tostring(itemLink)
-					)
-				)
-			elseif createdTradeOnly ~= true then
-				local ok = requestLoggerLootLog(
-					lootNid,
-					winnerName,
-					rollType,
-					rollValue,
-					"TRADE_KEEP",
-					Database.GetCurrentRaid()
-				)
-				if not ok then
-					addon:error(
-						Diag.E.LogTradeKeepLoggerFailed:format(
-							tostring(Database.GetCurrentRaid()),
-							tostring(lootNid),
-							tostring(itemLink)
-						)
-					)
-				end
-			end
-
-			Private.FinalizeTradeNotifications(itemLink, winnerName, rollType, rollValue, output, whisper)
-			Loot:SetDistributionState("item_done", {
-				itemLink = itemLink,
-				winnerName = winnerName,
-			})
-			completeInventoryAwardProgress(winnerName, rollType, awardedCount)
-			return true
-		end
-
-		Private.PrepareExternalAwardTrade = function(itemLink, winnerName, isAwardRoll, output)
-			local ok, outputOverride = Private.TryInitiateTrade(itemLink, winnerName, isAwardRoll)
-			if not ok then
-				return false, output
-			end
-			return true, outputOverride or output
-		end
-
-		-- Trades an item from inventory to a player.
-		function tradeItem(itemLink, playerName, rollType, rollValue)
-			if itemLink ~= Loot.GetItemLink() then
-				return
-			end
-			local isAwardRoll = (rollType and rollType >= rollTypes.MAINSPEC and rollType <= rollTypes.FREE)
-			local ok, winnerName = Private.BeginTradeItemState(itemLink, playerName, rollType, rollValue, isAwardRoll)
-			if not ok then
-				return false
-			end
-
-			local keep, output, whisper =
-				Private.BuildTradeUiNotificationPlan(itemLink, playerName, winnerName, rollType, isAwardRoll)
-
-			if not keep and lootState.trader == winnerName then
-				return Private.CompleteTraderKeepAward(itemLink, winnerName, rollType, rollValue, output, whisper)
-			end
-
-			if not keep then
-				ok, output = Private.PrepareExternalAwardTrade(itemLink, winnerName, isAwardRoll, output)
-				if not ok then
-					return false
-				end
-			end
-
-			return Private.FinalizeTradeNotifications(
-				itemLink,
-				winnerName or playerName,
-				rollType,
-				rollValue,
-				output,
-				whisper
-			)
+		tradeItem = function(itemLink, playerName, rollType, rollValue)
+			return tradeExecutionController:TradeItem(itemLink, playerName, rollType, rollValue)
 		end
 	end
 
@@ -3981,6 +3717,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Services/Master/RollAnnouncements",
 			"Services/Master/AwardCounter",
 			"Services/Master/Trade",
+			"Services/Master/TradeExecution",
 		},
 	})
 	registry.SetLoaded("Controllers/Master")
