@@ -8,6 +8,7 @@ MASTER_SERVICE = MASTER_SERVICES / "Service.lua"
 MASTER_ROLL_UI = MASTER_SERVICES / "RollUi.lua"
 MASTER_MULTI_AWARD = MASTER_SERVICES / "MultiAward.lua"
 MASTER_ASSIGNMENT = MASTER_SERVICES / "Assignment.lua"
+MASTER_MESSAGES = MASTER_SERVICES / "Messages.lua"
 DEBUG_SERVICE = ROOT / "Raid Management Addon" / "Services" / "Debug.lua"
 MASTER_ITEM_SELECTION = MASTER_SERVICES / "ItemSelection.lua"
 MASTER_TRADE_EXECUTION = MASTER_SERVICES / "TradeExecution.lua"
@@ -265,9 +266,11 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertLess(toc.index("Services\\Master\\ItemSelection.lua"), toc.index("Widgets\\RaidGrid.lua"))
         self.assertLess(toc.index("Services\\Master\\ItemSelection.lua"), toc.index("Controllers\\Master.lua"))
 
-    def test_master_controller_uses_message_plan_owners_without_service_passthroughs(self):
+    def test_master_controller_uses_single_message_plan_owner_without_micro_services(self):
         service = read_optional(MASTER_SERVICE)
         controller = read(MASTER_CONTROLLER)
+        messages = read(MASTER_MESSAGES)
+        toc = read(MASTER_TOC)
 
         for method in (
             "BuildAssignMessages",
@@ -280,9 +283,20 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertNotIn('"Services/Master/AwardMessages"', service)
         self.assertNotIn('"Services/Master/LootSpam"', service)
         self.assertNotIn('"Services/Master/RollAnnouncements"', service)
-        self.assertIn("MasterService.AwardMessages.BuildAssignMessages({", controller)
-        self.assertIn("MasterService.LootSpam.BuildPlan({", controller)
-        self.assertIn("MasterService.RollAnnouncements.BuildPlan({", controller)
+        self.assertFalse((MASTER_SERVICES / "AwardMessages.lua").exists())
+        self.assertFalse((MASTER_SERVICES / "LootSpam.lua").exists())
+        self.assertFalse((MASTER_SERVICES / "RollAnnouncements.lua").exists())
+        self.assertIn("MasterService.Messages.BuildAssignMessages({", controller)
+        self.assertIn("MasterService.Messages.BuildLootSpamPlan({", controller)
+        self.assertIn("MasterService.Messages.BuildRollAnnouncementPlan({", controller)
+        self.assertIn("function Messages.BuildAssignMessages(opts)", messages)
+        self.assertIn("function Messages.BuildLootSpamPlan(opts)", messages)
+        self.assertIn("function Messages.BuildRollAnnouncementPlan(opts)", messages)
+        self.assertIn("Services\\Master\\Messages.lua", toc)
+        self.assertNotIn("Services\\Master\\AwardMessages.lua", toc)
+        self.assertNotIn("Services\\Master\\LootSpam.lua", toc)
+        self.assertNotIn("Services\\Master\\RollAnnouncements.lua", toc)
+        self.assertLess(toc.index("Services\\Master\\Messages.lua"), toc.index("Controllers\\Master.lua"))
 
     def test_master_assignment_service_is_pure_model_policy(self):
         service = read_optional(MASTER_SERVICE)
@@ -461,9 +475,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
             "Services/Master/MultiAward",
             "Services/Master/Assignment",
             "Services/Debug",
-            "Services/Master/AwardMessages",
-            "Services/Master/LootSpam",
-            "Services/Master/RollAnnouncements",
+            "Services/Master/Messages",
             "Services/Master/AwardCounter",
             "Services/Master/Trade",
             "Services/Master/TradeExecution",

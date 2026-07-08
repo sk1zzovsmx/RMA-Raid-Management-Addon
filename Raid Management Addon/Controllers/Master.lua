@@ -1693,7 +1693,7 @@ do
 	-- Award / candidate helpers
 	-- ============================================================================
 	local function buildAssignMessages(itemLink, playerName, rollType)
-		return MasterService.AwardMessages.BuildAssignMessages({
+		return MasterService.Messages.BuildAssignMessages({
 			itemLink = itemLink,
 			lootWhispers = GetOption("Loot", "lootWhispers") == true,
 			options = {
@@ -2321,7 +2321,7 @@ do
 				items[#items + 1] = spamItem
 			end
 		end
-		local plan = MasterService.LootSpam.BuildPlan({
+		local plan = MasterService.Messages.BuildLootSpamPlan({
 			items = items,
 			sourceName = Private.GetLootSpamSourceName(),
 		})
@@ -2387,7 +2387,7 @@ do
 					or ""
 			end
 
-			local plan = MasterService.RollAnnouncements.BuildPlan({
+			local plan = MasterService.Messages.BuildRollAnnouncementPlan({
 				chatKey = chatMsg,
 				itemLink = itemLink,
 				rollType = rollType,
@@ -3512,9 +3512,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Services/Master/MultiAward",
 			"Services/Master/Assignment",
 			"Services/Debug",
-			"Services/Master/AwardMessages",
-			"Services/Master/LootSpam",
-			"Services/Master/RollAnnouncements",
+			"Services/Master/Messages",
 			"Services/Master/AwardCounter",
 			"Services/Master/Trade",
 			"Services/Master/TradeExecution",

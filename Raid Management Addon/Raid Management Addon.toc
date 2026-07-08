@@ -118,10 +118,8 @@ Services\Master\RollRows.lua
 Services\Master\RollUi.lua
 Services\Master\MultiAward.lua
 Services\Master\Assignment.lua
-Services\Master\AwardMessages.lua
-Services\Master\LootSpam.lua
+Services\Master\Messages.lua
 Services\Master\AwardCounter.lua
-Services\Master\RollAnnouncements.lua
 Services\Master\Trade.lua
 Services\Master\TradeExecution.lua
 Services\Master\ItemSelection.lua
