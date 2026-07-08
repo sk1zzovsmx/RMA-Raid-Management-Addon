@@ -100,7 +100,7 @@ The slash command owner may be rewritten, but command aliases must remain availa
 ## Slash Command Ownership
 
 - `single_owner_rule`: `there must be one slash-dispatch owner for /rma`
-- `default_owner`: `Raid Management Addon/EntryPoints/SlashCommandHandlers.lua`
+- `default_owner`: `Raid Management Addon/EntryPoints/SlashEvents.lua`
 - `handler_policy`: `slash handlers should dispatch to cohesive feature owners; they must not become the business-logic owner for raid, loot, reserves, logger, inspect, or UI state`
 - `help_policy`: `help output must reflect actual enabled commands and aliases`
 - `disabled_feature_policy`: `commands for disabled or unavailable features must fail gracefully with a clear local message, not a Lua error`
@@ -111,6 +111,7 @@ The following prefixes are externally visible protocol identifiers and must rema
 
 - `RMADist`
 - `RMALogSync`
+- `RMA-RollWinner`
 - `RMAResSync`
 - `RMAVersion`
 
@@ -249,6 +250,26 @@ When current behavior is changed, the batch must record:
 
 External command/SavedVariables/protocol changes require a stronger compatibility note than private implementation changes.
 
+### Recorded Behavior Deltas
+
+- `RMALogSync` prefix registration:
+  - old behavior: logger sync sent and handled `RMALogSync` traffic without an explicit registration in the sync owner.
+  - new behavior: `Database/DBSyncer.lua` registers `RMALogSync` before sending or handling logger sync messages.
+  - reason: WotLK addon-message delivery depends on registered public prefixes; leaving a sync prefix implicit is unsafe.
+  - classification: runtime safety bug.
+  - compatibility impact: none; the public prefix and payload format remain unchanged.
+  - migration impact: none; no SavedVariables or persisted schema changes.
+  - verification: `tests/test_addon_message_prefix_contract.py`, addon-message prefix scan, Lua 5.1/static gates.
+
+- `RMA-RollWinner` prefix registration:
+  - old behavior: Master Loot roll winner selection broadcast used the `RMA-RollWinner` prefix as an unregistered literal.
+  - new behavior: `Controllers/Master.lua` owns a registered `ROLL_WINNER_PREFIX` constant and sends through it.
+  - reason: roll winner broadcast is an externally visible RMA addon-message prefix and must be registered before use.
+  - classification: runtime safety bug and contract documentation drift.
+  - compatibility impact: none; the public prefix and message payload remain unchanged.
+  - migration impact: none; no SavedVariables or persisted schema changes.
+  - verification: `tests/test_addon_message_prefix_contract.py`, addon-message prefix scan, Lua 5.1/static gates.
+
 ## Module Boundary Policy
 
 - `boundary_rule`: `cohesion-first, product-first`
@@ -372,14 +393,14 @@ Tests must **not** lock:
 
 - `goal`: `passing tests is required but not sufficient; each batch must also be architecturally defensible and product-improving`
 - `review_steps`: `implementation`, `behavior delta review`, `architecture/cohesion review`, `quality review`, `static/offline validation review`
-- `gate_stack`: `Python tests`, `tools/check-rma.ps1`, `stylua --check`, `luacheck`, `TOC validator`, `Lua 5.1 validator`, `xpcall scan`, `XML handler scan`, `git diff --check`
+- `gate_stack`: `Python tests`, `stylua --check`, `luacheck`, `TOC validator`, `Lua 5.1 validator`, `xpcall scan`, `XML handler scan`, `git diff --check`
+- `unavailable_reset_baseline_gate`: `This reset baseline does not track tools/check-rma.ps1; if that checker is restored, add its exact command back to the validation surface.`
 
 ## Validation Commands
 
 Run or explicitly report why a command could not be run:
 
 - `py -3 -m unittest discover -s tests`
-- `powershell -ExecutionPolicy Bypass -File tools\check-rma.ps1`
 - `stylua --check "Raid Management Addon"`
 - `luacheck "Raid Management Addon"`
 - `py -3 .agents\skills\wow-addon-dev-wotlk-v335a\scripts\validate_toc.py "Raid Management Addon\Raid Management Addon.toc"`
@@ -393,10 +414,10 @@ Run or explicitly report why a command could not be run:
 Static validation is the required Codex gate. Real-client testing is manual
 acceptance and is not required for Codex completion or commit readiness unless
 the user explicitly asks for it. For behavior that cannot be proven offline,
-record:
+record the unrun smoke gap explicitly:
 
 ```text
-runtime smoke: not required by project workflow
+runtime smoke: not run; manual acceptance pending
 ```
 
 When manual acceptance is explicitly requested, relevant checks include:

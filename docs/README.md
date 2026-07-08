@@ -20,12 +20,12 @@ policy surface that was intentionally kept from the newer branch state.
 
 This baseline does not currently track project-local Python tooling under
 `tools/`. The available local static validators are provided by the ignored
-agent skill folder and can be run through the project `.venv`:
+agent skill folder and can be run through the Python launcher:
 
 ```powershell
-.\.venv\Scripts\python.exe .agents\skills\wow-addon-dev-wotlk-v335a\scripts\validate_toc.py "Raid Management Addon\Raid Management Addon.toc"
-.\.venv\Scripts\python.exe .agents\skills\wow-addon-dev-wotlk-v335a\scripts\lint_lua51.py "Raid Management Addon"
-.\.venv\Scripts\python.exe .agents\skills\wow-addon-dev-wotlk-v335a\scripts\scan_xpcall.py "Raid Management Addon"
+py -3 .agents\skills\wow-addon-dev-wotlk-v335a\scripts\validate_toc.py "Raid Management Addon\Raid Management Addon.toc"
+py -3 .agents\skills\wow-addon-dev-wotlk-v335a\scripts\lint_lua51.py "Raid Management Addon"
+py -3 .agents\skills\wow-addon-dev-wotlk-v335a\scripts\scan_xpcall.py "Raid Management Addon"
 git diff --check
 ```
 

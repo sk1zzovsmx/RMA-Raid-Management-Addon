@@ -13,12 +13,12 @@ local rawset = rawset
 
 local L = feature.L
 setmetatable(L, {
-    __index = function(self, k)
-        if k ~= nil then
-            rawset(self, k, tostring(k))
-        end
-        return tostring(k)
-    end,
+	__index = function(self, k)
+		if k ~= nil then
+			rawset(self, k, tostring(k))
+		end
+		return tostring(k)
+	end,
 })
 
 -- ----- Internal state ----- --
@@ -272,13 +272,17 @@ L.StrConfigPanelMasterLoot = "Master Loot"
 L.StrConfigPanelRaidWarning = "Raid Warning"
 L.StrConfigPanelHelp = "Help"
 L.StrConfigRootOverviewTitle = "Raid Management Addon"
-L.StrConfigRootOverviewBody = "RMA is a raid-leader toolkit for Wrath raids. Use the subpanels on the left to configure each workflow."
+L.StrConfigRootOverviewBody =
+	"RMA is a raid-leader toolkit for Wrath raids. Use the subpanels on the left to configure each workflow."
 L.StrConfigRootWhatTitle = "What it does"
-L.StrConfigRootWhatBody = "Manages master-loot rolls, loot history, raid-warning messages, LFM spam, SoftRes hints, and loot counters."
+L.StrConfigRootWhatBody =
+	"Manages master-loot rolls, loot history, raid-warning messages, LFM spam, SoftRes hints, and loot counters."
 L.StrConfigRootHowTitle = "How it works"
-L.StrConfigRootHowBody = "RMA stores raid data locally, updates it from raid events and chat, and can sync current raid history with other RMA users."
+L.StrConfigRootHowBody =
+	"RMA stores raid data locally, updates it from raid events and chat, and can sync current raid history with other RMA users."
 L.StrConfigRootWhyTitle = "Why use it"
-L.StrConfigRootWhyBody = "It keeps repeated raid tasks consistent, auditable, and faster without replacing Blizzard loot rules or assigning loot automatically."
+L.StrConfigRootWhyBody =
+	"It keeps repeated raid tasks consistent, auditable, and faster without replacing Blizzard loot rules or assigning loot automatically."
 L.StrConfigSortAscending = "Sort rolls ascending"
 L.StrConfigUseRaidWarning = "Use raid warnings"
 L.StrConfigAnnounceOnWin = "Announce loot items winners"
@@ -314,11 +318,15 @@ L.StrConfigIgnoreStacksDesc = "Allows trading an item stack when the loot is sta
 L.StrConfigShowTooltipsDesc = "Shows RMA item details in item tooltips."
 L.StrConfigShowLootCounterDuringMSRollDesc = "Displays the loot counter while an MS roll is active."
 L.StrConfigMinimapButtonDesc = "Shows or hides the RMA minimap launcher."
-L.StrConfigAutoMasterLootOnBossTargetDesc = "When you are raid leader, switches to Master Loot after targeting a recognized raid boss."
-L.StrConfigAutoMasterLootNoticeSecondsDesc = "Controls how long the short Auto Master Loot screen message stays visible."
-L.StrConfigAskGroupLootAfterBossLootDesc = "After boss loot is cleared in Master Loot, asks before switching the raid back to Group Loot."
+L.StrConfigAutoMasterLootOnBossTargetDesc =
+	"When you are raid leader, switches to Master Loot after targeting a recognized raid boss."
+L.StrConfigAutoMasterLootNoticeSecondsDesc =
+	"Controls how long the short Auto Master Loot screen message stays visible."
+L.StrConfigAskGroupLootAfterBossLootDesc =
+	"After boss loot is cleared in Master Loot, asks before switching the raid back to Group Loot."
 L.StrConfigAutoSpamLootOnLootOpenedDesc = "When you are Master Looter, announces opened loot automatically."
-L.StrConfigAutoSpamSoftResOnLootOpenedDesc = "Adds SoftRes player lines only for opened items with current-raid reserves."
+L.StrConfigAutoSpamSoftResOnLootOpenedDesc =
+	"Adds SoftRes player lines only for opened items with current-raid reserves."
 L.StrConfigCountdownDurationDesc = "Controls how many seconds a roll countdown lasts."
 L.StrConfigCountdownSimpleRaidMsgDesc = "Uses shorter Raid Warning countdown messages."
 L.StrConfigMasterLootPresetsTitle = "Recommended Presets"
@@ -340,52 +348,56 @@ L.StrConfigMasterLootPreviewDisenchant = "Disenchant announce: %s"
 L.StrConfigMasterLootPreviewCountdown = "Countdown: %s sec, %s"
 L.StrConfigHelpMasterLootTitle = "Master Loot"
 L.StrConfigHelpMasterLootBody = "/rma ml: open Master Loot.\n"
-    .. "/rma counter: open Loot Counter.\n"
-    .. "/rma config: open the configuration popup.\n"
-    .. "/rma config reset: restore default options."
+	.. "/rma counter: open Loot Counter.\n"
+	.. "/rma config: open the configuration popup.\n"
+	.. "/rma config reset: restore default options."
 L.StrConfigHelpLootHistoryTitle = "Loot History"
 L.StrConfigHelpLootHistoryBody = "/rma history:\n"
-    .. "show Loot History commands.\n"
-    .. "/rma attendance: open Raid Attendance.\n"
-    .. "/rma history req <raidNid> <player>: request snapshot.\n"
-    .. "/rma history push <raidNid> <player>: push snapshot.\n"
-    .. "/rma history sync: sync matching current raid data."
+	.. "show Loot History commands.\n"
+	.. "/rma attendance: open Raid Attendance.\n"
+	.. "/rma history req <raidNid> <player>: request snapshot.\n"
+	.. "/rma history push <raidNid> <player>: push snapshot.\n"
+	.. "/rma history sync: sync matching current raid data."
 L.StrConfigHelpLFMSpamTitle = "LFM Spam"
 L.StrConfigHelpLFMSpamBody = "/rma lfm, /rma pug, /rma group, /rma grouper:\n"
-    .. "show LFM Spam commands.\n"
-    .. "/rma lfm start: start LFM spam.\n"
-    .. "/rma lfm stop: stop LFM spam.\n"
-    .. "/rma ach [link]: print achievement ID."
+	.. "show LFM Spam commands.\n"
+	.. "/rma lfm start: start LFM spam.\n"
+	.. "/rma lfm stop: stop LFM spam.\n"
+	.. "/rma ach [link]: print achievement ID."
 L.StrConfigHelpRaidWarningTitle = "Raid Warning"
-L.StrConfigHelpRaidWarningBody = "/rma rw, /rma warn, /rma warning, /rma warnings:\n" .. "show Raid Warning commands.\n" .. "/rma rw [ID]: announce warning by ID."
+L.StrConfigHelpRaidWarningBody = "/rma rw, /rma warn, /rma warning, /rma warnings:\n"
+	.. "show Raid Warning commands.\n"
+	.. "/rma rw [ID]: announce warning by ID."
 L.StrConfigHelpCommandPermissionsTitle = "Command Permissions"
 L.StrConfigHelpCommandPermissionsBody = "Master Looter: item actions, loot assignment, trade reminders.\n"
-    .. "Raid leader or assistant: Raid Warning, grouped Loot Counter, LFM group spam.\n"
-    .. "Local only: Help, config, bug, version, preview, and history scan."
+	.. "Raid leader or assistant: Raid Warning, grouped Loot Counter, LFM group spam.\n"
+	.. "Local only: Help, config, bug, version, preview, and history scan."
 L.StrConfigHelpDiagnosticsTitle = "Diagnostics"
 L.StrConfigHelpDiagnosticsBody = "/rma bug: print a local support summary.\n"
-    .. "/rma version: print addon details and request group versions.\n"
-    .. "/rma perf on|off: toggle slow-block diagnostics."
+	.. "/rma version: print addon details and request group versions.\n"
+	.. "/rma perf on|off: toggle slow-block diagnostics."
 L.MsgAutoMasterLootSet = "RMA: Loot method set to Master Loot for %s."
 L.MsgAutoMasterLootScreen = "Boss targeted, auto switch to Master Loot."
 L.MsgGroupLootRestored = "RMA: Loot method set to Group Loot."
 L.PopupGroupLootRestoreText = "Boss loot appears to be complete. Switch back to Group Loot?"
 L.StrConfigLootHistoryReportTitle = "Loot History Report"
 L.StrConfigLootHistoryReportSummary = "Raids: %d\n"
-    .. "Empty raids: %d\n"
-    .. "No boss encounter: %d\n"
-    .. "Non epic loot: %d\n"
-    .. "Missing sources: %d\n"
-    .. "Invalid sources: %d\n"
-    .. "Orphan loot: %d\n"
-    .. "Duplicate candidates: %d"
+	.. "Empty raids: %d\n"
+	.. "No boss encounter: %d\n"
+	.. "Non epic loot: %d\n"
+	.. "Missing sources: %d\n"
+	.. "Invalid sources: %d\n"
+	.. "Orphan loot: %d\n"
+	.. "Duplicate candidates: %d"
 L.StrConfigLootHistorySyncTitle = "Sync"
 L.StrConfigLootHistoryPersistentSync = "Persistent Sync"
-L.StrConfigLootHistoryPersistentSyncDesc = "Periodically syncs the current raid history with other RMA users in your group."
+L.StrConfigLootHistoryPersistentSyncDesc =
+	"Periodically syncs the current raid history with other RMA users in your group."
 L.StrConfigLootHistoryIgnoreGroupLoot = "Ignore GroupLoot"
 L.StrConfigLootHistoryIgnoreGroupLootDesc = "Stops passive Group Loot messages from being recorded in Loot History."
 L.StrConfigLootHistoryIgnoreSelectionThreshold = "Override raid loot threshold"
-L.StrConfigLootHistoryIgnoreSelectionThresholdDesc = "Uses the Logger loot quality dropdown instead of the current raid loot threshold."
+L.StrConfigLootHistoryIgnoreSelectionThresholdDesc =
+	"Uses the Logger loot quality dropdown instead of the current raid loot threshold."
 L.StrConfigLootHistoryLoggerLootQuality = "Logger loot quality"
 L.StrConfigLootHistoryLoggerLootQualityDesc = "Records loot at or above this item quality when the override is enabled."
 L.StrConfigLootHistoryRequireDatabaseTitle = "Require Database"
@@ -397,14 +409,16 @@ L.StrConfigLootHistorySyncNowDesc = "Runs the same current-raid sync used by /rm
 L.StrConfigLootHistoryDataHealthTitle = "Data Health"
 L.StrConfigLootHistoryScanHistoryTitle = "Scan history"
 L.StrConfigLootHistoryScanHistoryDesc =
-    "Refreshes the report above and checks stored raid logs for empty raids, missing sources, invalid sources, orphan data, duplicate candidates, and player-name conflicts."
+	"Refreshes the report above and checks stored raid logs for empty raids, missing sources, invalid sources, orphan data, duplicate candidates, and player-name conflicts."
 L.StrConfigLootHistoryMaintenanceTitle = "Maintenance"
 L.StrConfigLootHistoryPurgeHistoryTitle = "Purge loot history"
 L.StrConfigLootHistoryPurgeHistoryDesc = "Deletes every stored raid log and clears the current loot-history selection."
 L.StrConfigLootHistoryRebuildSourcesTitle = "Rebuild loot sources"
-L.StrConfigLootHistoryRebuildSourcesDesc = "Uses the static item source database to fill missing Source values on logged loot."
+L.StrConfigLootHistoryRebuildSourcesDesc =
+	"Uses the static item source database to fill missing Source values on logged loot."
 L.StrConfigLootHistoryCleanUpTitle = "Clean Up"
-L.StrConfigLootHistoryCleanUpDesc = "Opens a selectable cleanup popup for empty raid logs, non-epic loot, and non-empty raids without boss encounters."
+L.StrConfigLootHistoryCleanUpDesc =
+	"Opens a selectable cleanup popup for empty raid logs, non-epic loot, and non-empty raids without boss encounters."
 L.StrConfigLootHistoryCleanupPopupTitle = "Clean Up Loot History"
 L.StrConfigLootHistoryCleanupPopupBody = "Select the raid-history data to delete."
 L.StrConfigLootHistoryCleanupEmptyRaids = "Empty Raid"
@@ -418,18 +432,20 @@ L.StrConfigLFMSpamPreviewPending = "Open LFM Spam or click Refresh to build a pr
 L.StrConfigLFMSpamPreviewLength = "Length: %d/255"
 L.StrConfigLFMSpamSafetyTitle = "Safety"
 L.StrConfigLFMSpamSafetyBody = "The spam service keeps the existing duration and message-count caps. Use Start and Stop here only "
-    .. "after checking the preview and selected channels in the LFM Spam frame."
+	.. "after checking the preview and selected channels in the LFM Spam frame."
 L.StrConfigRaidWarningTemplatesTitle = "Warning Templates"
-L.StrConfigRaidWarningTemplatesBody = "Fresh installs include six stock warning templates. Use Preview to inspect " .. "saved warnings or Open to edit them."
+L.StrConfigRaidWarningTemplatesBody = "Fresh installs include six stock warning templates. Use Preview to inspect "
+	.. "saved warnings or Open to edit them."
 L.StrConfigRaidWarningPreviewTitle = "Template Preview"
 L.StrConfigRaidWarningPreviewPending = "Click Preview to list configured warnings."
 L.StrConfigRaidWarningPreviewEmpty = "No raid warnings configured."
 L.StrConfigRaidWarningPermissionTitle = "Permissions"
 L.StrConfigRaidWarningPermissionBody = "Raid Warning announcements require raid leader or assistant permission. RMA falls back through "
-    .. "the existing chat service when Raid Warning is unavailable."
+	.. "the existing chat service when Raid Warning is unavailable."
 L.StrConfigRaidWarningMaintenanceTitle = "Maintenance"
 L.StrConfigRaidWarningClearSavedTitle = "Clear saved warnings"
-L.StrConfigRaidWarningClearSavedDesc = "Deletes saved Raid Warning messages. The confirmation can keep or delete " .. "stock templates."
+L.StrConfigRaidWarningClearSavedDesc = "Deletes saved Raid Warning messages. The confirmation can keep or delete "
+	.. "stock templates."
 L.StrConfirmPurgeLootHistory = "Are you sure you want to purge all loot history? This cannot be undone."
 L.StrConfirmClearRaidWarnings = "Do you want to delete stock warnings too?"
 
@@ -447,8 +463,10 @@ L.StrImportFormatLabel = "Import Format"
 L.StrImportFormatJson = "JSON"
 L.StrImportFormatCsv = "CSV"
 L.ErrCSVWrongForPlusShort = "Wrong CSV format for Plus System."
-L.ErrCSVWrongForPlusWithPlayer = "Wrong CSV format for Plus System.\nPlayer '%s' has multiple reserve entries.\nSwitch to Multi-reserve or check your SoftRes settings."
-L.ErrCSVWrongForPlus = "Wrong CSV format for Plus System.\nThis CSV contains players with multiple reserve entries.\nSwitch to Multi-reserve or check your SoftRes settings."
+L.ErrCSVWrongForPlusWithPlayer =
+	"Wrong CSV format for Plus System.\nPlayer '%s' has multiple reserve entries.\nSwitch to Multi-reserve or check your SoftRes settings."
+L.ErrCSVWrongForPlus =
+	"Wrong CSV format for Plus System.\nThis CSV contains players with multiple reserve entries.\nSwitch to Multi-reserve or check your SoftRes settings."
 L.BtnSwitchToMulti = "Switch to Multi-reserve"
 L.ErrImportReservesEmpty = "Import failed: empty or invalid reserve data."
 L.WarnNoValidRows = "No valid rows found in CSV (check header)."
@@ -467,9 +485,11 @@ L.StrReserveListAcceptSR = "Accept SR"
 L.StrReserveListResponseWisp = "Response Wisp"
 L.StrReserveListWhisperHelp = "Whisper ML +sr to see reserves.\n" .. "Whisper ML +sr [itemLink] to add one."
 L.StrReserveListAcceptSRTooltipTitle = "Accept SR"
-L.StrReserveListAcceptSRTooltipText = "Allows players to whisper +sr [itemLink] " .. "to add a reserve and receive a confirmation. This changes local reserve data."
+L.StrReserveListAcceptSRTooltipText = "Allows players to whisper +sr [itemLink] "
+	.. "to add a reserve and receive a confirmation. This changes local reserve data."
 L.StrReserveListResponseWispTooltipTitle = "Response Wisp"
-L.StrReserveListResponseWispTooltipText = "Allows players to whisper +sr without an item link " .. "to receive their current reserves. This does not change reserve data."
+L.StrReserveListResponseWispTooltipText = "Allows players to whisper +sr without an item link "
+	.. "to receive their current reserves. This does not change reserve data."
 L.StrReserveListStatus = "Players: %d - Reserved Players: %d"
 L.BtnClearReserves = "Clear Loot Reserve"
 L.StrConfirmClearReserves = "Clear all saved loot reserve data?"
@@ -490,8 +510,9 @@ L.StrReservesItemFallback = "[Item %s]"
 L.StrMessage = "Message"
 L.StrWarningsHelpTitle = "Tips:"
 L.StrWarningsHelpBody =
-    "- |cffffd700Left-Click|r to select a warning, click again to cancel selection.\n- |cffffd700Ctrl-Click|r for a quick raid warning.\n- When you select a warning, you can either |cffffd700Edit|r it, |cffffd700Delete|r it or |cffffd700Announce|r it using the provided buttons."
-L.StrWarningsError = "Only the body of a message is required! Though, we recommend naming your warnings so you never get lost."
+	"- |cffffd700Left-Click|r to select a warning, click again to cancel selection.\n- |cffffd700Ctrl-Click|r for a quick raid warning.\n- When you select a warning, you can either |cffffd700Edit|r it, |cffffd700Delete|r it or |cffffd700Announce|r it using the provided buttons."
+L.StrWarningsError =
+	"Only the body of a message is required! Though, we recommend naming your warnings so you never get lost."
 L.StrCmdWarningAnnounce = "announce the specified raid warning"
 L.StrRaidWarningTemplatePullName = "Pull"
 L.StrRaidWarningTemplatePullContent = "Pull in 10 seconds."
@@ -516,7 +537,8 @@ L.StrSpammerErrLength = "Your LFM message is too long."
 L.StrSpammerDurationHelp = "It is recommended to use at least 60 seconds to avoid server mute."
 L.StrSpammerMessageHelp1 = "This will be added to the end of the generated message."
 L.StrSpammerMessageHelp2 = "You can use |cffffd700{ID}|r to include achievements links."
-L.StrSpammerMessageHelp3 = "You can find the achievement |cffffd700ID|r using the command: \n|cffffd700/rma ach [link]|r."
+L.StrSpammerMessageHelp3 =
+	"You can find the achievement |cffffd700ID|r using the command: \n|cffffd700/rma ach [link]|r."
 
 L.StrRaid = "Raid"
 L.StrDuration = "Duration"
@@ -573,7 +595,7 @@ L.StrSetCurrent = "Set Current"
 L.StrConfirmDeleteRaid = "Are you sure you want to delete this raid log?"
 L.StrRaidCurrentTitle = "Duplicate Notice"
 L.StrRaidsCurrentHelp =
-    "Sometimes you may notice duplicate raid creation. If that happends, make sure to simply set the selected one as current and delete all similar ones above it."
+	"Sometimes you may notice duplicate raid creation. If that happends, make sure to simply set the selected one as current and delete all similar ones above it."
 L.ErrCannotDeleteRaid = "Cannot delete the current raid."
 L.ErrCannotSetCurrentRaidSize = "Cannot set a raid with a different size as current raid."
 L.ErrCannotSetCurrentRaidDifficulty = "Cannot set a raid with a different difficulty as current raid."
@@ -698,13 +720,16 @@ L.MsgPerfReportEmpty = "Performance report: no measured blocks."
 L.MsgPerfReportTitle = "Performance report: %d block(s)."
 L.MsgPerfReportRow = "%2d) %s count=%d total=%sms avg=%sms max=%sms"
 L.MsgPerfAuditRuntime = "Performance audit: runtime blocks=%d total=%sms top=%s total=%sms max=%sms."
-L.MsgPerfAuditSync = "Performance audit sync: out bytes=%d chunks=%d avg=%sB/chunk; in bytes=%d chunks=%d avg=%sB/chunk."
+L.MsgPerfAuditSync =
+	"Performance audit sync: out bytes=%d chunks=%d avg=%sB/chunk; in bytes=%d chunks=%d avg=%sB/chunk."
 L.MsgPerfAuditItems = "Performance audit items: requests=%d joined=%d pending=%d GetItemInfo=%d tooltip=%d."
 L.MsgPerfSyncReportEmpty = "Sync performance report: no sync payload metrics."
-L.MsgPerfSyncReportTitle = "Sync performance report: out messages=%d chunks=%d bytes=%d requests=%d snapshots=%d; in messages=%d chunks=%d bytes=%d requests=%d snapshots=%d."
-L.MsgPerfSyncReportRow = "%s out messages=%d chunks=%d bytes=%d requests=%d snapshots=%d; in messages=%d chunks=%d bytes=%d requests=%d snapshots=%d."
+L.MsgPerfSyncReportTitle =
+	"Sync performance report: out messages=%d chunks=%d bytes=%d requests=%d snapshots=%d; in messages=%d chunks=%d bytes=%d requests=%d snapshots=%d."
+L.MsgPerfSyncReportRow =
+	"%s out messages=%d chunks=%d bytes=%d requests=%d snapshots=%d; in messages=%d chunks=%d bytes=%d requests=%d snapshots=%d."
 L.MsgPerfItemReport =
-    "Item performance report: requests=%d started=%d joined=%d immediate=%d pending=%d callbacks=%d completed=%d timeouts=%d cancelled=%d GetItemInfo=%d tooltip=%d."
+	"Item performance report: requests=%d started=%d joined=%d immediate=%d pending=%d callbacks=%d completed=%d timeouts=%d cancelled=%d GetItemInfo=%d tooltip=%d."
 L.MsgPerfReportReset = "Performance report reset."
 L.MsgDebugRaidNoCurrent = "Debug raid: no current raid available."
 L.MsgDebugRaidSeeded = "Debug raid: synthetic players=%d added=%d refreshed=%d."
@@ -731,7 +756,8 @@ L.MsgConfigPresetApplied = "Options: preset applied."
 L.MsgLoggerMaintenanceUnavailable = "Loot History maintenance is unavailable."
 L.MsgLoggerHistoryScanned = "Loot History: scanned %d raid log(s), empty=%d, missing sources=%d, invalid sources=%d."
 L.MsgLoggerHistoryPurged = "Loot History: purged %d raid log(s)."
-L.MsgLoggerLootSourcesRebuilt = "Loot History: rebuilt sources for %d loot item(s), created %d source record(s), unresolved %d."
+L.MsgLoggerLootSourcesRebuilt =
+	"Loot History: rebuilt sources for %d loot item(s), created %d source record(s), unresolved %d."
 L.MsgLoggerCleanupDone = "Loot History: cleanup removed %d raid log(s) and %d loot item(s)."
 L.MsgLoggerCleanupNoSelection = "Loot History: cleanup cancelled because no delete option was selected."
 L.MsgRaidWarningsCleared = "Raid Warning: cleared %d saved message(s)."
@@ -828,7 +854,8 @@ L.MsgValidateDetailPlayerCountNegative = "raid[%d] nid=%s: players[%d].count is 
 L.MsgValidateDetailLootMissingBoss = "raid[%d] nid=%s: loot[%d].bossNid=%d does not exist."
 L.MsgValidateDetailLootNoBossTrash = "raid[%d] nid=%s: loot[%d] has no bossNid and no _TrashMob_."
 L.MsgValidateDetailBossAttendeeInvalid = "raid[%d] nid=%s: bossKills[%d].players[%d] is not a valid playerNid."
-L.MsgValidateDetailBossAttendeeMissingPlayer = "raid[%d] nid=%s: bossKills[%d].players[%d]=%d does not match any raid player."
+L.MsgValidateDetailBossAttendeeMissingPlayer =
+	"raid[%d] nid=%s: bossKills[%d].players[%d]=%d does not match any raid player."
 L.MsgValidateDetailLootMissingLooter = "raid[%d] nid=%s: loot[%d] has no looterNid."
 L.MsgValidateDetailLootMissingLooterNid = "raid[%d] nid=%s: loot[%d].looterNid=%d does not exist."
 L.MsgValidateDetailRuntimeOutside = "raid[%d] nid=%s: runtime key outside _runtime: %s."
@@ -836,52 +863,51 @@ L.MsgValidateDetailUnknown = "raid[%d] nid=%s: %s."
 
 -- ==================== Raid & Loot Locales ==================== --
 L.RaidZones = {
-    -- The Burning Crusade
-    ["Karazhan"] = "Karazhan",
-    ["Gruul's Lair"] = "Gruul's Lair",
-    ["Magtheridon's Lair"] = "Magtheridon's Lair",
-    ["Serpentshrine Cavern"] = "Serpentshrine Cavern",
-    ["The Eye"] = "The Eye", -- Tempest Keep: The Eye
-    ["Battle for Mount Hyjal"] = "Battle for Mount Hyjal",
-    ["Black Temple"] = "Black Temple",
-    ["Sunwell Plateau"] = "Sunwell Plateau",
-    ["Zul'Aman"] = "Zul'Aman",
+	-- The Burning Crusade
+	["Karazhan"] = "Karazhan",
+	["Gruul's Lair"] = "Gruul's Lair",
+	["Magtheridon's Lair"] = "Magtheridon's Lair",
+	["Serpentshrine Cavern"] = "Serpentshrine Cavern",
+	["The Eye"] = "The Eye", -- Tempest Keep: The Eye
+	["Battle for Mount Hyjal"] = "Battle for Mount Hyjal",
+	["Black Temple"] = "Black Temple",
+	["Sunwell Plateau"] = "Sunwell Plateau",
+	["Zul'Aman"] = "Zul'Aman",
 
-    -- Wrath of the Lich King
-    ["Naxxramas"] = "Naxxramas",
-    ["The Obsidian Sanctum"] = "The Obsidian Sanctum",
-    ["The Eye of Eternity"] = "The Eye of Eternity",
-    ["Vault of Archavon"] = "Vault of Archavon",
-    ["Ulduar"] = "Ulduar",
-    ["Onyxia's Lair"] = "Onyxia's Lair", -- Note: Onyxia is also present in Classic
-    ["Trial of the Crusader"] = "Trial of the Crusader",
-    ["Trial of the Grand Crusader"] = "Trial of the Grand Crusader", -- Already present, keeping it
-    ["Icecrown Citadel"] = "Icecrown Citadel",
-    ["The Ruby Sanctum"] = "The Ruby Sanctum", -- Already present, keeping it
+	-- Wrath of the Lich King
+	["Naxxramas"] = "Naxxramas",
+	["The Obsidian Sanctum"] = "The Obsidian Sanctum",
+	["The Eye of Eternity"] = "The Eye of Eternity",
+	["Vault of Archavon"] = "Vault of Archavon",
+	["Ulduar"] = "Ulduar",
+	["Onyxia's Lair"] = "Onyxia's Lair", -- Note: Onyxia is also present in Classic
+	["Trial of the Crusader"] = "Trial of the Crusader",
+	["Trial of the Grand Crusader"] = "Trial of the Grand Crusader", -- Already present, keeping it
+	["Icecrown Citadel"] = "Icecrown Citadel",
+	["The Ruby Sanctum"] = "The Ruby Sanctum", -- Already present, keeping it
 }
 -- The reason we are using these is because of the missing
 -- UNIT_DIED event once these bosses are dealt with.
 L.BossYells = {
-    -- Naxxramas
-    ["I grow tired of these games. Proceed, and I will banish your souls to oblivion!"] = "Four Horsemen",
-    -- Ulduar
-    ["You rush headlong into the maw of madness!"] = "Iron Council", -- Normalmode - Stormcaller Brundir last
-    ["What have you gained from my defeat? You are no less doomed, mortals!"] = "Iron Council", -- Semi-Hardmode - Runemaster Molgeim last
-    -- ["Impossible..."] = MRT_IsInstanceUlduar("Iron Council"),  -- Hardmode - Steelbreaker last  // also yelled by Lich King -> instance check necessary
-    ["I... I am released from his grasp... at last."] = "Hodir",
-    ["Stay your arms! I yield!"] = "Thorim",
-    ["His hold on me dissipates. I can see clearly once more. Thank you, heroes."] = "Freya",
-    ["It would appear that I've made a slight miscalculation. I allowed my mind to be corrupted by the fiend in the prison, overriding my primary directive. All systems seem to be functional now. Clear."] = "Mimiron",
-    ["I've rearranged the reply code. Your planet will be spared. I cannot be certain of my own calculations anymore."] = "Algalon",
-    -- Trial of the Crusader
-    ["A shallow and tragic victory. We are weaker as a whole from the losses suffered today. Who but the Lich King could benefit from such foolishness? Great warriors have lost their lives. And for what? The true threat looms ahead - the Lich King awaits us all in death."] = "Faction Champions",
-    ["The Scourge cannot be stopped..."] = "Val'kyr Twins",
-    -- Icecrown Citadel
-    ["Don't say I didn't warn ya, scoundrels! Onward, brothers and sisters!"] = "Gunship Battle", -- Muradin
-    ["The Alliance falter. Onward to the Lich King!"] = "Gunship Battle", -- Saurfang
-    ["My queen, they... come."] = "Blood Prince Council", -- Prince Keleseth
-    ["I AM RENEWED! Ysera grant me the favor to lay these foul creatures to rest!"] = "Valithria Dreamwalker", -- Dreamwalker
-    -- Ruby Sanctum
-    ["Relish this victory, mortals, for it will be your last. This world will burn with the master's return!"] = "Halion", -- Halion
+	-- Naxxramas
+	["I grow tired of these games. Proceed, and I will banish your souls to oblivion!"] = "Four Horsemen",
+	-- Ulduar
+	["You rush headlong into the maw of madness!"] = "Iron Council", -- Normalmode - Stormcaller Brundir last
+	["What have you gained from my defeat? You are no less doomed, mortals!"] = "Iron Council", -- Semi-Hardmode - Runemaster Molgeim last
+	-- ["Impossible..."] = MRT_IsInstanceUlduar("Iron Council"),  -- Hardmode - Steelbreaker last  // also yelled by Lich King -> instance check necessary
+	["I... I am released from his grasp... at last."] = "Hodir",
+	["Stay your arms! I yield!"] = "Thorim",
+	["His hold on me dissipates. I can see clearly once more. Thank you, heroes."] = "Freya",
+	["It would appear that I've made a slight miscalculation. I allowed my mind to be corrupted by the fiend in the prison, overriding my primary directive. All systems seem to be functional now. Clear."] = "Mimiron",
+	["I've rearranged the reply code. Your planet will be spared. I cannot be certain of my own calculations anymore."] = "Algalon",
+	-- Trial of the Crusader
+	["A shallow and tragic victory. We are weaker as a whole from the losses suffered today. Who but the Lich King could benefit from such foolishness? Great warriors have lost their lives. And for what? The true threat looms ahead - the Lich King awaits us all in death."] = "Faction Champions",
+	["The Scourge cannot be stopped..."] = "Val'kyr Twins",
+	-- Icecrown Citadel
+	["Don't say I didn't warn ya, scoundrels! Onward, brothers and sisters!"] = "Gunship Battle", -- Muradin
+	["The Alliance falter. Onward to the Lich King!"] = "Gunship Battle", -- Saurfang
+	["My queen, they... come."] = "Blood Prince Council", -- Prince Keleseth
+	["I AM RENEWED! Ysera grant me the favor to lay these foul creatures to rest!"] = "Valithria Dreamwalker", -- Dreamwalker
+	-- Ruby Sanctum
+	["Relish this victory, mortals, for it will be your last. This world will burn with the master's return!"] = "Halion", -- Halion
 }
-

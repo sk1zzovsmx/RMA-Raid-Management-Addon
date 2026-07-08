@@ -12,7 +12,7 @@ def read_syncer():
 
 
 def local_function_body(src, name):
-    match = re.search(r"local\s+function\s+" + name + r"\s*\([^)]*\)(.*?)\n    end", src, re.S)
+    match = re.search(r"local\s+function\s+" + name + r"\s*\([^)]*\)(.*?)\n(?:\t| {4})end", src, re.S)
     if not match:
         raise AssertionError(name)
     return match.group(1)

@@ -56,30 +56,29 @@ Internal.ConfigShowLootCounterDuringMSRoll = "ConfigshowLootCounterDuringMSRoll"
 
 -- ----- Public methods ----- --
 function Events.GetConfigOptionChanged(optionName)
-    if type(optionName) ~= "string" or optionName == "" then
-        return nil
-    end
-    return "Config" .. optionName
+	if type(optionName) ~= "string" or optionName == "" then
+		return nil
+	end
+	return "Config" .. optionName
 end
 
 function Events.GetWowForwarded(eventName)
-    if type(eventName) ~= "string" or eventName == "" then
-        return nil
-    end
-    return Wow[eventName] or ("wow." .. tostring(eventName))
+	if type(eventName) ~= "string" or eventName == "" then
+		return nil
+	end
+	return Wow[eventName] or ("wow." .. tostring(eventName))
 end
 
 do
-    local name = "Modules/Events"
-    local deps = { "Init" }
-    local registry = feature.ModuleRegistry
-    if registry then
-        registry.AddModule(name, { deps = deps })
-        registry.SetLoaded(name)
-    else
-        addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-        local pending = addon.ModuleRegistryPendingRegistrations
-        pending[#pending + 1] = { name = name, deps = deps, loaded = true }
-    end
+	local name = "Modules/Events"
+	local deps = { "Init" }
+	local registry = feature.ModuleRegistry
+	if registry then
+		registry.AddModule(name, { deps = deps })
+		registry.SetLoaded(name)
+	else
+		addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
+		local pending = addon.ModuleRegistryPendingRegistrations
+		pending[#pending + 1] = { name = name, deps = deps, loaded = true }
+	end
 end
-

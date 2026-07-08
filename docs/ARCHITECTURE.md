@@ -20,7 +20,7 @@ layers:
 
 1. Third-party libraries under `Libs/`.
 2. Bootstrap and base database setup: `Init.lua`, `Database/DB.lua`,
-   `Database/DBOptions.lua`.
+   `Database/SavedVariables.lua`, `Database/DBOptions.lua`.
 3. Localization and diagnostics.
 4. Shared XML templates and lightweight XML-only frames.
 5. Shared modules, runtime services, widgets, controllers, and entry points.
@@ -34,11 +34,14 @@ localization, refresh logic, and frame behavior.
 - `Init.lua` seeds `addon.Database`, `addon.Services`, `addon.Controllers`,
   `addon.Widgets`, `addon.UI`, `addon.Events`, `addon.State`, and the main event
   dispatcher.
-- `Database/*` owns persistence contracts, raid schema, SavedVariables access,
-  sync payload import/export, and database service lookup.
+- `Database/*` owns persistence contracts, the single SavedVariables access
+  boundary, raid schema, raid-record accessors exposed by
+  `Database/DBRaidStore.lua`, sync payload import/export, and database service
+  lookup.
 - `Modules/*` owns shared helpers, constants, event names, communication,
   item/string/time utilities, static datasets, module registry, and shared UI
-  helpers.
+  helpers. `Modules/UI/Frames.lua` owns shared frame getters, module-frame
+  binding, popup wrappers, tooltip wrappers, and frame-script safety helpers.
 - `Services/*` owns runtime logic and models. Services must not call
   controllers, own controller frames, or reference widgets directly.
 - `Controllers/*` owns top-level feature frames and composes widgets/services.
@@ -49,10 +52,12 @@ localization, refresh logic, and frame behavior.
 
 ## Feature Areas
 
-- Raid state and attendance: `Services/Raid/*`, `Services/EquipInspect.lua`,
+- Raid state and attendance: `Services/Raid/*`, with active raid session state
+  owned by `Services/Raid/State.lua`, plus `Services/EquipInspect.lua`,
   `Services/SpecInspect.lua`, `Controllers/Logger.lua`, and attendance XML.
 - Master loot: `Controllers/Master.lua`, `Services/Master/*`,
-  `Services/Loot/*`, `Services/Rolls/*`, `Widgets/RaidGrid.lua`,
+  `Services/Loot/*` with runtime loot state owned by
+  `Services/Loot/State.lua`, `Services/Rolls/*`, `Widgets/RaidGrid.lua`,
   `Widgets/LootHints.lua`, and master/raid-grid XML.
 - Loot history/logger: `Services/Logger/*`, `Controllers/Logger.lua`,
   `Database/DBRaid*`, `Database/DBSync*`, and logger/history XML.

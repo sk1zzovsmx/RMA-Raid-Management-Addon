@@ -11,9 +11,9 @@ gate. Run the local WotLK validator scripts that are available in the ignored
 agent skill folder:
 
 ```powershell
-.\.venv\Scripts\python.exe .agents\skills\wow-addon-dev-wotlk-v335a\scripts\validate_toc.py "Raid Management Addon\Raid Management Addon.toc"
-.\.venv\Scripts\python.exe .agents\skills\wow-addon-dev-wotlk-v335a\scripts\lint_lua51.py "Raid Management Addon"
-.\.venv\Scripts\python.exe .agents\skills\wow-addon-dev-wotlk-v335a\scripts\scan_xpcall.py "Raid Management Addon"
+py -3 .agents\skills\wow-addon-dev-wotlk-v335a\scripts\validate_toc.py "Raid Management Addon\Raid Management Addon.toc"
+py -3 .agents\skills\wow-addon-dev-wotlk-v335a\scripts\lint_lua51.py "Raid Management Addon"
+py -3 .agents\skills\wow-addon-dev-wotlk-v335a\scripts\scan_xpcall.py "Raid Management Addon"
 rg -n "<Scripts>|<On[A-Za-z]+>" "Raid Management Addon\UI" -g "*.xml"
 git diff --check
 ```
@@ -60,8 +60,8 @@ requested, but Codex should not block completion on them:
 - addon-message sync still uses `RMA*` prefixes and handles mismatched versions
   predictably
 
-When no in-game validation was requested, report it as:
+When no in-game validation was requested or run, report the gap explicitly as:
 
 ```text
-runtime smoke: not required by project workflow
+runtime smoke: not run; manual acceptance pending
 ```

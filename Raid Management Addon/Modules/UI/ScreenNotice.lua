@@ -15,6 +15,9 @@ UI.ScreenNotice = ScreenNotice
 local Effects = UI.Effects
 local Bus = feature.Bus
 local Events = feature.Events
+local InternalEvents = assert(Events.Internal, "Screen notice internal events are not initialized")
+local RegisterCallback = assert(Bus.RegisterCallback, "Screen notice event bus listener is not initialized")
+local ScreenNoticeEvent = assert(InternalEvents.ScreenNotice, "Screen notice event name is not initialized")
 
 local max = math.max
 local min = math.min
@@ -33,104 +36,100 @@ local detailVisible = false
 
 -- ----- Private helpers ----- --
 local function colorizeTitle(message)
-    return gsub(tostring(message), "Master Loot", "|cffff2020Master Loot|r")
+	return gsub(tostring(message), "Master Loot", "|cffff2020Master Loot|r")
 end
 
 local function ensureFrame()
-    if frame then
-        return frame
-    end
+	if frame then
+		return frame
+	end
 
-    frame = _G[FRAME_NAME]
-    if not frame then
-        return nil
-    end
+	frame = _G[FRAME_NAME]
+	if not frame then
+		return nil
+	end
 
-    titleText = _G[FRAME_NAME .. "TitleText"]
-    detailText = _G[FRAME_NAME .. "DetailText"]
-    if not titleText or not detailText then
-        frame = nil
-        titleText = nil
-        detailText = nil
-        return nil
-    end
+	titleText = _G[FRAME_NAME .. "TitleText"]
+	detailText = _G[FRAME_NAME .. "DetailText"]
+	if not titleText or not detailText then
+		frame = nil
+		titleText = nil
+		detailText = nil
+		return nil
+	end
 
-    if frame.SetFrameLevel then
-        frame:SetFrameLevel(1000)
-    end
+	if frame.SetFrameLevel then
+		frame:SetFrameLevel(1000)
+	end
 
-    return frame
+	return frame
 end
 
 local function updateFrameSize()
-    if not frame or not titleText then
-        return
-    end
+	if not frame or not titleText then
+		return
+	end
 
-    local width = titleText.GetWidth and titleText:GetWidth() or 1
-    if detailText and detailVisible and detailText.GetWidth then
-        width = max(width, detailText:GetWidth() or 1)
-    end
+	local width = titleText.GetWidth and titleText:GetWidth() or 1
+	if detailText and detailVisible and detailText.GetWidth then
+		width = max(width, detailText:GetWidth() or 1)
+	end
 
-    frame:SetWidth(max(width, 1))
-    frame:SetHeight(detailVisible and 42 or 24)
+	frame:SetWidth(max(width, 1))
+	frame:SetHeight(detailVisible and 42 or 24)
 end
 
 local function hideNotice(noticeFrame)
-    noticeFrame:Hide()
-    noticeFrame:SetAlpha(1)
+	noticeFrame:Hide()
+	noticeFrame:SetAlpha(1)
 end
 
 local function showNotice(_eventName, message, requestedDuration)
-    if not message or message == "" then
-        return false
-    end
+	if not message or message == "" then
+		return false
+	end
 
-    local noticeFrame = ensureFrame()
-    if not noticeFrame or not titleText then
-        return false
-    end
-    if not (Effects and Effects.SetTimedFade) then
-        return false
-    end
+	local noticeFrame = ensureFrame()
+	if not noticeFrame or not titleText then
+		return false
+	end
+	if not (Effects and Effects.SetTimedFade) then
+		return false
+	end
 
-    local duration = max(tonumber(requestedDuration) or DEFAULT_DURATION_SECONDS, 0.1)
-    duration = min(duration, 5)
+	local duration = max(tonumber(requestedDuration) or DEFAULT_DURATION_SECONDS, 0.1)
+	duration = min(duration, 5)
 
-    titleText:SetText(colorizeTitle(message))
-    if detailText then
-        detailText:SetText("")
-        detailText:Hide()
-    end
-    detailVisible = false
-    updateFrameSize()
-    noticeFrame:SetAlpha(1)
-    noticeFrame:Show()
-    Effects.SetTimedFade(noticeFrame, duration, FADE_SECONDS, hideNotice)
-    return true
+	titleText:SetText(colorizeTitle(message))
+	if detailText then
+		detailText:SetText("")
+		detailText:Hide()
+	end
+	detailVisible = false
+	updateFrameSize()
+	noticeFrame:SetAlpha(1)
+	noticeFrame:Show()
+	Effects.SetTimedFade(noticeFrame, duration, FADE_SECONDS, hideNotice)
+	return true
 end
 
 -- ----- Public methods ----- --
 function ScreenNotice.Show(message, requestedDuration)
-    return showNotice(nil, message, requestedDuration)
+	return showNotice(nil, message, requestedDuration)
 end
 
-local InternalEvents = Events and Events.Internal
-if Bus and Bus.RegisterCallback and InternalEvents and InternalEvents.ScreenNotice then
-    Bus.RegisterCallback(InternalEvents.ScreenNotice, showNotice)
-end
+RegisterCallback(ScreenNoticeEvent, showNotice)
 
 local registry = feature.ModuleRegistry
 if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-    registry.AddModule("Modules/UI/ScreenNotice", {
-        deps = {
-            "Init",
-            "Modules/ModuleRegistry",
-            "Modules/Bus",
-            "Modules/Events",
-            "Modules/UI/Effects",
-        },
-    })
-    registry.SetLoaded("Modules/UI/ScreenNotice")
+	registry.AddModule("Modules/UI/ScreenNotice", {
+		deps = {
+			"Init",
+			"Modules/ModuleRegistry",
+			"Modules/Bus",
+			"Modules/Events",
+			"Modules/UI/Effects",
+		},
+	})
+	registry.SetLoaded("Modules/UI/ScreenNotice")
 end
-

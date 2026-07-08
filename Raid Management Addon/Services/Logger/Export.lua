@@ -17,246 +17,243 @@ local concat = table.concat
 feature.EnsureServiceNamespace("Logger", "Export")
 local Logger = Services.Logger
 local Export = Logger.Export
-local Store = Logger.Store
-local Helpers = Logger.Helpers
-local formatRollTypeForExport = Helpers and Helpers.FormatRollTypeForExport or function(value)
-    return tonumber(value) or ""
-end
-local formatRollValueForExport = Helpers and Helpers.FormatRollValueForExport or function(value)
-    return tonumber(value) or ""
-end
+local Store = assert(Logger.Store, "Logger export store is not initialized")
+local Helpers = assert(Logger.Helpers, "Logger export helpers are not initialized")
+local formatRollTypeForExport = Helpers.FormatRollTypeForExport
+local formatRollValueForExport = Helpers.FormatRollValueForExport
 
 local HEADER_LOOT = {
-    "raidNid",
-    "raidDate",
-    "zone",
-    "size",
-    "difficulty",
-    "bossNid",
-    "boss",
-    "bossTime",
-    "lootNid",
-    "itemId",
-    "itemName",
-    "winner",
-    "class",
-    "rollType",
-    "rollValue",
-    "lootTime",
+	"raidNid",
+	"raidDate",
+	"zone",
+	"size",
+	"difficulty",
+	"bossNid",
+	"boss",
+	"bossTime",
+	"lootNid",
+	"itemId",
+	"itemName",
+	"winner",
+	"class",
+	"rollType",
+	"rollValue",
+	"lootTime",
 }
 
 local HEADER_RAID_ATTENDANCE = {
-    "raidNid",
-    "raidDate",
-    "zone",
-    "size",
-    "difficulty",
-    "playerNid",
-    "player",
-    "class",
-    "join",
-    "leave",
-    "attendanceSeconds",
-    "onlineSeconds",
-    "offlineSeconds",
-    "segmentCount",
+	"raidNid",
+	"raidDate",
+	"zone",
+	"size",
+	"difficulty",
+	"playerNid",
+	"player",
+	"class",
+	"join",
+	"leave",
+	"attendanceSeconds",
+	"onlineSeconds",
+	"offlineSeconds",
+	"segmentCount",
 }
 
 -- ----- Private helpers ----- --
 local function normalizeContext(context)
-    return type(context) == "table" and context or {}
+	return type(context) == "table" and context or {}
 end
 
 local function formatTimestamp(timestamp)
-    local resolvedTimestamp = tonumber(timestamp) or 0
-    if resolvedTimestamp <= 0 then
-        return ""
-    end
-    return date("%Y-%m-%d %H:%M:%S", resolvedTimestamp)
+	local resolvedTimestamp = tonumber(timestamp) or 0
+	if resolvedTimestamp <= 0 then
+		return ""
+	end
+	return date("%Y-%m-%d %H:%M:%S", resolvedTimestamp)
 end
 
 local function encodeCSVField(value)
-    if value == nil then
-        return ""
-    end
+	if value == nil then
+		return ""
+	end
 
-    local text = tostring(value)
-    if text:find('[",\r\n]') then
-        text = text:gsub('"', '""')
-        return '"' .. text .. '"'
-    end
-    return text
+	local text = tostring(value)
+	if text:find('[",\r\n]') then
+		text = text:gsub('"', '""')
+		return '"' .. text .. '"'
+	end
+	return text
 end
 
 local function appendCSVLine(lines, fields, encoded, fieldCount)
-    local count = fieldCount or #fields
-    for i = 1, count do
-        encoded[i] = encodeCSVField(fields[i])
-    end
-    lines[#lines + 1] = concat(encoded, ",", 1, count)
+	local count = fieldCount or #fields
+	for i = 1, count do
+		encoded[i] = encodeCSVField(fields[i])
+	end
+	lines[#lines + 1] = concat(encoded, ",", 1, count)
 end
 
 local function getRaidNid(raid)
-    return tonumber(raid and raid.raidNid) or ""
+	return tonumber(raid and raid.raidNid) or ""
 end
 
 local function finishPerf(label, startedAt, raid, rowCount, csvText)
-    if not (startedAt and addon._PerfFinish) then
-        return
-    end
+	if not (startedAt and addon._PerfFinish) then
+		return
+	end
 
-    local resolvedRowCount = tonumber(rowCount) or 0
-    local byteCount = type(csvText) == "string" and #csvText or 0
-    local details = "raid=" .. tostring(getRaidNid(raid)) .. " rows=" .. tostring(resolvedRowCount) .. " bytes=" .. tostring(byteCount)
-    addon:_PerfFinish(label, startedAt, details)
+	local resolvedRowCount = tonumber(rowCount) or 0
+	local byteCount = type(csvText) == "string" and #csvText or 0
+	local details = "raid="
+		.. tostring(getRaidNid(raid))
+		.. " rows="
+		.. tostring(resolvedRowCount)
+		.. " bytes="
+		.. tostring(byteCount)
+	addon:_PerfFinish(label, startedAt, details)
 end
 
 local function getRaidDate(raid)
-    return formatTimestamp(raid and raid.startTime)
+	return formatTimestamp(raid and raid.startTime)
 end
 
 local function getRaidZone(raid)
-    return raid and raid.zone or ""
+	return raid and raid.zone or ""
 end
 
 local function getRaidSize(raid)
-    return tonumber(raid and raid.size) or ""
+	return tonumber(raid and raid.size) or ""
 end
 
 local function getRaidDifficulty(raid)
-    return tonumber(raid and raid.difficulty) or ""
+	return tonumber(raid and raid.difficulty) or ""
 end
 
 local function getSelectedPlayerName(raid, context)
-    local selectedPlayerNid = tonumber(context and context.selectedPlayerNid)
-    if not selectedPlayerNid then
-        return nil
-    end
+	local selectedPlayerNid = tonumber(context and context.selectedPlayerNid)
+	if not selectedPlayerNid then
+		return nil
+	end
 
-    local player = Store and Store.GetPlayer and Store:GetPlayer(raid, selectedPlayerNid) or nil
-    return player and player.name or nil
+	local player = Store:GetPlayer(raid, selectedPlayerNid)
+	return player and player.name or nil
 end
 
 local function getBossNameByNid(raid, bossNid)
-    local boss = Store and Store.GetBoss and Store:GetBoss(raid, bossNid) or nil
-    return boss and boss.name or ""
+	local boss = Store:GetBoss(raid, bossNid)
+	return boss and boss.name or ""
 end
 
 local function getBossTimeByNid(raid, bossNid)
-    local boss = Store and Store.GetBoss and Store:GetBoss(raid, bossNid) or nil
-    return boss and boss.time or nil
+	local boss = Store:GetBoss(raid, bossNid)
+	return boss and boss.time or nil
 end
 
 -- ----- Public methods ----- --
 function Export:GetCSV(mode, raid, context)
-    if type(raid) ~= "table" then
-        return "", "INVALID_RAID"
-    end
+	if type(raid) ~= "table" then
+		return "", "INVALID_RAID"
+	end
 
-    if mode == "loot" then
-        return self:GetLootCSV(raid, context)
-    elseif mode == "raidAttendance" then
-        return self:GetRaidAttendanceCSV(raid, context)
-    end
+	if mode == "loot" then
+		return self:GetLootCSV(raid, context)
+	elseif mode == "raidAttendance" then
+		return self:GetRaidAttendanceCSV(raid, context)
+	end
 
-    return "", "INVALID_MODE"
+	return "", "INVALID_MODE"
 end
 
 function Export:GetLootCSV(raid, context)
-    local perfStart = addon.hasPerf and addon._PerfStart and addon:_PerfStart() or nil
-    context = normalizeContext(context)
-    local queries = Database.GetRaidQueriesOrNil()
-    local playerName = getSelectedPlayerName(raid, context)
-    local lootRows = {}
-    if queries and queries.GetLoot then
-        queries:GetLoot(raid, context.selectedBossNid, playerName, lootRows)
-    end
-    local lines = {}
-    local fields = {}
-    local encoded = {}
-    local rowCount = 0
-    appendCSVLine(lines, HEADER_LOOT, encoded, #HEADER_LOOT)
+	local perfStart = addon.hasPerf and addon._PerfStart and addon:_PerfStart() or nil
+	context = normalizeContext(context)
+	local queries = Database.GetRaidQueries()
+	local playerName = getSelectedPlayerName(raid, context)
+	local lootRows = {}
+	queries:GetLoot(raid, context.selectedBossNid, playerName, lootRows)
+	local lines = {}
+	local fields = {}
+	local encoded = {}
+	local rowCount = 0
+	appendCSVLine(lines, HEADER_LOOT, encoded, #HEADER_LOOT)
 
-    for i = 1, #lootRows do
-        local loot = lootRows[i]
-        if loot then
-            local bossNid = tonumber(loot.bossNid) or ""
-            fields[1] = getRaidNid(raid)
-            fields[2] = getRaidDate(raid)
-            fields[3] = getRaidZone(raid)
-            fields[4] = getRaidSize(raid)
-            fields[5] = getRaidDifficulty(raid)
-            fields[6] = bossNid
-            fields[7] = loot.sourceName or getBossNameByNid(raid, bossNid)
-            fields[8] = formatTimestamp(getBossTimeByNid(raid, bossNid))
-            fields[9] = tonumber(loot.id) or ""
-            fields[10] = tonumber(loot.itemId) or ""
-            fields[11] = loot.itemName or ""
-            fields[12] = loot.looter or ""
-            fields[13] = loot.looterClass or ""
-            fields[14] = formatRollTypeForExport(loot.rollType)
-            fields[15] = formatRollValueForExport(loot.rollValue)
-            fields[16] = formatTimestamp(loot.time)
-            rowCount = rowCount + 1
-            appendCSVLine(lines, fields, encoded, 16)
-        end
-    end
+	for i = 1, #lootRows do
+		local loot = lootRows[i]
+		if loot then
+			local bossNid = tonumber(loot.bossNid) or ""
+			fields[1] = getRaidNid(raid)
+			fields[2] = getRaidDate(raid)
+			fields[3] = getRaidZone(raid)
+			fields[4] = getRaidSize(raid)
+			fields[5] = getRaidDifficulty(raid)
+			fields[6] = bossNid
+			fields[7] = loot.sourceName or getBossNameByNid(raid, bossNid)
+			fields[8] = formatTimestamp(getBossTimeByNid(raid, bossNid))
+			fields[9] = tonumber(loot.id) or ""
+			fields[10] = tonumber(loot.itemId) or ""
+			fields[11] = loot.itemName or ""
+			fields[12] = loot.looter or ""
+			fields[13] = loot.looterClass or ""
+			fields[14] = formatRollTypeForExport(loot.rollType)
+			fields[15] = formatRollValueForExport(loot.rollValue)
+			fields[16] = formatTimestamp(loot.time)
+			rowCount = rowCount + 1
+			appendCSVLine(lines, fields, encoded, 16)
+		end
+	end
 
-    local csv = concat(lines, "\n")
-    finishPerf("Logger.Export.GetLootCSV", perfStart, raid, rowCount, csv)
-    return csv
+	local csv = concat(lines, "\n")
+	finishPerf("Logger.Export.GetLootCSV", perfStart, raid, rowCount, csv)
+	return csv
 end
 
 function Export:GetRaidAttendanceCSV(raid)
-    local perfStart = addon.hasPerf and addon._PerfStart and addon:_PerfStart() or nil
-    local queries = Database.GetRaidQueriesOrNil()
-    local attendanceRows = {}
-    if queries and queries.GetRaidAttendance then
-        queries:GetRaidAttendance(raid, attendanceRows)
-    end
-    local lines = {}
-    local fields = {}
-    local encoded = {}
-    local rowCount = 0
-    appendCSVLine(lines, HEADER_RAID_ATTENDANCE, encoded, #HEADER_RAID_ATTENDANCE)
+	local perfStart = addon.hasPerf and addon._PerfStart and addon:_PerfStart() or nil
+	local queries = Database.GetRaidQueries()
+	local attendanceRows = {}
+	queries:GetRaidAttendance(raid, attendanceRows)
+	local lines = {}
+	local fields = {}
+	local encoded = {}
+	local rowCount = 0
+	appendCSVLine(lines, HEADER_RAID_ATTENDANCE, encoded, #HEADER_RAID_ATTENDANCE)
 
-    for i = 1, #attendanceRows do
-        local entry = attendanceRows[i]
-        if entry then
-            fields[1] = getRaidNid(raid)
-            fields[2] = getRaidDate(raid)
-            fields[3] = getRaidZone(raid)
-            fields[4] = getRaidSize(raid)
-            fields[5] = getRaidDifficulty(raid)
-            fields[6] = tonumber(entry.id) or ""
-            fields[7] = entry.name or ""
-            fields[8] = entry.class or ""
-            fields[9] = formatTimestamp(entry.join)
-            fields[10] = formatTimestamp(entry.leave)
-            fields[11] = tonumber(entry.attendanceSeconds) or 0
-            fields[12] = tonumber(entry.onlineSeconds) or 0
-            fields[13] = tonumber(entry.offlineSeconds) or 0
-            fields[14] = tonumber(entry.segmentCount) or 0
-            rowCount = rowCount + 1
-            appendCSVLine(lines, fields, encoded, 14)
-        end
-    end
+	for i = 1, #attendanceRows do
+		local entry = attendanceRows[i]
+		if entry then
+			fields[1] = getRaidNid(raid)
+			fields[2] = getRaidDate(raid)
+			fields[3] = getRaidZone(raid)
+			fields[4] = getRaidSize(raid)
+			fields[5] = getRaidDifficulty(raid)
+			fields[6] = tonumber(entry.id) or ""
+			fields[7] = entry.name or ""
+			fields[8] = entry.class or ""
+			fields[9] = formatTimestamp(entry.join)
+			fields[10] = formatTimestamp(entry.leave)
+			fields[11] = tonumber(entry.attendanceSeconds) or 0
+			fields[12] = tonumber(entry.onlineSeconds) or 0
+			fields[13] = tonumber(entry.offlineSeconds) or 0
+			fields[14] = tonumber(entry.segmentCount) or 0
+			rowCount = rowCount + 1
+			appendCSVLine(lines, fields, encoded, 14)
+		end
+	end
 
-    local csv = concat(lines, "\n")
-    finishPerf("Logger.Export.GetRaidAttendanceCSV", perfStart, raid, rowCount, csv)
-    return csv
+	local csv = concat(lines, "\n")
+	finishPerf("Logger.Export.GetRaidAttendanceCSV", perfStart, raid, rowCount, csv)
+	return csv
 end
 
 local registry = feature.ModuleRegistry
 if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-    registry.AddModule("Services/Logger/Export", {
-        deps = {
-            "Init",
-            "Modules/ModuleRegistry",
-            "Services/Logger/Store",
-            "Services/Logger/Helpers",
-        },
-    })
-    registry.SetLoaded("Services/Logger/Export")
+	registry.AddModule("Services/Logger/Export", {
+		deps = {
+			"Init",
+			"Database/DBRaidQueries",
+			"Modules/ModuleRegistry",
+			"Services/Logger/Store",
+			"Services/Logger/Helpers",
+		},
+	})
+	registry.SetLoaded("Services/Logger/Export")
 end
-

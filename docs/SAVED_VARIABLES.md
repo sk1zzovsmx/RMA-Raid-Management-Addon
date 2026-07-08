@@ -19,8 +19,13 @@ Declared in `Raid Management Addon/Raid Management Addon.toc`:
 
 ## Ownership
 
+`Database/SavedVariables.lua` is the single runtime access boundary for creating,
+reading, replacing, or clearing the declared `RMA_*` tables. Feature owners
+still own the schema and meaning of their stores:
+
 - `RMA_Raids`: raid history, boss records, loot records, attendance, and raid
-  schema data. Owned by `Database/DBRaid*` and raid/logger/loot services.
+  schema data. Schema/model behavior is owned by `Database/DBRaid*` and
+  raid/logger/loot services.
 - `RMA_Players`: player-level persisted data when required by raid history.
 - `RMA_Reserves`: canonical reserve imports, aliases, and reserve state owned by
   `Services/Reserves.lua` and `Services/Reserves/*`.
@@ -58,5 +63,5 @@ SavedVariables directives. It does not replace an in-game reload smoke test for
 persistence behavior:
 
 ```powershell
-.\.venv\Scripts\python.exe .agents\skills\wow-addon-dev-wotlk-v335a\scripts\validate_toc.py "Raid Management Addon\Raid Management Addon.toc"
+py -3 .agents\skills\wow-addon-dev-wotlk-v335a\scripts\validate_toc.py "Raid Management Addon\Raid Management Addon.toc"
 ```
