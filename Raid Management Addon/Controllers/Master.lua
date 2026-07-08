@@ -1441,9 +1441,9 @@ do
 		debug = addon.hasDebug and function(message)
 			return addon:debug(message)
 		end or nil,
-		warn = addon.hasWarn and function(message)
+		warn = function(message)
 			return addon:warn(message)
-		end or nil,
+		end,
 		registerAwardedItem = registerAwardedItem,
 		refresh = function()
 			return module:RequestRefresh()
@@ -1569,9 +1569,9 @@ do
 		debug = addon.hasDebug and function(message)
 			return addon:debug(message)
 		end or nil,
-		warn = addon.hasWarn and function(message)
+		warn = function(message)
 			return addon:warn(message)
-		end or nil,
+		end,
 		error = function(message)
 			return addon:error(message)
 		end,
@@ -1635,9 +1635,9 @@ do
 		debug = addon.hasDebug and function(message)
 			return addon:debug(message)
 		end or nil,
-		warn = addon.hasWarn and function(message)
+		warn = function(message)
 			return addon:warn(message)
-		end or nil,
+		end,
 	})
 
 	clearMultiAwardState = function(resetItemCount)

@@ -460,6 +460,13 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
             with self.subTest(dep=dep):
                 self.assertIn('"' + dep + '"', controller)
 
+    def test_master_extracted_owners_receive_warning_callback_without_missing_flag_gate(self):
+        controller = read(MASTER_CONTROLLER)
+
+        self.assertNotIn("addon.hasWarn", controller)
+        self.assertGreaterEqual(controller.count("warn = function(message)"), 3)
+        self.assertGreaterEqual(controller.count("return addon:warn(message)"), 3)
+
 
 if __name__ == "__main__":
     unittest.main()
