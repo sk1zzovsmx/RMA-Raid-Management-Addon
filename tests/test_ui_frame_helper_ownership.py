@@ -21,6 +21,7 @@ RESERVES_UI = ADDON / "Widgets" / "ReservesUI.lua"
 CONFIG = ADDON / "Widgets" / "Config.lua"
 TRADE_MENU = ADDON / "Widgets" / "TradeMenu.lua"
 ITEM_SELECTION = ADDON / "Services" / "Master" / "ItemSelection.lua"
+ASSIGNMENT_UI = ADDON / "Services" / "Master" / "AssignmentUi.lua"
 
 
 def read(path):
@@ -459,7 +460,8 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
             'UI.Widgets.CallFunction("TradeMenu", "HideDropdowns")',
             'UI.Widgets.CallFunction("TradeMenu", "RefreshDropdowns", manualState)',
             'UI.Widgets.CallFunction("TradeMenu", "RefreshCandidate", "TRADE_SHOW")',
-            'UI.Widgets.CallFunction("RaidGrid", "ShowPicker", {',
+            'UI.Widgets.CallFunction("RaidGrid", "ShowPicker", args)',
+            'UI.Widgets.CallFunction("RaidGrid", "Hide")',
             'UI.Widgets.CallFunction("RaidGrid", "IsShown")',
             'UI.Widgets.CallFunction("RaidGrid", "GetMode")',
             'UI.Widgets.CallFunction("LootHints", "ApplyLootFrameReserveHints")',
@@ -705,12 +707,14 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
 
     def test_master_dropdown_hooks_use_shared_hook_owner(self):
         master = read(MASTER)
-        start = master.index("local function hookDropDownOpen(frame, targetKey)")
-        end = master.index("local function refreshCandidateUiState()", start)
-        dropdown_hook = master[start:end]
+        assignment_ui = read(ASSIGNMENT_UI)
+        start = assignment_ui.index("local function hookDropDownOpen(controller, frame, targetKey)")
+        end = assignment_ui.index("function AssignmentUi.CreateController(opts)", start)
+        dropdown_hook = assignment_ui[start:end]
 
         self.assertIn("local Frames = UI.Frames", master)
-        self.assertIn('Frames.HookScriptSafely(button, "OnClick"', dropdown_hook)
+        self.assertIn("hookScriptSafely = Frames.HookScriptSafely", master)
+        self.assertIn('controller.hookScriptSafely(button, "OnClick"', dropdown_hook)
         self.assertIn("button._RMAHooked = true", dropdown_hook)
         self.assertNotIn('button:HookScript("OnClick"', dropdown_hook)
 

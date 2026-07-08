@@ -121,6 +121,7 @@ Services\Master\AssignmentHelpers.lua
 Services\Master\AssignmentCandidates.lua
 Services\Master\AssignmentTargets.lua
 Services\Master\DebugRaidGrid.lua
+Services\Master\AssignmentUi.lua
 Services\Master\AwardMessages.lua
 Services\Master\LootSpam.lua
 Services\Master\AwardCounter.lua

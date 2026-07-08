@@ -7,6 +7,7 @@ MASTER_SERVICES = ROOT / "Raid Management Addon" / "Services" / "Master"
 MASTER_SERVICE = MASTER_SERVICES / "Service.lua"
 MASTER_ROLL_UI = MASTER_SERVICES / "RollUi.lua"
 MASTER_MULTI_AWARD = MASTER_SERVICES / "MultiAward.lua"
+MASTER_ASSIGNMENT_UI = MASTER_SERVICES / "AssignmentUi.lua"
 MASTER_ITEM_SELECTION = MASTER_SERVICES / "ItemSelection.lua"
 MASTER_TRADE_EXECUTION = MASTER_SERVICES / "TradeExecution.lua"
 MASTER_CONTROLLER = ROOT / "Raid Management Addon" / "Controllers" / "Master.lua"
@@ -285,6 +286,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
     def test_master_controller_uses_assignment_grid_owners_without_service_passthroughs(self):
         service = read_optional(MASTER_SERVICE)
         controller = read(MASTER_CONTROLLER)
+        assignment_ui = read_optional(MASTER_ASSIGNMENT_UI)
 
         for method in (
             "BuildAssignmentCandidateRows",
@@ -299,11 +301,55 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertNotIn('"Services/Master/AssignmentCandidates"', service)
         self.assertNotIn('"Services/Master/AssignmentTargets"', service)
         self.assertNotIn('"Services/Master/DebugRaidGrid"', service)
-        self.assertIn("MasterService.AssignmentCandidates.BuildRows(collectMasterLootCandidates(), getRaidGridPlayerClass)", controller)
-        self.assertIn("MasterService.DebugRaidGrid.IsFallbackEnabled(debugState, isDebugEnabled())", controller)
-        self.assertIn("MasterService.DebugRaidGrid.GetTargetCount(debugState)", controller)
-        self.assertIn("MasterService.DebugRaidGrid.BuildRows(count, collectRaidGridRosterRows())", controller)
-        self.assertIn("MasterService.AssignmentTargets.BuildRows(module._dropDownData, getRaidGridPlayerClass)", controller)
+        self.assertNotIn("MasterService.AssignmentCandidates.BuildRows(", controller)
+        self.assertNotIn("MasterService.DebugRaidGrid.IsFallbackEnabled(", controller)
+        self.assertNotIn("MasterService.DebugRaidGrid.GetTargetCount(", controller)
+        self.assertNotIn("MasterService.DebugRaidGrid.BuildRows(", controller)
+        self.assertNotIn("MasterService.AssignmentTargets.BuildRows(", controller)
+        self.assertIn("assignmentCandidates = MasterService.AssignmentCandidates", controller)
+        self.assertIn("assignmentTargets = MasterService.AssignmentTargets", controller)
+        self.assertIn("debugRaidGrid = MasterService.DebugRaidGrid", controller)
+        self.assertIn("self.assignmentCandidates.BuildRows(collectMasterLootCandidates(self), self.getRaidGridPlayerClass)", assignment_ui)
+        self.assertIn("self.debugRaidGrid.IsFallbackEnabled(", assignment_ui)
+        self.assertIn("self.debugRaidGrid.GetTargetCount(", assignment_ui)
+        self.assertIn("self.debugRaidGrid.BuildRows(count, collectRaidGridRosterRows(self))", assignment_ui)
+        self.assertIn("controller.assignmentTargets.BuildRows(", assignment_ui)
+        self.assertIn("controller.state._dropDownData", assignment_ui)
+        self.assertIn("controller.getRaidGridPlayerClass", assignment_ui)
+
+    def test_master_controller_delegates_assignment_ui_owner(self):
+        controller = read(MASTER_CONTROLLER)
+        assignment_ui = read_optional(MASTER_ASSIGNMENT_UI)
+        toc = read(MASTER_TOC)
+
+        self.assertNotIn("function initializeDropDowns()", controller)
+        self.assertNotIn("function prepareDropDowns()", controller)
+        self.assertNotIn("function updateDropDowns(frame)", controller)
+        self.assertNotIn("Private.OpenManualAwardGrid = function", controller)
+        self.assertNotIn("Private.RefreshManualAwardGrid = function", controller)
+        self.assertNotIn("Private.AcceptManualGridAward = function", controller)
+
+        self.assertIn(
+            'local AssignmentUiService = assert(MasterService.AssignmentUi, "Master assignment UI service is not initialized")',
+            controller,
+        )
+        self.assertIn("assignmentUiController = AssignmentUiService.CreateController({", controller)
+        self.assertIn("assignmentUiController:PrepareDropDowns()", controller)
+        self.assertIn("assignmentUiController:InitializeDropDowns()", controller)
+        self.assertIn("assignmentUiController:UpdateDropDown(module._dropDownFrameHolder)", controller)
+        self.assertIn("assignmentUiController:OpenManualAwardGrid()", controller)
+        self.assertIn("assignmentUiController:RefreshManualAwardGrid()", controller)
+
+        self.assertIn("function AssignmentUi.CreateController(opts)", assignment_ui)
+        self.assertIn("function controller:PrepareDropDowns()", assignment_ui)
+        self.assertIn("function controller:InitializeDropDowns()", assignment_ui)
+        self.assertIn("function controller:UpdateDropDown(frame)", assignment_ui)
+        self.assertIn("function controller:OpenManualAwardGrid()", assignment_ui)
+        self.assertIn("function controller:RefreshManualAwardGrid()", assignment_ui)
+        self.assertIn("function controller:AcceptManualGridAward(data)", assignment_ui)
+
+        self.assertLess(toc.index("Services\\Master\\DebugRaidGrid.lua"), toc.index("Services\\Master\\AssignmentUi.lua"))
+        self.assertLess(toc.index("Services\\Master\\AssignmentUi.lua"), toc.index("Controllers\\Master.lua"))
 
     def test_master_controller_uses_award_counter_owner_without_service_passthroughs(self):
         service = read_optional(MASTER_SERVICE)
@@ -383,6 +429,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
             "Services/Master/AssignmentCandidates",
             "Services/Master/AssignmentTargets",
             "Services/Master/DebugRaidGrid",
+            "Services/Master/AssignmentUi",
             "Services/Master/AwardMessages",
             "Services/Master/LootSpam",
             "Services/Master/RollAnnouncements",

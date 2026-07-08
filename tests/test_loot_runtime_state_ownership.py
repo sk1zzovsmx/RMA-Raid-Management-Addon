@@ -20,6 +20,7 @@ MASTER_TRADE = ADDON / "Services" / "Master" / "Trade.lua"
 MASTER_TRADE_EXECUTION = ADDON / "Services" / "Master" / "TradeExecution.lua"
 MASTER_FLOW_STATE = ADDON / "Services" / "Master" / "FlowState.lua"
 MASTER_MULTI_AWARD = ADDON / "Services" / "Master" / "MultiAward.lua"
+MASTER_ASSIGNMENT_UI = ADDON / "Services" / "Master" / "AssignmentUi.lua"
 MASTER_CONTROLLER = ADDON / "Controllers" / "Master.lua"
 
 
@@ -283,6 +284,7 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
 
     def test_master_controller_calls_raid_api_without_private_pass_throughs(self):
         master_controller = read(MASTER_CONTROLLER)
+        assignment_ui = read(MASTER_ASSIGNMENT_UI)
 
         for helper_name in (
             "getRaidRosterVersion",
@@ -293,8 +295,10 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
             with self.subTest(helper_name=helper_name):
                 self.assertNotIn("local function " + helper_name, master_controller)
 
-        self.assertIn("RaidApi.GetRosterVersion(Raid)", master_controller)
-        self.assertIn("RaidApi.RequestMasterLootCandidateRefresh(Raid)", master_controller)
+        self.assertIn("raidApi = RaidApi", master_controller)
+        self.assertIn("raid = Raid", master_controller)
+        self.assertIn("self.raidApi.GetRosterVersion(self.raid)", assignment_ui)
+        self.assertIn("self.raidApi.RequestMasterLootCandidateRefresh(self.raid)", assignment_ui)
         self.assertIn("RaidApi.FindMasterLootCandidateIndex(Raid, itemLink, playerName)", master_controller)
         self.assertIn("RaidApi.CanResolveMasterLootCandidates(Raid, itemLink)", master_controller)
 
