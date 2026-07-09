@@ -1,7 +1,7 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
 -- shared: local feature = addon.Database.GetFeatureShared()
--- exports: addon.Services.Master.RollUi
+-- exports: addon.Services.Master.RollSelection
 -- events: none
 -- notes: owns Master roll winner selection state and display model assembly
 local addon = select(2, ...)
@@ -9,8 +9,8 @@ local feature = addon.Database.GetFeatureShared()
 
 local Master = feature.EnsureServiceNamespace("Master")
 
-local RollUi = Master.RollUi or {}
-Master.RollUi = RollUi
+local RollSelection = Master.RollSelection or {}
+Master.RollSelection = RollSelection
 
 local type = type
 local tonumber = tonumber
@@ -26,8 +26,8 @@ local MODE = {
 	MANUAL_MULTI = "MANUAL_MULTI",
 }
 
-RollUi.ContextKey = ROLL_WINNERS_CTX
-RollUi.Mode = MODE
+RollSelection.ContextKey = ROLL_WINNERS_CTX
+RollSelection.Mode = MODE
 
 local function getState(controller)
 	local state = controller.state
@@ -261,17 +261,20 @@ local function syncSession(controller)
 	return sessionKey
 end
 
-function RollUi.CreateController(opts)
+function RollSelection.CreateController(opts)
 	opts = opts or {}
 	local controller = {
-		getDisplayModel = assert(opts.getDisplayModel, "Master RollUi display model resolver is not initialized"),
+		getDisplayModel = assert(
+			opts.getDisplayModel,
+			"Master RollSelection display model resolver is not initialized"
+		),
 		getSessionKey = opts.getSessionKey,
 		isSelectionBlocked = opts.isSelectionBlocked,
 		isFromInventory = opts.isFromInventory,
 		onSelectionBlocked = opts.onSelectionBlocked,
-		rollRows = assert(opts.rollRows, "Master RollUi row model owner is not initialized"),
-		selection = assert(opts.selection, "Master RollUi selection owner is not initialized"),
-		state = assert(opts.state, "Master RollUi state table is not initialized"),
+		rollRows = assert(opts.rollRows, "Master RollSelection row model owner is not initialized"),
+		selection = assert(opts.selection, "Master RollSelection selection owner is not initialized"),
+		state = assert(opts.state, "Master RollSelection state table is not initialized"),
 		syncWinner = opts.syncWinner,
 		warnTooMany = opts.warnTooMany,
 	}
@@ -439,7 +442,7 @@ end
 
 local registry = feature.ModuleRegistry
 if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Master/RollUi", {
+	registry.AddModule("Services/Master/RollSelection", {
 		deps = {
 			"Init",
 			"Modules/ModuleRegistry",
@@ -447,5 +450,5 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Services/Master/RollRows",
 		},
 	})
-	registry.SetLoaded("Services/Master/RollUi")
+	registry.SetLoaded("Services/Master/RollSelection")
 end

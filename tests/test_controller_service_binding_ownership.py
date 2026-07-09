@@ -214,7 +214,7 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
 
         self.assertIn("local session = GetRollSession(Rolls)", master)
         self.assertIn("return GetDisplayModel(Rolls)", master)
-        self.assertIn("RollUiService.CreateController({", master)
+        self.assertIn("RollSelectionService.CreateController({", master)
         self.assertIn("BeginTieReroll(Rolls, resolution.tiedNames)", master)
         self.assertNotIn("Rolls and Rolls.GetRollSession", master)
         self.assertNotIn("Rolls and Rolls.GetDisplayModel", master)
@@ -238,7 +238,7 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
         self.assertIn("awardPlanner = LootAwardPlanner", master)
         self.assertIn("inventory = LootInventory", master)
         self.assertIn("lootState = lootState", master)
-        self.assertIn("rollUi = rollUiController", master)
+        self.assertIn("rollSelection = rollSelectionController", master)
         self.assertIn("awardExecutor = {", master)
         self.assertIn("Assign = function(_, itemLink, playerName, rollType, rollValue)", master)
         self.assertIn("itemCount = {", master)

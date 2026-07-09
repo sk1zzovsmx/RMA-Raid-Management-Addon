@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MASTER_SERVICES = ROOT / "Raid Management Addon" / "Services" / "Master"
 MASTER_SERVICE = MASTER_SERVICES / "Service.lua"
-MASTER_ROLL_UI = MASTER_SERVICES / "RollUi.lua"
+MASTER_ROLL_SELECTION = MASTER_SERVICES / "RollSelection.lua"
 MASTER_MULTI_AWARD = MASTER_SERVICES / "MultiAward.lua"
 MASTER_ASSIGNMENT = MASTER_SERVICES / "Assignment.lua"
 MASTER_MESSAGES = MASTER_SERVICES / "Messages.lua"
@@ -87,10 +87,10 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertIn("MasterService.ButtonState.ResolveAwardSelectionState(rollModel, isTieReroll)", controller)
         self.assertIn("MasterService.ButtonState.BuildState({", controller)
 
-    def test_master_controller_delegates_roll_ui_state_to_owner(self):
+    def test_master_controller_delegates_ROLL_SELECTION_state_to_owner(self):
         service = read_optional(MASTER_SERVICE)
         controller = read(MASTER_CONTROLLER)
-        roll_ui = read(MASTER_ROLL_UI)
+        ROLL_SELECTION = read(MASTER_ROLL_SELECTION)
         toc = read(MASTER_TOC)
 
         for method in (
@@ -102,32 +102,32 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
             self.assertNotIn("function Master." + method, service)
             self.assertNotIn("MasterService." + method, controller)
 
-        self.assertIn('local RollUiService = assert(MasterService.RollUi, "Master roll UI service is not initialized")', controller)
-        self.assertIn("RollUiService.CreateController({", controller)
+        self.assertIn('local RollSelectionService = assert(MasterService.RollSelection, "Master Roll Selection service is not initialized")', controller)
+        self.assertIn("RollSelectionService.CreateController({", controller)
         self.assertIn("rollRows = MasterService.RollRows", controller)
         self.assertIn("selection = UI.Selection", controller)
-        self.assertIn("rollUiController:BuildModel(forceRefresh)", controller)
-        self.assertIn("rollUiController:SelectWinnerRow(name)", controller)
-        self.assertIn("rollUiController:CopyVisibleRows(out)", controller)
-        self.assertIn("rollUiController:GetFocusedRowId()", controller)
-        self.assertIn("rollUiController:GetVisibleRows()", controller)
+        self.assertIn("rollSelectionController:BuildModel(forceRefresh)", controller)
+        self.assertIn("rollSelectionController:SelectWinnerRow(name)", controller)
+        self.assertIn("rollSelectionController:CopyVisibleRows(out)", controller)
+        self.assertIn("rollSelectionController:GetFocusedRowId()", controller)
+        self.assertIn("rollSelectionController:GetVisibleRows()", controller)
         self.assertNotIn("ROLL_WINNERS_CTX", controller)
         self.assertNotIn("ROLL_SELECTION_MODE", controller)
         self.assertNotIn("local function getSelectedRollWinnersOrdered", controller)
         self.assertNotIn("UI.Selection.GetCount", controller)
 
-        self.assertIn("RollUi.ContextKey = ROLL_WINNERS_CTX", roll_ui)
-        self.assertIn("RollUi.Mode = MODE", roll_ui)
-        self.assertIn("function RollUi.CreateController(opts)", roll_ui)
-        self.assertIn("selection.GetCount(ROLL_WINNERS_CTX)", roll_ui)
-        self.assertIn("selection.Toggle(ROLL_WINNERS_CTX", roll_ui)
-        self.assertIn("selection.SetAnchor(ROLL_WINNERS_CTX", roll_ui)
-        self.assertIn("controller.rollRows.BuildSelectionState({", roll_ui)
-        self.assertIn("self.rollRows.BuildModel({", roll_ui)
-        self.assertIn("self.rollRows.BuildListRow(source, i)", roll_ui)
+        self.assertIn("RollSelection.ContextKey = ROLL_WINNERS_CTX", ROLL_SELECTION)
+        self.assertIn("RollSelection.Mode = MODE", ROLL_SELECTION)
+        self.assertIn("function RollSelection.CreateController(opts)", ROLL_SELECTION)
+        self.assertIn("selection.GetCount(ROLL_WINNERS_CTX)", ROLL_SELECTION)
+        self.assertIn("selection.Toggle(ROLL_WINNERS_CTX", ROLL_SELECTION)
+        self.assertIn("selection.SetAnchor(ROLL_WINNERS_CTX", ROLL_SELECTION)
+        self.assertIn("controller.rollRows.BuildSelectionState({", ROLL_SELECTION)
+        self.assertIn("self.rollRows.BuildModel({", ROLL_SELECTION)
+        self.assertIn("self.rollRows.BuildListRow(source, i)", ROLL_SELECTION)
 
-        self.assertLess(toc.index("Services\\Master\\RollRows.lua"), toc.index("Services\\Master\\RollUi.lua"))
-        self.assertLess(toc.index("Services\\Master\\RollUi.lua"), toc.index("Controllers\\Master.lua"))
+        self.assertLess(toc.index("Services\\Master\\RollRows.lua"), toc.index("Services\\Master\\RollSelection.lua"))
+        self.assertLess(toc.index("Services\\Master\\RollSelection.lua"), toc.index("Controllers\\Master.lua"))
 
     def test_master_controller_delegates_multi_award_flow_to_owner(self):
         service = read_optional(MASTER_SERVICE)
@@ -177,7 +177,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertNotIn("Diag = assert(opts.Diag", multi_award)
         self.assertNotIn("resetTradeState = opts.resetTradeState", multi_award)
 
-        self.assertLess(toc.index("Services\\Master\\RollUi.lua"), toc.index("Services\\Master\\MultiAward.lua"))
+        self.assertLess(toc.index("Services\\Master\\RollSelection.lua"), toc.index("Services\\Master\\MultiAward.lua"))
         self.assertLess(toc.index("Services\\Master\\MultiAward.lua"), toc.index("Services\\Master\\Assignment.lua"))
         self.assertLess(toc.index("Services\\Master\\MultiAward.lua"), toc.index("Controllers\\Master.lua"))
 
@@ -484,7 +484,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
             "Services/Master/FlowState",
             "Services/Master/ButtonState",
             "Services/Master/RollRows",
-            "Services/Master/RollUi",
+            "Services/Master/RollSelection",
             "Services/Master/MultiAward",
             "Services/Master/Assignment",
             "Services/Debug",

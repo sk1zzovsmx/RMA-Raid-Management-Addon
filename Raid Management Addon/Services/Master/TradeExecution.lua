@@ -67,14 +67,14 @@ local function advanceInventoryWinnerSelection(controller, completedWinner)
 		return
 	end
 
-	local selectedCount = controller.rollUi:GetSelectedCount()
+	local selectedCount = controller.rollSelection:GetSelectedCount()
 	if selectedCount <= 0 then
 		controller.lootState.winner = nil
 		return
 	end
 
-	controller.rollUi:DeselectWinner(completedWinner)
-	local rollModel = controller.buildRollUiModel()
+	controller.rollSelection:DeselectWinner(completedWinner)
+	local rollModel = controller.buildRollSelectionModel()
 	controller.lootState.winner = rollModel and rollModel.winner or nil
 end
 
@@ -157,7 +157,7 @@ function TradeExecution.CreateController(opts)
 		trade = assert(opts.trade, "Master trade execution trade owner is not initialized"),
 		inventory = assert(opts.inventory, "Master trade execution inventory owner is not initialized"),
 		awardPlanner = assert(opts.awardPlanner, "Master trade execution award planner is not initialized"),
-		rollUi = assert(opts.rollUi, "Master trade execution roll UI owner is not initialized"),
+		rollSelection = assert(opts.rollSelection, "Master trade execution roll selection owner is not initialized"),
 		raid = assert(opts.raid, "Master trade execution raid service is not initialized"),
 		loot = assert(opts.loot, "Master trade execution loot service is not initialized"),
 		rolls = assert(opts.rolls, "Master trade execution rolls service is not initialized"),
@@ -189,8 +189,8 @@ function TradeExecution.CreateController(opts)
 			),
 		},
 		getOption = assert(opts.getOption, "Master trade execution option getter is not initialized"),
-		buildRollUiModel = assert(
-			opts.buildRollUiModel,
+		buildRollSelectionModel = assert(
+			opts.buildRollSelectionModel,
 			"Master trade execution roll-model builder is not initialized"
 		),
 		buildLootRollSessionOptions = assert(
@@ -240,13 +240,13 @@ function TradeExecution.CreateController(opts)
 			return nil
 		end
 
-		local winnerModel = self.buildRollUiModel and self.buildRollUiModel() or nil
+		local winnerModel = self.buildRollSelectionModel and self.buildRollSelectionModel() or nil
 		local winner = playerName or self.rolls:GetResolvedWinner(winnerModel)
 		local multiInventoryAward = self.lootState.fromInventory
 			and ((tonumber(self.lootState.selectedItemCount) or 1) > 1)
 		if multiInventoryAward then
-			local rollModel = self.buildRollUiModel(true)
-			local picked = self.rollUi:GetSelectedWinnersOrdered(rollModel and rollModel.rows or nil)
+			local rollModel = self.buildRollSelectionModel(true)
+			local picked = self.rollSelection:GetSelectedWinnersOrdered(rollModel and rollModel.rows or nil)
 			if type(picked) == "table" and picked[1] and picked[1].name then
 				winner = picked[1].name
 			end
@@ -355,8 +355,8 @@ function TradeExecution.CreateController(opts)
 		local selectedWinners
 		local fallbackRolls
 		if isAwardRoll and (tonumber(self.lootState.selectedItemCount) or 1) > 1 then
-			local rollModel = self.buildRollUiModel(true)
-			selectedWinners = self.rollUi:GetSelectedWinnersOrdered(rollModel and rollModel.rows or nil)
+			local rollModel = self.buildRollSelectionModel(true)
+			selectedWinners = self.rollSelection:GetSelectedWinnersOrdered(rollModel and rollModel.rows or nil)
 			fallbackRolls = self.rolls:GetRolls()
 		end
 

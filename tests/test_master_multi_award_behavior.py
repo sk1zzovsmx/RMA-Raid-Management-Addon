@@ -78,7 +78,7 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
                     end,
                 }},
                 lootState = {{ currentRollType = 1 }},
-                rollUi = {{
+                rollSelection = {{
                     GetSelectedCount = function()
                         return 2
                     end,
@@ -226,7 +226,7 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
                     end,
                 }},
                 lootState = lootState,
-                rollUi = {{
+                rollSelection = {{
                     GetSelectedCount = function()
                         return 0
                     end,
@@ -373,7 +373,7 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
                     end,
                 }},
                 lootState = lootState,
-                rollUi = {{
+                rollSelection = {{
                     GetSelectedCount = function()
                         return 0
                     end,
@@ -484,7 +484,7 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
                     end,
                 }},
                 lootState = lootState,
-                rollUi = {{
+                rollSelection = {{
                     GetSelectedCount = function()
                         return 0
                     end,
@@ -638,7 +638,7 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
                     end,
                 }},
                 lootState = lootState,
-                rollUi = {{
+                rollSelection = {{
                     GetSelectedCount = function()
                         return 0
                     end,
@@ -797,7 +797,7 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
                     end,
                 }},
                 lootState = lootState,
-                rollUi = {{
+                rollSelection = {{
                     GetSelectedCount = function()
                         return 0
                     end,

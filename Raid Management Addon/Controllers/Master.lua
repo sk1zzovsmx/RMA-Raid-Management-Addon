@@ -47,7 +47,7 @@ local Raid = assert(Services.Raid, "Master raid service is not initialized")
 local Rolls = assert(Services.Rolls, "Master rolls service is not initialized")
 local Chat = assert(Services.Chat, "Master chat service is not initialized")
 local MasterService = assert(Services.Master, "Master service namespace is not initialized")
-local RollUiService = assert(MasterService.RollUi, "Master roll UI service is not initialized")
+local RollSelectionService = assert(MasterService.RollSelection, "Master Roll Selection service is not initialized")
 local MultiAwardService = assert(MasterService.MultiAward, "Master multi-award service is not initialized")
 local AssignmentService = assert(MasterService.Assignment, "Master assignment service is not initialized")
 local DebugService = assert(Services.Debug, "Debug service is not initialized")
@@ -247,9 +247,9 @@ do
 	module._cachedRosterVersion = nil
 	local ROLL_WINNER_PREFIX = "RMA-RollWinner"
 	Comms.RegisterPrefixIfAvailable(ROLL_WINNER_PREFIX)
-	module._rollUiState = module._rollUiState
+	module._rollSelectionState = module._rollSelectionState
 		or {
-			mode = RollUiService.Mode.AUTO,
+			mode = RollSelectionService.Mode.AUTO,
 			sessionKey = nil,
 			showRollsOnly = true,
 			model = nil,
@@ -901,8 +901,8 @@ do
 		return session and tostring(session.id) or nil
 	end
 
-	local buildRollUiModel, selectRollWinnerRow
-	local rollUiController = RollUiService.CreateController({
+	local buildRollSelectionModel, selectRollWinnerRow
+	local rollSelectionController = RollSelectionService.CreateController({
 		getDisplayModel = function()
 			return GetDisplayModel(Rolls)
 		end,
@@ -918,7 +918,7 @@ do
 		end,
 		rollRows = MasterService.RollRows,
 		selection = UI.Selection,
-		state = module._rollUiState,
+		state = module._rollSelectionState,
 		syncWinner = function(name)
 			Comms.Sync(ROLL_WINNER_PREFIX, name)
 		end,
@@ -930,8 +930,8 @@ do
 	local tradeExecutionController
 	local itemSelectionController
 
-	local function invalidateRollUiModel()
-		return rollUiController:Invalidate()
+	local function invalidateRollSelectionModel()
+		return rollSelectionController:Invalidate()
 	end
 
 	-- ============================================================================
@@ -1178,20 +1178,20 @@ do
 		return nil
 	end
 
-	buildRollUiModel = function(forceRefresh)
-		return rollUiController:BuildModel(forceRefresh)
+	buildRollSelectionModel = function(forceRefresh)
+		return rollSelectionController:BuildModel(forceRefresh)
 	end
 
 	selectRollWinnerRow = function(name)
-		return rollUiController:SelectWinnerRow(name)
+		return rollSelectionController:SelectWinnerRow(name)
 	end
 
 	local function copyVisibleRollRows(out)
-		return rollUiController:CopyVisibleRows(out)
+		return rollSelectionController:CopyVisibleRows(out)
 	end
 
 	local function getFocusedRollRowId()
-		return rollUiController:GetFocusedRowId()
+		return rollSelectionController:GetFocusedRowId()
 	end
 
 	local function onRollRowClick(self)
@@ -1205,7 +1205,7 @@ do
 	end
 
 	Private.RenderRollRowsFallback = function(frameName)
-		local visibleRows = rollUiController:GetVisibleRows()
+		local visibleRows = rollSelectionController:GetVisibleRows()
 		if type(visibleRows) ~= "table" or #visibleRows <= 0 or type(frameName) ~= "string" or frameName == "" then
 			return false
 		end
@@ -1711,13 +1711,13 @@ do
 	-- Multi-award helpers
 	-- ============================================================================
 	local function validateInventoryTradeUiSelection(target)
-		local selCount = rollUiController:GetSelectedCount()
+		local selCount = rollSelectionController:GetSelectedCount()
 		local rollModel
 		local picked
 
 		if selCount > 0 then
-			rollModel = buildRollUiModel(true)
-			picked = rollUiController:GetSelectedWinnersOrdered(rollModel and rollModel.rows or nil)
+			rollModel = buildRollSelectionModel(true)
+			picked = rollSelectionController:GetSelectedWinnersOrdered(rollModel and rollModel.rows or nil)
 		end
 
 		local plan = LootAwardPlanner.ValidateInventoryTradeSelection({
@@ -1741,7 +1741,7 @@ do
 	-- Award request / trade-state helpers
 	-- ============================================================================
 	local function handleAwardRequest()
-		local model = buildRollUiModel(true) or {}
+		local model = buildRollSelectionModel(true) or {}
 		local resolution = model.resolution or {}
 		local requiredWinnerCount = tonumber(model.requiredWinnerCount) or 1
 		local winnerName = model.winner or lootState.winner
@@ -1772,7 +1772,7 @@ do
 				return false
 			end
 			module._announced = false
-			rollUiController:ResetSelection(RollUiService.Mode.AUTO)
+			rollSelectionController:ResetSelection(RollSelectionService.Mode.AUTO)
 			Announce(Chat, L.ChatTieReroll:format(tconcat(rerollNames or {}, ", "), Loot.GetItemLink() or ""))
 			Loot:SetDistributionState("tie_start", {
 				itemLink = Loot.GetItemLink(),
@@ -1936,7 +1936,7 @@ do
 		awardPlanner = LootAwardPlanner,
 		inventory = LootInventory,
 		lootState = lootState,
-		rollUi = rollUiController,
+		rollSelection = rollSelectionController,
 		scheduleTimer = function(callback, delay)
 			return module:ScheduleTimer(callback, delay)
 		end,
@@ -1979,7 +1979,7 @@ do
 		trade = MasterService.Trade,
 		inventory = LootInventory,
 		awardPlanner = LootAwardPlanner,
-		rollUi = rollUiController,
+		rollSelection = rollSelectionController,
 		raid = Raid,
 		loot = Loot,
 		rolls = Rolls,
@@ -1990,7 +1990,7 @@ do
 		itemInfo = itemInfo,
 		wow = TradeExecutionWow,
 		getOption = GetOption,
-		buildRollUiModel = buildRollUiModel,
+		buildRollSelectionModel = buildRollSelectionModel,
 		buildLootRollSessionOptions = buildLootRollSessionOptions,
 		resetTradeState = resetTradeState,
 		hideTradeDropdowns = function()
@@ -2689,8 +2689,8 @@ do
 			module._dirtyFlags.buttons = true
 		end
 
-		invalidateRollUiModel()
-		local rollModel = buildRollUiModel() or {}
+		invalidateRollSelectionModel()
+		local rollModel = buildRollSelectionModel() or {}
 		updateRollListRefreshToken(rollModel)
 
 		local displayedWinner = getCurrentTradeWinner() or getCurrentMultiAwardWinner()
@@ -3469,7 +3469,7 @@ do
 	end)
 
 	RegisterCallback(MasterEvents.SpecInspectUpdated, function()
-		invalidateRollUiModel()
+		invalidateRollSelectionModel()
 		module._dirtyFlags.rolls = true
 		module:RequestRefresh()
 	end)
@@ -3508,7 +3508,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Services/Master/FlowState",
 			"Services/Master/ButtonState",
 			"Services/Master/RollRows",
-			"Services/Master/RollUi",
+			"Services/Master/RollSelection",
 			"Services/Master/MultiAward",
 			"Services/Master/Assignment",
 			"Services/Debug",

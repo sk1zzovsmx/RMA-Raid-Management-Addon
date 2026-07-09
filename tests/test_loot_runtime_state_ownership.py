@@ -267,10 +267,13 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
 
         self.assertNotIn("local function getResolvedRollWinnerName", master_controller)
         self.assertNotIn("getResolvedRollWinnerName()", master_controller)
-        self.assertNotIn("local winnerModel = buildRollUiModel and buildRollUiModel() or nil", master_controller)
+        self.assertNotIn("local winnerModel = buildRollSelectionModel and buildRollSelectionModel() or nil", master_controller)
         self.assertNotIn("local winner = playerName or Rolls:GetResolvedWinner(winnerModel)", master_controller)
         self.assertIn("function controller:ResolveWinner(playerName, isAwardRoll)", trade_execution)
-        self.assertIn("local winnerModel = self.buildRollUiModel and self.buildRollUiModel() or nil", trade_execution)
+        self.assertIn(
+            "local winnerModel = self.buildRollSelectionModel and self.buildRollSelectionModel() or nil",
+            trade_execution,
+        )
         self.assertIn("local winner = playerName or self.rolls:GetResolvedWinner(winnerModel)", trade_execution)
 
     def test_master_controller_inlines_displayed_winner_without_private_pass_through(self):

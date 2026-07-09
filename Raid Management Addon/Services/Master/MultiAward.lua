@@ -23,18 +23,18 @@ local tconcat = table.concat
 local type = type
 
 local function getSelectedWinners(controller)
-	local selectedCount = controller.rollUi:GetSelectedCount()
+	local selectedCount = controller.rollSelection:GetSelectedCount()
 	if selectedCount <= 0 then
 		return selectedCount, nil
 	end
 
-	local rollModel = controller.rollUi:BuildModel(true)
-	local picked = controller.rollUi:GetSelectedWinnersOrdered(rollModel and rollModel.rows or nil)
+	local rollModel = controller.rollSelection:BuildModel(true)
+	local picked = controller.rollSelection:GetSelectedWinnersOrdered(rollModel and rollModel.rows or nil)
 	return selectedCount, picked
 end
 
 local function findWinnerRoll(controller, winnerName)
-	local model = controller.rollUi:BuildModel(true)
+	local model = controller.rollSelection:BuildModel(true)
 	local rows = model and model.rows or nil
 	if type(rows) ~= "table" then
 		return 0
@@ -150,7 +150,7 @@ function MultiAward.CreateController(opts)
 		awardPlanner = assert(opts.awardPlanner, "Master MultiAward award planner is not initialized"),
 		inventory = assert(opts.inventory, "Master MultiAward inventory owner is not initialized"),
 		lootState = assert(opts.lootState, "Master MultiAward loot state is not initialized"),
-		rollUi = assert(opts.rollUi, "Master MultiAward roll UI owner is not initialized"),
+		rollSelection = assert(opts.rollSelection, "Master MultiAward roll selection owner is not initialized"),
 		scheduleTimer = assert(opts.scheduleTimer, "Master MultiAward timer scheduler is not initialized"),
 		cancelTimer = assert(opts.cancelTimer, "Master MultiAward timer canceller is not initialized"),
 		announce = opts.announce,
@@ -189,7 +189,7 @@ function MultiAward.CreateController(opts)
 			pickedWinners = picked,
 		})
 		if plan and plan.clearSelection then
-			self.rollUi:ClearAnchor()
+			self.rollSelection:ClearAnchor()
 		end
 		if plan and plan.errType then
 			return nil, plan.errType, plan.wantedCount, plan.pickedCount
@@ -419,7 +419,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Services/Loot/Service",
 			"Services/Loot/AwardPlanner",
 			"Services/Loot/Inventory",
-			"Services/Master/RollUi",
+			"Services/Master/RollSelection",
 		},
 	})
 	registry.SetLoaded("Services/Master/MultiAward")

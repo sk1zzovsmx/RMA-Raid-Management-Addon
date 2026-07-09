@@ -111,7 +111,7 @@ Services\Loot\Service.lua
 Services\Master\FlowState.lua
 Services\Master\ButtonState.lua
 Services\Master\RollRows.lua
-Services\Master\RollUi.lua
+Services\Master\RollSelection.lua
 Services\Master\MultiAward.lua
 Services\Master\Assignment.lua
 Services\Master\Messages.lua
