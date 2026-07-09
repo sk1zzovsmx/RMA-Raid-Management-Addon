@@ -55,11 +55,21 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
     def test_master_controller_uses_flow_state_owner_without_service_passthrough(self):
         service = read_optional(MASTER_SERVICE)
         controller = read(MASTER_CONTROLLER)
+        flow_state = read(MASTER_SERVICES / "FlowState.lua")
+        toc = read(MASTER_TOC)
 
         self.assertNotIn("function Master.BuildWorkflowState", service)
         self.assertNotIn('"Services/Master/FlowState"', service)
         self.assertNotIn("MasterService.BuildWorkflowState", controller)
         self.assertIn("MasterService.FlowState.BuildState({", controller)
+        self.assertFalse((MASTER_SERVICES / "SoftRes.lua").exists())
+        self.assertFalse((MASTER_SERVICES / "SessionWinners.lua").exists())
+        self.assertNotIn("Services\\Master\\SoftRes.lua", toc)
+        self.assertNotIn("Services\\Master\\SessionWinners.lua", toc)
+        self.assertIn("local function buildSoftResSummaryText(opts, rollModel)", flow_state)
+        self.assertIn("local function buildSessionWinnersModel(model)", flow_state)
+        self.assertIn("sessionWinners = buildSessionWinnersModel(rollModel)", flow_state)
+        self.assertIn("local srSummaryText = buildSoftResSummaryText(opts, rollModel)", flow_state)
 
     def test_master_controller_uses_button_state_owner_without_service_passthroughs(self):
         service = read_optional(MASTER_SERVICE)

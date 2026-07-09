@@ -108,8 +108,6 @@ Services\Rolls\Resolution.lua
 Services\Rolls\Display.lua
 Services\Rolls\Service.lua
 Services\Loot\Service.lua
-Services\Master\SoftRes.lua
-Services\Master\SessionWinners.lua
 Services\Master\FlowState.lua
 Services\Master\ButtonState.lua
 Services\Master\RollRows.lua

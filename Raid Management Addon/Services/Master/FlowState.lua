@@ -3,7 +3,7 @@
 -- shared: local feature = addon.Database.GetFeatureShared()
 -- exports: addon.Services.Master.FlowState
 -- events: none
--- notes: pure Master workflow state models
+-- notes: pure Master workflow, SoftRes summary, and session winner state models
 local addon = select(2, ...)
 local feature = addon.Database.GetFeatureShared()
 
@@ -12,10 +12,9 @@ local Master = feature.EnsureServiceNamespace("Master")
 local FlowState = Master.FlowState or {}
 Master.FlowState = FlowState
 
-local SoftRes = Master.SoftRes
-local SessionWinners = Master.SessionWinners
 local L = feature.L
 
+local tconcat = table.concat
 local type = type
 local tonumber = tonumber
 
@@ -51,6 +50,91 @@ local function getAutoLootSuggestionLabel(suggestion)
 	return nil
 end
 
+local function buildSoftResSummaryText(opts, rollModel)
+	opts = opts or {}
+	local srSummaryText = rollModel and rollModel.srSummaryText
+	if srSummaryText and srSummaryText ~= "" then
+		return srSummaryText
+	end
+
+	local reserveContext = (rollModel and rollModel.srContext) or opts.reserveContext
+	if type(reserveContext) ~= "table" then
+		return nil
+	end
+
+	local eligible = tonumber(reserveContext.eligibleReserveCount or reserveContext.presentReserveCount) or 0
+	local total = tonumber(reserveContext.totalReserveCount) or 0
+	local missing = tonumber(reserveContext.missingReserveCount)
+	if not missing then
+		missing = total - eligible
+	end
+	if missing < 0 then
+		missing = 0
+	end
+
+	if eligible > 0 and missing > 0 then
+		return L.StrRollSrSummaryPresentMissing:format(eligible, missing)
+	end
+	if eligible > 0 then
+		return L.StrRollSrSummaryPresent:format(eligible)
+	end
+	if total > 0 or reserveContext.hasReserves == true then
+		return L.StrRollSrSummaryNoPresent
+	end
+	if rollModel and rollModel.isSR == true then
+		return L.StrRollSrSummaryFallback
+	end
+	return nil
+end
+
+local function buildSessionWinnersModel(model)
+	local resolution = model and model.resolution or {}
+	local autoWinners = resolution.autoWinners or {}
+	local tiedNames = resolution.tiedNames or {}
+	local rows = {}
+	local autoNames = {}
+	local tieNames = {}
+	local included = {}
+
+	for i = 1, #autoWinners do
+		local winner = autoWinners[i]
+		if winner and winner.name and winner.name ~= "" then
+			rows[#rows + 1] = {
+				name = winner.name,
+				roll = winner.roll,
+				state = "auto",
+			}
+			autoNames[#autoNames + 1] = winner.name
+			included[winner.name] = true
+		end
+	end
+
+	for i = 1, #tiedNames do
+		local name = tiedNames[i]
+		if name and name ~= "" and not included[name] then
+			rows[#rows + 1] = {
+				name = name,
+				state = "tied",
+			}
+			tieNames[#tieNames + 1] = name
+			included[name] = true
+		end
+	end
+
+	local parts = {}
+	if #autoNames > 0 then
+		parts[#parts + 1] = L.StrMasterSessionWinnerSummary:format(tconcat(autoNames, ", "))
+	end
+	if #tieNames > 0 then
+		parts[#parts + 1] = L.StrMasterSessionTieSummary:format(tconcat(tieNames, ", "))
+	end
+
+	return {
+		rows = rows,
+		summaryText = tconcat(parts, "; "),
+	}
+end
+
 -- ----- Public methods ----- --
 
 function FlowState.BuildState(opts)
@@ -74,11 +158,11 @@ function FlowState.BuildState(opts)
 	local countdownRunning = opts.countdownRunning == true
 	local lootCount = tonumber(lootState.lootCount) or 0
 	local rollsCount = tonumber(lootState.rollsCount) or 0
-	local srSummaryText = SoftRes.BuildSummaryText(opts, rollModel)
+	local srSummaryText = buildSoftResSummaryText(opts, rollModel)
 	local state = {
 		name = "ready",
 		statusText = L.StrMasterStatusReady,
-		sessionWinners = SessionWinners.BuildModel(rollModel),
+		sessionWinners = buildSessionWinnersModel(rollModel),
 	}
 
 	if requiredWinnerCount < 1 then
@@ -255,8 +339,6 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 		deps = {
 			"Init",
 			"Modules/ModuleRegistry",
-			"Services/Master/SoftRes",
-			"Services/Master/SessionWinners",
 		},
 	})
 	registry.SetLoaded("Services/Master/FlowState")
