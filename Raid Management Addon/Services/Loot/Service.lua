@@ -78,9 +78,7 @@ do
 	local PassiveGroupLoot = assert(module._PassiveGroupLoot, "Loot passive group-loot helpers are not initialized")
 	local Tracking = assert(module._Tracking, "Loot tracking helpers are not initialized")
 	local Workflow = assert(module._Workflow, "Loot workflow helpers are not initialized")
-	local Receipts = assert(module._Receipts, "Loot receipt helpers are not initialized")
-	local Records = assert(module._Records, "Loot record helpers are not initialized")
-	local Reconcile = assert(module._Reconcile, "Loot reconcile helpers are not initialized")
+	local Recording = assert(module._Recording, "Loot recording helpers are not initialized")
 	local Rules = assert(module._Rules, "Loot rules helpers are not initialized")
 	local AwardPlanner = assert(module._AwardPlanner, "Loot award planner helpers are not initialized")
 	local Inventory = assert(module._Inventory, "Loot inventory helpers are not initialized")
@@ -844,7 +842,7 @@ do
 		bossNid,
 		lootSource
 	)
-		return Records.Build(raid, {
+		return Recording.Build(raid, {
 			itemId = itemId,
 			itemName = itemName,
 			itemString = itemString,
@@ -866,7 +864,7 @@ do
 			return nil, 0
 		end
 		options = options or {}
-		local appended, lootNid, index = Records.Append(raid, lootInfo)
+		local appended, lootNid, index = Recording.Append(raid, lootInfo)
 		if not appended then
 			return nil, 0
 		end
@@ -947,7 +945,7 @@ do
 		if not itemLink then
 			Workflow.RecordReceipt(
 				workflowContext,
-				Receipts.FromParsedLoot({
+				Recording.FromParsedLoot({
 					msg = msg,
 				})
 			)
@@ -979,7 +977,7 @@ do
 		local rollOutcome
 		rollType, rollValue, rollSessionId, rollOutcome =
 			resolveLootRollOutcome(itemLink, itemString, itemId, player, rollType, rollValue, parsedGroupLoot)
-		local receipt = Receipts.FromParsedLoot({
+		local receipt = Recording.FromParsedLoot({
 			msg = msg,
 			playerName = player,
 			itemLink = itemLink,
@@ -997,7 +995,7 @@ do
 			parsedGroupLoot = parsedGroupLoot,
 		})
 		Workflow.RecordReceipt(workflowContext, receipt)
-		if not Receipts.ShouldCreateRecord(receipt) then
+		if not Recording.ShouldCreateRecord(receipt) then
 			return
 		end
 
@@ -1007,7 +1005,7 @@ do
 		end
 
 		if
-			Reconcile.ShouldSkipPassiveDuplicate({
+			Recording.ShouldSkipPassiveDuplicate({
 				PassiveGroupLoot = PassiveGroupLoot,
 				passiveGroupLoot = passiveGroupLoot,
 				rollOutcome = rollOutcome,
@@ -1072,7 +1070,7 @@ do
 			raidService:AddPlayerCountForRollType(player, rollType, itemCount, currentRaidId)
 		end
 
-		Reconcile.MarkPassiveLogged({
+		Recording.MarkPassiveLogged({
 			PassiveGroupLoot = PassiveGroupLoot,
 			passiveGroupLoot = passiveGroupLoot,
 			isPassiveWinnerMessage = isPassiveWinnerMessage,
@@ -1169,9 +1167,9 @@ do
 			lootSource = lootSource,
 		}
 
-		local existing, existingIndex = Reconcile.FindTradeOnlyFallback(raid, lootInfo)
+		local existing, existingIndex = Recording.FindTradeOnlyFallback(raid, lootInfo)
 		if existing then
-			Reconcile.MergeTradeOnlyFallback(existing, lootInfo)
+			Recording.MergeTradeOnlyFallback(existing, lootInfo)
 			local existingLootNid = tonumber(existing.lootNid) or 0
 			indexAppendedLootRuntime(raid, existing, existingIndex)
 			bindLootNidToRollSession(
@@ -1578,9 +1576,7 @@ if registry and type(registry.AddModule) == "function" and type(registry.SetLoad
 			"Services/Loot/PassiveGroupLoot",
 			"Services/Loot/Tracking",
 			"Services/Loot/Workflow",
-			"Services/Loot/Receipts",
-			"Services/Loot/Records",
-			"Services/Loot/Reconcile",
+			"Services/Loot/Recording",
 			"Services/Loot/Rules",
 		},
 	})

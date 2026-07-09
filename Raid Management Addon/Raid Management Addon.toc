@@ -82,9 +82,7 @@ Services\Raid\Capabilities.lua
 Services\Loot\PassiveGroupLoot.lua
 Services\Loot\Tracking.lua
 Services\Loot\Workflow.lua
-Services\Loot\Receipts.lua
-Services\Loot\Records.lua
-Services\Loot\Reconcile.lua
+Services\Loot\Recording.lua
 Services\Loot\Rules.lua
 Services\Loot\DistributionSession.lua
 Services\Loot\AwardPlanner.lua

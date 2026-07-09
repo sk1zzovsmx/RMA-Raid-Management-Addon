@@ -49,16 +49,14 @@ CONFIG_WIDGET = ADDON / "Widgets" / "Config.lua"
 LOOT_SERVICE = ADDON / "Services" / "Loot" / "Service.lua"
 LOOT_INVENTORY = ADDON / "Services" / "Loot" / "Inventory.lua"
 LOOT_CONTEXT = ADDON / "Services" / "Loot" / "Context.lua"
-LOOT_RECEIPTS = ADDON / "Services" / "Loot" / "Receipts.lua"
+LOOT_RECORDING = ADDON / "Services" / "Loot" / "Recording.lua"
 LOOT_DISTRIBUTION_SESSION = ADDON / "Services" / "Loot" / "DistributionSession.lua"
 LOOT_PENDING_AWARDS = ADDON / "Services" / "Loot" / "PendingAwards.lua"
 LOOT_PASSIVE_GROUP_LOOT = ADDON / "Services" / "Loot" / "PassiveGroupLoot.lua"
-LOOT_RECONCILE = ADDON / "Services" / "Loot" / "Reconcile.lua"
 LOOT_RULES = ADDON / "Services" / "Loot" / "Rules.lua"
 LOOT_SNAPSHOTS = ADDON / "Services" / "Loot" / "Snapshots.lua"
 LOOT_STATE = ADDON / "Services" / "Loot" / "State.lua"
 LOOT_TRACKING = ADDON / "Services" / "Loot" / "Tracking.lua"
-LOOT_RECORDS = ADDON / "Services" / "Loot" / "Records.lua"
 LOOT_SOURCE_CANDIDATES = ADDON / "Modules" / "LootSourceCandidates.lua"
 LOOT_SOURCES = ADDON / "Modules" / "LootSources.lua"
 RAID_LOOT_METHOD = ADDON / "Services" / "Raid" / "LootMethod.lua"
@@ -1726,13 +1724,15 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertNotIn('rawget(_G, "GetLootMethod")', tracking)
         self.assertNotIn('type(getLootMethod) == "function"', tracking)
 
-    def test_loot_receipts_depends_on_item_without_local_key_fallback(self):
-        loot_receipts = read(LOOT_RECEIPTS)
+    def test_loot_recording_receipts_depend_on_item_without_local_key_fallback(self):
+        recording = read(LOOT_RECORDING)
 
-        self.assertIn('"Modules/Item"', loot_receipts)
-        self.assertIn('assert(Item.GetItemKey, "Loot receipt item-key resolver is not initialized")', loot_receipts)
+        self.assertIn('"Modules/Item"', recording)
+        self.assertIn('assert(Item.GetItemKey, "Loot recording item-key resolver is not initialized")', recording)
+        self.assertIn("function Recording.FromParsedLoot(args)", recording)
+        self.assertIn("function Recording.ShouldCreateRecord(receipt)", recording)
         self.assertNotRegex(
-            loot_receipts,
+            recording,
             r"local\s+resolveItemKey\s*=\s*Item\.GetItemKey\s+or\s+function",
         )
 
@@ -1774,15 +1774,17 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertNotIn('or "player"', distribution)
         self.assertNotIn("now or 0", distribution)
 
-    def test_loot_records_depend_on_time_owner_without_zero_timestamp_fallback(self):
-        records = read(LOOT_RECORDS)
+    def test_loot_recording_records_depend_on_time_owner_without_zero_timestamp_fallback(self):
+        recording = read(LOOT_RECORDING)
 
-        self.assertIn("local GetCurrentTime = assert(", records)
-        self.assertIn("Time.GetCurrentTime", records)
-        self.assertIn('"Loot records time provider is not initialized"', records)
-        self.assertIn('"Loot record timestamp is not initialized"', records)
-        self.assertNotIn("Time and Time.GetCurrentTime and Time.GetCurrentTime()", records)
-        self.assertNotIn("time = tonumber(args.time) or", records)
+        self.assertIn("local GetCurrentTime = assert(", recording)
+        self.assertIn("Time.GetCurrentTime", recording)
+        self.assertIn('"Loot recording time provider is not initialized"', recording)
+        self.assertIn('"Loot record timestamp is not initialized"', recording)
+        self.assertIn("function Recording.Build(raid, args)", recording)
+        self.assertIn("function Recording.Append(raid, args)", recording)
+        self.assertNotIn("Time and Time.GetCurrentTime and Time.GetCurrentTime()", recording)
+        self.assertNotIn("time = tonumber(args.time) or", recording)
 
     def test_raid_store_create_raid_record_depends_on_time_owner_without_raw_time_fallback(self):
         store = read(DB_RAID_STORE)
@@ -1834,26 +1836,29 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertNotIn('type(core.EnsureRaidById) ~= "function"', loot_context)
         self.assertNotIn('type(core.EnsureRaidSchema) == "function"', loot_context)
 
-    def test_loot_reconcile_depends_on_strings_without_local_name_fallback(self):
-        reconcile = read(LOOT_RECONCILE)
+    def test_loot_recording_reconcile_depends_on_strings_without_local_name_fallback(self):
+        recording = read(LOOT_RECORDING)
 
-        self.assertIn('"Modules/Strings"', reconcile)
-        self.assertIn("local NormalizeName = assert(", reconcile)
-        self.assertIn("Strings.NormalizeName", reconcile)
-        self.assertIn('"Loot reconcile name normalizer is not initialized"', reconcile)
-        self.assertIn("return NormalizeName(name, true)", reconcile)
-        self.assertNotIn("Strings and Strings.NormalizeName", reconcile)
-        self.assertNotIn("return Strings.NormalizeName(name, true) or name", reconcile)
+        self.assertIn('"Modules/Strings"', recording)
+        self.assertIn("local NormalizeName = assert(", recording)
+        self.assertIn("Strings.NormalizeName", recording)
+        self.assertIn('"Loot recording name normalizer is not initialized"', recording)
+        self.assertIn("return NormalizeName(name, true)", recording)
+        self.assertIn("function Recording.FindTradeOnlyFallback(raid, args)", recording)
+        self.assertIn("function Recording.MergeTradeOnlyFallback(row, args)", recording)
+        self.assertNotIn("Strings and Strings.NormalizeName", recording)
+        self.assertNotIn("return Strings.NormalizeName(name, true) or name", recording)
 
-    def test_loot_reconcile_depends_on_item_without_local_key_fallback(self):
-        reconcile = read(LOOT_RECONCILE)
+    def test_loot_recording_reconcile_depends_on_item_without_local_key_fallback(self):
+        recording = read(LOOT_RECORDING)
 
-        self.assertIn('"Modules/Item"', reconcile)
-        self.assertIn("local GetItemStringFromLink = assert(", reconcile)
-        self.assertIn("Item.GetItemStringFromLink", reconcile)
-        self.assertIn('"Loot reconcile item-key resolver is not initialized"', reconcile)
-        self.assertIn("local key = GetItemStringFromLink(itemLink)", reconcile)
-        self.assertNotIn("Item and Item.GetItemStringFromLink", reconcile)
+        self.assertIn('"Modules/Item"', recording)
+        self.assertIn("local GetItemStringFromLink =", recording)
+        self.assertIn("assert(Item.GetItemStringFromLink", recording)
+        self.assertIn("Item.GetItemStringFromLink", recording)
+        self.assertIn('"Loot recording item-string resolver is not initialized"', recording)
+        self.assertIn("local key = GetItemStringFromLink(itemLink)", recording)
+        self.assertNotIn("Item and Item.GetItemStringFromLink", recording)
 
     def test_loot_snapshots_depends_on_item_without_active_consume_key_fallback(self):
         snapshots = read(LOOT_SNAPSHOTS)
@@ -2282,19 +2287,22 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertNotIn("and Database.GetRaidStoreOrNil", loot_service)
         self.assertNotIn("raidStore and raidStore.UpsertLootIndex", loot_service)
 
-    def test_loot_records_uses_declared_raid_store_owner_without_optional_getter_guard(self):
-        loot_records = read(LOOT_RECORDS)
+    def test_loot_recording_uses_declared_raid_store_owner_without_optional_getter_guard(self):
+        recording = read(LOOT_RECORDING)
 
-        self.assertIn('"Database/DBRaidStore"', loot_records)
+        self.assertIn('"Database/DBRaidStore"', recording)
         self.assertIn(
-            'local raidStore = Database.GetRaidStoreOrNil("Loot.Records.Append", { "MarkLootSyncRevision" })',
-            loot_records,
+            'local raidStore = Database.GetRaidStoreOrNil("Loot.Recording.Append", { "MarkLootSyncRevision" })',
+            recording,
         )
-        self.assertIn('if raidStore then', loot_records)
-        self.assertIn('raidStore:MarkLootSyncRevision(raid, row, "loot_row")', loot_records)
-        self.assertNotIn("Database\n\t\tand Database.GetRaidStoreOrNil", loot_records)
-        self.assertNotIn("and Database.GetRaidStoreOrNil", loot_records)
-        self.assertNotIn("raidStore and raidStore.MarkLootSyncRevision", loot_records)
+        self.assertFalse((ADDON / "Services" / "Loot" / "Receipts.lua").exists())
+        self.assertFalse((ADDON / "Services" / "Loot" / "Records.lua").exists())
+        self.assertFalse((ADDON / "Services" / "Loot" / "Reconcile.lua").exists())
+        self.assertIn('if raidStore then', recording)
+        self.assertIn('raidStore:MarkLootSyncRevision(raid, row, "loot_row")', recording)
+        self.assertNotIn("Database\n\t\tand Database.GetRaidStoreOrNil", recording)
+        self.assertNotIn("and Database.GetRaidStoreOrNil", recording)
+        self.assertNotIn("raidStore and raidStore.MarkLootSyncRevision", recording)
 
     def test_raid_state_depends_on_wotlk_unit_name_without_loot_context_fallback(self):
         raid_state = read(RAID_STATE)
