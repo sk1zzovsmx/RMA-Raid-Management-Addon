@@ -38,6 +38,7 @@ MASTER_CONTROLLER = ADDON / "Controllers" / "Master.lua"
 MASTER_TRADE = ADDON / "Services" / "Master" / "Trade.lua"
 MASTER_AWARD_COUNTER = ADDON / "Services" / "Master" / "AwardCounter.lua"
 LOGGER_CONTROLLER = ADDON / "Controllers" / "Logger.lua"
+ATTENDANCE_CONTROLLER = ADDON / "Controllers" / "Attendance.lua"
 LOGGER_ACTIONS = ADDON / "Services" / "Logger" / "Actions.lua"
 LOGGER_VIEW = ADDON / "Services" / "Logger" / "View.lua"
 LOGGER_EXPORT = ADDON / "Services" / "Logger" / "Export.lua"
@@ -854,6 +855,7 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
 
     def test_logger_controller_routes_bus_events_through_validated_contract(self):
         logger = read(LOGGER_CONTROLLER)
+        attendance = read(ATTENDANCE_CONTROLLER)
 
         self.assertIn("local InternalEvents = assert(Events.Internal", logger)
         self.assertIn("local TriggerEvent = assert(", logger)
@@ -871,19 +873,17 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
             "LoggerSelectPlayer",
             "LoggerSelectBossPlayer",
             "LoggerSelectItem",
-            "RaidRosterDelta",
             "LoggerLootLogRequest",
             "RaidLootUpdate",
-            "EquipInspectUpdated",
-            "EquipInspectCompleted",
-            "RaidAttendanceChanged",
         ):
             self.assertIn(f"{event_name} = assert(", logger)
 
         self.assertIn("TriggerEvent(eventName, target[key], ...)", logger)
         self.assertIn("TriggerEvent(refreshEvent or LoggerEvents.LoggerSelectRaid, module.selectedRaid)", logger)
         self.assertIn("RegisterCallback(LoggerEvents.LoggerLootLogRequest", logger)
-        self.assertIn("RegisterCallback(LoggerEvents.RaidAttendanceChanged", logger)
+        for event_name in ("RaidCreate", "EquipInspectUpdated", "EquipInspectCompleted", "RaidAttendanceChanged"):
+            self.assertIn(f"{event_name} = assert(", attendance)
+        self.assertIn("RegisterCallback(AttendanceEvents.RaidAttendanceChanged", attendance)
         self.assertNotIn("Bus.TriggerEvent(eventName, target[key], ...)", logger)
         self.assertNotIn("Bus.TriggerEvent(refreshEvent or InternalEvents.LoggerSelectRaid", logger)
         self.assertNotIn("Bus.RegisterCallback(InternalEvents.", logger)

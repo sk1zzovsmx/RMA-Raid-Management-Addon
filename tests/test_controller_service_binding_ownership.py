@@ -8,6 +8,7 @@ WARNINGS = ADDON / "Controllers" / "Warnings.lua"
 SPAMMER = ADDON / "Controllers" / "Spammer.lua"
 MASTER = ADDON / "Controllers" / "Master.lua"
 LOGGER = ADDON / "Controllers" / "Logger.lua"
+ATTENDANCE = ADDON / "Controllers" / "Attendance.lua"
 MASTER_AWARD = ADDON / "Services" / "Master" / "Award.lua"
 
 
@@ -139,34 +140,35 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
         self.assertIn("local Export = LoggerExport", logger)
         self.assertIn("local Actions = LoggerActions", logger)
 
-    def test_logger_controller_binds_equip_inspect_without_optional_noop(self):
-        logger = read(LOGGER)
+    def test_attendance_controller_binds_equip_inspect_without_optional_noop(self):
+        attendance = read(ATTENDANCE)
 
         self.assertIn(
-            'local EquipInspect = assert(Services.EquipInspect, "Logger equip-inspect service is not initialized")',
-            logger,
+            'local EquipInspect = assert(Services.EquipInspect, "Attendance equip-inspect service is not initialized")',
+            attendance,
         )
         self.assertIn(
-            'local ForceInspectPlayer = assert(EquipInspect.ForcePlayer, "Logger force-inspect method is not initialized")',
-            logger,
+            'local ForceInspectPlayer = assert(EquipInspect.ForcePlayer, "Attendance force-inspect method is not initialized")',
+            attendance,
         )
-        self.assertIn("ForceInspectPlayer(EquipInspect, selectedRaid, selectedPlayer)", logger)
-        self.assertIn('"Services/EquipInspect"', logger)
-        self.assertNotIn("if Services.EquipInspect and Services.EquipInspect.ForcePlayer then", logger)
-        self.assertNotIn("Services.EquipInspect:ForcePlayer", logger)
+        self.assertIn("ForceInspectPlayer(EquipInspect, selectedRaid, selectedPlayer)", attendance)
+        self.assertIn('"Services/EquipInspect"', attendance)
+        self.assertNotIn("if Services.EquipInspect and Services.EquipInspect.ForcePlayer then", attendance)
+        self.assertNotIn("Services.EquipInspect:ForcePlayer", attendance)
 
     def test_logger_controller_binds_raid_service_without_direct_service_calls(self):
         logger = read(LOGGER)
+        attendance = read(ATTENDANCE)
 
         self.assertIn(
             'local Raid = assert(Services.Raid, "Logger raid service is not initialized")',
             logger,
         )
-        self.assertIn("Raid:IsRaidExpired(sel)", logger)
-        self.assertIn("Raid:GetRaidSize()", logger)
         self.assertIn("Raid:GetPlayerClass(it.looter)", logger)
-        self.assertIn("Raid:UpdateRaidRoster()", logger)
+        self.assertIn('local Raid = assert(Services.Raid, "Attendance raid service is not initialized")', attendance)
+        self.assertIn("Raid:UpdateRaidRoster()", attendance)
         self.assertIn('"Services/Raid/State"', logger)
+        self.assertIn('"Services/Raid/Attendance"', attendance)
         self.assertNotIn("Services.Raid:", logger)
         self.assertNotIn("local Raid = Services.Raid", logger)
 

@@ -21,6 +21,7 @@ RESERVES_UI = ADDON / "Widgets" / "ReservesUI.lua"
 CONFIG = ADDON / "Widgets" / "Config.lua"
 TRADE_MENU = ADDON / "Widgets" / "TradeMenu.lua"
 ITEM_SELECTION = ADDON / "Widgets" / "ItemSelection.lua"
+ATTENDANCE = ADDON / "Controllers" / "Attendance.lua"
 
 
 def read(path):
@@ -42,7 +43,7 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertNotIn("Database.MakeModuleFrameGetter = Frames.MakeModuleFrameGetter", frames)
 
     def test_feature_files_get_module_frame_getters_from_ui_frames_owner(self):
-        feature_files = [WARNINGS, MASTER, LOOT_COUNTER, RESERVES_UI, CONFIG, ADDON / "Controllers" / "Spammer.lua", ADDON / "Controllers" / "Logger.lua"]
+        feature_files = [WARNINGS, MASTER, LOOT_COUNTER, RESERVES_UI, CONFIG, ADDON / "Controllers" / "Spammer.lua", ADDON / "Controllers" / "Logger.lua", ATTENDANCE]
         for path in feature_files:
             with self.subTest(path=path.name):
                 src = read(path)
@@ -52,6 +53,7 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertIn('local getFrame = MakeModuleFrameGetter(module, "RMAMaster")', read(MASTER))
         self.assertIn('local getFrame = Frames.MakeModuleFrameGetter(module, "RMASpammer")', read(ADDON / "Controllers" / "Spammer.lua"))
         self.assertIn('local getFrame = MakeModuleFrameGetter(module, "RMALootHistory")', read(ADDON / "Controllers" / "Logger.lua"))
+        self.assertIn('local getAttendanceFrame = MakeFrameGetter(ATTENDANCE_FRAME_NAME)', read(ATTENDANCE))
         self.assertIn('local getFrame = Frames.MakeModuleFrameGetter(module, "RMALootCounterFrame")', read(LOOT_COUNTER))
         self.assertIn('local getFrame = Frames.MakeModuleFrameGetter(module, "RMAReserveListFrame")', read(RESERVES_UI))
         self.assertIn('local getImportFrame = Frames.MakeModuleFrameGetter(Import, "RMAImportWindow")', read(RESERVES_UI))
@@ -89,6 +91,7 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
 
     def test_logger_binds_module_frames_through_local_frame_owner_bindings(self):
         logger = read(ADDON / "Controllers" / "Logger.lua")
+        attendance = read(ATTENDANCE)
 
         self.assertIn("local BindModuleFrame = assert(Frames.BindModuleFrame", logger)
         self.assertIn('"Logger module frame binder is not initialized"', logger)
@@ -98,9 +101,9 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertIn("local MakeFrameGetter = assert(Frames.MakeFrameGetter", logger)
         self.assertIn('"Logger frame getter factory is not initialized"', logger)
         self.assertIn('local getFrame = MakeModuleFrameGetter(module, "RMALootHistory")', logger)
-        self.assertIn('local getAttendanceFrame = MakeFrameGetter(ATTENDANCE_FRAME_NAME)', logger)
         self.assertIn("uiState.FrameName = BindModuleFrame(module, frame, {", logger)
-        self.assertIn("attendanceUi.FrameName = BindModuleFrame(nil, frame, {", logger)
+        self.assertIn("attendanceUi.FrameName = BindModuleFrame(nil, frame, {", attendance)
+        self.assertIn('local getAttendanceFrame = MakeFrameGetter(ATTENDANCE_FRAME_NAME)', attendance)
         self.assertNotIn("UI.Frames.BindModuleFrame", logger)
         self.assertNotIn("UI.Frames.MakeFrameGetter", logger)
         self.assertNotIn('local getFrame = Frames.MakeModuleFrameGetter', logger)
@@ -238,12 +241,19 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         start = slash_events.index("local function handleMinimapCommand(rest)")
         end = slash_events.index("local function handleAchievementCommand", start)
         handle_minimap = slash_events[start:end]
+        attendance_start = slash_events.index("local function handleAttendanceCommand()")
+        attendance_end = slash_events.index("local function handleLootCommand(rest)", attendance_start)
+        handle_attendance = slash_events[attendance_start:attendance_end]
 
         self.assertIn("function module:SetMinimapButtonShown(show)", minimap)
         self.assertIn("function module:GetPos()", minimap)
         self.assertIn("addon.Minimap:SetMinimapButtonShown(true)", handle_minimap)
         self.assertIn("addon.Minimap:SetMinimapButtonShown(false)", handle_minimap)
         self.assertIn("addon.Minimap:GetPos()", handle_minimap)
+        self.assertIn('Database.RequestControllerMethod("Attendance", "Toggle")', handle_attendance)
+        self.assertIn('Database.RequestControllerMethod("Attendance", "Toggle")', minimap)
+        self.assertNotIn('Database.RequestControllerMethod("Logger", "ToggleRaidAttendance")', slash_events)
+        self.assertNotIn('Database.RequestControllerMethod("Logger", "ToggleRaidAttendance")', minimap)
         self.assertNotIn('setOption("Minimap", "minimapButton"', handle_minimap)
         self.assertNotIn("Frames.SetShown(RMA_MINIMAP_GUI", handle_minimap)
 
@@ -254,6 +264,7 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         registry = slash_events[start:]
 
         self.assertLess(toc.index("EntryPoints\\Minimap.lua"), toc.index("EntryPoints\\SlashEvents.lua"))
+        self.assertLess(toc.index("UI\\RaidAttendance.xml"), toc.index("Controllers\\Attendance.lua"))
         self.assertIn('"EntryPoints/Minimap"', registry)
 
     def test_slash_events_registry_omits_unused_frame_dependency(self):

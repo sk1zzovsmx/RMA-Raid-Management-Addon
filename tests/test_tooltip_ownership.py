@@ -9,6 +9,7 @@ LOOT_HINTS = ADDON / "Widgets" / "LootHints.lua"
 MINIMAP = ADDON / "EntryPoints" / "Minimap.lua"
 MASTER = ADDON / "Controllers" / "Master.lua"
 LOGGER = ADDON / "Controllers" / "Logger.lua"
+ATTENDANCE = ADDON / "Controllers" / "Attendance.lua"
 RAID_GRID = ADDON / "Widgets" / "RaidGrid.lua"
 RESERVES_UI = ADDON / "Widgets" / "ReservesUI.lua"
 FRAMES = ADDON / "Modules" / "UI" / "Frames.lua"
@@ -123,33 +124,38 @@ class TooltipOwnershipTest(unittest.TestCase):
         self.assertNotIn("UI.Tooltips.Bind", master)
         self.assertNotIn("GameTooltip", clear_current_item_view)
 
-    def test_logger_spec_icon_hover_uses_shared_tooltip_owner(self):
-        logger = read(LOGGER)
-        start = logger.index("bindAttendanceSpecIconTooltip = function(icon)")
-        end = logger.index("local function setAttendanceSpecIconTexture", start)
-        bind_spec_icon_tooltip = logger[start:end]
+    def test_attendance_spec_icon_hover_uses_shared_tooltip_owner(self):
+        attendance = read(ATTENDANCE)
+        start = attendance.index("local function bindAttendanceSpecIconTooltip(icon)")
+        end = attendance.index("local function getSpecIcon(row, suffix)", start)
+        bind_spec_icon_tooltip = attendance[start:end]
 
-        self.assertIn("local ShowTooltipLines = assert(Tooltips.ShowLines", logger)
-        self.assertIn('"Logger tooltip line renderer is not initialized"', logger)
-        self.assertIn("local HideTooltip = assert(Tooltips.Hide", logger)
-        self.assertIn('"Logger tooltip hide service is not initialized"', logger)
+        self.assertIn("local ShowTooltipLines = assert(Tooltips.ShowLines", attendance)
+        self.assertIn('"Attendance tooltip line renderer is not initialized"', attendance)
+        self.assertIn("local BindTooltip = assert(Tooltips.Bind", attendance)
+        self.assertIn('"Attendance tooltip binder is not initialized"', attendance)
         self.assertIn("ShowTooltipLines(self, {", bind_spec_icon_tooltip)
-        self.assertIn('anchor = "ANCHOR_LEFT"', bind_spec_icon_tooltip)
-        self.assertIn("title = specName", bind_spec_icon_tooltip)
-        self.assertIn("HideTooltip()", bind_spec_icon_tooltip)
+        self.assertIn('"ANCHOR_RIGHT"', bind_spec_icon_tooltip)
         self.assertNotIn("UI.Tooltips.ShowLines", bind_spec_icon_tooltip)
-        self.assertNotIn("UI.Tooltips.Hide", bind_spec_icon_tooltip)
+        self.assertNotIn("UI.Tooltips.Bind", bind_spec_icon_tooltip)
         self.assertNotIn("GameTooltip", bind_spec_icon_tooltip)
 
-    def test_logger_inspect_item_icon_hover_uses_shared_item_tooltip_owner(self):
-        logger = read(LOGGER)
-        start = logger.index("local function getAttendanceInspectIcon(row, index, ui)")
-        end = logger.index("local function clearAttendanceInspectIcons(row)", start)
-        inspect_icon_tooltip = logger[start:end]
+    def test_attendance_inspect_item_icon_hover_uses_shared_item_tooltip_owner(self):
+        attendance = read(ATTENDANCE)
+        start = attendance.index("local function getAttendanceInspectIcon(row, index)")
+        end = attendance.index("local function clearAttendanceInspectIcons(row)", start)
+        inspect_icon_tooltip = attendance[start:end]
+        render_start = attendance.index("local function renderAttendanceInspectIcons(row, playerNid, snapshot)")
+        render_end = attendance.index("local function makeAttendanceList(cfg, selField, hlOpts)", render_start)
+        render_inspect_icons = attendance[render_start:render_end]
 
-        self.assertIn("local ShowItemTooltip = assert(Tooltips.ShowItem", logger)
-        self.assertIn('"Logger item tooltip renderer is not initialized"', logger)
+        self.assertIn("local ShowItemTooltip = assert(Tooltips.ShowItem", attendance)
+        self.assertIn('"Attendance item tooltip renderer is not initialized"', attendance)
         self.assertIn('ShowItemTooltip(self, link, nil, "ANCHOR_LEFT")', inspect_icon_tooltip)
+        self.assertIn("local itemLink = item and item.itemLink or nil", render_inspect_icons)
+        self.assertIn("icon.texture:SetTexture(item.texture)", render_inspect_icons)
+        self.assertNotIn("item and item.link", render_inspect_icons)
+        self.assertNotIn("SetTexture(item.icon)", render_inspect_icons)
         self.assertIn("HideTooltip()", inspect_icon_tooltip)
         self.assertNotIn("UI.Tooltips.ShowItem", inspect_icon_tooltip)
         self.assertNotIn("UI.Tooltips.Hide", inspect_icon_tooltip)

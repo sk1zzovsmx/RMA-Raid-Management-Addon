@@ -942,7 +942,7 @@ local function handleLoggerCommand(rest)
 end
 
 local function handleAttendanceCommand()
-	Database.RequestControllerMethod("Logger", "ToggleRaidAttendance")
+	Database.RequestControllerMethod("Attendance", "Toggle")
 end
 
 local function handleLootCommand(rest)

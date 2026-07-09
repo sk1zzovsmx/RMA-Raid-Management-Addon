@@ -97,7 +97,8 @@ class ToolingDocsConsistencyTest(unittest.TestCase):
     def test_greenfield_coherence_report_validation_count_matches_current_suite(self):
         report = read(GREENFIELD_COHERENCE)
 
-        self.assertIn("371 tests OK", report)
+        self.assertIn("387 tests OK", report)
+        self.assertNotIn("371 tests OK", report)
         self.assertNotIn("370 tests OK", report)
         self.assertNotIn("369 tests OK", report)
         self.assertNotIn("368 tests OK", report)

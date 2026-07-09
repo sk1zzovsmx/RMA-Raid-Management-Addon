@@ -60,13 +60,13 @@ The staged tests require:
 
 Latest validation run for this staged snapshot:
 
-- `py -3 -m unittest discover -s tests` -> 371 tests OK.
+- `py -3 -m unittest discover -s tests` -> 387 tests OK.
 - TOC validator -> OK.
-- Lua 5.1 lint -> 131 files clean.
-- `scan_xpcall.py` -> 131 files clean of variadic `xpcall`.
+- Lua 5.1 lint -> 130 files clean.
+- `scan_xpcall.py` -> 130 files clean of variadic `xpcall`.
 - XML handler scan -> no matches; command exits 1 when no XML handlers exist.
 - `luacheck "Raid Management Addon"` -> 0 warnings / 0 errors.
-- `stylua --check --line-endings Windows "Raid Management Addon"` -> OK.
+- `stylua --check` on touched runtime Lua files -> OK.
 - `git diff --check` and `git diff --cached --check` -> OK, with only Git CRLF
   conversion warnings reported by status/diff commands.
 

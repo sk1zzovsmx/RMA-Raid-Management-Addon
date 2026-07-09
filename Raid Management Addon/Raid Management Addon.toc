@@ -138,11 +138,15 @@ Services\Logger\Helpers.lua
 Services\Logger\View.lua
 Services\Logger\Export.lua
 Services\Logger\Actions.lua
+Services\Attendance\Store.lua
+Services\Attendance\View.lua
+Services\Attendance\Actions.lua
 Services\Spammer\Draft.lua
 Services\Warnings\Store.lua
 UI\Logger.xml
 UI\LootHistory.xml
 UI\RaidAttendance.xml
+Controllers\Attendance.lua
 Controllers\Logger.lua
 Widgets\Config.lua
 Controllers\Warnings.lua

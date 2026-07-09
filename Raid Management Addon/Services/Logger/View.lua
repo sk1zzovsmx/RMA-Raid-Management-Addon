@@ -51,74 +51,6 @@ local function getRaidPerfId(raid)
 	return tostring((raid and raid.raidNid) or "?")
 end
 
-local function getEquipInspectSnapshot(raid, playerNid)
-	local equipInspect = Services.EquipInspect
-	local nid = tonumber(playerNid)
-	if not nid then
-		return nil
-	end
-
-	if equipInspect and type(equipInspect.GetSnapshot) == "function" then
-		local snapshot = equipInspect:GetSnapshot(raid, nid)
-		if snapshot then
-			return snapshot
-		end
-	end
-
-	local inspectData = raid and raid.inspect
-	local players = inspectData and inspectData.players
-	if type(players) ~= "table" then
-		return nil
-	end
-
-	return players[nid] or players[tostring(nid)]
-end
-
-local function enrichAttendanceRowsWithInspect(raid, out)
-	if type(out) ~= "table" then
-		return
-	end
-
-	for i = 1, #out do
-		local row = out[i]
-		local rowId = tonumber(row.playerNid) or tonumber(row.id)
-		row.playerNid = rowId
-
-		if rowId then
-			local snapshot = getEquipInspectSnapshot(raid, rowId)
-			row.inspect = snapshot
-			if snapshot then
-				local avgIlvl = tonumber(snapshot.avgIlvl)
-				row.avgIlvl = avgIlvl
-				if avgIlvl and avgIlvl > 0 then
-					row.avgIlvlFmt = tostring(floor(avgIlvl + 0.5))
-				else
-					row.avgIlvlFmt = ""
-				end
-				row.specName = snapshot.specName
-				row.specFmt = snapshot.specName or ""
-				row.secondarySpecName = snapshot.secondarySpecName
-				row.secondarySpecIcon = snapshot.secondarySpecIcon
-			else
-				row.avgIlvl = nil
-				row.avgIlvlFmt = ""
-				row.specName = nil
-				row.specFmt = ""
-				row.secondarySpecName = nil
-				row.secondarySpecIcon = nil
-			end
-		else
-			row.inspect = nil
-			row.avgIlvl = nil
-			row.avgIlvlFmt = ""
-			row.specName = nil
-			row.specFmt = ""
-			row.secondarySpecName = nil
-			row.secondarySpecIcon = nil
-		end
-	end
-end
-
 local function finishPerf(label, startedAt, raid, out, extraDetails)
 	if not (startedAt and addon._PerfFinish) then
 		return
@@ -167,15 +99,6 @@ function View:FillBossList(out, raid)
 	local queries = Database.GetRaidQueries()
 	local result = queries:GetBossKills(raid, out)
 	finishPerf("Logger.View.FillBossList", perfStart, raid, out)
-	return result
-end
-
-function View:FillRaidAttendeesList(out, raid)
-	local perfStart = addon.hasPerf and addon._PerfStart and addon:_PerfStart() or nil
-	local queries = Database.GetRaidQueries()
-	local result = queries:GetRaidAttendance(raid, out)
-	enrichAttendanceRowsWithInspect(raid, out)
-	finishPerf("Logger.View.FillRaidAttendeesList", perfStart, raid, out)
 	return result
 end
 

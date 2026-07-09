@@ -134,7 +134,7 @@ local function buildMenu()
 			text = L.StrRaidAttendance,
 			notCheckable = 1,
 			func = function()
-				Database.RequestControllerMethod("Logger", "ToggleRaidAttendance")
+				Database.RequestControllerMethod("Attendance", "Toggle")
 			end,
 		},
 		{ text = " ", disabled = 1, notCheckable = 1 },
