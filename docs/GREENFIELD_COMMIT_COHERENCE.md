@@ -60,7 +60,7 @@ The staged tests require:
 
 Latest validation run for this staged snapshot:
 
-- `py -3 -m unittest discover -s tests` -> 387 tests OK.
+- `py -3 -m unittest discover -s tests` -> 388 tests OK.
 - TOC validator -> OK.
 - Lua 5.1 lint -> 130 files clean.
 - `scan_xpcall.py` -> 130 files clean of variadic `xpcall`.

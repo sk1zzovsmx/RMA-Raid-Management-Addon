@@ -157,24 +157,21 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
         self.assertNotIn("if Services.EquipInspect and Services.EquipInspect.ForcePlayer then", attendance)
         self.assertNotIn("Services.EquipInspect:ForcePlayer", attendance)
 
-    def test_attendance_clears_logger_player_selections_through_logger_api(self):
+    def test_attendance_requests_logger_player_selection_clear_through_internal_event(self):
         logger = read(LOGGER)
         attendance = read(ATTENDANCE)
 
-        self.assertIn("function module.ClearPlayerSelections()", logger)
         self.assertIn('clearSelection(module, "selectedPlayer", MS_CTX_RAIDATT)', logger)
         self.assertIn('clearSelection(module, "selectedBossPlayer", MS_CTX_BOSSATT)', logger)
         self.assertIn('triggerSelectionEvent(module, "selectedPlayer")', logger)
         self.assertIn('triggerSelectionEvent(module, "selectedBossPlayer")', logger)
-        self.assertIn('local Logger = assert(Controllers.Logger, "Attendance logger controller is not initialized")', attendance)
-        self.assertRegex(
-            attendance,
-            r'local ClearLoggerPlayerSelections\s*=\s*assert\(Logger\.ClearPlayerSelections, '
-            r'"Attendance logger selection clearer is not initialized"\)',
-        )
-        self.assertIn("ClearLoggerPlayerSelections()", attendance)
-        toc_lines = read(TOC).splitlines()
-        self.assertLess(toc_lines.index("Controllers\\Logger.lua"), toc_lines.index("Controllers\\Attendance.lua"))
+        self.assertIn("LoggerClearPlayerSelections = assert(", logger)
+        self.assertIn("RegisterCallback(LoggerEvents.LoggerClearPlayerSelections, clearPlayerSelections)", logger)
+        self.assertIn("LoggerClearPlayerSelections = assert(", attendance)
+        self.assertIn("TriggerEvent(AttendanceEvents.LoggerClearPlayerSelections)", attendance)
+        self.assertNotIn("Controllers.Logger", attendance)
+        self.assertNotIn("ClearLoggerPlayerSelections", attendance)
+        self.assertNotIn('"Controllers/Logger"', attendance)
 
     def test_logger_controller_binds_raid_service_without_direct_service_calls(self):
         logger = read(LOGGER)

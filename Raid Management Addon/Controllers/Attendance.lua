@@ -31,6 +31,7 @@ local HideTooltip = assert(Tooltips.Hide, "Attendance tooltip hide service is no
 local BindTooltipModel = assert(Tooltips.BindModel, "Attendance tooltip model binder is not initialized")
 
 local InternalEvents = assert(Events.Internal, "Attendance controller internal events are not initialized")
+local TriggerEvent = assert(Bus.TriggerEvent, "Attendance controller event publisher is not initialized")
 local RegisterCallback = assert(Bus.RegisterCallback, "Attendance controller event listener is not initialized")
 local AttendanceEvents = {
 	RaidCreate = assert(InternalEvents.RaidCreate, "Attendance controller raid-create event is not initialized"),
@@ -46,6 +47,10 @@ local AttendanceEvents = {
 		InternalEvents.EquipInspectCompleted,
 		"Attendance controller equip inspect completion event is not initialized"
 	),
+	LoggerClearPlayerSelections = assert(
+		InternalEvents.LoggerClearPlayerSelections,
+		"Attendance controller logger selection-clear event is not initialized"
+	),
 }
 
 local AttendanceSvc = assert(Services.Attendance, "Attendance service namespace is not initialized")
@@ -55,9 +60,6 @@ local AttendanceActions = assert(AttendanceSvc.Actions, "Attendance actions serv
 local EquipInspect = assert(Services.EquipInspect, "Attendance equip-inspect service is not initialized")
 local ForceInspectPlayer = assert(EquipInspect.ForcePlayer, "Attendance force-inspect method is not initialized")
 local Raid = assert(Services.Raid, "Attendance raid service is not initialized")
-local Logger = assert(Controllers.Logger, "Attendance logger controller is not initialized")
-local ClearLoggerPlayerSelections =
-	assert(Logger.ClearPlayerSelections, "Attendance logger selection clearer is not initialized")
 
 local _G = _G
 local type, tostring, tonumber = type, tostring, tonumber
@@ -829,7 +831,7 @@ local function deleteSelectedRaidAttendancePlayer()
 	local removed = AttendanceActions:DeleteRaidAttendeeMany(selectedRaid, { playerNid })
 	if removed and removed > 0 then
 		module.attendanceSelectedPlayer = nil
-		ClearLoggerPlayerSelections()
+		TriggerEvent(AttendanceEvents.LoggerClearPlayerSelections)
 		markAttendanceListsDirty()
 	end
 end
@@ -1154,7 +1156,6 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Modules/Sort",
 			"Modules/UI/Frames",
 			"Modules/UI/ListController",
-			"Controllers/Logger",
 			"Services/Raid/Attendance",
 			"Services/Attendance/Store",
 			"Services/Attendance/View",

@@ -105,6 +105,10 @@ local LoggerEvents = {
 		InternalEvents.LoggerSelectBossPlayer,
 		"Logger controller boss-player selection event is not initialized"
 	),
+	LoggerClearPlayerSelections = assert(
+		InternalEvents.LoggerClearPlayerSelections,
+		"Logger controller player selection-clear event is not initialized"
+	),
 	LoggerSelectItem = assert(
 		InternalEvents.LoggerSelectItem,
 		"Logger controller item selection event is not initialized"
@@ -839,7 +843,7 @@ do
 		clearSelection(module, "selectedItem", MS_CTX_LOOT)
 	end
 
-	function module.ClearPlayerSelections()
+	local function clearPlayerSelections()
 		local selectedPlayer = module.selectedPlayer ~= nil
 		local selectedBossPlayer = module.selectedBossPlayer ~= nil
 		clearSelection(module, "selectedPlayer", MS_CTX_RAIDATT)
@@ -2347,6 +2351,7 @@ do
 	for i = 1, #resetEvents do
 		RegisterCallback(resetEvents[i], reset)
 	end
+	RegisterCallback(LoggerEvents.LoggerClearPlayerSelections, clearPlayerSelections)
 	RegisterCallback(LoggerEvents.RaidLootUpdate, requestLootRefresh)
 	RegisterCallback(LoggerEvents.LoggerSelectItem, function()
 		controller:Touch()
