@@ -146,8 +146,8 @@ Services\Warnings\Store.lua
 UI\Logger.xml
 UI\LootHistory.xml
 UI\RaidAttendance.xml
-Controllers\Attendance.lua
 Controllers\Logger.lua
+Controllers\Attendance.lua
 Widgets\Config.lua
 Controllers\Warnings.lua
 Controllers\Spammer.lua

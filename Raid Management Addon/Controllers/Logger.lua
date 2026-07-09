@@ -839,6 +839,19 @@ do
 		clearSelection(module, "selectedItem", MS_CTX_LOOT)
 	end
 
+	function module.ClearPlayerSelections()
+		local selectedPlayer = module.selectedPlayer ~= nil
+		local selectedBossPlayer = module.selectedBossPlayer ~= nil
+		clearSelection(module, "selectedPlayer", MS_CTX_RAIDATT)
+		clearSelection(module, "selectedBossPlayer", MS_CTX_BOSSATT)
+		if selectedPlayer then
+			triggerSelectionEvent(module, "selectedPlayer")
+		end
+		if selectedBossPlayer then
+			triggerSelectionEvent(module, "selectedBossPlayer")
+		end
+	end
+
 	local function setPanelVisible(frame, visible)
 		if not frame then
 			return

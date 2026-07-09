@@ -27,9 +27,8 @@ local SetFrameTitle = assert(Frames.SetFrameTitle, "Attendance frame title binde
 local BindModuleFrame = assert(Frames.BindModuleFrame, "Attendance module frame binder is not initialized")
 local MakeFrameGetter = assert(Frames.MakeFrameGetter, "Attendance frame getter factory is not initialized")
 local ShowItemTooltip = assert(Tooltips.ShowItem, "Attendance item tooltip renderer is not initialized")
-local ShowTooltipLines = assert(Tooltips.ShowLines, "Attendance tooltip line renderer is not initialized")
 local HideTooltip = assert(Tooltips.Hide, "Attendance tooltip hide service is not initialized")
-local BindTooltip = assert(Tooltips.Bind, "Attendance tooltip binder is not initialized")
+local BindTooltipModel = assert(Tooltips.BindModel, "Attendance tooltip model binder is not initialized")
 
 local InternalEvents = assert(Events.Internal, "Attendance controller internal events are not initialized")
 local RegisterCallback = assert(Bus.RegisterCallback, "Attendance controller event listener is not initialized")
@@ -56,6 +55,9 @@ local AttendanceActions = assert(AttendanceSvc.Actions, "Attendance actions serv
 local EquipInspect = assert(Services.EquipInspect, "Attendance equip-inspect service is not initialized")
 local ForceInspectPlayer = assert(EquipInspect.ForcePlayer, "Attendance force-inspect method is not initialized")
 local Raid = assert(Services.Raid, "Attendance raid service is not initialized")
+local Logger = assert(Controllers.Logger, "Attendance logger controller is not initialized")
+local ClearLoggerPlayerSelections =
+	assert(Logger.ClearPlayerSelections, "Attendance logger selection clearer is not initialized")
 
 local _G = _G
 local type, tostring, tonumber = type, tostring, tonumber
@@ -529,14 +531,17 @@ local function clearAttendanceInspectIcons(row)
 end
 
 local function bindAttendanceSpecIconTooltip(icon)
-	BindTooltip(icon, function(self)
+	BindTooltipModel(icon, function(self)
 		local specName = self and self._RMASpecName or nil
 		if not specName or specName == "" then
-			return false
+			return nil
 		end
-		ShowTooltipLines(self, { specName }, nil, "ANCHOR_RIGHT")
-		return true
-	end)
+		return {
+			title = specName,
+			lines = {},
+			anchor = "ANCHOR_RIGHT",
+		}
+	end, "ANCHOR_RIGHT")
 end
 
 local function getSpecIcon(row, suffix)
@@ -824,6 +829,7 @@ local function deleteSelectedRaidAttendancePlayer()
 	local removed = AttendanceActions:DeleteRaidAttendeeMany(selectedRaid, { playerNid })
 	if removed and removed > 0 then
 		module.attendanceSelectedPlayer = nil
+		ClearLoggerPlayerSelections()
 		markAttendanceListsDirty()
 	end
 end
@@ -1148,6 +1154,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Modules/Sort",
 			"Modules/UI/Frames",
 			"Modules/UI/ListController",
+			"Controllers/Logger",
 			"Services/Raid/Attendance",
 			"Services/Attendance/Store",
 			"Services/Attendance/View",
