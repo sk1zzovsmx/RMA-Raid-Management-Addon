@@ -8,7 +8,7 @@ WARNINGS = ADDON / "Controllers" / "Warnings.lua"
 SPAMMER = ADDON / "Controllers" / "Spammer.lua"
 MASTER = ADDON / "Controllers" / "Master.lua"
 LOGGER = ADDON / "Controllers" / "Logger.lua"
-MASTER_MULTI_AWARD = ADDON / "Services" / "Master" / "MultiAward.lua"
+MASTER_AWARD = ADDON / "Services" / "Master" / "Award.lua"
 
 
 def read(path):
@@ -172,7 +172,7 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
 
     def test_master_controller_binds_chat_service_without_local_api_table(self):
         master = read(MASTER)
-        multi_award = read(MASTER_MULTI_AWARD)
+        multi_award = read(MASTER_AWARD)
 
         self.assertIn('local Chat = assert(Services.Chat, "Master chat service is not initialized")', master)
         self.assertIn('local Announce = requireServiceMethod("Chat", Chat, "Announce")', master)
@@ -224,17 +224,17 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
         master = read(MASTER)
 
         self.assertIn(
-            'local MultiAwardService = assert(MasterService.MultiAward, "Master multi-award service is not initialized")',
+            'local AwardService = assert(MasterService.Award, "Master award service is not initialized")',
             master,
         )
-        self.assertNotIn("local MultiAwardService = MasterService.MultiAward", master)
+        self.assertNotIn("local AwardService = MasterService.Award", master)
         self.assertNotIn("local function collectMultiAwardNames", master)
         self.assertNotIn("local function announceMultiAwardCompletion", master)
         self.assertNotIn("local function armMultiAwardProgressTimeout", master)
         self.assertNotIn("local function buildMultiAwardWinners", master)
         self.assertNotIn("local function startMultiAwardSequence", master)
         self.assertNotIn("local function continueMultiAwardOnLootSlotCleared", master)
-        self.assertIn("multiAwardController = MultiAwardService.CreateController({", master)
+        self.assertIn("awardController = AwardService.CreateController({", master)
         self.assertIn("awardPlanner = LootAwardPlanner", master)
         self.assertIn("inventory = LootInventory", master)
         self.assertIn("lootState = lootState", master)
@@ -245,9 +245,9 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
         self.assertIn("Set = function(_, count, focus)", master)
         self.assertIn("Reset = function(_, focus)", master)
         self.assertIn("registerAwardedItem = registerAwardedItem", master)
-        self.assertIn("return multiAwardController:TryMultipleCopies(itemLink, target, available)", master)
-        self.assertIn("return multiAwardController:TrySingleCopy(itemLink, winnerName)", master)
-        self.assertIn("return multiAwardController:ContinueOnLootSlotCleared(clearedSlot)", master)
+        self.assertIn("return awardController:TryMultipleCopies(itemLink, target, available)", master)
+        self.assertIn("return awardController:TrySingleCopy(itemLink, winnerName)", master)
+        self.assertIn("return awardController:ContinueOnLootSlotCleared(clearedSlot)", master)
 
     def test_spammer_controller_reads_chat_runtime_state_without_private_facade(self):
         spammer = read(SPAMMER)

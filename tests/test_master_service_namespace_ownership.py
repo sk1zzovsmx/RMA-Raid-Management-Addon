@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MASTER_SERVICES = ROOT / "Raid Management Addon" / "Services" / "Master"
 MASTER_SERVICE = MASTER_SERVICES / "Service.lua"
 MASTER_ROLL_SELECTION = MASTER_SERVICES / "RollSelection.lua"
-MASTER_MULTI_AWARD = MASTER_SERVICES / "MultiAward.lua"
+MASTER_AWARD = MASTER_SERVICES / "Award.lua"
 MASTER_ASSIGNMENT = MASTER_SERVICES / "Assignment.lua"
 MASTER_MESSAGES = MASTER_SERVICES / "Messages.lua"
 DEBUG_SERVICE = ROOT / "Raid Management Addon" / "Services" / "Debug.lua"
@@ -132,7 +132,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
     def test_master_controller_delegates_multi_award_flow_to_owner(self):
         service = read_optional(MASTER_SERVICE)
         controller = read(MASTER_CONTROLLER)
-        multi_award = read(MASTER_MULTI_AWARD)
+        multi_award = read(MASTER_AWARD)
         toc = read(MASTER_TOC)
 
         for method in (
@@ -152,22 +152,22 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertNotIn("local function buildMultiAwardWinners", controller)
         self.assertNotIn("local function startMultiAwardSequence", controller)
         self.assertNotIn("local function continueMultiAwardOnLootSlotCleared", controller)
-        self.assertNotIn("MasterService.MultiAward.", controller)
+        self.assertNotIn("MasterService.Award.", controller)
         self.assertIn(
-            'local MultiAwardService = assert(MasterService.MultiAward, "Master multi-award service is not initialized")',
+            'local AwardService = assert(MasterService.Award, "Master award service is not initialized")',
             controller,
         )
-        self.assertIn("multiAwardController = MultiAwardService.CreateController({", controller)
-        self.assertIn("return multiAwardController:TryMultipleCopies(itemLink, target, available)", controller)
-        self.assertIn("return multiAwardController:TrySingleCopy(itemLink, winnerName)", controller)
-        self.assertIn("return multiAwardController:ContinueOnLootSlotCleared(clearedSlot)", controller)
+        self.assertIn("awardController = AwardService.CreateController({", controller)
+        self.assertIn("return awardController:TryMultipleCopies(itemLink, target, available)", controller)
+        self.assertIn("return awardController:TrySingleCopy(itemLink, winnerName)", controller)
+        self.assertIn("return awardController:ContinueOnLootSlotCleared(clearedSlot)", controller)
 
-        self.assertIn("function MultiAward.CreateController(opts)", multi_award)
+        self.assertIn("function Award.CreateController(opts)", multi_award)
         self.assertIn("function controller:BuildWinners(target)", multi_award)
         self.assertIn("function controller:TryMultipleCopies(itemLink, target, available)", multi_award)
         self.assertIn("function controller:ContinueOnLootSlotCleared(clearedSlot)", multi_award)
-        self.assertIn('awardExecutor = assert(opts.awardExecutor, "Master MultiAward award executor is not initialized")', multi_award)
-        self.assertIn('itemCount = assert(opts.itemCount, "Master MultiAward item-count owner is not initialized")', multi_award)
+        self.assertIn('awardExecutor = assert(opts.awardExecutor, "Master award executor is not initialized")', multi_award)
+        self.assertIn('itemCount = assert(opts.itemCount, "Master award item-count owner is not initialized")', multi_award)
         self.assertNotIn("assignItem = assert(opts.assignItem", multi_award)
         self.assertNotIn("setAnnounced = assert(opts.setAnnounced", multi_award)
         self.assertNotIn("setItemCountValue = assert(opts.setItemCountValue", multi_award)
@@ -177,9 +177,9 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertNotIn("Diag = assert(opts.Diag", multi_award)
         self.assertNotIn("resetTradeState = opts.resetTradeState", multi_award)
 
-        self.assertLess(toc.index("Services\\Master\\RollSelection.lua"), toc.index("Services\\Master\\MultiAward.lua"))
-        self.assertLess(toc.index("Services\\Master\\MultiAward.lua"), toc.index("Services\\Master\\Assignment.lua"))
-        self.assertLess(toc.index("Services\\Master\\MultiAward.lua"), toc.index("Controllers\\Master.lua"))
+        self.assertLess(toc.index("Services\\Master\\RollSelection.lua"), toc.index("Services\\Master\\Award.lua"))
+        self.assertLess(toc.index("Services\\Master\\Award.lua"), toc.index("Services\\Master\\Assignment.lua"))
+        self.assertLess(toc.index("Services\\Master\\Award.lua"), toc.index("Controllers\\Master.lua"))
 
     def test_master_controller_delegates_inventory_trade_execution_to_owner(self):
         controller = read(MASTER_CONTROLLER)
@@ -485,7 +485,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
             "Services/Master/ButtonState",
             "Services/Master/RollRows",
             "Services/Master/RollSelection",
-            "Services/Master/MultiAward",
+            "Services/Master/Award",
             "Services/Master/Assignment",
             "Services/Debug",
             "Services/Master/Messages",

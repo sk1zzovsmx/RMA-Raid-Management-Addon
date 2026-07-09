@@ -112,7 +112,7 @@ Services\Master\FlowState.lua
 Services\Master\ButtonState.lua
 Services\Master\RollRows.lua
 Services\Master\RollSelection.lua
-Services\Master\MultiAward.lua
+Services\Master\Award.lua
 Services\Master\Assignment.lua
 Services\Master\Messages.lua
 Services\Master\AwardCounter.lua

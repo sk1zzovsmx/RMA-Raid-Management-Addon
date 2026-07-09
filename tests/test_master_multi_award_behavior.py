@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MULTI_AWARD = ROOT / "Raid Management Addon" / "Services" / "Master" / "MultiAward.lua"
+MULTI_AWARD = ROOT / "Raid Management Addon" / "Services" / "Master" / "Award.lua"
 
 
 def run_lua(script):
@@ -56,7 +56,7 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
             local chunk = assert(loadfile("{str(MULTI_AWARD).replace("\\", "\\\\")}"))
             chunk("Raid Management Addon", addon)
 
-            local controller = addon.Services.Master.MultiAward.CreateController({{
+            local controller = addon.Services.Master.Award.CreateController({{
                 awardPlanner = {{
                     BuildMultiAwardWinnersPlan = function(args)
                         plannerArgs = args
@@ -195,7 +195,7 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
             chunk("Raid Management Addon", addon)
 
             local lootState = {{ currentRollType = 3 }}
-            local controller = addon.Services.Master.MultiAward.CreateController({{
+            local controller = addon.Services.Master.Award.CreateController({{
                 awardPlanner = {{
                     BuildMultiAwardWinnersPlan = function()
                         return {{ winners = {{}} }}
@@ -358,7 +358,7 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
                 }},
             }}
 
-            local controller = addon.Services.Master.MultiAward.CreateController({{
+            local controller = addon.Services.Master.Award.CreateController({{
                 awardPlanner = {{
                     BuildMultiAwardWinnersPlan = function()
                         return {{ winners = {{}} }}
@@ -469,7 +469,7 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
                 currentRollType = 5,
                 winner = "Beta",
             }}
-            local controller = addon.Services.Master.MultiAward.CreateController({{
+            local controller = addon.Services.Master.Award.CreateController({{
                 awardPlanner = {{
                     BuildMultiAwardWinnersPlan = function()
                         return {{ winners = {{}} }}
@@ -606,7 +606,7 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
             chunk("Raid Management Addon", addon)
 
             local lootState = {{ currentRollType = 1 }}
-            local controller = addon.Services.Master.MultiAward.CreateController({{
+            local controller = addon.Services.Master.Award.CreateController({{
                 awardPlanner = {{
                     BuildMultiAwardWinnersPlan = function()
                         return {{
@@ -779,7 +779,7 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
                 }},
             }}
 
-            local controller = addon.Services.Master.MultiAward.CreateController({{
+            local controller = addon.Services.Master.Award.CreateController({{
                 awardPlanner = {{
                     BuildMultiAwardWinnersPlan = function()
                         return {{ winners = {{}} }}

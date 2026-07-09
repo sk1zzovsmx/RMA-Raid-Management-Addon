@@ -1,19 +1,19 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
 -- shared: local feature = addon.Database.GetFeatureShared()
--- exports: addon.Services.Master.MultiAward
+-- exports: addon.Services.Master.Award
 -- events: none
--- notes: owns Master multi-award flow state, winner planning, and delayed continuation
+-- notes: owns Master loot award orchestration, including single and multi-copy awards
 local addon = select(2, ...)
 local feature = addon.Database.GetFeatureShared()
 
 local Master = feature.EnsureServiceNamespace("Master")
 local Services = feature.Services
 
-local MultiAward = Master.MultiAward or {}
-Master.MultiAward = MultiAward
+local Award = Master.Award or {}
+Master.Award = Award
 
-local Loot = assert(Services.Loot, "Master multi-award loot service is not initialized")
+local Loot = assert(Services.Loot, "Master award loot service is not initialized")
 local L = feature.L
 local Diag = feature.Diag
 
@@ -144,25 +144,22 @@ local function armProgressTimeout(controller, ma)
 	end, timeout)
 end
 
-function MultiAward.CreateController(opts)
+function Award.CreateController(opts)
 	opts = opts or {}
 	local controller = {
-		awardPlanner = assert(opts.awardPlanner, "Master MultiAward award planner is not initialized"),
-		inventory = assert(opts.inventory, "Master MultiAward inventory owner is not initialized"),
-		lootState = assert(opts.lootState, "Master MultiAward loot state is not initialized"),
-		rollSelection = assert(opts.rollSelection, "Master MultiAward roll selection owner is not initialized"),
-		scheduleTimer = assert(opts.scheduleTimer, "Master MultiAward timer scheduler is not initialized"),
-		cancelTimer = assert(opts.cancelTimer, "Master MultiAward timer canceller is not initialized"),
+		awardPlanner = assert(opts.awardPlanner, "Master award planner is not initialized"),
+		inventory = assert(opts.inventory, "Master award inventory owner is not initialized"),
+		lootState = assert(opts.lootState, "Master award loot state is not initialized"),
+		rollSelection = assert(opts.rollSelection, "Master award roll selection owner is not initialized"),
+		scheduleTimer = assert(opts.scheduleTimer, "Master award timer scheduler is not initialized"),
+		cancelTimer = assert(opts.cancelTimer, "Master award timer canceller is not initialized"),
 		announce = opts.announce,
 		debug = opts.debug,
 		warn = opts.warn,
-		registerAwardedItem = assert(
-			opts.registerAwardedItem,
-			"Master MultiAward awarded-item recorder is not initialized"
-		),
+		registerAwardedItem = assert(opts.registerAwardedItem, "Master award awarded-item recorder is not initialized"),
 		refresh = opts.refresh,
-		awardExecutor = assert(opts.awardExecutor, "Master MultiAward award executor is not initialized"),
-		itemCount = assert(opts.itemCount, "Master MultiAward item-count owner is not initialized"),
+		awardExecutor = assert(opts.awardExecutor, "Master award executor is not initialized"),
+		itemCount = assert(opts.itemCount, "Master award item-count owner is not initialized"),
 		getAnnounceOnWin = opts.getAnnounceOnWin,
 		multiAwardTimeoutSeconds = opts.multiAwardTimeoutSeconds,
 		multiAwardDelaySeconds = opts.multiAwardDelaySeconds,
@@ -412,7 +409,7 @@ end
 
 local registry = feature.ModuleRegistry
 if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Master/MultiAward", {
+	registry.AddModule("Services/Master/Award", {
 		deps = {
 			"Init",
 			"Modules/ModuleRegistry",
@@ -422,7 +419,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Services/Master/RollSelection",
 		},
 	})
-	registry.SetLoaded("Services/Master/MultiAward")
+	registry.SetLoaded("Services/Master/Award")
 end
 
-return MultiAward
+return Award

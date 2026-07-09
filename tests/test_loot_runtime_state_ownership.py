@@ -19,7 +19,7 @@ ROLLS_SERVICE = ADDON / "Services" / "Rolls" / "Service.lua"
 MASTER_TRADE = ADDON / "Services" / "Master" / "Trade.lua"
 MASTER_TRADE_EXECUTION = ADDON / "Services" / "Master" / "TradeExecution.lua"
 MASTER_FLOW_STATE = ADDON / "Services" / "Master" / "FlowState.lua"
-MASTER_MULTI_AWARD = ADDON / "Services" / "Master" / "MultiAward.lua"
+MASTER_AWARD = ADDON / "Services" / "Master" / "Award.lua"
 MASTER_CONTROLLER = ADDON / "Controllers" / "Master.lua"
 
 
@@ -171,18 +171,18 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
 
     def test_master_controller_reads_multi_award_count_from_loot_owner_without_private_bridge(self):
         master_controller = read(MASTER_CONTROLLER)
-        multi_award = read(MASTER_MULTI_AWARD)
+        multi_award = read(MASTER_AWARD)
 
         self.assertNotIn("local function getCurrentMultiAwardCount", master_controller)
         self.assertNotIn("getCurrentMultiAwardCount(", master_controller)
         self.assertNotIn("getLootWindowItemCountByKey = function(itemKey)", master_controller)
-        self.assertIn('local Loot = assert(Services.Loot, "Master multi-award loot service is not initialized")', multi_award)
+        self.assertIn('local Loot = assert(Services.Loot, "Master award loot service is not initialized")', multi_award)
         self.assertIn("local observed = Loot:GetLootWindowItemCountByKey(cur.itemKey)", multi_award)
         self.assertIn("local currentCount = Loot:GetLootWindowItemCountByKey(ma.itemKey)", multi_award)
 
     def test_master_controller_reads_multi_award_slot_candidates_from_inventory_owner_without_private_bridge(self):
         master_controller = read(MASTER_CONTROLLER)
-        multi_award = read(MASTER_MULTI_AWARD)
+        multi_award = read(MASTER_AWARD)
 
         self.assertNotIn("local function buildMultiAwardSlotCandidates", master_controller)
         self.assertNotIn("buildMultiAwardSlotCandidates(", master_controller)

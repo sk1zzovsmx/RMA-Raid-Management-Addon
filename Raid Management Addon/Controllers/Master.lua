@@ -48,7 +48,7 @@ local Rolls = assert(Services.Rolls, "Master rolls service is not initialized")
 local Chat = assert(Services.Chat, "Master chat service is not initialized")
 local MasterService = assert(Services.Master, "Master service namespace is not initialized")
 local RollSelectionService = assert(MasterService.RollSelection, "Master Roll Selection service is not initialized")
-local MultiAwardService = assert(MasterService.MultiAward, "Master multi-award service is not initialized")
+local AwardService = assert(MasterService.Award, "Master award service is not initialized")
 local AssignmentService = assert(MasterService.Assignment, "Master assignment service is not initialized")
 local DebugService = assert(Services.Debug, "Debug service is not initialized")
 local TradeExecutionService = assert(MasterService.TradeExecution, "Master trade execution service is not initialized")
@@ -926,7 +926,7 @@ do
 			addon:warn(Diag.W.ErrMLMultiSelectTooMany:format(maxSel))
 		end,
 	})
-	local multiAwardController
+	local awardController
 	local tradeExecutionController
 	local itemSelectionController
 
@@ -1846,10 +1846,10 @@ do
 
 		local target, available = computeTargetAndAvailability()
 		if available > 1 then
-			return multiAwardController:TryMultipleCopies(itemLink, target, available)
+			return awardController:TryMultipleCopies(itemLink, target, available)
 		end
 
-		return multiAwardController:TrySingleCopy(itemLink, winnerName)
+		return awardController:TrySingleCopy(itemLink, winnerName)
 	end
 
 	module._awardFlow.handleRequest = handleAwardRequest
@@ -1932,7 +1932,7 @@ do
 		return false
 	end
 
-	multiAwardController = MultiAwardService.CreateController({
+	awardController = AwardService.CreateController({
 		awardPlanner = LootAwardPlanner,
 		inventory = LootInventory,
 		lootState = lootState,
@@ -2093,7 +2093,7 @@ do
 	})
 
 	clearMultiAwardState = function(resetItemCount)
-		return multiAwardController:Clear(resetItemCount)
+		return awardController:Clear(resetItemCount)
 	end
 
 	local function setCurrentItemView(itemName, itemLink, itemTexture, itemColor)
@@ -3153,7 +3153,7 @@ do
 					Raid:NotifyLootWindowCleared()
 				end
 				-- Continue a multi-award sequence (loot window only).
-				return multiAwardController:ContinueOnLootSlotCleared(clearedSlot)
+				return awardController:ContinueOnLootSlotCleared(clearedSlot)
 			end
 			if perfTotal then
 				addon:_PerfFinish(
@@ -3509,7 +3509,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Services/Master/ButtonState",
 			"Services/Master/RollRows",
 			"Services/Master/RollSelection",
-			"Services/Master/MultiAward",
+			"Services/Master/Award",
 			"Services/Master/Assignment",
 			"Services/Debug",
 			"Services/Master/Messages",
