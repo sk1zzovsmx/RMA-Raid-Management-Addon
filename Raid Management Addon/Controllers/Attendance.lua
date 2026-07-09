@@ -21,7 +21,9 @@ local Timer = feature.Timer
 local Sort = feature.Sort
 local Colors = feature.Colors
 
+local GetFrame = assert(Frames.Get, "Attendance export frame resolver is not initialized")
 local GetFrameRef = assert(Frames.GetRef, "Attendance frame ref resolver is not initialized")
+local EnableDrag = assert(Frames.EnableDrag, "Attendance export frame drag binder is not initialized")
 local SetScriptSafely = assert(Frames.SetScriptSafely, "Attendance frame script binder is not initialized")
 local SetFrameTitle = assert(Frames.SetFrameTitle, "Attendance frame title binder is not initialized")
 local BindModuleFrame = assert(Frames.BindModuleFrame, "Attendance module frame binder is not initialized")
@@ -721,6 +723,119 @@ local function getAttendanceRaid()
 	return AttendanceStore:GetRaid(raidId), raidId
 end
 
+local function getAttendanceExportFrameRefs()
+	local frame = GetFrame("RMAExportFrame")
+	if not frame then
+		return nil
+	end
+
+	return {
+		frame = frame,
+		hint = GetFrameRef(frame, "Hint"),
+		lootBtn = GetFrameRef(frame, "LootBtn"),
+		output = GetFrameRef(frame, "Output"),
+		outputScroll = GetFrameRef(frame, "OutputScroll"),
+		closeBtn = GetFrameRef(frame, "CloseBtn"),
+	}
+end
+
+local function getAttendanceExportContext()
+	return {
+		raidId = module.attendanceSelectedRaid,
+		selectedPlayerNid = module.attendanceSelectedPlayer,
+	}
+end
+
+local function setAttendanceExportText(refs, text)
+	local output = refs and refs.output
+	if not output then
+		return
+	end
+
+	if output.SetTextInsets then
+		output:SetTextInsets(8, 8, 8, 8)
+	end
+	if output.SetJustifyH then
+		output:SetJustifyH("LEFT")
+	end
+	if output.SetJustifyV then
+		output:SetJustifyV("TOP")
+	end
+	module._lastAttendanceExportCSV = text or ""
+	output:SetText(module._lastAttendanceExportCSV)
+	output:SetCursorPosition(0)
+	output:HighlightText()
+	if output.SetFocus then
+		output:SetFocus()
+	end
+
+	local scroll = refs.outputScroll
+	if scroll and scroll.UpdateScrollChildRect then
+		scroll:UpdateScrollChildRect()
+	end
+	if scroll and scroll.SetVerticalScroll then
+		scroll:SetVerticalScroll(0)
+	end
+end
+
+local function bindAttendanceExportFrame()
+	local refs = getAttendanceExportFrameRefs()
+	if not refs then
+		return nil
+	end
+
+	SetFrameTitle(refs.frame, L.BtnLoggerExportRaidAttendanceCSV)
+	EnableDrag(refs.frame)
+	if refs.hint then
+		refs.hint:SetText(L.StrLoggerExportHint)
+	end
+	if refs.lootBtn then
+		refs.lootBtn:Hide()
+	end
+	if refs.output and refs.output.SetWordWrap then
+		refs.output:SetWordWrap(true)
+	end
+	if refs.output then
+		SetScriptSafely(refs.output, "OnTextChanged", function(self, userInput)
+			if userInput then
+				self:SetText(module._lastAttendanceExportCSV or "")
+				self:SetCursorPosition(0)
+				self:HighlightText()
+			end
+		end)
+	end
+	if refs.closeBtn then
+		refs.closeBtn:SetText(L.BtnClose)
+		SetScriptSafely(refs.closeBtn, "OnClick", function()
+			refs.frame:Hide()
+		end)
+	end
+	return refs
+end
+
+local function showAttendanceExport()
+	local raid = getAttendanceRaid()
+	if not raid then
+		addon:error(L.ErrLoggerInvalidRaid)
+		return false
+	end
+
+	local csv, errCode = AttendanceExport:GetRaidAttendanceCSV(raid, getAttendanceExportContext())
+	if errCode then
+		addon:error((L.ErrLoggerExportFailed):format(tostring(errCode)))
+		return false
+	end
+
+	local refs = bindAttendanceExportFrame()
+	if not (refs and refs.frame) then
+		return false
+	end
+
+	setAttendanceExportText(refs, csv)
+	refs.frame:Show()
+	return true
+end
+
 local function markAttendanceListsDirty()
 	if attendanceRaidsController then
 		attendanceRaidsController:Dirty()
@@ -921,6 +1036,7 @@ attendancePlayersController = makeAttendanceList({
 	_rowParts = { "Name", "Join", "Leave", "Ilvl", "Spec", "InspectStatus" },
 
 	localize = function(n)
+		local frame = _G[n]
 		setPanelTitle(n, L.StrRaidAttendees)
 		_G[n .. "HeaderName"]:SetText(L.StrName)
 		_G[n .. "HeaderJoin"]:SetText(L.StrJoin)
@@ -955,6 +1071,11 @@ attendancePlayersController = makeAttendanceList({
 					attendancePlayersController:Dirty()
 				end
 			end)
+		end
+		local exportBtn = frame and GetFrameRef(frame, "ExportBtn") or nil
+		if exportBtn then
+			exportBtn:SetText(L.BtnLoggerExportRaidAttendanceCSV)
+			SetScriptSafely(exportBtn, "OnClick", showAttendanceExport)
 		end
 		bindSortHeaders(n, ATTENDANCE_LAYOUT_COLUMNS, attendancePlayersController, "_RMAAttendanceHeadersBound")
 	end,
@@ -1028,6 +1149,7 @@ attendancePlayersController = makeAttendanceList({
 					and true
 				or false
 		)
+		UI.Primitives.SetEnabled(_G[n .. "ExportBtn"], module.attendanceSelectedRaid ~= nil)
 	end,
 
 	sorters = {

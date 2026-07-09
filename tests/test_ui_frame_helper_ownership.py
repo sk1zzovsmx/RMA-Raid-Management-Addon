@@ -89,6 +89,25 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertNotIn("UI.Frames.SetFrameTitle", logger)
         self.assertNotIn("UI.Frames.EnableDrag", logger)
 
+    def test_attendance_owns_raid_attendance_csv_button_and_logger_does_not(self):
+        attendance_xml = read(ADDON / "UI" / "RaidAttendance.xml")
+        loot_history_xml = read(ADDON / "UI" / "LootHistory.xml")
+        attendance = read(ATTENDANCE)
+        logger = read(ADDON / "Controllers" / "Logger.lua")
+
+        self.assertIn('name="$parentExportBtn"', attendance_xml)
+        self.assertIn('relativeTo="$parentForceInspectBtn"', attendance_xml)
+        self.assertIn('GetFrameRef(frame, "ExportBtn")', attendance)
+        self.assertIn("AttendanceExport:GetRaidAttendanceCSV(raid, getAttendanceExportContext())", attendance)
+        self.assertIn("L.BtnLoggerExportRaidAttendanceCSV", attendance)
+        self.assertIn('local frame = GetFrame("RMAExportFrame")', attendance)
+        self.assertNotIn("Controllers.Logger", attendance)
+
+        self.assertNotIn('name="$parentRaidAttendanceBtn"', loot_history_xml)
+        self.assertNotIn('raidAttendanceBtn = GetFrameRef(frame, "RaidAttendanceBtn")', logger)
+        self.assertNotIn('refreshExportFrame("raidAttendance")', logger)
+        self.assertNotIn('mode = "raidAttendance"', logger)
+
     def test_logger_binds_module_frames_through_local_frame_owner_bindings(self):
         logger = read(ADDON / "Controllers" / "Logger.lua")
         attendance = read(ATTENDANCE)

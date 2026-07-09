@@ -428,6 +428,18 @@
 							</Anchor>
 						</Anchors>
 					</Button>
+					<Button name="$parentExportBtn" inherits="RMAActionButtonTemplate">
+						<Size>
+							<AbsDimension x="120" y="25" />
+						</Size>
+						<Anchors>
+							<Anchor point="LEFT" relativeTo="$parentForceInspectBtn" relativePoint="RIGHT">
+								<Offset>
+									<AbsDimension x="3" y="0" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
 					<Button name="$parentHeaderName" inherits="RMALogTableHeaderTemplate">
 						<Size>
 							<AbsDimension x="85" y="20" />

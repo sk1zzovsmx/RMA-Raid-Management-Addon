@@ -939,7 +939,6 @@ do
 			frame = frame,
 			hint = GetFrameRef(frame, "Hint"),
 			lootBtn = GetFrameRef(frame, "LootBtn"),
-			raidAttendanceBtn = GetFrameRef(frame, "RaidAttendanceBtn"),
 			output = GetFrameRef(frame, "Output"),
 			outputScroll = GetFrameRef(frame, "OutputScroll"),
 			closeBtn = GetFrameRef(frame, "CloseBtn"),
@@ -949,7 +948,6 @@ do
 	local function setExportModeButtonState(refs, mode)
 		local buttons = {
 			{ button = refs and refs.lootBtn, mode = "loot" },
-			{ button = refs and refs.raidAttendanceBtn, mode = "raidAttendance" },
 		}
 
 		for i = 1, #buttons do
@@ -1075,15 +1073,10 @@ do
 			refs.hint:SetText(L.StrLoggerExportHint)
 		end
 		if refs.lootBtn then
+			refs.lootBtn:Show()
 			refs.lootBtn:SetText(L.BtnLoggerExportLootCSV)
 			SetScriptSafely(refs.lootBtn, "OnClick", function()
 				refreshExportFrame("loot")
-			end)
-		end
-		if refs.raidAttendanceBtn then
-			refs.raidAttendanceBtn:SetText(L.BtnLoggerExportRaidAttendanceCSV)
-			SetScriptSafely(refs.raidAttendanceBtn, "OnClick", function()
-				refreshExportFrame("raidAttendance")
 			end)
 		end
 		if refs.output and refs.output.SetTextInsets then

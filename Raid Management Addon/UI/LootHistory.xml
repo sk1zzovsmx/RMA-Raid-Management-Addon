@@ -568,18 +568,6 @@
 					</Anchor>
 				</Anchors>
 			</Button>
-			<Button name="$parentRaidAttendanceBtn" inherits="RMAActionButtonTemplate">
-				<Size>
-					<AbsDimension x="170" y="25" />
-				</Size>
-				<Anchors>
-					<Anchor point="LEFT" relativeTo="$parentLootBtn" relativePoint="RIGHT">
-						<Offset>
-							<AbsDimension x="6" y="0" />
-						</Offset>
-					</Anchor>
-				</Anchors>
-			</Button>
 			<ScrollFrame name="$parentOutputScroll" inherits="RMATextScrollFrameTemplate">
 				<Size>
 					<AbsDimension x="956" y="330" />
