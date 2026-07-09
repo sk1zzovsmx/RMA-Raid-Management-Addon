@@ -10,6 +10,7 @@ SPAMMER = ADDON / "Controllers" / "Spammer.lua"
 MASTER = ADDON / "Controllers" / "Master.lua"
 LOGGER = ADDON / "Controllers" / "Logger.lua"
 ATTENDANCE = ADDON / "Controllers" / "Attendance.lua"
+ATTENDANCE_EXPORT = ADDON / "Services" / "Attendance" / "Export.lua"
 MASTER_AWARD = ADDON / "Services" / "Master" / "Award.lua"
 
 
@@ -18,6 +19,18 @@ def read(path):
 
 
 class ControllerServiceBindingOwnershipTest(unittest.TestCase):
+    def test_attendance_export_is_declared_service_boundary(self):
+        attendance = read(ATTENDANCE)
+        attendance_export = read(ATTENDANCE_EXPORT)
+
+        self.assertIn(
+            'local AttendanceExport = assert(AttendanceSvc.Export, "Attendance export service is not initialized")',
+            attendance,
+        )
+        self.assertIn("module.Export = AttendanceExport", attendance)
+        self.assertIn('"Services/Attendance/Export"', attendance)
+        self.assertIn("local Export = Attendance.Export", attendance_export)
+
     def test_warnings_controller_binds_chat_service_without_local_api_table(self):
         warnings = read(WARNINGS)
 

@@ -57,6 +57,7 @@ local AttendanceSvc = assert(Services.Attendance, "Attendance service namespace 
 local AttendanceStore = assert(AttendanceSvc.Store, "Attendance store service is not initialized")
 local AttendanceView = assert(AttendanceSvc.View, "Attendance view service is not initialized")
 local AttendanceActions = assert(AttendanceSvc.Actions, "Attendance actions service is not initialized")
+local AttendanceExport = assert(AttendanceSvc.Export, "Attendance export service is not initialized")
 local EquipInspect = assert(Services.EquipInspect, "Attendance equip-inspect service is not initialized")
 local ForceInspectPlayer = assert(EquipInspect.ForcePlayer, "Attendance force-inspect method is not initialized")
 local Raid = assert(Services.Raid, "Attendance raid service is not initialized")
@@ -74,6 +75,7 @@ Timer.BindMixin(module, "Attendance")
 module.Store = AttendanceStore
 module.View = AttendanceView
 module.Actions = AttendanceActions
+module.Export = AttendanceExport
 
 local ATTENDANCE_FRAME_NAME = "RMARaidAttendance"
 local ATTENDANCE_RAIDS_FRAME = "RMARaidAttendanceRaids"
@@ -1160,6 +1162,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Services/Attendance/Store",
 			"Services/Attendance/View",
 			"Services/Attendance/Actions",
+			"Services/Attendance/Export",
 			"Services/EquipInspect",
 		},
 	})

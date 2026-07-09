@@ -39,6 +39,7 @@ MASTER_TRADE = ADDON / "Services" / "Master" / "Trade.lua"
 MASTER_AWARD_COUNTER = ADDON / "Services" / "Master" / "AwardCounter.lua"
 LOGGER_CONTROLLER = ADDON / "Controllers" / "Logger.lua"
 ATTENDANCE_CONTROLLER = ADDON / "Controllers" / "Attendance.lua"
+ATTENDANCE_EXPORT = ADDON / "Services" / "Attendance" / "Export.lua"
 LOGGER_ACTIONS = ADDON / "Services" / "Logger" / "Actions.lua"
 LOGGER_VIEW = ADDON / "Services" / "Logger" / "View.lua"
 LOGGER_EXPORT = ADDON / "Services" / "Logger" / "Export.lua"
@@ -80,6 +81,18 @@ def read(path):
 
 
 class InitCoreMicroCleanupContractTest(unittest.TestCase):
+    def test_attendance_export_owns_raid_attendance_csv_without_frame_access(self):
+        attendance_export = read(ATTENDANCE_EXPORT)
+
+        self.assertIn('feature.EnsureServiceNamespace("Attendance", "Export")', attendance_export)
+        self.assertIn("function Export:GetRaidAttendanceCSV(raid, context)", attendance_export)
+        self.assertIn("queries:GetRaidAttendance(raid, attendanceRows)", attendance_export)
+        self.assertIn("finishPerf(\"Attendance.Export.GetRaidAttendanceCSV\"", attendance_export)
+        self.assertIn('registry.AddModule("Services/Attendance/Export"', attendance_export)
+        self.assertNotIn("_G", attendance_export)
+        self.assertNotIn("GetFrame", attendance_export)
+        self.assertNotIn("UI.", attendance_export)
+
     def test_public_rma_identity_is_preserved(self):
         init = read(INIT)
         toc = read(TOC)
