@@ -1,7 +1,7 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
 -- shared: local feature = addon.Database.GetFeatureShared()
--- exports: addon.Services.Loot._Inventory
+-- exports: addon.Services.Loot.Inventory
 -- events: none
 -- notes: Inventory and awarded-count helpers for loot trade flows
 
@@ -28,9 +28,8 @@ local Item = feature.Item
 
 feature.EnsureServiceNamespace("Loot")
 local Loot = Services.Loot
-local module = Loot
-module._Inventory = module._Inventory or {}
-local Inventory = module._Inventory
+Loot.Inventory = Loot.Inventory or {}
+local Inventory = Loot.Inventory
 
 -- ----- Private helpers ----- --
 

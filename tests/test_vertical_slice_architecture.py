@@ -16,6 +16,9 @@ SLASH = ADDON / "EntryPoints" / "SlashEvents.lua"
 TOC = ADDON / "Raid Management Addon.toc"
 RAID_DEBUG = ADDON / "Services" / "Raid" / "Debug.lua"
 OLD_DEBUG = ADDON / "Services" / "Debug.lua"
+LOOT_DISTRIBUTION = ADDON / "Services" / "Loot" / "DistributionSession.lua"
+LOOT_INVENTORY = ADDON / "Services" / "Loot" / "Inventory.lua"
+LOOT_AWARD = ADDON / "Services" / "Loot" / "AwardPlanner.lua"
 
 
 def read(path):
@@ -112,3 +115,24 @@ class VerticalSliceArchitectureTest(unittest.TestCase):
             with self.subTest(relative=relative):
                 self.assertNotIn("Raid._", source)
                 self.assertNotIn("raidService._", source)
+
+    def test_master_loot_cross_owner_contracts_are_explicit(self):
+        expected = (
+            (LOOT_DISTRIBUTION, "Loot.DistributionSession"),
+            (LOOT_INVENTORY, "Loot.Inventory"),
+            (LOOT_AWARD, "Loot.AwardPlanner"),
+        )
+        for path, symbol in expected:
+            source = read(path)
+            with self.subTest(path=path.name):
+                self.assertIn(symbol, source)
+                self.assertNotIn(symbol.replace("Loot.", "Loot._"), source)
+
+    def test_code_outside_loot_does_not_use_loot_private_helpers(self):
+        for path in ADDON.rglob("*.lua"):
+            relative = path.relative_to(ADDON).as_posix()
+            if relative.startswith("Libs/") or relative.startswith("Services/Loot/"):
+                continue
+            source = read(path)
+            with self.subTest(relative=relative):
+                self.assertNotIn("Loot._", source)

@@ -80,10 +80,9 @@ do
 	local Workflow = assert(module._Workflow, "Loot workflow helpers are not initialized")
 	local Recording = assert(module._Recording, "Loot recording helpers are not initialized")
 	local Rules = assert(module._Rules, "Loot rules helpers are not initialized")
-	local AwardPlanner = assert(module._AwardPlanner, "Loot award planner helpers are not initialized")
-	local Inventory = assert(module._Inventory, "Loot inventory helpers are not initialized")
-	local DistributionSession =
-		assert(module._DistributionSession, "Loot distribution session helpers are not initialized")
+	local AwardPlanner = assert(module.AwardPlanner, "Loot award planner owner is not initialized")
+	local Inventory = assert(module.Inventory, "Loot inventory owner is not initialized")
+	local DistributionSession = assert(module.DistributionSession, "Loot distribution session owner is not initialized")
 	local ContextHelpers = assert(module._Context, "Loot context helpers are not initialized")
 	local resolveRaidRecord = assert(ContextHelpers.ResolveRaidRecord, "Missing LootContext.ResolveRaidRecord")
 

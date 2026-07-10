@@ -1,7 +1,7 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
 -- shared: local feature = addon.Database.GetFeatureShared()
--- exports: addon.Services.Loot._DistributionSession
+-- exports: addon.Services.Loot.DistributionSession
 -- events: LootDistributionSessionChanged
 
 local addon = select(2, ...)
@@ -32,10 +32,8 @@ local tinsert, tsort, tconcat = table.insert, table.sort, table.concat
 -- ----- Internal state ----- --
 feature.EnsureServiceNamespace("Loot")
 local Loot = Services.Loot
-local module = Loot
-module._DistributionSession = module._DistributionSession or {}
-
-local DistributionSession = module._DistributionSession
+Loot.DistributionSession = Loot.DistributionSession or {}
+local DistributionSession = Loot.DistributionSession
 
 local PREFIX = "RMADist"
 local SEP = "|"

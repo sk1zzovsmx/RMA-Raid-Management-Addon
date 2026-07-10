@@ -43,6 +43,9 @@ roster, roll, and RaidGrid debug support is owned by `Services/Raid/Debug.lua`.
 
 Owns the composition of loot, rolls, award, trade, item-selection, and child-widget
 workflows. `Controllers/Master.lua` remains its UI and WoW-event composition root.
+Cross-owner calls bind directly to `Services.Loot.DistributionSession`,
+`Services.Loot.Inventory`, and `Services.Loot.AwardPlanner`; the remaining
+underscore-prefixed Loot helpers stay private to `Services/Loot/*`.
 
 ## Logger And Attendance
 

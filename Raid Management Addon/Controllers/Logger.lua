@@ -1497,7 +1497,7 @@ do
 			if button == "LeftButton" then
 				local isMulti, isRange = UI.Selection.ResolveModifiers(MS_SCOPE_LOOT)
 
-				local ordered = module.Loot and module.Loot._ctrl and module.Loot._ctrl.data or nil
+				local ordered = module.Loot and module.Loot.controller and module.Loot.controller.data or nil
 				local action, count =
 					applyModuleFocusedMultiSelect(id, MS_CTX_LOOT, ordered, isMulti, isRange, "selectedItem")
 
@@ -2197,7 +2197,7 @@ do
 		},
 	}, "selectedItem", "_msLootCtx")
 
-	Loot._ctrl = controller
+	Loot.controller = controller
 	UI.Lists.BindController(Loot, controller)
 
 	sortLoot = function(key)

@@ -58,10 +58,10 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
         loot_service = read(LOOT_SERVICE)
 
         self.assertLess(toc.index("Services\\Loot\\DistributionSession.lua"), toc.index("Services\\Loot\\Service.lua"))
-        self.assertIn('assert(module._DistributionSession', loot_service)
+        self.assertIn('assert(module.DistributionSession', loot_service)
         self.assertNotIn("Runtime guard for stale installs", loot_service)
         self.assertNotIn("buildEmptyDistributionModel", loot_service)
-        self.assertNotIn("module._DistributionSession = distribution", loot_service)
+        self.assertNotIn("module.DistributionSession = distribution", loot_service)
 
     def test_loot_inventory_uses_loot_runtime_state_owner(self):
         loot_inventory = read(LOOT_INVENTORY)
@@ -137,8 +137,8 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
         loot_service = read(LOOT_SERVICE)
         trade_execution = read(MASTER_TRADE_EXECUTION)
 
-        self.assertIn('assert(Loot._Inventory', master_controller)
-        self.assertIn('assert(Loot._AwardPlanner', master_controller)
+        self.assertIn('assert(Loot.Inventory', master_controller)
+        self.assertIn('assert(Loot.AwardPlanner', master_controller)
         self.assertNotIn("LootInventory.ResolveInventoryAwardedCountFromArgs", master_controller)
         self.assertNotIn("LootInventory.ResolveTradeAwardedCount()", master_controller)
         self.assertNotIn("LootAwardPlanner.BuildTradeNotificationPlan", master_controller)
@@ -164,7 +164,7 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
         loot_service = read(LOOT_SERVICE)
         trade_execution = read(MASTER_TRADE_EXECUTION)
 
-        self.assertIn("local LootDistribution = assert(Loot._DistributionSession", master_controller)
+        self.assertIn("local LootDistribution = assert(Loot.DistributionSession", master_controller)
         self.assertIn("LootDistribution.PublishRollStart(", master_controller)
         self.assertIn("LootDistribution.PublishRollEnd(", master_controller)
         self.assertIn("LootDistribution.PublishItemDone(", master_controller)
@@ -332,7 +332,7 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
         master_controller = read(MASTER_CONTROLLER)
         loot_service = read(LOOT_SERVICE)
 
-        self.assertIn('assert(Loot._Inventory', master_controller)
+        self.assertIn('assert(Loot.Inventory', master_controller)
         for bridge_name in (
             "FindLootSlotIndex",
             "FindTradeableInventoryMatch",

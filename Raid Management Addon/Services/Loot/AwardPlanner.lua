@@ -1,7 +1,7 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
 -- shared: local feature = addon.Database.GetFeatureShared()
--- exports: addon.Services.Loot._AwardPlanner
+-- exports: addon.Services.Loot.AwardPlanner
 -- events: none
 -- notes: Award planning helpers split from Services/Loot/Service
 
@@ -16,9 +16,8 @@ local rollTypes = feature.rollTypes
 
 feature.EnsureServiceNamespace("Loot")
 local Loot = Services.Loot
-local module = Loot
-module._AwardPlanner = module._AwardPlanner or {}
-local AwardPlanner = module._AwardPlanner
+Loot.AwardPlanner = Loot.AwardPlanner or {}
+local AwardPlanner = Loot.AwardPlanner
 
 -- ----- Private helpers ----- --
 

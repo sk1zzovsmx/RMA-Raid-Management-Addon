@@ -1004,7 +1004,7 @@ do
 			return
 		end
 		local lootService = getService("Loot")
-		local lootDistribution = lootService and lootService._DistributionSession or nil
+		local lootDistribution = lootService and lootService.DistributionSession or nil
 		if
 			lootDistribution
 			and lootDistribution.HandleMessage
