@@ -108,6 +108,28 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertNotIn('refreshExportFrame("raidAttendance")', logger)
         self.assertNotIn('mode = "raidAttendance"', logger)
 
+    def test_shared_export_frame_is_reconfigured_by_each_owner_on_open(self):
+        logger = read(ADDON / "Controllers" / "Logger.lua")
+        attendance = read(ATTENDANCE)
+
+        self.assertNotIn("if not refs or refs.frame._RMABound then", logger)
+        self.assertIn("SetFrameTitle(refs.frame, L.StrLoggerExportTitle)", logger)
+        self.assertIn("refs.lootBtn:Show()", logger)
+        self.assertIn("module._lastExportCSV or \"\"", logger)
+
+        self.assertIn("SetFrameTitle(refs.frame, L.BtnLoggerExportRaidAttendanceCSV)", attendance)
+        self.assertIn("refs.lootBtn:Hide()", attendance)
+        self.assertIn("module._lastAttendanceExportCSV or \"\"", attendance)
+
+    def test_attendance_export_button_preserves_logger_action_width(self):
+        attendance_xml = read(ADDON / "UI" / "RaidAttendance.xml")
+
+        export_button = re.search(
+            r'<Button name="\$parentExportBtn".*?</Button>', attendance_xml, re.DOTALL
+        )
+        self.assertIsNotNone(export_button)
+        self.assertIn('<AbsDimension x="170" y="25" />', export_button.group(0))
+
     def test_logger_binds_module_frames_through_local_frame_owner_bindings(self):
         logger = read(ADDON / "Controllers" / "Logger.lua")
         attendance = read(ATTENDANCE)

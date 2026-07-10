@@ -93,6 +93,29 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertNotIn("GetFrame", attendance_export)
         self.assertNotIn("UI.", attendance_export)
 
+    def test_attendance_export_preserves_legacy_csv_header_names(self):
+        attendance_export = read(ATTENDANCE_EXPORT)
+
+        self.assertIn(
+            '''local HEADER_RAID_ATTENDANCE = {
+	"raidNid",
+	"raidDate",
+	"zone",
+	"size",
+	"difficulty",
+	"playerNid",
+	"player",
+	"class",
+	"join",
+	"leave",
+	"attendanceSeconds",
+	"onlineSeconds",
+	"offlineSeconds",
+	"segmentCount",
+}''',
+            attendance_export,
+        )
+
     def test_logger_export_no_longer_owns_raid_attendance_csv(self):
         logger_export = read(LOGGER_EXPORT)
 

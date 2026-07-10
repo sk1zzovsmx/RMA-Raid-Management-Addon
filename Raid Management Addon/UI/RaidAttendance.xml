@@ -430,7 +430,7 @@
 					</Button>
 					<Button name="$parentExportBtn" inherits="RMAActionButtonTemplate">
 						<Size>
-							<AbsDimension x="120" y="25" />
+							<AbsDimension x="170" y="25" />
 						</Size>
 						<Anchors>
 							<Anchor point="LEFT" relativeTo="$parentForceInspectBtn" relativePoint="RIGHT">

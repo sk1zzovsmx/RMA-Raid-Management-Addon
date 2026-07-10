@@ -1062,7 +1062,7 @@ do
 
 	local function bindExportFrame()
 		local refs = getExportFrameRefs()
-		if not refs or refs.frame._RMABound then
+		if not refs then
 			return refs
 		end
 
@@ -1102,7 +1102,6 @@ do
 			end)
 		end
 
-		refs.frame._RMABound = true
 		return refs
 	end
 
