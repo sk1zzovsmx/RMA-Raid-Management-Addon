@@ -11,6 +11,8 @@ REGISTRY = ADDON / "Modules" / "ModuleRegistry.lua"
 CONFIG_CONTROLLER = ADDON / "Controllers" / "Config.lua"
 CONFIG_WIDGET = ADDON / "Widgets" / "Config.lua"
 MASTER = ADDON / "Controllers" / "Master.lua"
+LOGGER = ADDON / "Controllers" / "Logger.lua"
+INIT = ADDON / "Init.lua"
 MINIMAP = ADDON / "EntryPoints" / "Minimap.lua"
 SLASH = ADDON / "EntryPoints" / "SlashEvents.lua"
 TOC = ADDON / "Raid Management Addon.toc"
@@ -118,21 +120,38 @@ class VerticalSliceArchitectureTest(unittest.TestCase):
 
     def test_master_loot_cross_owner_contracts_are_explicit(self):
         expected = (
-            (LOOT_DISTRIBUTION, "Loot.DistributionSession"),
-            (LOOT_INVENTORY, "Loot.Inventory"),
-            (LOOT_AWARD, "Loot.AwardPlanner"),
+            (LOOT_DISTRIBUTION, "Loot.DistributionSession = Loot.DistributionSession or {}"),
+            (LOOT_INVENTORY, "Loot.Inventory = Loot.Inventory or {}"),
+            (LOOT_AWARD, "Loot.AwardPlanner = Loot.AwardPlanner or {}"),
         )
-        for path, symbol in expected:
+        for path, declaration in expected:
             source = read(path)
             with self.subTest(path=path.name):
-                self.assertIn(symbol, source)
-                self.assertNotIn(symbol.replace("Loot.", "Loot._"), source)
+                self.assertRegex(source, rf"(?m)^\s*{re.escape(declaration)}\s*$")
 
-    def test_code_outside_loot_does_not_use_loot_private_helpers(self):
+    def test_retired_master_loot_owner_names_are_absent_from_runtime(self):
+        retired = ("_DistributionSession", "_Inventory", "_AwardPlanner")
         for path in ADDON.rglob("*.lua"):
             relative = path.relative_to(ADDON).as_posix()
-            if relative.startswith("Libs/") or relative.startswith("Services/Loot/"):
+            if relative.startswith("Libs/"):
                 continue
             source = read(path)
             with self.subTest(relative=relative):
-                self.assertNotIn("Loot._", source)
+                for symbol in retired:
+                    self.assertNotIn(symbol, source)
+                    self.assertNotIn("lootService." + symbol, source)
+
+    def test_master_and_init_bind_explicit_loot_owners(self):
+        master = read(MASTER)
+        init = read(INIT)
+        self.assertIn("local LootDistribution = assert(Loot.DistributionSession", master)
+        self.assertIn("local LootInventory = assert(Loot.Inventory", master)
+        self.assertIn("local LootAwardPlanner = assert(Loot.AwardPlanner", master)
+        self.assertIn("lootService.DistributionSession", init)
+
+    def test_logger_loot_controller_assignment_matches_roster_refresh_field(self):
+        source = read(LOGGER)
+        self.assertIn("local ctrl = listModules[i] and listModules[i]._ctrl", source)
+        self.assertIn("Loot._ctrl = controller", source)
+        self.assertIn("module.Loot._ctrl.data", source)
+        self.assertNotIn("Loot.controller = controller", source)
