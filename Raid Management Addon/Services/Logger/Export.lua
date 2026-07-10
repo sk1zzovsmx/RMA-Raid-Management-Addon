@@ -41,23 +41,6 @@ local HEADER_LOOT = {
 	"lootTime",
 }
 
-local HEADER_RAID_ATTENDANCE = {
-	"raidNid",
-	"raidDate",
-	"zone",
-	"size",
-	"difficulty",
-	"playerNid",
-	"player",
-	"class",
-	"join",
-	"leave",
-	"attendanceSeconds",
-	"onlineSeconds",
-	"offlineSeconds",
-	"segmentCount",
-}
-
 -- ----- Private helpers ----- --
 local function normalizeContext(context)
 	return type(context) == "table" and context or {}
@@ -156,8 +139,6 @@ function Export:GetCSV(mode, raid, context)
 
 	if mode == "loot" then
 		return self:GetLootCSV(raid, context)
-	elseif mode == "raidAttendance" then
-		return self:GetRaidAttendanceCSV(raid, context)
 	end
 
 	return "", "INVALID_MODE"
@@ -205,45 +186,6 @@ function Export:GetLootCSV(raid, context)
 	finishPerf("Logger.Export.GetLootCSV", perfStart, raid, rowCount, csv)
 	return csv
 end
-
-function Export:GetRaidAttendanceCSV(raid)
-	local perfStart = addon.hasPerf and addon._PerfStart and addon:_PerfStart() or nil
-	local queries = Database.GetRaidQueries()
-	local attendanceRows = {}
-	queries:GetRaidAttendance(raid, attendanceRows)
-	local lines = {}
-	local fields = {}
-	local encoded = {}
-	local rowCount = 0
-	appendCSVLine(lines, HEADER_RAID_ATTENDANCE, encoded, #HEADER_RAID_ATTENDANCE)
-
-	for i = 1, #attendanceRows do
-		local entry = attendanceRows[i]
-		if entry then
-			fields[1] = getRaidNid(raid)
-			fields[2] = getRaidDate(raid)
-			fields[3] = getRaidZone(raid)
-			fields[4] = getRaidSize(raid)
-			fields[5] = getRaidDifficulty(raid)
-			fields[6] = tonumber(entry.id) or ""
-			fields[7] = entry.name or ""
-			fields[8] = entry.class or ""
-			fields[9] = formatTimestamp(entry.join)
-			fields[10] = formatTimestamp(entry.leave)
-			fields[11] = tonumber(entry.attendanceSeconds) or 0
-			fields[12] = tonumber(entry.onlineSeconds) or 0
-			fields[13] = tonumber(entry.offlineSeconds) or 0
-			fields[14] = tonumber(entry.segmentCount) or 0
-			rowCount = rowCount + 1
-			appendCSVLine(lines, fields, encoded, 14)
-		end
-	end
-
-	local csv = concat(lines, "\n")
-	finishPerf("Logger.Export.GetRaidAttendanceCSV", perfStart, raid, rowCount, csv)
-	return csv
-end
-
 local registry = feature.ModuleRegistry
 if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
 	registry.AddModule("Services/Logger/Export", {

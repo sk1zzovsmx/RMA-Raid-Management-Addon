@@ -31,6 +31,14 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
         self.assertIn('"Services/Attendance/Export"', attendance)
         self.assertIn("local Export = Attendance.Export", attendance_export)
 
+    def test_attendance_export_is_not_owned_by_logger_controller_or_service(self):
+        attendance = read(ATTENDANCE)
+        logger = read(ROOT / "Raid Management Addon" / "Services" / "Logger" / "Export.lua")
+
+        self.assertIn("AttendanceExport:GetRaidAttendanceCSV(raid, getAttendanceExportContext())", attendance)
+        self.assertNotIn("GetRaidAttendanceCSV", logger)
+        self.assertNotIn("raidAttendance", logger)
+
     def test_warnings_controller_binds_chat_service_without_local_api_table(self):
         warnings = read(WARNINGS)
 

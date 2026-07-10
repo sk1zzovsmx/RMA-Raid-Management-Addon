@@ -93,6 +93,17 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertNotIn("GetFrame", attendance_export)
         self.assertNotIn("UI.", attendance_export)
 
+    def test_logger_export_no_longer_owns_raid_attendance_csv(self):
+        logger_export = read(LOGGER_EXPORT)
+
+        self.assertIn("function Export:GetCSV(mode, raid, context)", logger_export)
+        self.assertIn('if mode == "loot" then', logger_export)
+        self.assertNotIn('elseif mode == "raidAttendance" then', logger_export)
+        self.assertNotIn("function Export:GetRaidAttendanceCSV", logger_export)
+        self.assertNotIn("HEADER_RAID_ATTENDANCE", logger_export)
+        self.assertNotIn("GetRaidAttendance(raid", logger_export)
+        self.assertNotIn("Logger.Export.GetRaidAttendanceCSV", logger_export)
+
     def test_public_rma_identity_is_preserved(self):
         init = read(INIT)
         toc = read(TOC)
