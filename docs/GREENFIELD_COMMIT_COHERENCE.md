@@ -6,38 +6,25 @@ runtime smoke gap is recorded below.
 
 ## Current Staged Scope
 
-The current staged set contains the validated GREENFIELD_REWRITE worktree
-changes across runtime Lua, TOC, policy docs, user docs, and tests:
+The attendance-export rewrite is implemented in prior commits. This final
+evidence commit records its ownership boundary:
 
-- `Raid Management Addon/Database/SavedVariables.lua` added as the single
-  runtime owner for public `RMA_*` SavedVariables access.
-- `Raid Management Addon/Raid Management Addon.toc` updated for current load
-  order and release packaging.
-- `Raid Management Addon/Services/Master/Service.lua` deleted as a dead
-  pass-through facade.
-- `Raid Management Addon/Database/DBSyncer.lua` registers `RMALogSync` before
-  logger sync sends or handles addon messages.
-- `Raid Management Addon/Controllers/Master.lua` registers
-  `RMA-RollWinner` before roll-winner broadcasts.
-- Runtime changes across controllers, services, modules, widgets, entry points,
-  localization, and database owners are staged with their matching docs/tests.
-- `docs/GREENFIELD_REWRITE_CONTRACT.md` and `docs/VALIDATION.md` record current
-  owner, validation, behavior-delta, and runtime-smoke policy.
-- New tests cover SavedVariables ownership, prefix registration, TOC packaging,
-  load-order dependency ordering, deleted Master facade references, and docs
-  consistency.
+- `Services/Attendance/Export.lua` owns attendance CSV generation.
+- `Controllers/Attendance.lua` owns the attendance export command and UI
+  action.
+- `Services/Logger/Export.lua` and `Controllers/Logger.lua` own logger and
+  loot-history export only.
+- `docs/ARCHITECTURE.md` records the final attendance and logger ownership
+  boundary.
 
 ## Unstaged Runtime Scope
 
-No unstaged runtime files remain in the working tree after the full staging
-pass.
-
-This report describes the currently staged scope. The working tree has no
-unstaged runtime changes outside this staged set.
+No unstaged runtime files remain in the working tree outside the final
+documentation evidence for this rewrite.
 
 ## TOC And Load Order
 
-Current staged checks require:
+The final implementation requires:
 
 - every Lua/XML file referenced by `Raid Management Addon.toc` is tracked for
   release packaging;
@@ -48,7 +35,7 @@ Current staged checks require:
 
 ## Registry And Deleted References
 
-The staged tests require:
+The tests require:
 
 - `Services\Master\Service.lua` is not referenced by the TOC;
 - `Services/Master/Service` is not referenced as a live registry dependency by
@@ -58,20 +45,17 @@ The staged tests require:
 
 ## Validation Evidence
 
-Latest validation run for this staged snapshot:
+Latest validation run for the attendance-export rewrite evidence commit:
 
-- `py -3 -m unittest discover -s tests` -> 388 tests OK.
+- `py -3 -m unittest discover -s tests` -> 396 tests OK.
+- Lua 5.1 lint -> 131 files clean.
 - TOC validator -> OK.
-- Lua 5.1 lint -> 130 files clean.
-- `scan_xpcall.py` -> 130 files clean of variadic `xpcall`.
-- XML handler scan -> no matches; command exits 1 when no XML handlers exist.
+- `scan_xpcall.py` -> 131 files clean of variadic `xpcall`.
 - `luacheck "Raid Management Addon"` -> 0 warnings / 0 errors.
-- `stylua --check` on touched runtime Lua files -> OK.
-- `git diff --check` and `git diff --cached --check` -> OK, with only Git CRLF
-  conversion warnings reported by status/diff commands.
+- `stylua --check` on the seven touched runtime Lua files -> OK.
+- `git diff --check` -> no whitespace errors.
 
-The reset baseline does not track `tools/check-rma.ps1`; that gate is
-documented as unavailable until restored.
+`tools/check-rma.ps1` remains unavailable in this reset baseline.
 
 ## Runtime Smoke Gap
 

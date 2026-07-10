@@ -52,17 +52,16 @@ localization, refresh logic, and frame behavior.
 
 ## Feature Areas
 
-- Raid state and attendance: `Services/Raid/*`, with active raid session state
-  owned by `Services/Raid/State.lua`, plus `Services/EquipInspect.lua`,
-  `Services/SpecInspect.lua`, `Services/Attendance/*`,
+- Raid attendance: `Services/Raid/Attendance.lua`,
+  `Services/EquipInspect.lua`, `Services/SpecInspect.lua`,
+  `Services/Attendance/*`, `Services/Attendance/Export.lua`,
   `Controllers/Attendance.lua`, and attendance XML.
 - Master loot: `Controllers/Master.lua`, `Services/Master/*`,
   `Services/Loot/*` with runtime loot state owned by
   `Services/Loot/State.lua`, `Services/Rolls/*`, `Widgets/RaidGrid.lua`,
   `Widgets/LootHints.lua`, and master/raid-grid XML.
 - Loot history/logger: `Services/Logger/*`, `Controllers/Logger.lua`,
-  `Database/DBRaid*`, `Database/DBSync*`, logger/history XML, and logger export
-  surfaces.
+  and loot-history XML. Logger export covers logger and loot-history data only.
 - Reserves and SoftRes: `Services/Reserves.lua`, `Services/Reserves/*`,
   `Widgets/ReservesUI.lua`, and reserves XML.
 - Raid warnings: `Controllers/Warnings.lua`, `Services/Warnings/Store.lua`,

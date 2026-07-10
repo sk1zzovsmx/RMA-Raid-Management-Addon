@@ -1573,6 +1573,8 @@ do
 			end, validateRollValue)
 		end
 	end
+
+	RegisterCallback(LoggerEvents.LoggerClearPlayerSelections, clearPlayerSelections)
 end
 
 -- Shared factory for Logger list controllers with standardized highlight/focus config.
@@ -2344,7 +2346,6 @@ do
 	for i = 1, #resetEvents do
 		RegisterCallback(resetEvents[i], reset)
 	end
-	RegisterCallback(LoggerEvents.LoggerClearPlayerSelections, clearPlayerSelections)
 	RegisterCallback(LoggerEvents.RaidLootUpdate, requestLootRefresh)
 	RegisterCallback(LoggerEvents.LoggerSelectItem, function()
 		controller:Touch()
