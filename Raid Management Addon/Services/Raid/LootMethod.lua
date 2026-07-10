@@ -2,7 +2,7 @@
 -- deps: local addon = select(2, ...)
 -- shared: local feature = addon.Database.GetFeatureShared()
 -- exports: addon.Services.Raid loot-method automation APIs
--- events: listens forwarded PLAYER_TARGET_CHANGED through Master; emits RequestGroupLootRestorePrompt
+-- events: listens forwarded PLAYER_TARGET_CHANGED through Master; emits GroupLootRestoreNeeded
 local addon = select(2, ...)
 local feature = addon.Database.GetFeatureShared()
 
@@ -26,8 +26,8 @@ local UnitName = assert(_G.UnitName, "Raid loot method unit name API is not init
 local GetCreatureId = assert(feature.GetCreatureId, "Raid loot method creature-id helper is not initialized")
 local InternalEvents = assert(Events.Internal, "Raid loot method event registry is not initialized")
 local ScreenNoticeEvent = assert(InternalEvents.ScreenNotice, "Raid loot method screen notice event is not initialized")
-local RequestGroupLootRestorePromptEvent =
-	assert(InternalEvents.RequestGroupLootRestorePrompt, "Raid loot method restore prompt event is not initialized")
+local GroupLootRestoreNeededEvent =
+	assert(InternalEvents.GroupLootRestoreNeeded, "Raid loot method restore notification is not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Raid loot method event bus sender is not initialized")
 
 local AUTO_MASTER_LOOT_COOLDOWN_SECONDS = 3
@@ -117,8 +117,8 @@ local function showCenterNotice(message)
 	return true
 end
 
-local function requestGroupLootRestorePrompt()
-	TriggerEvent(RequestGroupLootRestorePromptEvent)
+local function notifyGroupLootRestoreNeeded()
+	TriggerEvent(GroupLootRestoreNeededEvent)
 	return true
 end
 
@@ -195,7 +195,7 @@ function module:NotifyLootWindowCleared()
 		clearLootWindowPromptState()
 		return false
 	end
-	if not requestGroupLootRestorePrompt() then
+	if not notifyGroupLootRestoreNeeded() then
 		return false
 	end
 

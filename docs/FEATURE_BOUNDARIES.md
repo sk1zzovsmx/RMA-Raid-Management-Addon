@@ -20,6 +20,9 @@ Commands and queries use direct owner calls.
 
 Notifications report a completed state change and do not return a result to the
 publisher. Notifications use addon.Bus after the state change succeeds.
+A service may notify that UI attention is needed, but the event name must describe
+the completed condition rather than encode an imperative controller command.
+`GroupLootRestoreNeeded` is the reference pattern.
 
 ### UI Requests
 

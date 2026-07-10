@@ -62,8 +62,8 @@ local TriggerEvent = assert(Bus.TriggerEvent, "Master controller event publisher
 local RegisterCallback = assert(Bus.RegisterCallback, "Master controller event listener is not initialized")
 local GetWowForwarded = assert(Events.GetWowForwarded, "Master controller forwarded-event resolver is not initialized")
 local MasterEvents = {
-	RequestGroupLootRestorePrompt = assert(
-		InternalEvents.RequestGroupLootRestorePrompt,
+	GroupLootRestoreNeeded = assert(
+		InternalEvents.GroupLootRestoreNeeded,
 		"Master controller group-loot restore prompt event is not initialized"
 	),
 	SetItem = assert(InternalEvents.SetItem, "Master controller set-item event is not initialized"),
@@ -3364,7 +3364,7 @@ do
 		Private.RegisterWowForwarded("TRADE_TARGET_ITEM_CHANGED")
 		Private.RegisterWowForwarded("TRADE_CLOSED")
 
-		RegisterCallback(MasterEvents.RequestGroupLootRestorePrompt, function()
+		RegisterCallback(MasterEvents.GroupLootRestoreNeeded, function()
 			ShowConfirmPopup(
 				GROUP_LOOT_RESTORE_POPUP_KEY,
 				L.PopupGroupLootRestoreText,

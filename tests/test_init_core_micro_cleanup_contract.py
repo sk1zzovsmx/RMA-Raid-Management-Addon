@@ -821,7 +821,7 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertIn('"Master controller forwarded-event resolver is not initialized"', master)
         self.assertIn("local MasterEvents = {", master)
         for event_name in (
-            "RequestGroupLootRestorePrompt",
+            "GroupLootRestoreNeeded",
             "SetItem",
             "RaidRosterDelta",
             "ReservesDataChanged",
@@ -2035,15 +2035,15 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertIn("local ScreenNoticeEvent = assert(", loot_method)
         self.assertIn("InternalEvents.ScreenNotice", loot_method)
         self.assertIn('"Raid loot method screen notice event is not initialized"', loot_method)
-        self.assertIn("local RequestGroupLootRestorePromptEvent =", loot_method)
-        self.assertIn("assert(InternalEvents.RequestGroupLootRestorePrompt", loot_method)
-        self.assertIn("InternalEvents.RequestGroupLootRestorePrompt", loot_method)
-        self.assertIn('"Raid loot method restore prompt event is not initialized"', loot_method)
+        self.assertIn("local GroupLootRestoreNeededEvent =", loot_method)
+        self.assertIn("assert(InternalEvents.GroupLootRestoreNeeded", loot_method)
+        self.assertIn("InternalEvents.GroupLootRestoreNeeded", loot_method)
+        self.assertIn('"Raid loot method restore notification is not initialized"', loot_method)
         self.assertIn("local TriggerEvent = assert(", loot_method)
         self.assertIn("Bus.TriggerEvent", loot_method)
         self.assertIn('"Raid loot method event bus sender is not initialized"', loot_method)
         self.assertIn("TriggerEvent(ScreenNoticeEvent, message, getAutoMasterLootNoticeSeconds())", loot_method)
-        self.assertIn("TriggerEvent(RequestGroupLootRestorePromptEvent)", loot_method)
+        self.assertIn("TriggerEvent(GroupLootRestoreNeededEvent)", loot_method)
         self.assertNotIn("Bus and Bus.TriggerEvent", loot_method)
         self.assertNotIn("Events and Events.Internal", loot_method)
 

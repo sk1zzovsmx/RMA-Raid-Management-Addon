@@ -21,6 +21,8 @@ OLD_DEBUG = ADDON / "Services" / "Debug.lua"
 LOOT_DISTRIBUTION = ADDON / "Services" / "Loot" / "DistributionSession.lua"
 LOOT_INVENTORY = ADDON / "Services" / "Loot" / "Inventory.lua"
 LOOT_AWARD = ADDON / "Services" / "Loot" / "AwardPlanner.lua"
+EVENTS = ADDON / "Modules" / "Events.lua"
+LOOT_METHOD = ADDON / "Services" / "Raid" / "LootMethod.lua"
 
 
 def read(path):
@@ -28,6 +30,30 @@ def read(path):
 
 
 class VerticalSliceArchitectureTest(unittest.TestCase):
+    def test_group_loot_restore_event_is_a_notification(self):
+        events = read(EVENTS)
+        loot_method = read(LOOT_METHOD)
+        master = read(MASTER)
+        for source in (events, loot_method, master):
+            self.assertNotIn("RequestGroupLootRestorePrompt", source)
+        self.assertIn("GroupLootRestoreNeeded", events)
+        self.assertIn("TriggerEvent(GroupLootRestoreNeededEvent)", loot_method)
+        self.assertIn("RegisterCallback(MasterEvents.GroupLootRestoreNeeded", master)
+
+    def test_removed_command_routing_layers_do_not_return(self):
+        runtime_sources = "\n".join(
+            read(path)
+            for path in ADDON.rglob("*.lua")
+            if "Libs" not in path.parts
+        )
+        for forbidden in (
+            "RequestControllerMethod",
+            "LoggerLootLogRequest",
+            "SetDistributionState",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, runtime_sources)
+
     def test_feature_boundary_contract_names_every_product_slice(self):
         content = read(BOUNDARIES)
         for heading in (
