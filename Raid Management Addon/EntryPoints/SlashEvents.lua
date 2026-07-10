@@ -20,6 +20,12 @@ local Colors = feature.Colors
 local Strings = feature.Strings
 local Database = feature.Database
 local Services = feature.Services
+local Controllers = feature.Controllers
+local MasterController = assert(Controllers.Master, "Slash master controller is not initialized")
+local LoggerController = assert(Controllers.Logger, "Slash logger controller is not initialized")
+local AttendanceController = assert(Controllers.Attendance, "Slash attendance controller is not initialized")
+local WarningsController = assert(Controllers.Warnings, "Slash warnings controller is not initialized")
+local SpammerController = assert(Controllers.Spammer, "Slash spammer controller is not initialized")
 local Comms = feature.Comms
 local Item = feature.Item
 local Timer = feature.Timer
@@ -505,7 +511,7 @@ local function handleDebugRaidGridCommand(arg)
 		end
 	end
 
-	local shown = Database.RequestControllerMethod("Master", "ShowDebugRaidGrid", count or 25)
+	local shown = MasterController:ShowDebugRaidGrid(count or 25)
 	if not shown then
 		addon:warn(L.MsgFeatureUnavailable, "Master", "debug raidgrid")
 		return
@@ -912,20 +918,20 @@ end
 local function handleWarningsCommand(rest)
 	local sub = Strings.SplitArgs(rest)
 	if isToggleCommand(sub) then
-		Database.RequestControllerMethod("Warnings", "Toggle")
+		WarningsController:Toggle()
 	elseif sub == "help" then
 		addon:info(format(L.StrCmdCommands, "RMA rw"), "RMA")
 		printHelp("toggle", L.StrCmdToggle)
 		printHelp("[ID]", L.StrCmdWarningAnnounce)
 	else
-		Database.RequestControllerMethod("Warnings", "RequestAnnounce", sub)
+		WarningsController:RequestAnnounce(sub)
 	end
 end
 
 local function handleLoggerCommand(rest)
 	local sub, arg = Strings.SplitArgs(rest)
 	if isToggleCommand(sub) then
-		Database.RequestControllerMethod("Logger", "ToggleLootHistory")
+		LoggerController:ToggleLootHistory()
 	elseif sub == "req" then
 		callSyncerMethodWithTarget("RequestLoggerReq", arg)
 	elseif sub == "push" then
@@ -942,13 +948,13 @@ local function handleLoggerCommand(rest)
 end
 
 local function handleAttendanceCommand()
-	Database.RequestControllerMethod("Attendance", "Toggle")
+	AttendanceController:Toggle()
 end
 
 local function handleLootCommand(rest)
 	local sub = Strings.SplitArgs(rest)
 	if isToggleCommand(sub) then
-		Database.RequestControllerMethod("Master", "Toggle")
+		MasterController:Toggle()
 	end
 end
 
@@ -1295,11 +1301,11 @@ end
 local function handleLfmCommand(rest)
 	local sub = Strings.SplitArgs(rest)
 	if isToggleCommand(sub) or sub == "show" then
-		Database.RequestControllerMethod("Spammer", "Toggle")
+		SpammerController:Toggle()
 	elseif sub == "start" then
-		Database.RequestControllerMethod("Spammer", "RequestStart")
+		SpammerController:RequestStart()
 	elseif sub == "stop" then
-		Database.RequestControllerMethod("Spammer", "RequestStop")
+		SpammerController:RequestStop()
 	else
 		addon:info(format(L.StrCmdCommands, "RMA pug"), "RMA")
 		printHelp("toggle", L.StrCmdToggle)
@@ -1438,6 +1444,11 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Services/Debug",
 			"Services/SpecInspect",
 			"Services/Raid/State",
+			"Controllers/Master",
+			"Controllers/Logger",
+			"Controllers/Attendance",
+			"Controllers/Warnings",
+			"Controllers/Spammer",
 		},
 	})
 	registry.SetLoaded("EntryPoints/SlashEvents")

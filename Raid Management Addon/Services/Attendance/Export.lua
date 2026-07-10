@@ -11,11 +11,12 @@ local Services = feature.Services
 
 local concat = table.concat
 local tostring, tonumber, type = tostring, tonumber, type
-local date = date
 
 feature.EnsureServiceNamespace("Attendance", "Export")
 local Attendance = Services.Attendance
 local Export = Attendance.Export
+local RaidProjections = assert(Services.Raid.Projections, "Attendance export raid projections are not initialized")
+local FormatTimestamp = RaidProjections.FormatTimestamp
 
 local HEADER_RAID_ATTENDANCE = {
 	"raidNid",
@@ -49,47 +50,14 @@ local function appendCSVLine(lines, fields, encoded, count)
 	lines[#lines + 1] = concat(encoded, ",", 1, count)
 end
 
-local function formatTimestamp(value)
-	local ts = tonumber(value)
-	if ts and ts > 0 then
-		return date("%Y-%m-%d %H:%M:%S", ts)
-	end
-	return ""
-end
-
-local function getRaidNid(raid)
-	return tonumber(raid and raid.raidNid) or ""
-end
-
-local function getRaidDate(raid)
-	return formatTimestamp(raid and raid.startTime)
-end
-
-local function getRaidZone(raid)
-	return raid and raid.zone or ""
-end
-
-local function getRaidSize(raid)
-	return tonumber(raid and raid.size) or ""
-end
-
-local function getRaidDifficulty(raid)
-	return tonumber(raid and raid.difficulty) or ""
-end
-
-local function finishPerf(label, startedAt, raid, rowCount, csv)
+local function finishPerf(label, startedAt, raidNid, rowCount, csv)
 	if not (startedAt and addon._PerfFinish) then
 		return
 	end
 	addon:_PerfFinish(
 		label,
 		startedAt,
-		"raid="
-			.. tostring(getRaidNid(raid))
-			.. " rows="
-			.. tostring(rowCount or 0)
-			.. " bytes="
-			.. tostring(#(csv or ""))
+		"raid=" .. tostring(raidNid or "") .. " rows=" .. tostring(rowCount or 0) .. " bytes=" .. tostring(#(csv or ""))
 	)
 end
 
@@ -99,6 +67,7 @@ function Export:GetRaidAttendanceCSV(raid, context)
 	end
 
 	local perfStart = addon.hasPerf and addon._PerfStart and addon:_PerfStart() or nil
+	local raidMetadata = RaidProjections.BuildExportMetadata(raid)
 	local queries = Database.GetRaidQueries()
 	local attendanceRows = {}
 	queries:GetRaidAttendance(raid, attendanceRows)
@@ -111,16 +80,16 @@ function Export:GetRaidAttendanceCSV(raid, context)
 	for i = 1, #attendanceRows do
 		local entry = attendanceRows[i]
 		if entry then
-			fields[1] = getRaidNid(raid)
-			fields[2] = getRaidDate(raid)
-			fields[3] = getRaidZone(raid)
-			fields[4] = getRaidSize(raid)
-			fields[5] = getRaidDifficulty(raid)
+			fields[1] = raidMetadata.raidNid
+			fields[2] = raidMetadata.raidDate
+			fields[3] = raidMetadata.zone
+			fields[4] = raidMetadata.size
+			fields[5] = raidMetadata.difficulty
 			fields[6] = tonumber(entry.id) or ""
 			fields[7] = entry.name or ""
 			fields[8] = entry.class or ""
-			fields[9] = formatTimestamp(entry.join)
-			fields[10] = formatTimestamp(entry.leave)
+			fields[9] = FormatTimestamp(entry.join)
+			fields[10] = FormatTimestamp(entry.leave)
 			fields[11] = tonumber(entry.attendanceSeconds) or 0
 			fields[12] = tonumber(entry.onlineSeconds) or 0
 			fields[13] = tonumber(entry.offlineSeconds) or 0
@@ -131,7 +100,7 @@ function Export:GetRaidAttendanceCSV(raid, context)
 	end
 
 	local csv = concat(lines, "\n")
-	finishPerf("Attendance.Export.GetRaidAttendanceCSV", perfStart, raid, rowCount, csv)
+	finishPerf("Attendance.Export.GetRaidAttendanceCSV", perfStart, raidMetadata.raidNid, rowCount, csv)
 	return csv
 end
 
@@ -142,6 +111,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Init",
 			"Database/DBRaidQueries",
 			"Modules/ModuleRegistry",
+			"Services/Raid/Projections",
 		},
 	})
 	registry.SetLoaded("Services/Attendance/Export")

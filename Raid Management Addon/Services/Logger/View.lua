@@ -28,25 +28,6 @@ local function getOutputCount(out)
 	return #out
 end
 
-local function buildRaidListRow(raid, seq, queries)
-	if not raid then
-		return nil
-	end
-
-	local summary = queries:GetRaidSummary(raid)
-	local row = {}
-	row.id = tonumber(raid.raidNid)
-	row.seq = seq
-	row.zone = raid.zone
-	row.size = (summary and summary.size) or raid.size
-	row.difficulty = tonumber((summary and summary.difficulty) or raid.difficulty)
-	local mode = row.difficulty and ((row.difficulty == 3 or row.difficulty == 4) and "H" or "N") or "?"
-	row.sizeLabel = tostring(row.size or "") .. mode
-	row.date = (summary and summary.startTime) or raid.startTime
-	row.dateFmt = date("%d/%m/%y %H:%M", row.date)
-	return row
-end
-
 local function getRaidPerfId(raid)
 	return tostring((raid and raid.raidNid) or "?")
 end
@@ -74,24 +55,6 @@ function View:GetBossModeLabel(bossData)
 		mode = (bossData.difficulty == 3 or bossData.difficulty == 4) and "h" or "n"
 	end
 	return (mode == "h") and "H" or "N"
-end
-
-function View:GetRaidDifficultyLabel(raid)
-	local diff = tonumber(raid and raid.difficulty)
-	local size = tonumber(raid and raid.size)
-	if diff == 1 then
-		return "10N"
-	elseif diff == 2 then
-		return "25N"
-	elseif diff == 3 then
-		return "10H"
-	elseif diff == 4 then
-		return "25H"
-	end
-	if size then
-		return tostring(size) .. "?"
-	end
-	return ""
 end
 
 function View:FillBossList(out, raid)
@@ -179,26 +142,6 @@ function View:FillLootList(out, raid, bossNid, playerName)
 		"boss=" .. tostring(bossNid or "?") .. " player=" .. tostring(playerName or "")
 	)
 	return result
-end
-
-function View:FillRaidList(out, contextTag)
-	if type(out) ~= "table" then
-		return
-	end
-
-	local perfStart = addon.hasPerf and addon._PerfStart and addon:_PerfStart() or nil
-	twipe(out)
-	local raidStore = Database.GetRaidStoreOrNil(contextTag, { "GetAllRaids", "GetRaidByIndex" })
-	local raids = raidStore and raidStore:GetAllRaids() or {}
-	local queries = Database.GetRaidQueries()
-	for i = 1, #raids do
-		local raid = (raidStore and raidStore:GetRaidByIndex(i)) or Database.EnsureRaidById(i)
-		local row = buildRaidListRow(raid, i, queries)
-		if row then
-			out[i] = row
-		end
-	end
-	finishPerf("Logger.View.FillRaidList", perfStart, nil, out, "context=" .. tostring(contextTag or ""))
 end
 
 local registry = feature.ModuleRegistry

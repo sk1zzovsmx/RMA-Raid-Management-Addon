@@ -364,30 +364,6 @@ function Snapshots.ConsumeActive(raidState, itemLink, now)
 	return tonumber(snapshot.bossNid) or 0
 end
 
-local contextBridge = {
-	SetField = ContextState.SetField,
-	SetActive = ContextState.SetActive,
-	SyncActive = ContextState.SyncActive,
-	GetWindow = ContextState.GetWindow,
-	ClearWindow = ContextState.ClearWindow,
-	ResolveExpiry = ContextState.ResolveExpiry,
-	GetSource = ContextState.GetSource,
-	ClearSource = ContextState.ClearSource,
-	GetBossEvent = ContextState.GetBossEvent,
-	SyncField = ContextState.SyncField,
-	Reset = ContextState.Reset,
-	RememberSession = module._Sessions.Remember,
-	ResolveSession = module._Sessions.Resolve,
-	ClearActiveSnapshot = Snapshots.ClearActive,
-	CreateSnapshot = Snapshots.Create,
-	MarkActiveSnapshot = Snapshots.MarkActive,
-	FindMatchingSnapshot = Snapshots.FindMatching,
-	ConsumeActiveSnapshot = Snapshots.ConsumeActive,
-	CopyLootSource = module._Context.CopyLootSource,
-}
-
-module._ContextBridge = contextBridge
-
 local registry = feature.ModuleRegistry
 if registry and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
 	registry.AddModule("Services/Loot/Snapshots", {

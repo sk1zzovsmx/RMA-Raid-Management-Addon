@@ -93,12 +93,14 @@ Services\Raid\Roster.lua
 Services\Raid\Attendance.lua
 Services\Raid\LootRecords.lua
 Services\Raid\Session.lua
+Services\Raid\Projections.lua
 Services\SpecInspect.lua
 Services\EquipInspect.lua
 Services\Chat.lua
 Services\Debug.lua
-EntryPoints\Minimap.lua
-EntryPoints\SlashEvents.lua
+Services\Logger\Store.lua
+Services\Logger\Helpers.lua
+Services\Logger\Actions.lua
 Services\Rolls\Countdown.lua
 Services\Rolls\Sessions.lua
 Services\Rolls\History.lua
@@ -133,11 +135,8 @@ Services\Reserves\Chat.lua
 Widgets\LootHints.lua
 UI\Reserves.xml
 Widgets\ReservesUI.lua
-Services\Logger\Store.lua
-Services\Logger\Helpers.lua
 Services\Logger\View.lua
 Services\Logger\Export.lua
-Services\Logger\Actions.lua
 Services\Attendance\Store.lua
 Services\Attendance\View.lua
 Services\Attendance\Actions.lua
@@ -149,9 +148,11 @@ UI\LootHistory.xml
 UI\RaidAttendance.xml
 Controllers\Logger.lua
 Controllers\Attendance.lua
-Widgets\Config.lua
 Controllers\Warnings.lua
 Controllers\Spammer.lua
+EntryPoints\Minimap.lua
+Widgets\Config.lua
+EntryPoints\SlashEvents.lua
 
 # Layer 6 - Concrete UI frames
 UI\Minimap.xml

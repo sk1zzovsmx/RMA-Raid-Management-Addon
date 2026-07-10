@@ -6,11 +6,16 @@ ROOT = Path(__file__).resolve().parents[1]
 ADDON = ROOT / "Raid Management Addon"
 TOC = ADDON / "Raid Management Addon.toc"
 WARNINGS = ADDON / "Controllers" / "Warnings.lua"
+WARNING_STORE = ADDON / "Services" / "Warnings" / "Store.lua"
 SPAMMER = ADDON / "Controllers" / "Spammer.lua"
 MASTER = ADDON / "Controllers" / "Master.lua"
 LOGGER = ADDON / "Controllers" / "Logger.lua"
 ATTENDANCE = ADDON / "Controllers" / "Attendance.lua"
 ATTENDANCE_EXPORT = ADDON / "Services" / "Attendance" / "Export.lua"
+LOGGER_VIEW = ADDON / "Services" / "Logger" / "View.lua"
+ATTENDANCE_VIEW = ADDON / "Services" / "Attendance" / "View.lua"
+ATTENDANCE_STORE = ADDON / "Services" / "Attendance" / "Store.lua"
+RAID_PROJECTIONS = ADDON / "Services" / "Raid" / "Projections.lua"
 ATTENDANCE_SERVICES = (
     ADDON / "Services" / "Attendance" / "Store.lua",
     ADDON / "Services" / "Attendance" / "View.lua",
@@ -18,6 +23,13 @@ ATTENDANCE_SERVICES = (
     ATTENDANCE_EXPORT,
 )
 MASTER_AWARD = ADDON / "Services" / "Master" / "Award.lua"
+MASTER_TRADE = ADDON / "Services" / "Master" / "Trade.lua"
+LOGGER_ACTIONS = ADDON / "Services" / "Logger" / "Actions.lua"
+EVENTS = ADDON / "Modules" / "Events.lua"
+INIT = ADDON / "Init.lua"
+MINIMAP = ADDON / "EntryPoints" / "Minimap.lua"
+SLASH_EVENTS = ADDON / "EntryPoints" / "SlashEvents.lua"
+CONFIG = ADDON / "Widgets" / "Config.lua"
 
 
 def read(path):
@@ -25,6 +37,101 @@ def read(path):
 
 
 class ControllerServiceBindingOwnershipTest(unittest.TestCase):
+    def test_ui_consumers_call_explicit_controller_owners_without_database_dispatch(self):
+        init = read(INIT)
+        minimap = read(MINIMAP)
+        slash_events = read(SLASH_EVENTS)
+        config = read(CONFIG)
+
+        for source in (init, minimap, slash_events, config):
+            with self.subTest(source=source[:40]):
+                self.assertNotIn("RequestControllerMethod", source)
+
+        self.assertIn('local MasterController = assert(Controllers.Master, "Minimap master controller is not initialized")', minimap)
+        self.assertIn("MasterController:Toggle()", minimap)
+        self.assertIn('local AttendanceController = assert(Controllers.Attendance, "Slash attendance controller is not initialized")', slash_events)
+        self.assertIn("AttendanceController:Toggle()", slash_events)
+        self.assertIn('local SpammerController = assert(Controllers.Spammer, "Config spammer controller is not initialized")', config)
+        self.assertIn("SpammerController:RequestStart()", config)
+
+    def test_config_uses_service_owners_for_data_only_panel_actions(self):
+        config = read(CONFIG)
+        actions = read(LOGGER_ACTIONS)
+        logger = read(LOGGER)
+        warning_store = read(WARNING_STORE)
+        warnings = read(WARNINGS)
+        events = read(EVENTS)
+
+        self.assertIn('local SpammerDraft = assert(Services.Spammer.Draft', config)
+        self.assertIn('local WarningStore = assert(Services.Warnings.Store', config)
+        self.assertIn("SpammerDraft.ClearDraft(", config)
+        self.assertIn("SpammerDraft.BuildPreview(", config)
+        self.assertIn("WarningStore.ClearSavedWarnings(", config)
+        self.assertIn("WarningStore.BuildTemplatePreview(", config)
+        self.assertNotIn("LoggerController", config)
+        self.assertNotIn('RequestRefresh("maintenance")', config)
+        self.assertIn("SpammerController:RequestStart()", config)
+        self.assertIn("SpammerController:RequestStop()", config)
+        self.assertIn("WarningsController:Toggle()", config)
+
+        self.assertIn("LoggerDataChanged", events)
+        self.assertIn("TriggerEvent(LoggerDataChangedEvent", actions)
+        self.assertIn("RegisterCallback(LoggerEvents.LoggerDataChanged", logger)
+        self.assertIn("WarningsDataChanged", events)
+        self.assertIn("TriggerEvent(WarningsDataChangedEvent", warning_store)
+        self.assertIn("RegisterCallback(WarningsDataChangedEvent", warnings)
+
+    def test_logger_loot_writes_are_service_owned_and_bus_only_notifies(self):
+        actions = read(LOGGER_ACTIONS)
+        logger = read(LOGGER)
+        master = read(MASTER)
+        trade = read(MASTER_TRADE)
+        events = read(EVENTS)
+
+        self.assertIn("function Actions:RecordLoot(request)", actions)
+        self.assertIn("TriggerEvent(LoggerLootChangedEvent", actions)
+        self.assertIn("LoggerLootChanged", events)
+        self.assertNotIn("LoggerLootLogRequest", events)
+        self.assertIn("LoggerActions:RecordLoot({", master)
+        self.assertIn("LoggerActions:RecordLoot({", trade)
+        self.assertIn("RegisterCallback(LoggerEvents.LoggerLootChanged", logger)
+        for source in (logger, master, trade):
+            with self.subTest(source=source[:40]):
+                self.assertNotIn("LoggerLootLogRequest", source)
+                self.assertNotIn("request.ok", source)
+
+    def test_logger_and_attendance_share_raid_projection_owner(self):
+        self.assertTrue(RAID_PROJECTIONS.exists())
+
+        projections = read(RAID_PROJECTIONS)
+        logger = read(LOGGER)
+        attendance = read(ATTENDANCE)
+        logger_export = read(ADDON / "Services" / "Logger" / "Export.lua")
+        attendance_export = read(ATTENDANCE_EXPORT)
+        logger_view = read(LOGGER_VIEW)
+        attendance_view = read(ATTENDANCE_VIEW)
+        attendance_store = read(ATTENDANCE_STORE)
+
+        self.assertIn('feature.EnsureServiceNamespace("Raid", "Projections")', projections)
+        self.assertIn("function Projections.FillRaidList(out, contextTag)", projections)
+        self.assertIn("function Projections.GetDifficultyLabel(raid)", projections)
+        self.assertIn("function Projections.BuildExportMetadata(raid)", projections)
+        self.assertIn('"Services/Raid/Projections"', logger)
+        self.assertIn('"Services/Raid/Projections"', attendance)
+        self.assertIn("RaidProjections.FillRaidList(out, \"Logger.Raids.GetData\")", logger)
+        self.assertIn("RaidProjections.FillRaidList(out, \"Attendance.Raids.GetData\")", attendance)
+        self.assertIn('"Services/Raid/Projections"', logger_export)
+        self.assertIn('"Services/Raid/Projections"', attendance_export)
+        self.assertIn("RaidProjections.BuildExportMetadata(raid)", logger_export)
+        self.assertIn("RaidProjections.BuildExportMetadata(raid)", attendance_export)
+        self.assertNotIn("local function buildRaidListRow", logger_view)
+        self.assertNotIn("local function buildRaidListRow", attendance_view)
+        self.assertNotIn("function View:FillRaidList", logger_view)
+        self.assertNotIn("function View:FillRaidList", attendance_view)
+        self.assertNotIn("function View:GetRaidDifficultyLabel", logger_view)
+        self.assertNotIn("function View:GetRaidDifficultyLabel", attendance_view)
+        self.assertNotIn("function Store:GetRaidDifficultyLabel", attendance_store)
+
     def test_attendance_export_is_declared_service_boundary(self):
         attendance = read(ATTENDANCE)
         attendance_export = read(ATTENDANCE_EXPORT)

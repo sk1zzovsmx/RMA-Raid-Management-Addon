@@ -41,11 +41,13 @@ local Options = feature.Options
 local Bus = feature.Bus
 local Services = feature.Services
 local Loot = assert(Services.Loot, "Master loot service is not initialized")
+local LootDistribution = assert(Loot._DistributionSession, "Master loot distribution owner is not initialized")
 local LootInventory = assert(Loot._Inventory, "Loot inventory helpers are not initialized")
 local LootAwardPlanner = assert(Loot._AwardPlanner, "Loot award planner helpers are not initialized")
 local Raid = assert(Services.Raid, "Master raid service is not initialized")
 local Rolls = assert(Services.Rolls, "Master rolls service is not initialized")
 local Chat = assert(Services.Chat, "Master chat service is not initialized")
+local LoggerActions = assert(Services.Logger.Actions, "Master logger actions service is not initialized")
 local MasterService = assert(Services.Master, "Master service namespace is not initialized")
 local RollSelectionService = assert(MasterService.RollSelection, "Master Roll Selection service is not initialized")
 local AwardService = assert(MasterService.Award, "Master award service is not initialized")
@@ -86,9 +88,6 @@ local MasterEvents = {
 		"Master controller spec inspect update event is not initialized"
 	),
 }
-local LoggerLootLogRequestEvent =
-	assert(InternalEvents.LoggerLootLogRequest, "Master controller logger loot-log request event is not initialized")
-
 local rollTypes = feature.rollTypes
 local PENDING_AWARD_TTL_SECONDS = C.PENDING_AWARD_TTL_SECONDS
 local ML_MULTI_AWARD_TIMEOUT_SECONDS = C.ML_MULTI_AWARD_TIMEOUT_SECONDS
@@ -1280,19 +1279,14 @@ do
 	end
 
 	local function requestLoggerLootLog(lootNid, looter, rollType, rollValue, source, raidId)
-		local request = {
+		return LoggerActions:RecordLoot({
 			lootNid = lootNid,
-			itemID = lootNid,
 			looter = looter,
 			rollType = rollType,
 			rollValue = rollValue,
 			source = source,
 			raidId = raidId,
-			raidID = raidId,
-			ok = false,
-		}
-		TriggerEvent(LoggerLootLogRequestEvent, request)
-		return request.ok == true
+		})
 	end
 
 	local function ensureTradeLootContext(itemLink, playerName, rollType, rollValue, awardedCount, source)
@@ -1646,10 +1640,7 @@ do
 				)
 			)
 		end
-		Loot:SetDistributionState("item_done", {
-			itemLink = pending.itemLink,
-			winnerName = pending.playerName,
-		})
+		LootDistribution.PublishItemDone(pending.itemLink, pending.playerName)
 		return true
 	end
 
@@ -1774,14 +1765,8 @@ do
 			module._announced = false
 			rollSelectionController:ResetSelection(RollSelectionService.Mode.AUTO)
 			Announce(Chat, L.ChatTieReroll:format(tconcat(rerollNames or {}, ", "), Loot.GetItemLink() or ""))
-			Loot:SetDistributionState("tie_start", {
-				itemLink = Loot.GetItemLink(),
-				names = rerollNames,
-			})
-			Loot:SetDistributionState("roll_start", {
-				itemLink = Loot.GetItemLink(),
-				rollType = lootState.currentRollType,
-			})
+			LootDistribution.PublishTieStart(Loot.GetItemLink(), rerollNames)
+			LootDistribution.PublishRollStart(Loot.GetItemLink(), lootState.currentRollType)
 			if addon.hasDebug then
 				addon:debug(
 					Diag.I.LogMLTieReroll:format(tostring(Loot.GetItemLink() or ""), tconcat(rerollNames or {}, ","))
@@ -1982,6 +1967,7 @@ do
 		rollSelection = rollSelectionController,
 		raid = Raid,
 		loot = Loot,
+		distribution = LootDistribution,
 		rolls = Rolls,
 		comms = Comms,
 		database = Database,
@@ -2398,10 +2384,7 @@ do
 			local message = plan and plan.message or nil
 
 			Announce(Chat, message)
-			Loot:SetDistributionState("roll_start", {
-				itemLink = itemLink,
-				rollType = rollType,
-			})
+			LootDistribution.PublishRollStart(itemLink, rollType)
 			local itemCountBox = getNamedPart("ItemCount")
 			if itemCountBox then
 				itemCountBox:ClearFocus()
@@ -3017,7 +3000,7 @@ do
 			lootState.opened = true
 			module._announced = false
 			local perfStep = addon.hasPerf and addon:_PerfStart() or nil
-			Loot:SetDistributionState("session")
+			LootDistribution.Clear()
 			Loot:FetchLoot()
 			if canAutoManageLootFrame() and GetOption("Master", "autoSpamLootOnLootOpened") == true then
 				Private.AnnounceLootLinks(GetOption("Master", "autoSpamSoftResOnLootOpened") == true)
@@ -3287,12 +3270,7 @@ do
 				session and session.id or nil
 			)
 			GiveMasterLoot(itemIndex, candidateIndex)
-			Loot:SetDistributionState("roll_end", {
-				itemLink = itemLink,
-				winnerName = playerName,
-				rollValue = rollValue,
-				reason = "master_loot",
-			})
+			LootDistribution.PublishRollEnd(itemLink, playerName, rollValue, "master_loot")
 			if addon.hasDebug then
 				addon:debug(
 					Diag.D.LogMLAwarded:format(
@@ -3320,7 +3298,6 @@ do
 			-- IMPORTANT:
 			-- Do NOT force-update an existing raid.loot entry here.
 			-- For Master Loot awards from the loot window, the authoritative record is created by Loot:AddLoot()
-			-- (also reachable through Raid:AddLoot facade)
 			-- from the LOOT_ITEM / LOOT_ITEM_MULTIPLE chat event, where we also apply the pending rollType/rollValue.
 			--
 			-- If multiple identical items are distributed across different roll types ("partial award" workflow),
@@ -3495,6 +3472,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Modules/UI/ListController",
 			"Modules/UI/MultiSelect",
 			"Services/Chat",
+			"Services/Logger/Actions",
 			"Services/Loot/State",
 			"Services/Loot/Service",
 			"Services/Loot/Inventory",

@@ -58,24 +58,6 @@ function Store:InvalidateRaidIndexes(raid)
 	Database.StripRuntimeRaidCaches(raid)
 end
 
-function Store:GetRaidDifficultyLabel(raid)
-	local diff = tonumber(raid and raid.difficulty)
-	local size = tonumber(raid and raid.size)
-	if diff == 1 then
-		return "10N"
-	elseif diff == 2 then
-		return "25N"
-	elseif diff == 3 then
-		return "10H"
-	elseif diff == 4 then
-		return "25H"
-	end
-	if size then
-		return tostring(size) .. "?"
-	end
-	return ""
-end
-
 local registry = feature.ModuleRegistry
 if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
 	registry.AddModule("Services/Attendance/Store", {

@@ -82,6 +82,8 @@ do
 	local Rules = assert(module._Rules, "Loot rules helpers are not initialized")
 	local AwardPlanner = assert(module._AwardPlanner, "Loot award planner helpers are not initialized")
 	local Inventory = assert(module._Inventory, "Loot inventory helpers are not initialized")
+	local DistributionSession =
+		assert(module._DistributionSession, "Loot distribution session helpers are not initialized")
 	local ContextHelpers = assert(module._Context, "Loot context helpers are not initialized")
 	local resolveRaidRecord = assert(ContextHelpers.ResolveRaidRecord, "Missing LootContext.ResolveRaidRecord")
 
@@ -99,11 +101,6 @@ do
 	local cacheWarmHandle
 	local CACHE_WARM_DELAY_SECONDS = 0.15
 	local CHEAP_SUGGESTION_OPTS = { allowItemInfo = false, allowTooltip = false }
-	local DISTRIBUTION_SESSION = "session"
-	local DISTRIBUTION_WINDOW_ITEMS = "window_items"
-	local DISTRIBUTION_ROLL_START = "roll_start"
-	local DISTRIBUTION_ROLL_END = "roll_end"
-	local DISTRIBUTION_ITEM_DONE = "item_done"
 	local workflowContext = lootState.workflowShadow or {}
 	lootState.workflowShadow = workflowContext
 
@@ -120,10 +117,6 @@ do
 	local requestLootItemInfo, setSelectedItem
 
 	local GetOption = Options.GetValue
-
-	local function getDistributionSession()
-		return assert(module._DistributionSession, "Loot distribution session helpers are not initialized")
-	end
 
 	local function warmItemCacheNow(itemLink)
 		local probe = Item
@@ -1266,60 +1259,6 @@ do
 		return PendingAwards.IsMasterLootAwardFailureMessage(message)
 	end
 
-	-- Master-owned distribution session facade.
-
-	function module:HandleDistributionMessage(prefix, msg, channel, sender)
-		return getDistributionSession().HandleMessage(prefix, msg, channel, sender)
-	end
-
-	function module:SetDistributionState(kind, payload)
-		local distribution = getDistributionSession()
-		if kind == DISTRIBUTION_SESSION then
-			return distribution.Clear()
-		end
-		if kind == DISTRIBUTION_WINDOW_ITEMS then
-			return distribution.PublishWindowItems(buildDistributionWindowItems())
-		end
-		if kind == DISTRIBUTION_ROLL_START then
-			return distribution.PublishRollStart(
-				payload and payload.itemLink,
-				payload and payload.rollType,
-				payload and payload.duration
-			)
-		end
-		if kind == DISTRIBUTION_ROLL_END then
-			return distribution.PublishRollEnd(
-				payload and payload.itemLink,
-				payload and payload.winnerName,
-				payload and payload.rollValue,
-				payload and payload.reason
-			)
-		end
-		if kind == DISTRIBUTION_ITEM_DONE then
-			return distribution.PublishItemDone(payload and payload.itemLink, payload and payload.winnerName)
-		end
-		if kind == "snapshot_request" then
-			return distribution.RequestSnapshot()
-		end
-		if kind == "snapshot" then
-			return distribution.PublishSnapshot(payload and payload.target, payload and payload.requestId)
-		end
-		if kind == "roll_tick" then
-			return distribution.PublishRollTick(payload and payload.itemLink, payload and payload.remaining)
-		end
-		if kind == "tie_start" then
-			return distribution.PublishTieStart(payload and payload.itemLink, payload and payload.names)
-		end
-		if kind == "awarded" then
-			return distribution.PublishAwarded(
-				payload and payload.itemLink,
-				payload and payload.winnerName,
-				payload and payload.rollValue
-			)
-		end
-		return false
-	end
-
 	-- Fetches items from the currently open loot window.
 	function module:FetchLoot()
 		local perfStart = addon.hasPerf and addon:_PerfStart() or nil
@@ -1347,7 +1286,7 @@ do
 
 		lootState.currentItemIndex = findTrackedLootItemIndex(oldItem) or 1
 		self:PrepareItem()
-		self:SetDistributionState(DISTRIBUTION_WINDOW_ITEMS)
+		DistributionSession.PublishWindowItems(buildDistributionWindowItems())
 		if addon.hasTrace then
 			addon:trace(Diag.D.LogLootFetchDone:format(lootState.lootCount or 0, lootState.currentItemIndex or 0))
 		end
@@ -1525,8 +1464,7 @@ do
 		return (lootTable[i] ~= nil)
 	end
 
-	-- Cross-module bridge for split files (Rolls/Master).
-	module.WarmItemCache = warmItemCache
+	-- Read API consumed by Rolls, Master, inventory, and slash-command entry points.
 	module.GetItem = getItem
 	module.GetItemName = getItemName
 	module.GetItemLink = getItemLink

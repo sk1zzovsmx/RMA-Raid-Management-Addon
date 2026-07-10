@@ -291,10 +291,10 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertIn("addon.Minimap:SetMinimapButtonShown(true)", handle_minimap)
         self.assertIn("addon.Minimap:SetMinimapButtonShown(false)", handle_minimap)
         self.assertIn("addon.Minimap:GetPos()", handle_minimap)
-        self.assertIn('Database.RequestControllerMethod("Attendance", "Toggle")', handle_attendance)
-        self.assertIn('Database.RequestControllerMethod("Attendance", "Toggle")', minimap)
-        self.assertNotIn('Database.RequestControllerMethod("Logger", "ToggleRaidAttendance")', slash_events)
-        self.assertNotIn('Database.RequestControllerMethod("Logger", "ToggleRaidAttendance")', minimap)
+        self.assertIn("AttendanceController:Toggle()", handle_attendance)
+        self.assertIn("AttendanceController:Toggle()", minimap)
+        self.assertNotIn("RequestControllerMethod", slash_events)
+        self.assertNotIn("RequestControllerMethod", minimap)
         self.assertNotIn('setOption("Minimap", "minimapButton"', handle_minimap)
         self.assertNotIn("Frames.SetShown(RMA_MINIMAP_GUI", handle_minimap)
 
@@ -484,7 +484,7 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertIn("local Raid = assert(Services.Raid", minimap)
         self.assertIn('"Services/Raid/State"', minimap)
         self.assertIn('"Services/Raid/Capabilities"', minimap)
-        self.assertIn('Database.RequestControllerMethod("Master", "Toggle")', minimap)
+        self.assertIn("MasterController:Toggle()", minimap)
         self.assertIn('callWidgetMethod("LootCounter", "Toggle")', minimap)
 
     def test_widget_facade_separates_method_and_function_calls(self):
@@ -552,9 +552,10 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
 
         self.assertNotIn("local function callControllerMethod(", slash_events)
         self.assertNotIn("callControllerMethod(", slash_events)
-        self.assertIn('Database.RequestControllerMethod("Master", "ShowDebugRaidGrid", count or 25)', slash_events)
-        self.assertIn('Database.RequestControllerMethod("Warnings", "Toggle")', slash_events)
-        self.assertIn('Database.RequestControllerMethod("Spammer", "RequestStart")', slash_events)
+        self.assertIn("MasterController:ShowDebugRaidGrid(count or 25)", slash_events)
+        self.assertIn("WarningsController:Toggle()", slash_events)
+        self.assertIn("SpammerController:RequestStart()", slash_events)
+        self.assertNotIn("RequestControllerMethod", slash_events)
 
     def test_slash_events_uses_item_module_without_private_pass_through_wrapper(self):
         slash_events = read(SLASH_EVENTS)
@@ -568,10 +569,10 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
 
         self.assertNotIn("local function requestController(", config)
         self.assertNotIn("requestController(", config)
-        self.assertNotIn("if Database and Database.RequestControllerMethod then", config)
-        self.assertIn('Database.RequestControllerMethod("Logger", "RequestRefresh", "maintenance")', config)
-        self.assertIn('Database.RequestControllerMethod("Spammer", "RequestStart")', config)
-        self.assertIn('Database.RequestControllerMethod("Warnings", "RequestTemplatePreview")', config)
+        self.assertNotIn("RequestControllerMethod", config)
+        self.assertNotIn('RequestRefresh("maintenance")', config)
+        self.assertIn("SpammerController:RequestStart()", config)
+        self.assertIn("WarningStore.BuildTemplatePreview(", config)
 
     def test_config_logger_panel_uses_logger_owners_without_private_accessors(self):
         config = read(CONFIG)

@@ -2,7 +2,7 @@
 -- deps: local addon = select(2, ...)
 -- shared: local feature = addon.Database.GetFeatureShared()
 -- exports: publish module APIs on addon.*
--- events: none
+-- events: emits WarningsDataChanged after saved warning mutations
 -- notes: pure warnings saved-variable and template helpers
 local addon = select(2, ...)
 local feature = addon.Database.GetFeatureShared()
@@ -11,6 +11,16 @@ local L = feature.L
 local SavedVariables = feature.Database.SavedVariables
 local Services = feature.Services
 local Strings = feature.Strings
+local Bus = feature.Bus
+local Events = feature.Events
+local TriggerEvent = assert(Bus.TriggerEvent, "Warnings store event publisher is not initialized")
+local InternalEvents = assert(Events.Internal, "Warnings store internal events are not initialized")
+local WarningsDataChangedEvent =
+	assert(InternalEvents.WarningsDataChanged, "Warnings store data-changed event is not initialized")
+
+local function notifyWarningsDataChanged(reason)
+	TriggerEvent(WarningsDataChangedEvent, reason)
+end
 
 local tconcat = table.concat
 local tinsert = table.insert
@@ -149,6 +159,9 @@ function Store.EnsureDefaultTemplates()
 			added = added + 1
 		end
 	end
+	if added > 0 then
+		notifyWarningsDataChanged("templates")
+	end
 
 	return {
 		added = added,
@@ -195,6 +208,9 @@ function Store.ClearSavedWarnings(includeStock)
 			removed = 0
 		end
 	end
+	if removed > 0 then
+		notifyWarningsDataChanged("clear_saved")
+	end
 	return {
 		removed = removed,
 		total = #warnings,
@@ -211,6 +227,7 @@ function Store.DeleteWarning(wID)
 		}
 	end
 	tremove(warnings, wID)
+	notifyWarningsDataChanged("delete")
 	return {
 		deleted = true,
 		total = #warnings,
@@ -233,6 +250,7 @@ function Store.SaveWarning(wContent, wName, wID, isEdit)
 	if isEdit and wID > 0 and warnings[wID] ~= nil then
 		warnings[wID].name = wName
 		warnings[wID].content = wContent
+		notifyWarningsDataChanged("save")
 		return wID
 	end
 
@@ -240,6 +258,7 @@ function Store.SaveWarning(wContent, wName, wID, isEdit)
 		name = wName,
 		content = wContent,
 	}
+	notifyWarningsDataChanged("save")
 	return #warnings
 end
 
@@ -250,6 +269,8 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Init",
 			"Modules/ModuleRegistry",
 			"Database/SavedVariables",
+			"Modules/Bus",
+			"Modules/Events",
 			"Modules/Strings",
 		},
 	})

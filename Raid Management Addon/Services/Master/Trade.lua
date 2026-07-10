@@ -2,7 +2,7 @@
 -- deps: local addon = select(2, ...)
 -- shared: local feature = addon.Database.GetFeatureShared()
 -- exports: addon.Services.Master.Trade
--- events: emits LoggerLootLogRequest via addon.Bus
+-- events: none
 -- notes: pure Master manual-trade matching and manual-accept confirmation flow
 local addon = select(2, ...)
 local feature = addon.Database.GetFeatureShared()
@@ -13,15 +13,10 @@ local Services = feature.Services
 local Trade = Master.Trade or {}
 Master.Trade = Trade
 
-local Bus = feature.Bus
 local Database = feature.Database
 local L = feature.L
 local Diag = feature.Diag
-local Events = feature.Events
-local InternalEvents = assert(Events.Internal, "Master trade internal events are not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "Master trade event publisher is not initialized")
-local LoggerLootLogRequestEvent =
-	assert(InternalEvents.LoggerLootLogRequest, "Master trade loot-log request event is not initialized")
+local LoggerActions = assert(Services.Logger.Actions, "Master trade logger actions service is not initialized")
 
 local type = type
 local tonumber = tonumber
@@ -156,19 +151,16 @@ local function logCandidate(state, candidate, reason, raidId)
 		return false
 	end
 
-	local request = {
+	local ok = LoggerActions:RecordLoot({
 		lootNid = lootNid,
 		looter = state.partnerName,
 		rollType = reason,
 		rollValue = 0,
 		source = "TRADE_MANUAL_ACCEPT",
 		raidId = raidId,
-		raidID = raidId,
-		ok = false,
-	}
-	TriggerEvent(LoggerLootLogRequestEvent, request)
+	})
 
-	if request.ok == true then
+	if ok == true then
 		state.loggedLootNids[lootNid] = true
 		if addon.hasDebug then
 			addon:debug(
@@ -632,8 +624,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Database/DB",
 			"Database/DBRaidStore",
 			"Modules/ModuleRegistry",
-			"Modules/Bus",
-			"Modules/Events",
+			"Services/Logger/Actions",
 			"Services/Loot/State",
 			"Services/Raid/Counts",
 			"Services/Raid/Roster",

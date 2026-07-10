@@ -261,26 +261,6 @@ addon._PerfResetStats = function(self)
 	return true
 end
 
-local function getController(name)
-	if type(name) ~= "string" or name == "" then
-		return nil
-	end
-	local controllers = addon.Controllers
-	return controllers and controllers[name] or nil
-end
-
-function Database.RequestControllerMethod(name, methodName, ...)
-	if type(methodName) ~= "string" or methodName == "" then
-		return nil
-	end
-	local controller = getController(name)
-	local method = controller and controller[methodName]
-	if type(method) ~= "function" then
-		return nil
-	end
-	return method(controller, ...)
-end
-
 local function ensureNamespace(root, ...)
 	assert(type(root) == "table", "ensureNamespace requires a root table")
 
@@ -1024,10 +1004,11 @@ do
 			return
 		end
 		local lootService = getService("Loot")
+		local lootDistribution = lootService and lootService._DistributionSession or nil
 		if
-			lootService
-			and lootService.HandleDistributionMessage
-			and lootService:HandleDistributionMessage(prefix, msg, channel, sender)
+			lootDistribution
+			and lootDistribution.HandleMessage
+			and lootDistribution.HandleMessage(prefix, msg, channel, sender)
 		then
 			return
 		end

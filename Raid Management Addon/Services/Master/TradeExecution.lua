@@ -160,6 +160,7 @@ function TradeExecution.CreateController(opts)
 		rollSelection = assert(opts.rollSelection, "Master trade execution roll selection owner is not initialized"),
 		raid = assert(opts.raid, "Master trade execution raid service is not initialized"),
 		loot = assert(opts.loot, "Master trade execution loot service is not initialized"),
+		distribution = assert(opts.distribution, "Master trade execution distribution owner is not initialized"),
 		rolls = assert(opts.rolls, "Master trade execution rolls service is not initialized"),
 		comms = assert(opts.comms, "Master trade execution comms service is not initialized"),
 		database = assert(opts.database, "Master trade execution database helpers are not initialized"),
@@ -327,12 +328,7 @@ function TradeExecution.CreateController(opts)
 		end
 		self.lootState.tradeWinner = winnerName
 		if isAwardRoll then
-			self.loot:SetDistributionState("roll_end", {
-				itemLink = itemLink,
-				winnerName = winnerName,
-				rollValue = rollValue,
-				reason = "inventory_trade",
-			})
+			self.distribution.PublishRollEnd(itemLink, winnerName, rollValue, "inventory_trade")
 		end
 
 		if type(self.debug) == "function" then
@@ -428,10 +424,7 @@ function TradeExecution.CreateController(opts)
 		end
 
 		finalizeTradeNotifications(self, itemLink, winnerName, rollType, rollValue, output, whisper)
-		self.loot:SetDistributionState("item_done", {
-			itemLink = itemLink,
-			winnerName = winnerName,
-		})
+		self.distribution.PublishItemDone(itemLink, winnerName)
 		completeInventoryAwardProgress(self, winnerName, rollType, awardedCount)
 		return true
 	end
@@ -505,10 +498,7 @@ function TradeExecution.CreateController(opts)
 			)
 		end
 
-		self.loot:SetDistributionState("item_done", {
-			itemLink = itemLink,
-			winnerName = tradeWinner,
-		})
+		self.distribution.PublishItemDone(itemLink, tradeWinner)
 		completeInventoryAwardProgress(self, tradeWinner, self.lootState.currentRollType, awardedCount)
 		return true
 	end

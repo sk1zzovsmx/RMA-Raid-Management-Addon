@@ -10,6 +10,8 @@ local L = feature.L
 local Controllers = feature.Controllers
 local coreState = feature.coreState
 local Database = feature.Database
+local Bus = feature.Bus
+local Events = feature.Events
 
 local UI = feature.UI
 local Lists = UI.Lists
@@ -21,6 +23,10 @@ local Strings = feature.Strings
 local Services = feature.Services
 local WarningsSvc = assert(Services.Warnings, "Warnings controller service namespace is not initialized")
 local WarningStore = assert(WarningsSvc.Store, "Warnings controller store service is not initialized")
+local RegisterCallback = assert(Bus.RegisterCallback, "Warnings controller event listener is not initialized")
+local InternalEvents = assert(Events.Internal, "Warnings controller internal events are not initialized")
+local WarningsDataChangedEvent =
+	assert(InternalEvents.WarningsDataChanged, "Warnings controller data-changed event is not initialized")
 
 local _G = _G
 
@@ -68,6 +74,17 @@ do
 		tempContent = nil
 		isEdit = false
 	end
+
+	RegisterCallback(WarningsDataChangedEvent, function(_, reason)
+		if reason == "clear_saved" then
+			resetWarningState()
+		end
+		warningsDirty = true
+		fetched = false
+		if module.RequestRefresh then
+			module:RequestRefresh("data_changed")
+		end
+	end)
 
 	function uiState.AcquireRefs(frame)
 		return {
@@ -325,11 +342,6 @@ do
 
 	function module:RequestEnsureDefaultTemplates()
 		local result = EnsureDefaultTemplates()
-		warningsDirty = true
-		fetched = false
-		if module.RequestRefresh then
-			module:RequestRefresh("templates")
-		end
 		return result
 	end
 
@@ -339,12 +351,6 @@ do
 
 	function module:RequestClearSavedWarnings(includeStock)
 		local result = ClearSavedWarnings(includeStock)
-		resetWarningState()
-		warningsDirty = true
-		fetched = false
-		if module.RequestRefresh then
-			module:RequestRefresh("clear_saved")
-		end
 		return result
 	end
 
@@ -456,6 +462,8 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 		deps = {
 			"Init",
 			"Modules/ModuleRegistry",
+			"Modules/Bus",
+			"Modules/Events",
 			"Modules/Strings",
 			"Modules/UI/Frames",
 			"Modules/UI/Visuals",

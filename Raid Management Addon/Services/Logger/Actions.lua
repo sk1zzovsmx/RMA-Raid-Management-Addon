@@ -2,7 +2,7 @@
 -- deps: local addon = select(2, ...)
 -- shared: local feature = addon.Database.GetFeatureShared()
 -- exports: publish module APIs on addon.*
--- events: none
+-- events: emits logger data-change notifications via addon.Bus
 local addon = select(2, ...)
 local feature = addon.Database.GetFeatureShared()
 
@@ -15,7 +15,22 @@ local Services = feature.Services
 local LootSourceCandidates = feature.LootSourceCandidates
 local Timer = feature.Timer
 local Time = feature.Time
+local Bus = feature.Bus
+local Events = feature.Events
 local GetCurrentTime = assert(Time and Time.GetCurrentTime, "Logger actions time provider is not initialized")
+local TriggerEvent = assert(Bus.TriggerEvent, "Logger actions event publisher is not initialized")
+local InternalEvents = assert(Events.Internal, "Logger actions internal events are not initialized")
+local LoggerLootChangedEvent =
+	assert(InternalEvents.LoggerLootChanged, "Logger actions loot-changed event is not initialized")
+local LoggerDataChangedEvent =
+	assert(InternalEvents.LoggerDataChanged, "Logger actions data-changed event is not initialized")
+
+local function notifyLoggerDataChanged(reason, result)
+	TriggerEvent(LoggerDataChangedEvent, {
+		reason = reason,
+		result = result,
+	})
+end
 
 local tinsert = table.insert
 local tremove = table.remove
@@ -911,7 +926,7 @@ verifyLoggerLootMutation = function(
 	end
 	return true
 end
-function Actions:ResolveLootEditRaidId(source, selectedRaid, currentRaid, raidIDOverride)
+local function resolveLootEditRaidId(source, selectedRaid, currentRaid, raidIDOverride)
 	if raidIDOverride then
 		return raidIDOverride
 	end
@@ -923,7 +938,7 @@ function Actions:ResolveLootEditRaidId(source, selectedRaid, currentRaid, raidID
 	return currentRaid or selectedRaid
 end
 
-function Actions:SetLootEntry(raidID, lootNid, looter, rollType, rollValue, source)
+local function setLootEntry(raidID, lootNid, looter, rollType, rollValue, source)
 	if addon.hasTrace then
 		addon:trace(
 			Diag.D.LogLoggerLootLogAttempt:format(
@@ -974,6 +989,32 @@ function Actions:SetLootEntry(raidID, lootNid, looter, rollType, rollValue, sour
 		expectedRollType,
 		expectedRollValue
 	)
+end
+
+function Actions:RecordLoot(request)
+	if type(request) ~= "table" then
+		return false, "INVALID_REQUEST"
+	end
+
+	local source = request.source
+	local raidID = resolveLootEditRaidId(
+		source,
+		request.selectedRaid,
+		request.currentRaid or Database.GetCurrentRaid(),
+		request.raidId or request.raidID
+	)
+	local lootNid = request.lootNid or request.itemID
+	local ok = setLootEntry(raidID, lootNid, request.looter, request.rollType, request.rollValue, source)
+	if not ok then
+		return false, "WRITE_FAILED"
+	end
+
+	TriggerEvent(LoggerLootChangedEvent, {
+		raidId = raidID,
+		lootNid = lootNid,
+		source = source,
+	})
+	return true
 end
 
 function Actions:ResolveLootEditWinner(raidID, lootNid, rawText)
@@ -1117,9 +1158,11 @@ function Actions:PurgeRaidHistory()
 	Database.SetCurrentRaid(nil)
 	Database.SetLastBoss(nil)
 
-	return {
+	local result = {
 		removed = removed,
 	}
+	notifyLoggerDataChanged("purge", result)
+	return result
 end
 
 function Actions:RemoveRaidHistoryEntries(options)
@@ -1149,6 +1192,9 @@ function Actions:RemoveRaidHistoryEntries(options)
 
 	raidStore:GetAllRaids()
 	restoreCurrentRaidIndex(currentRaidNid)
+	if result.raidsRemoved > 0 or result.lootRemoved > 0 then
+		notifyLoggerDataChanged("cleanup", result)
+	end
 
 	return result
 end
@@ -1198,6 +1244,9 @@ function Actions:RequestRemoveRaidHistoryEntries(callback, opts)
 			activeHistoryCleanup = nil
 		end
 		finalizeHistoryCleanupState(state)
+		if state.result.raidsRemoved > 0 or state.result.lootRemoved > 0 then
+			notifyLoggerDataChanged("cleanup", state.result)
+		end
 		if type(state.callback) == "function" then
 			state.callback(state.result, true)
 		end
@@ -1295,6 +1344,9 @@ function Actions:EnsureLootSources()
 			end
 		end
 	end
+	if result.repaired > 0 or result.bossesCreated > 0 then
+		notifyLoggerDataChanged("rebuild_sources", result)
+	end
 
 	return result
 end
@@ -1339,6 +1391,9 @@ function Actions:RequestEnsureLootSources(callback, opts)
 	local function completeRebuild()
 		if activeLootSourceRebuild == state then
 			activeLootSourceRebuild = nil
+		end
+		if state.result.repaired > 0 or state.result.bossesCreated > 0 then
+			notifyLoggerDataChanged("rebuild_sources", state.result)
 		end
 		if type(state.callback) == "function" then
 			state.callback(state.result, true)
@@ -1586,6 +1641,8 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Modules/ModuleRegistry",
 			"Modules/Timer",
 			"Modules/Time",
+			"Modules/Events",
+			"Modules/Bus",
 			"Modules/Strings",
 			"Modules/Base64",
 			"Database/DB",

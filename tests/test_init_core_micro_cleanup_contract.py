@@ -798,20 +798,17 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertIn("return Loot.GetItemLink()", master)
         self.assertNotIn("if Loot and Loot.GetItemLink then", master)
 
-    def test_master_controller_emits_logger_loot_request_through_validated_publisher(self):
+    def test_master_controller_writes_logger_loot_through_actions_service(self):
         master = read(MASTER_CONTROLLER)
 
-        self.assertIn('"Modules/Events"', master)
-        self.assertIn('"Modules/Bus"', master)
-        self.assertIn("local InternalEvents = assert(Events.Internal", master)
-        self.assertIn("local TriggerEvent = assert(", master)
-        self.assertIn("Bus.TriggerEvent", master)
-        self.assertIn('"Master controller event publisher is not initialized"', master)
-        self.assertIn("local LoggerLootLogRequestEvent =", master)
-        self.assertIn("InternalEvents.LoggerLootLogRequest", master)
-        self.assertIn('"Master controller logger loot-log request event is not initialized"', master)
-        self.assertIn("TriggerEvent(LoggerLootLogRequestEvent, request)", master)
-        self.assertNotIn("Bus.TriggerEvent(InternalEvents.LoggerLootLogRequest", master)
+        self.assertIn('"Services/Logger/Actions"', master)
+        self.assertIn(
+            'local LoggerActions = assert(Services.Logger.Actions, "Master logger actions service is not initialized")',
+            master,
+        )
+        self.assertIn("return LoggerActions:RecordLoot({", master)
+        self.assertNotIn("LoggerLootLogRequest", master)
+        self.assertNotIn("request.ok", master)
 
     def test_master_controller_registers_bus_callbacks_through_validated_listener(self):
         master = read(MASTER_CONTROLLER)
@@ -854,23 +851,19 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertIn("return Database.EnsureRaidById(raidNum)", trade)
         self.assertNotIn("if Database.EnsureRaidById then", trade)
 
-    def test_master_trade_emits_loot_log_requests_without_optional_event_guard(self):
+    def test_master_trade_writes_loot_through_logger_actions(self):
         trade = read(MASTER_TRADE)
 
-        self.assertIn('"Modules/Events"', trade)
-        self.assertIn('"Modules/Bus"', trade)
-        self.assertIn("local InternalEvents = assert(Events.Internal", trade)
-        self.assertIn('"Master trade internal events are not initialized"', trade)
-        self.assertIn("local TriggerEvent = assert(", trade)
-        self.assertIn("Bus.TriggerEvent", trade)
-        self.assertIn('"Master trade event publisher is not initialized"', trade)
-        self.assertIn("local LoggerLootLogRequestEvent =", trade)
-        self.assertIn("InternalEvents.LoggerLootLogRequest", trade)
-        self.assertIn('"Master trade loot-log request event is not initialized"', trade)
-        self.assertIn("TriggerEvent(LoggerLootLogRequestEvent, request)", trade)
-        self.assertNotIn("Events and Events.Internal or {}", trade)
-        self.assertNotIn("local InternalEvents = Events.Internal", trade)
-        self.assertNotIn("Bus.TriggerEvent(InternalEvents.LoggerLootLogRequest", trade)
+        self.assertIn('"Services/Logger/Actions"', trade)
+        self.assertIn(
+            'local LoggerActions = assert(Services.Logger.Actions, "Master trade logger actions service is not initialized")',
+            trade,
+        )
+        self.assertIn("local ok = LoggerActions:RecordLoot({", trade)
+        self.assertNotIn("LoggerLootLogRequest", trade)
+        self.assertNotIn("request.ok", trade)
+        self.assertNotIn('"Modules/Bus"', trade)
+        self.assertNotIn('"Modules/Events"', trade)
 
     def test_master_award_counter_depends_on_item_without_local_key_fallback(self):
         award_counter = read(MASTER_AWARD_COUNTER)
@@ -920,14 +913,14 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
             "LoggerSelectPlayer",
             "LoggerSelectBossPlayer",
             "LoggerSelectItem",
-            "LoggerLootLogRequest",
+            "LoggerLootChanged",
             "RaidLootUpdate",
         ):
             self.assertIn(f"{event_name} = assert(", logger)
 
         self.assertIn("TriggerEvent(eventName, target[key], ...)", logger)
         self.assertIn("TriggerEvent(refreshEvent or LoggerEvents.LoggerSelectRaid, module.selectedRaid)", logger)
-        self.assertIn("RegisterCallback(LoggerEvents.LoggerLootLogRequest", logger)
+        self.assertIn("RegisterCallback(LoggerEvents.LoggerLootChanged", logger)
         for event_name in ("RaidCreate", "EquipInspectUpdated", "EquipInspectCompleted", "RaidAttendanceChanged"):
             self.assertIn(f"{event_name} = assert(", attendance)
         self.assertIn("RegisterCallback(AttendanceEvents.RaidAttendanceChanged", attendance)
@@ -2255,7 +2248,8 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertIn('"Services/Loot/Snapshots"', raid_state)
         self.assertIn("local LootService = assert(Services.Loot", raid_state)
         self.assertIn('"Raid state loot namespace is not initialized"', raid_state)
-        self.assertIn('assert(LootService._ContextBridge, "Loot context bridge is not initialized")', raid_state)
+        self.assertNotIn("_ContextBridge", raid_state)
+        self.assertIn('assert(LootService._State, "Loot context state owner is not initialized")', raid_state)
         self.assertNotIn("local LootService = Services and Services.Loot or {}", raid_state)
 
     def test_raid_state_uses_declared_raid_queries_owner_without_optional_getter_guard(self):

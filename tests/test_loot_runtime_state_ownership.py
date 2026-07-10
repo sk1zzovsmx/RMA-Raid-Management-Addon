@@ -161,13 +161,21 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
 
     def test_master_controller_calls_loot_distribution_owner_without_private_bridge(self):
         master_controller = read(MASTER_CONTROLLER)
+        loot_service = read(LOOT_SERVICE)
+        trade_execution = read(MASTER_TRADE_EXECUTION)
 
-        self.assertNotIn("local function updateLootDistribution", master_controller)
-        self.assertNotIn("updateLootDistribution(", master_controller)
-        self.assertIn('Loot:SetDistributionState("roll_start"', master_controller)
-        self.assertIn('Loot:SetDistributionState("roll_end"', master_controller)
-        self.assertIn('Loot:SetDistributionState("item_done"', master_controller)
-        self.assertIn('Loot:SetDistributionState("session")', master_controller)
+        self.assertIn("local LootDistribution = assert(Loot._DistributionSession", master_controller)
+        self.assertIn("LootDistribution.PublishRollStart(", master_controller)
+        self.assertIn("LootDistribution.PublishRollEnd(", master_controller)
+        self.assertIn("LootDistribution.PublishItemDone(", master_controller)
+        self.assertIn("LootDistribution.Clear()", master_controller)
+        self.assertIn("distribution = LootDistribution", master_controller)
+        self.assertIn("self.distribution.PublishItemDone(", trade_execution)
+        self.assertNotIn("SetDistributionState", master_controller)
+        self.assertNotIn("SetDistributionState", trade_execution)
+        self.assertNotIn("function module:SetDistributionState", loot_service)
+        self.assertNotIn("function module:HandleDistributionMessage", loot_service)
+        self.assertNotIn("module.WarmItemCache =", loot_service)
 
     def test_master_controller_reads_multi_award_count_from_loot_owner_without_private_bridge(self):
         master_controller = read(MASTER_CONTROLLER)
@@ -198,14 +206,17 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
         self.assertNotIn("local raidState = feature.raidState", passive_group_loot)
         self.assertIn('"Services/Loot/State"', passive_group_loot)
 
-    def test_raid_state_uses_loot_context_bridge_owner_without_getter_facade(self):
+    def test_raid_state_uses_concrete_loot_context_owners_without_aggregate_bridge(self):
         snapshots = read(LOOT_SNAPSHOTS)
         raid_state = read(RAID_STATE)
 
-        self.assertIn("module._ContextBridge = contextBridge", snapshots)
-        self.assertNotIn("function module:GetContextBridge()", snapshots)
-        self.assertNotIn("GetContextBridge", raid_state)
-        self.assertIn("LootService._ContextBridge", raid_state)
+        self.assertNotIn("_ContextBridge", snapshots)
+        self.assertNotIn("contextBridge", snapshots)
+        self.assertNotIn("_ContextBridge", raid_state)
+        self.assertIn("LootService._State", raid_state)
+        self.assertIn("LootService._Sessions", raid_state)
+        self.assertIn("LootService._Snapshots", raid_state)
+        self.assertIn("LootService._Context", raid_state)
 
     def test_rolls_service_uses_database_item_index_owner_directly(self):
         rolls_service = read(ROLLS_SERVICE)

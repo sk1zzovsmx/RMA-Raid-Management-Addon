@@ -75,7 +75,10 @@ do
 	local LOOT_WINDOW_BOSS_CONTEXT_TTL_SECONDS =
 		math.max(BOSS_EVENT_CONTEXT_TTL_SECONDS, GROUP_LOOT_PENDING_AWARD_TTL_SECONDS)
 	local LootService = assert(Services.Loot, "Raid state loot namespace is not initialized")
-	local LootContext = assert(LootService._ContextBridge, "Loot context bridge is not initialized")
+	local LootContextState = assert(LootService._State, "Loot context state owner is not initialized")
+	local LootSessions = assert(LootService._Sessions, "Loot session owner is not initialized")
+	local LootSnapshots = assert(LootService._Snapshots, "Loot snapshot owner is not initialized")
+	local LootContext = assert(LootService._Context, "Loot context owner is not initialized")
 	local recentTrashDeathContextRaidNum = 0
 	local recentTrashDeathContextSeenAt = 0
 	local recentTrashDeathContextActivityAt = 0
@@ -145,15 +148,15 @@ do
 	end
 
 	local function setLootContextField(slotKey, value)
-		return LootContext.SetField(raidState, slotKey, value)
+		return LootContextState.SetField(raidState, slotKey, value)
 	end
 
 	local function setActiveLootContextState(activeLoot)
-		return LootContext.SetActive(raidState, activeLoot)
+		return LootContextState.SetActive(raidState, activeLoot)
 	end
 
 	local function syncActiveLootContextState()
-		return LootContext.SyncActive(raidState)
+		return LootContextState.SyncActive(raidState)
 	end
 
 	function Database.GetCurrentRaid()
@@ -227,18 +230,18 @@ do
 	end
 
 	local function getLootWindowBossContextState()
-		return LootContext.GetWindow(raidState)
+		return LootContextState.GetWindow(raidState)
 	end
 
 	local function clearLootWindowBossContext()
-		LootContext.ClearWindow(raidState)
+		LootContextState.ClearWindow(raidState)
 	end
 
 	local setActiveLootSource
 	local setLootWindowBossContext
 
 	local function resolveContextExpiry(now, ttlSeconds, defaultTtl, minTtl)
-		return LootContext.ResolveExpiry(now, ttlSeconds, defaultTtl, minTtl)
+		return LootContextState.ResolveExpiry(now, ttlSeconds, defaultTtl, minTtl)
 	end
 
 	local function setBlockedLootWindowBossContext(raidNum, source, now, ttlSeconds, sourceMeta, minTtlSeconds)
@@ -283,15 +286,15 @@ do
 	end
 
 	local function getLootSourceState()
-		return LootContext.GetSource(raidState)
+		return LootContextState.GetSource(raidState)
 	end
 
 	local function clearLootSourceState()
-		LootContext.ClearSource(raidState)
+		LootContextState.ClearSource(raidState)
 	end
 
 	local function getBossEventContextState()
-		return LootContext.GetBossEvent(raidState)
+		return LootContextState.GetBossEvent(raidState)
 	end
 
 	local function normalizeRecentLootDeathContext(context)
@@ -319,7 +322,7 @@ do
 	end
 
 	local function getRecentLootDeathContextState()
-		return LootContext.SyncField(raidState, "recentDeath", normalizeRecentLootDeathContext)
+		return LootContextState.SyncField(raidState, "recentDeath", normalizeRecentLootDeathContext)
 	end
 
 	local function getRaidSourceContext(raid, raidNum, now)
@@ -432,18 +435,18 @@ do
 	end
 
 	local function resetLootContextState()
-		LootContext.Reset(raidState)
+		LootContextState.Reset(raidState)
 		recentTrashDeathContextRaidNum = 0
 		recentTrashDeathContextSeenAt = 0
 		recentTrashDeathContextActivityAt = 0
 	end
 
 	local function clearActiveLootWindowItemSnapshot()
-		LootContext.ClearActiveSnapshot(raidState)
+		LootSnapshots.ClearActive(raidState)
 	end
 
 	local function createLootWindowItemSnapshot(raidNum, bossNid, items, source, now, ttlSeconds)
-		return LootContext.CreateSnapshot(
+		return LootSnapshots.Create(
 			raidState,
 			raidNum,
 			bossNid,
@@ -457,7 +460,7 @@ do
 
 	local function setActiveLootWindowItemSnapshot(raid, raidNum, snapshot, now, ttlSeconds)
 		local bossNid =
-			LootContext.MarkActiveSnapshot(raidState, snapshot, now, ttlSeconds, LOOT_WINDOW_BOSS_CONTEXT_TTL_SECONDS)
+			LootSnapshots.MarkActive(raidState, snapshot, now, ttlSeconds, LOOT_WINDOW_BOSS_CONTEXT_TTL_SECONDS)
 		if bossNid <= 0 then
 			return 0
 		end
@@ -475,11 +478,11 @@ do
 	end
 
 	local function findMatchingLootWindowItemSnapshot(raidNum, items)
-		return LootContext.FindMatchingSnapshot(raidState, raidNum, items)
+		return LootSnapshots.FindMatching(raidState, raidNum, items)
 	end
 
 	local function consumeActiveLootWindowItemSnapshot(itemLink)
-		return LootContext.ConsumeActiveSnapshot(raidState, itemLink)
+		return LootSnapshots.ConsumeActive(raidState, itemLink)
 	end
 
 	local function resolveLootWindowSourceUnitContext(raid)
@@ -724,11 +727,11 @@ do
 	end
 
 	local function rememberLootBossSession(raidNum, rollSessionId, bossNid, ttlSeconds)
-		LootContext.RememberSession(raidState, raidNum, rollSessionId, bossNid, ttlSeconds, Time.GetCurrentTime())
+		LootSessions.Remember(raidState, raidNum, rollSessionId, bossNid, ttlSeconds, Time.GetCurrentTime())
 	end
 
 	local function resolveLootBossSession(raid, raidNum, rollSessionId, now)
-		return LootContext.ResolveSession(raidState, raid, raidNum, rollSessionId, now, findBossByNid)
+		return LootSessions.Resolve(raidState, raid, raidNum, rollSessionId, now, findBossByNid)
 	end
 
 	local function invalidateRaidRuntime(raid)

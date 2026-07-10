@@ -63,6 +63,7 @@ local AttendanceExport = assert(AttendanceSvc.Export, "Attendance export service
 local EquipInspect = assert(Services.EquipInspect, "Attendance equip-inspect service is not initialized")
 local ForceInspectPlayer = assert(EquipInspect.ForcePlayer, "Attendance force-inspect method is not initialized")
 local Raid = assert(Services.Raid, "Attendance raid service is not initialized")
+local RaidProjections = assert(Raid.Projections, "Attendance raid projections service is not initialized")
 
 local _G = _G
 local type, tostring, tonumber = type, tostring, tonumber
@@ -398,7 +399,7 @@ local function getRaidContextLabel(selectedRaid)
 		return nil
 	end
 	local zone = raid.zone or nil
-	local difficulty = AttendanceView:GetRaidDifficultyLabel(raid) or ""
+	local difficulty = RaidProjections.GetDifficultyLabel(raid)
 	if zone and zone ~= "" and difficulty ~= "" then
 		return ("%s %s"):format(zone, difficulty)
 	end
@@ -972,7 +973,7 @@ attendanceRaidsController = makeAttendanceList(
 		end,
 
 		getData = function(out)
-			AttendanceView:FillRaidList(out, "Attendance.Raids.GetData")
+			RaidProjections.FillRaidList(out, "Attendance.Raids.GetData")
 		end,
 
 		rowName = UI.Lists.MakeIndexedRowName("RaidBtn"),
@@ -1281,6 +1282,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Modules/UI/Frames",
 			"Modules/UI/ListController",
 			"Services/Raid/Attendance",
+			"Services/Raid/Projections",
 			"Services/Attendance/Store",
 			"Services/Attendance/View",
 			"Services/Attendance/Actions",

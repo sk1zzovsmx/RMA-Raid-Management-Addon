@@ -23,6 +23,11 @@ local Strings = feature.Strings
 local Events = feature.Events
 local Bus = feature.Bus
 local Services = feature.Services
+local Controllers = feature.Controllers
+local SpammerController = assert(Controllers.Spammer, "Config spammer controller is not initialized")
+local WarningsController = assert(Controllers.Warnings, "Config warnings controller is not initialized")
+local SpammerDraft = assert(Services.Spammer.Draft, "Config spammer draft service is not initialized")
+local WarningStore = assert(Services.Warnings.Store, "Config warnings store service is not initialized")
 local InternalEvents = assert(Events.Internal, "Config internal events are not initialized")
 local RegisterCallback = assert(Bus.RegisterCallback, "Config event bus listener is not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Config event bus sender is not initialized")
@@ -61,6 +66,10 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"EntryPoints/Minimap",
 			"Services/Raid/State",
 			"Services/Logger/Actions",
+			"Services/Spammer/Draft",
+			"Services/Warnings/Store",
+			"Controllers/Spammer",
+			"Controllers/Warnings",
 		},
 	})
 	registry.SetLoaded("Widgets/Config")
@@ -1077,10 +1086,6 @@ do
 		return nil
 	end
 
-	local function refreshLoggerAfterMaintenance()
-		Database.RequestControllerMethod("Logger", "RequestRefresh", "maintenance")
-	end
-
 	local function formatLootHistoryReport(result)
 		result = result or {}
 		return format(
@@ -1199,7 +1204,6 @@ do
 					)
 				)
 				refreshLootHistoryReport()
-				refreshLoggerAfterMaintenance()
 			end)
 		elseif actionName == "rebuildSources" and actions.EnsureLootSources then
 			result = actions:EnsureLootSources()
@@ -1224,7 +1228,6 @@ do
 					)
 				)
 				refreshLootHistoryReport()
-				refreshLoggerAfterMaintenance()
 			end, options)
 		elseif actionName == "cleanUp" and actions.RemoveRaidHistoryEntries then
 			options = options or {}
@@ -1246,7 +1249,6 @@ do
 
 		if actionName ~= "scan" then
 			refreshLootHistoryReport()
-			refreshLoggerAfterMaintenance()
 		end
 		return result
 	end
@@ -1448,15 +1450,16 @@ do
 	function module:RequestSpammerPanelAction(actionName)
 		local result
 		if actionName == "open" then
-			Database.RequestControllerMethod("Spammer", "Toggle")
+			SpammerController:Toggle()
 		elseif actionName == "start" then
-			Database.RequestControllerMethod("Spammer", "RequestStart")
+			SpammerController:RequestStart()
 		elseif actionName == "stop" then
-			Database.RequestControllerMethod("Spammer", "RequestStop")
+			SpammerController:RequestStop()
 		elseif actionName == "clear" then
-			result = Database.RequestControllerMethod("Spammer", "RequestClear")
+			SpammerDraft.ClearDraft(SpammerDraft.GetStore())
+			result = SpammerDraft.BuildPreview(SpammerDraft.GetStore(), SpammerDraft.GetDefaultOutput())
 		else
-			result = Database.RequestControllerMethod("Spammer", "RequestPreview")
+			result = SpammerDraft.BuildPreview(SpammerDraft.GetStore(), SpammerDraft.GetDefaultOutput())
 		end
 		if result and result.output then
 			local previewLength = format(L.StrConfigLFMSpamPreviewLength, tonumber(result.length) or 0)
@@ -1496,16 +1499,16 @@ do
 	function module:RequestRaidWarningPanelAction(actionName, includeStock)
 		local result
 		if actionName == "open" then
-			Database.RequestControllerMethod("Warnings", "Toggle")
+			WarningsController:Toggle()
 		elseif actionName == "clearSaved" then
-			result = Database.RequestControllerMethod("Warnings", "RequestClearSavedWarnings", includeStock == true)
+			result = WarningStore.ClearSavedWarnings(includeStock == true)
 			addon:info(L.MsgRaidWarningsCleared:format(tonumber(result and result.removed) or 0))
-			local preview = Database.RequestControllerMethod("Warnings", "RequestTemplatePreview")
+			local preview = WarningStore.BuildTemplatePreview(L.StrConfigRaidWarningPreviewEmpty or "")
 			if preview and preview.text then
 				setText(raidWarningContentFrameName, "PreviewBody", preview.text)
 			end
 		else
-			result = Database.RequestControllerMethod("Warnings", "RequestTemplatePreview")
+			result = WarningStore.BuildTemplatePreview(L.StrConfigRaidWarningPreviewEmpty or "")
 			if result and result.text then
 				setText(raidWarningContentFrameName, "PreviewBody", result.text)
 			end

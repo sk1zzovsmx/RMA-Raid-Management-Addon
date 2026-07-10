@@ -236,7 +236,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertIn("local awardedCount = self.inventory.ResolveTradeAwardedCount()", trade_execution)
         self.assertIn("local lootNid, createdTradeOnly = self.ensureTradeLootContext(", trade_execution)
         self.assertIn("local ok = self.requestLoggerLootLog(", trade_execution)
-        self.assertIn('self.loot:SetDistributionState("item_done", {', trade_execution)
+        self.assertIn("self.distribution.PublishItemDone(", trade_execution)
 
         self.assertLess(toc.index("Services\\Master\\Trade.lua"), toc.index("Services\\Master\\TradeExecution.lua"))
         self.assertLess(toc.index("Services\\Master\\TradeExecution.lua"), toc.index("Controllers\\Master.lua"))

@@ -56,6 +56,7 @@ local LoggerExport = assert(LoggerSvc.Export, "Logger export service is not init
 local LoggerActions = assert(LoggerSvc.Actions, "Logger actions service is not initialized")
 local LoggerHelpers = assert(LoggerSvc.Helpers, "Logger helper service is not initialized")
 local Raid = assert(Services.Raid, "Logger raid service is not initialized")
+local RaidProjections = assert(Raid.Projections, "Logger raid projections service is not initialized")
 
 local NormalizeName = Strings.NormalizeName
 local NormalizeLower = Strings.NormalizeLower
@@ -113,9 +114,13 @@ local LoggerEvents = {
 		InternalEvents.LoggerSelectItem,
 		"Logger controller item selection event is not initialized"
 	),
-	LoggerLootLogRequest = assert(
-		InternalEvents.LoggerLootLogRequest,
-		"Logger controller loot-log request event is not initialized"
+	LoggerLootChanged = assert(
+		InternalEvents.LoggerLootChanged,
+		"Logger controller loot-changed event is not initialized"
+	),
+	LoggerDataChanged = assert(
+		InternalEvents.LoggerDataChanged,
+		"Logger controller data-changed event is not initialized"
 	),
 	RaidLootUpdate = assert(
 		InternalEvents.RaidLootUpdate,
@@ -520,13 +525,12 @@ local function getRaidContextLabel(selectedRaid)
 		return nil
 	end
 	local store = module.Store
-	local view = module.View
 	local raid = store and store:GetRaid(selectedRaid) or nil
 	if not raid then
 		return nil
 	end
 	local zone = raid.zone or nil
-	local difficulty = view and view:GetRaidDifficultyLabel(raid) or ""
+	local difficulty = RaidProjections.GetDifficultyLabel(raid)
 	if zone and zone ~= "" and difficulty ~= "" then
 		return ("%s %s"):format(zone, difficulty)
 	end
@@ -1685,7 +1689,7 @@ do
 			end,
 
 			getData = function(out)
-				View:FillRaidList(out, "Logger.Raids.GetData")
+				RaidProjections.FillRaidList(out, "Logger.Raids.GetData")
 			end,
 
 			rowName = UI.Lists.MakeIndexedRowName("RaidBtn"),
@@ -2295,23 +2299,23 @@ do
 		if not raidIDOverride then
 			currentRaid = Database.GetCurrentRaid()
 		end
-		local raidID = Actions:ResolveLootEditRaidId(source, module.selectedRaid, currentRaid, raidIDOverride)
-		local ok = Actions:SetLootEntry(raidID, lootNid, looter, rollType, rollValue, source)
-		if ok then
-			controller:Dirty()
-		end
-		return ok
+		return Actions:RecordLoot({
+			lootNid = lootNid,
+			looter = looter,
+			rollType = rollType,
+			rollValue = rollValue,
+			source = source,
+			selectedRaid = module.selectedRaid,
+			currentRaid = currentRaid,
+			raidId = raidIDOverride,
+		})
 	end
 
-	RegisterCallback(LoggerEvents.LoggerLootLogRequest, function(_, request)
-		if type(request) ~= "table" then
-			addon:error(Diag.E.LogLoggerLootLogRequestPayloadInvalid:format(type(request)))
-			return
-		end
-		local raidId = request.raidId or request.raidID
-		local lootNid = request.lootNid or request.itemID
-		request.ok = setLootEntry(lootNid, request.looter, request.rollType, request.rollValue, request.source, raidId)
-			== true
+	RegisterCallback(LoggerEvents.LoggerLootChanged, function()
+		controller:Dirty()
+	end)
+	RegisterCallback(LoggerEvents.LoggerDataChanged, function()
+		controller:Dirty()
 	end)
 
 	local lootUiRefreshDebounceSeconds = 0.10
@@ -2380,6 +2384,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Modules/UI/ListController",
 			"Modules/UI/MultiSelect",
 			"Services/Raid/State",
+			"Services/Raid/Projections",
 			"Services/Logger/Store",
 			"Services/Logger/View",
 			"Services/Logger/Export",

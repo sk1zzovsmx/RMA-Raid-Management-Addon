@@ -16,8 +16,13 @@ local Tooltips = UI.Tooltips
 local ShowTooltipLines = assert(Tooltips.ShowLines, "Minimap tooltip presenter is not initialized")
 local HideTooltip = assert(Tooltips.Hide, "Minimap tooltip hider is not initialized")
 local Colors = feature.Colors
-local Database = feature.Database
 local Services = feature.Services
+local Controllers = feature.Controllers
+local MasterController = assert(Controllers.Master, "Minimap master controller is not initialized")
+local LoggerController = assert(Controllers.Logger, "Minimap logger controller is not initialized")
+local AttendanceController = assert(Controllers.Attendance, "Minimap attendance controller is not initialized")
+local WarningsController = assert(Controllers.Warnings, "Minimap warnings controller is not initialized")
+local SpammerController = assert(Controllers.Spammer, "Minimap spammer controller is not initialized")
 local Raid = assert(Services.Raid, "Minimap raid service is not initialized")
 local IsPlayerInRaid = assert(Raid.IsPlayerInRaid, "Minimap raid membership resolver is not initialized")
 local CanUseCapability = assert(Raid.CanUseCapability, "Minimap raid capability resolver is not initialized")
@@ -99,7 +104,7 @@ local function buildMenu()
 			notCheckable = 1,
 			disabled = disableLootActions,
 			func = function()
-				Database.RequestControllerMethod("Master", "Toggle")
+				MasterController:Toggle()
 			end,
 		},
 		{
@@ -126,7 +131,7 @@ local function buildMenu()
 			text = L.StrLootHistory,
 			notCheckable = 1,
 			func = function()
-				Database.RequestControllerMethod("Logger", "ToggleLootHistory")
+				LoggerController:ToggleLootHistory()
 			end,
 		},
 		{ text = " ", disabled = 1, notCheckable = 1 },
@@ -134,7 +139,7 @@ local function buildMenu()
 			text = L.StrRaidAttendance,
 			notCheckable = 1,
 			func = function()
-				Database.RequestControllerMethod("Attendance", "Toggle")
+				AttendanceController:Toggle()
 			end,
 		},
 		{ text = " ", disabled = 1, notCheckable = 1 },
@@ -142,7 +147,7 @@ local function buildMenu()
 			text = RAID_WARNING,
 			notCheckable = 1,
 			func = function()
-				Database.RequestControllerMethod("Warnings", "Toggle")
+				WarningsController:Toggle()
 			end,
 		},
 		{ text = " ", disabled = 1, notCheckable = 1 },
@@ -150,7 +155,7 @@ local function buildMenu()
 			text = L.StrLFMSpam,
 			notCheckable = 1,
 			func = function()
-				Database.RequestControllerMethod("Spammer", "Toggle")
+				SpammerController:Toggle()
 			end,
 		},
 		{ text = " ", disabled = 1, notCheckable = 1 },
@@ -364,6 +369,11 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Modules/UI/Facade",
 			"Services/Raid/State",
 			"Services/Raid/Capabilities",
+			"Controllers/Master",
+			"Controllers/Logger",
+			"Controllers/Attendance",
+			"Controllers/Warnings",
+			"Controllers/Spammer",
 		},
 	})
 	registry.SetLoaded("EntryPoints/Minimap")

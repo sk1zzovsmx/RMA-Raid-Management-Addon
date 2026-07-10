@@ -249,7 +249,6 @@ Diag.D.LogLoggerVerified = "[Logger] loot entry verified raidId=%d lootNid=%s"
 Diag.D.LogLoggerRecordedNoBossContext = "[Logger] Loot recorded without boss context raidId=%d lootNid=%s link=%s"
 Diag.D.LogLoggerBossLootRemoved = "[Logger] Boss delete removed loot raidId=%d bossId=%d removed=%d"
 Diag.W.LogLoggerSelectRaidPayloadInvalid = "[Logger] LoggerSelectRaid payload invalid raidId=%s reason=%s"
-Diag.E.LogLoggerLootLogRequestPayloadInvalid = "[Logger] LoggerLootLogRequest invalid payload type=%s"
 
 -- Syncer --
 Diag.D.LogSyncRequestSent = "[Sync] Request sent req=%s raidNid=%s"
