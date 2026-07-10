@@ -1,0 +1,54 @@
+# RMA Feature Boundaries
+
+## Shared Kernel
+
+Owns bootstrap, TOC/load-order diagnostics, SavedVariables access, database stores,
+timers, communication, common item/string/time helpers, and reusable UI primitives.
+It must not own product workflow decisions.
+
+### Commands
+
+Commands request a mutation and return success or failure. Commands and queries use
+direct owner calls.
+
+### Queries
+
+Queries return data without requesting UI behavior or publishing a command event.
+Commands and queries use direct owner calls.
+
+### Notifications
+
+Notifications report a completed state change and do not return a result to the
+publisher. Notifications use addon.Bus after the state change succeeds.
+
+## Configuration
+
+Owns the top-level configuration frame, option composition, presets, and shortcuts
+to feature-owned actions. It does not own Warnings, Spammer, Logger, or Raid data.
+
+## Raid
+
+Owns group capabilities, roster state, raid sessions, attendance capture, loot
+method automation, raid projections, and raid-specific diagnostic data.
+
+## Master Loot
+
+Owns the composition of loot, rolls, award, trade, item-selection, and child-widget
+workflows. `Controllers/Master.lua` remains its UI and WoW-event composition root.
+
+## Logger And Attendance
+
+Logger owns raid-history mutations and loot-history presentation. Attendance owns
+attendance presentation and export. Shared raid projections remain owned by Raid.
+
+## Reserves
+
+Owns reserve import, aliases, display models, sync, whisper behavior, and reserve UI.
+
+## Warnings
+
+Owns warning persistence, preview models, announcement requests, and its top-level UI.
+
+## Spammer
+
+Owns recruitment draft data, preview generation, send-cycle control, and its top-level UI.
