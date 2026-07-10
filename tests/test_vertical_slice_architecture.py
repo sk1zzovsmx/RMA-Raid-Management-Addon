@@ -144,10 +144,16 @@ class VerticalSliceArchitectureTest(unittest.TestCase):
     def test_master_and_init_bind_explicit_loot_owners(self):
         master = read(MASTER)
         init = read(INIT)
-        self.assertIn("local LootDistribution = assert(Loot.DistributionSession", master)
-        self.assertIn("local LootInventory = assert(Loot.Inventory", master)
-        self.assertIn("local LootAwardPlanner = assert(Loot.AwardPlanner", master)
-        self.assertIn("lootService.DistributionSession", init)
+        master_bindings = (
+            'local LootDistribution = assert(Loot.DistributionSession, "Master loot distribution owner is not initialized")',
+            'local LootInventory = assert(Loot.Inventory, "Loot inventory owner is not initialized")',
+            'local LootAwardPlanner = assert(Loot.AwardPlanner, "Loot award planner owner is not initialized")',
+        )
+        for binding in master_bindings:
+            with self.subTest(binding=binding):
+                self.assertRegex(master, rf"(?m)^\s*{re.escape(binding)}\s*$")
+        init_binding = "local lootDistribution = lootService and lootService.DistributionSession or nil"
+        self.assertRegex(init, rf"(?m)^\s*{re.escape(init_binding)}\s*$")
 
     def test_logger_loot_controller_assignment_matches_roster_refresh_field(self):
         source = read(LOGGER)
