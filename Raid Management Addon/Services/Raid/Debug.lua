@@ -2,7 +2,7 @@
 -- deps: local addon = select(2, ...)
 -- shared: local feature = addon.Database.GetFeatureShared()
 -- exports: publish module APIs on addon.*
--- events: no direct bus events; publishes synthetic roster deltas through Services/Raid
+-- events: no direct bus events; publishes synthetic roster deltas through the Raid slice
 local addon = select(2, ...)
 local feature = addon.Database.GetFeatureShared()
 
@@ -25,8 +25,10 @@ local tostring, tonumber = tostring, tonumber
 -- Debug helper module.
 -- Seeds a current raid with synthetic players and submits synthetic rolls.
 do
-	feature.EnsureServiceNamespace("Debug")
-	local module = Services.Debug
+	feature.EnsureServiceNamespace("Raid")
+	local Raid = Services.Raid
+	Raid.Debug = Raid.Debug or {}
+	local module = Raid.Debug
 
 	-- ----- Internal state ----- --
 	local syntheticProfiles = {
@@ -213,9 +215,8 @@ do
 	end
 
 	local function publishSyntheticDelta(delta, raidId)
-		local raidService = Services.Raid
-		if raidService and raidService._PublishRosterDelta then
-			raidService._PublishRosterDelta(delta, raidId)
+		if Raid._PublishRosterDelta then
+			Raid._PublishRosterDelta(delta, raidId)
 		end
 	end
 
@@ -581,7 +582,7 @@ end
 
 local registry = feature.ModuleRegistry
 if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Debug", {
+	registry.AddModule("Services/Raid/Debug", {
 		deps = {
 			"Init",
 			"Database/DB",
@@ -589,7 +590,9 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Modules/ModuleRegistry",
 			"Modules/Strings",
 			"Modules/Time",
+			"Services/Raid/Roster",
+			"Services/Rolls/Service",
 		},
 	})
-	registry.SetLoaded("Services/Debug")
+	registry.SetLoaded("Services/Raid/Debug")
 end

@@ -31,7 +31,7 @@ CHAT = ADDON / "Services" / "Chat.lua"
 DB_SYNCER = ADDON / "Database" / "DBSyncer.lua"
 DB_SYNC_PAYLOAD = ADDON / "Database" / "DBSyncPayload.lua"
 DB_SYNC_IMPORT = ADDON / "Database" / "DBSyncImport.lua"
-DEBUG_SERVICE = ADDON / "Services" / "Debug.lua"
+DEBUG_SERVICE = ADDON / "Services" / "Raid" / "Debug.lua"
 SPEC_INSPECT = ADDON / "Services" / "SpecInspect.lua"
 EQUIP_INSPECT = ADDON / "Services" / "EquipInspect.lua"
 MASTER_CONTROLLER = ADDON / "Controllers" / "Master.lua"
@@ -1389,9 +1389,9 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
     def test_slash_events_uses_declared_debug_service_without_optional_owner_guard(self):
         slash = read(SLASH)
 
-        self.assertIn('"Services/Debug"', slash)
-        self.assertIn("local debugService = Services.Debug", slash)
-        self.assertNotIn("local debugService = Services and Services.Debug or nil", slash)
+        self.assertIn('"Services/Raid/Debug"', slash)
+        self.assertIn('local RaidDebug = assert(Services.Raid.Debug, "Raid debug service is not initialized")', slash)
+        self.assertNotIn("Services.Debug", slash)
 
     def test_slash_events_uses_declared_spec_inspect_service_without_optional_owner_guard(self):
         slash = read(SLASH)

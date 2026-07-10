@@ -53,7 +53,7 @@ local MasterService = assert(Services.Master, "Master service namespace is not i
 local RollSelectionService = assert(MasterService.RollSelection, "Master Roll Selection service is not initialized")
 local AwardService = assert(MasterService.Award, "Master award service is not initialized")
 local AssignmentService = assert(MasterService.Assignment, "Master assignment service is not initialized")
-local DebugService = assert(Services.Debug, "Debug service is not initialized")
+local RaidDebug = assert(Services.Raid.Debug, "Raid debug service is not initialized")
 local TradeExecutionService = assert(MasterService.TradeExecution, "Master trade execution service is not initialized")
 local ItemSelectionWidget = assert(feature.Widgets.ItemSelection, "Master item selection widget is not initialized")
 
@@ -838,14 +838,14 @@ do
 		local debugFallback = false
 		if
 			#entries <= 0
-			and DebugService.IsRaidGridDebugFallbackEnabled(
+			and RaidDebug.IsRaidGridDebugFallbackEnabled(
 				feature.coreState and feature.coreState.debug or nil,
 				isDebugEnabled()
 			)
 		then
 			local debugState = feature.coreState and feature.coreState.debug or nil
-			local count = DebugService.GetRaidGridDebugTargetCount(debugState)
-			entries = DebugService.BuildRaidGridDebugRows(count, collectRaidGridRosterRows())
+			local count = RaidDebug.GetRaidGridDebugTargetCount(debugState)
+			entries = RaidDebug.BuildRaidGridDebugRows(count, collectRaidGridRosterRows())
 			title = title .. " (" .. (L.StrRaidGridDebugTitle or "Debug") .. ")"
 			debugFallback = true
 		end
@@ -886,7 +886,7 @@ do
 		end
 		debugState.raidGridTargetCount = count or 25
 
-		local entries, total = DebugService.BuildRaidGridDebugRows(count, collectRaidGridRosterRows())
+		local entries, total = RaidDebug.BuildRaidGridDebugRows(count, collectRaidGridRosterRows())
 		UI.Widgets.CallFunction("RaidGrid", "ShowPicker", {
 			mode = "debug",
 			title = (L.StrRaidGridDebugTitle or "Raid Grid Debug") .. " (" .. tostring(total) .. ")",
@@ -3501,7 +3501,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Services/Master/RollSelection",
 			"Services/Master/Award",
 			"Services/Master/Assignment",
-			"Services/Debug",
+			"Services/Raid/Debug",
 			"Services/Master/Messages",
 			"Services/Master/AwardCounter",
 			"Services/Master/Trade",

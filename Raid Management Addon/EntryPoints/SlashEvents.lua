@@ -20,6 +20,7 @@ local Colors = feature.Colors
 local Strings = feature.Strings
 local Database = feature.Database
 local Services = feature.Services
+local RaidDebug = assert(Services.Raid.Debug, "Raid debug service is not initialized")
 local Controllers = feature.Controllers
 local MasterController = assert(Controllers.Master, "Slash master controller is not initialized")
 local LoggerController = assert(Controllers.Logger, "Slash logger controller is not initialized")
@@ -230,12 +231,6 @@ local function handleDebugRaidCommand(arg)
 	local playerRef
 	local rollArg
 
-	local debugService = Services.Debug
-	if not debugService then
-		addon:warn(L.MsgFeatureUnavailable, "Debug", "raid")
-		return
-	end
-
 	if raidCmd == "" then
 		raidCmd = nil
 	end
@@ -245,7 +240,7 @@ local function handleDebugRaidCommand(arg)
 	end
 
 	if raidCmd == "seed" or raidCmd == "add" then
-		result, err = debugService:SeedRaidPlayers()
+		result, err = RaidDebug:SeedRaidPlayers()
 		if not result then
 			reportDebugRaidError(err)
 			return
@@ -255,7 +250,7 @@ local function handleDebugRaidCommand(arg)
 	end
 
 	if raidCmd == "clear" or raidCmd == "reset" then
-		result, err = debugService:ClearRaidPlayers()
+		result, err = RaidDebug:ClearRaidPlayers()
 		if not result then
 			reportDebugRaidError(err)
 			return
@@ -277,7 +272,7 @@ local function handleDebugRaidCommand(arg)
 			return
 		end
 
-		result, err = debugService:RequestRaidRolls(rollsMode)
+		result, err = RaidDebug:RequestRaidRolls(rollsMode)
 		if not result then
 			reportDebugRaidError(err)
 			return
@@ -315,7 +310,7 @@ local function handleDebugRaidCommand(arg)
 			return
 		end
 
-		result, err = debugService:RollRaidPlayer(playerRef, rollArg)
+		result, err = RaidDebug:RollRaidPlayer(playerRef, rollArg)
 		if not result then
 			reportDebugRaidError(err, playerRef)
 			return
@@ -1444,7 +1439,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Modules/Item",
 			"Modules/UI/Facade",
 			"EntryPoints/Minimap",
-			"Services/Debug",
+			"Services/Raid/Debug",
 			"Services/SpecInspect",
 			"Services/Raid/State",
 			"Controllers/Master",

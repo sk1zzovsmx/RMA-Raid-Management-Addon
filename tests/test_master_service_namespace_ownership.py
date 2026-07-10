@@ -9,7 +9,7 @@ MASTER_ROLL_SELECTION = MASTER_SERVICES / "RollSelection.lua"
 MASTER_AWARD = MASTER_SERVICES / "Award.lua"
 MASTER_ASSIGNMENT = MASTER_SERVICES / "Assignment.lua"
 MASTER_MESSAGES = MASTER_SERVICES / "Messages.lua"
-DEBUG_SERVICE = ROOT / "Raid Management Addon" / "Services" / "Debug.lua"
+DEBUG_SERVICE = ROOT / "Raid Management Addon" / "Services" / "Raid" / "Debug.lua"
 ITEM_SELECTION_WIDGET = ROOT / "Raid Management Addon" / "Widgets" / "ItemSelection.lua"
 MASTER_TRADE_EXECUTION = MASTER_SERVICES / "TradeExecution.lua"
 MASTER_CONTROLLER = ROOT / "Raid Management Addon" / "Controllers" / "Master.lua"
@@ -342,12 +342,12 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertNotIn("MasterService.DebugRaidGrid.BuildRows(", controller)
         self.assertNotIn("MasterService.AssignmentTargets.BuildRows(", controller)
         self.assertIn('local AssignmentService = assert(MasterService.Assignment, "Master assignment service is not initialized")', controller)
-        self.assertIn('local DebugService = assert(Services.Debug, "Debug service is not initialized")', controller)
+        self.assertIn('local RaidDebug = assert(Services.Raid.Debug, "Raid debug service is not initialized")', controller)
         self.assertIn("AssignmentService.BuildCandidateRows(collectMasterLootCandidates(), getRaidGridPlayerClass)", controller)
         self.assertIn("AssignmentService.BuildTargetRows(module._dropDownData, getRaidGridPlayerClass)", controller)
-        self.assertIn("DebugService.IsRaidGridDebugFallbackEnabled(", controller)
-        self.assertIn("DebugService.GetRaidGridDebugTargetCount(debugState)", controller)
-        self.assertIn("DebugService.BuildRaidGridDebugRows(count, collectRaidGridRosterRows())", controller)
+        self.assertIn("RaidDebug.IsRaidGridDebugFallbackEnabled(", controller)
+        self.assertIn("RaidDebug.GetRaidGridDebugTargetCount(debugState)", controller)
+        self.assertIn("RaidDebug.BuildRaidGridDebugRows(count, collectRaidGridRosterRows())", controller)
 
         self.assertIn("function Assignment.ResolveClass(classProvider, name)", assignment)
         self.assertIn("function Assignment.BuildCandidateRows(candidates, classProvider)", assignment)
@@ -487,7 +487,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
             "Services/Master/RollSelection",
             "Services/Master/Award",
             "Services/Master/Assignment",
-            "Services/Debug",
+            "Services/Raid/Debug",
             "Services/Master/Messages",
             "Services/Master/AwardCounter",
             "Services/Master/Trade",

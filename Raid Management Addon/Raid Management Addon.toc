@@ -97,7 +97,6 @@ Services\Raid\Projections.lua
 Services\SpecInspect.lua
 Services\EquipInspect.lua
 Services\Chat.lua
-Services\Debug.lua
 Services\Logger\Store.lua
 Services\Logger\Helpers.lua
 Services\Logger\Actions.lua
@@ -109,6 +108,7 @@ Services\Rolls\Strategies.lua
 Services\Rolls\Resolution.lua
 Services\Rolls\Display.lua
 Services\Rolls\Service.lua
+Services\Raid\Debug.lua
 Services\Loot\Service.lua
 Services\Master\FlowState.lua
 Services\Master\ButtonState.lua

@@ -36,7 +36,8 @@ to feature-owned actions. It does not own Warnings, Spammer, Logger, or Raid dat
 ## Raid
 
 Owns group capabilities, roster state, raid sessions, attendance capture, loot
-method automation, raid projections, and raid-specific diagnostic data.
+method automation, raid projections, and raid-specific diagnostic data. Synthetic
+roster, roll, and RaidGrid debug support is owned by `Services/Raid/Debug.lua`.
 
 ## Master Loot
 

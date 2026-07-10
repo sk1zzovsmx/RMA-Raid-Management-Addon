@@ -60,6 +60,8 @@ runtime placement; the feature boundaries describe workflow and data ownership.
   `Services/EquipInspect.lua`, `Services/SpecInspect.lua`,
   `Services/Attendance/*`, `Services/Attendance/Export.lua`,
   `Controllers/Attendance.lua`, and attendance XML.
+- Raid diagnostics: `Services/Raid/Debug.lua` owns synthetic roster, roll, and
+  RaidGrid debug support under `addon.Services.Raid.Debug`.
 - Master loot: `Controllers/Master.lua`, `Services/Master/*`,
   `Services/Loot/*` with runtime loot state owned by
   `Services/Loot/State.lua`, `Services/Rolls/*`, `Widgets/RaidGrid.lua`,

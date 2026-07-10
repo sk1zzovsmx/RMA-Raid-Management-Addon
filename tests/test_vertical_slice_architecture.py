@@ -14,6 +14,8 @@ MASTER = ADDON / "Controllers" / "Master.lua"
 MINIMAP = ADDON / "EntryPoints" / "Minimap.lua"
 SLASH = ADDON / "EntryPoints" / "SlashEvents.lua"
 TOC = ADDON / "Raid Management Addon.toc"
+RAID_DEBUG = ADDON / "Services" / "Raid" / "Debug.lua"
+OLD_DEBUG = ADDON / "Services" / "Debug.lua"
 
 
 def read(path):
@@ -93,3 +95,20 @@ class VerticalSliceArchitectureTest(unittest.TestCase):
             with self.subTest(path=path.name):
                 self.assertIn("ConfigController", source)
                 self.assertNotIn('CallMethod("Config"', source)
+
+    def test_raid_debug_support_lives_inside_the_raid_slice(self):
+        self.assertTrue(RAID_DEBUG.exists())
+        self.assertFalse(OLD_DEBUG.exists())
+        source = read(RAID_DEBUG)
+        self.assertIn("Raid.Debug = Raid.Debug or {}", source)
+        self.assertIn('registry.AddModule("Services/Raid/Debug"', source)
+
+    def test_no_code_outside_raid_uses_raid_private_helpers(self):
+        for path in ADDON.rglob("*.lua"):
+            relative = path.relative_to(ADDON).as_posix()
+            if relative.startswith("Libs/") or relative.startswith("Services/Raid/"):
+                continue
+            source = read(path)
+            with self.subTest(relative=relative):
+                self.assertNotIn("Raid._", source)
+                self.assertNotIn("raidService._", source)
