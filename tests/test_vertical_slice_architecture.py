@@ -1,3 +1,4 @@
+import re
 import unittest
 from pathlib import Path
 
@@ -37,16 +38,36 @@ class VerticalSliceArchitectureTest(unittest.TestCase):
         self.assertIn("Commands and queries use direct owner calls.", content)
         self.assertIn("Notifications use addon.Bus after the state change succeeds.", content)
 
+    def test_contract_defines_one_way_ui_request_semantics(self):
+        content = read(BOUNDARIES)
+        self.assertIn("### UI Requests", content)
+        self.assertIn("UI requests do not return a value.", content)
+        self.assertIn("Commands and queries do not pass through addon.Bus.", content)
+        self.assertIn(
+            "addon.Bus may carry UI requests only as imperative one-way notifications.",
+            content,
+        )
+
     def test_module_registry_remains_diagnostic_only(self):
         source = read(REGISTRY)
-        for forbidden in (
-            "function ModuleRegistry.Resolve",
-            "function ModuleRegistry.Require",
-            "function ModuleRegistry.Call",
-            "function ModuleRegistry.Dispatch",
+        public_methods = set()
+        for pattern in (
+            r"\bfunction\s+ModuleRegistry\.([A-Za-z_]\w*)\s*\(",
+            r"\bfunction\s+ModuleRegistry:([A-Za-z_]\w*)\s*\(",
+            r"\bModuleRegistry\.([A-Za-z_]\w*)\s*=\s*function\b",
         ):
-            with self.subTest(forbidden=forbidden):
-                self.assertNotIn(forbidden, source)
+            public_methods.update(re.findall(pattern, source))
+
+        self.assertEqual(
+            {
+                "AddModule",
+                "SetLoaded",
+                "GetStatus",
+                "GetModules",
+                "GetLoadOrderStatus",
+            },
+            public_methods,
+        )
 
     def test_architecture_document_links_the_boundary_contract(self):
         self.assertIn("FEATURE_BOUNDARIES.md", read(ARCHITECTURE))

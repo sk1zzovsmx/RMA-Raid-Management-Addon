@@ -21,6 +21,12 @@ Commands and queries use direct owner calls.
 Notifications report a completed state change and do not return a result to the
 publisher. Notifications use addon.Bus after the state change succeeds.
 
+### UI Requests
+
+UI requests do not return a value.
+Commands and queries do not pass through addon.Bus.
+addon.Bus may carry UI requests only as imperative one-way notifications.
+
 ## Configuration
 
 Owns the top-level configuration frame, option composition, presets, and shortcuts
