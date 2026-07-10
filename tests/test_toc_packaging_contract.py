@@ -30,17 +30,17 @@ class TocPackagingContractTest(unittest.TestCase):
         self.assertEqual([], missing)
 
     def test_attendance_export_loads_after_actions_and_before_controller(self):
-        toc = read(TOC)
+        entries = self._toc_runtime_entries()
+        entry_index = {entry: index for index, entry in enumerate(entries)}
+        actions = "Raid Management Addon/Services/Attendance/Actions.lua"
+        export = "Raid Management Addon/Services/Attendance/Export.lua"
+        controller = "Raid Management Addon/Controllers/Attendance.lua"
 
-        self.assertIn("Services\\Attendance\\Export.lua", toc)
-        self.assertLess(
-            toc.index("Services\\Attendance\\Actions.lua"),
-            toc.index("Services\\Attendance\\Export.lua"),
-        )
-        self.assertLess(
-            toc.index("Services\\Attendance\\Export.lua"),
-            toc.index("Controllers\\Attendance.lua"),
-        )
+        self.assertIn(actions, entry_index)
+        self.assertIn(export, entry_index)
+        self.assertIn(controller, entry_index)
+        self.assertLess(entry_index[actions], entry_index[export])
+        self.assertLess(entry_index[export], entry_index[controller])
 
     def test_module_registry_dependencies_load_before_consumers(self):
         lua_order = {}

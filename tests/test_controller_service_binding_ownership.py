@@ -49,10 +49,18 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
         for service in ATTENDANCE_SERVICES:
             content = read(service)
             with self.subTest(service=service.name):
-                self.assertNotIn("_G", content)
-                self.assertNotIn("GetFrame", content)
-                self.assertNotIn("SetScript", content)
-                self.assertNotIn("UI.", content)
+                for forbidden in (
+                    "_G",
+                    "GetFrame",
+                    "SetScript",
+                    "UI.",
+                    "Controllers.",
+                    "Widgets.",
+                    "CreateFrame",
+                    "UIParent",
+                ):
+                    with self.subTest(forbidden=forbidden):
+                        self.assertNotIn(forbidden, content)
 
     def test_logger_does_not_invoke_attendance_domain(self):
         logger = read(ADDON / "Controllers" / "Logger.lua")
