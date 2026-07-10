@@ -11,6 +11,12 @@ MASTER = ADDON / "Controllers" / "Master.lua"
 LOGGER = ADDON / "Controllers" / "Logger.lua"
 ATTENDANCE = ADDON / "Controllers" / "Attendance.lua"
 ATTENDANCE_EXPORT = ADDON / "Services" / "Attendance" / "Export.lua"
+ATTENDANCE_SERVICES = (
+    ADDON / "Services" / "Attendance" / "Store.lua",
+    ADDON / "Services" / "Attendance" / "View.lua",
+    ADDON / "Services" / "Attendance" / "Actions.lua",
+    ATTENDANCE_EXPORT,
+)
 MASTER_AWARD = ADDON / "Services" / "Master" / "Award.lua"
 
 
@@ -38,6 +44,28 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
         self.assertIn("AttendanceExport:GetRaidAttendanceCSV(raid, getAttendanceExportContext())", attendance)
         self.assertNotIn("GetRaidAttendanceCSV", logger)
         self.assertNotIn("raidAttendance", logger)
+
+    def test_attendance_services_do_not_touch_frames_or_widgets(self):
+        for service in ATTENDANCE_SERVICES:
+            content = read(service)
+            with self.subTest(service=service.name):
+                self.assertNotIn("_G", content)
+                self.assertNotIn("GetFrame", content)
+                self.assertNotIn("SetScript", content)
+                self.assertNotIn("UI.", content)
+
+    def test_logger_does_not_invoke_attendance_domain(self):
+        logger = read(ADDON / "Controllers" / "Logger.lua")
+
+        for forbidden in (
+            "Controllers.Attendance",
+            "AttendanceExport",
+            "AttendanceSvc",
+            "GetRaidAttendanceCSV",
+            "GetRaidAttendance(",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, logger)
 
     def test_warnings_controller_binds_chat_service_without_local_api_table(self):
         warnings = read(WARNINGS)
