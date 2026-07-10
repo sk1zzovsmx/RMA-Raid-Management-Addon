@@ -30,6 +30,14 @@ local CanObservePassiveLoot = assert(Raid.CanObservePassiveLoot, "Minimap passiv
 local ClearRaidIcons = assert(Raid.ClearRaidIcons, "Minimap raid-icon cleaner is not initialized")
 local K_COLOR = feature.K_COLOR
 
+local function getConfigController()
+	local controller = Controllers.Config
+	if controller and controller:IsAvailable() then
+		return controller
+	end
+	return nil
+end
+
 -- =========== Minimap Button Module  =========== --
 feature.Minimap = feature.Minimap or {}
 addon.Minimap = feature.Minimap
@@ -301,7 +309,10 @@ local function loadMinimapFrame(frame)
 			return
 		end
 		if button == "RightButton" then
-			callWidgetMethod("Config", "Toggle")
+			local configController = getConfigController()
+			if configController then
+				configController:Toggle()
+			end
 		elseif button == "LeftButton" then
 			toggleMenu()
 		end

@@ -29,7 +29,7 @@ EVENTS = ADDON / "Modules" / "Events.lua"
 INIT = ADDON / "Init.lua"
 MINIMAP = ADDON / "EntryPoints" / "Minimap.lua"
 SLASH_EVENTS = ADDON / "EntryPoints" / "SlashEvents.lua"
-CONFIG = ADDON / "Widgets" / "Config.lua"
+CONFIG = ADDON / "Controllers" / "Config.lua"
 
 
 def read(path):

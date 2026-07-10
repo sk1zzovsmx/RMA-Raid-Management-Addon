@@ -151,7 +151,7 @@ Controllers\Attendance.lua
 Controllers\Warnings.lua
 Controllers\Spammer.lua
 EntryPoints\Minimap.lua
-Widgets\Config.lua
+Controllers\Config.lua
 EntryPoints\SlashEvents.lua
 
 # Layer 6 - Concrete UI frames

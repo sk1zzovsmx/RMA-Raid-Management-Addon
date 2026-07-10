@@ -26,6 +26,7 @@ local LoggerController = assert(Controllers.Logger, "Slash logger controller is 
 local AttendanceController = assert(Controllers.Attendance, "Slash attendance controller is not initialized")
 local WarningsController = assert(Controllers.Warnings, "Slash warnings controller is not initialized")
 local SpammerController = assert(Controllers.Spammer, "Slash spammer controller is not initialized")
+local ConfigController = assert(Controllers.Config, "Config controller is not initialized")
 local Comms = feature.Comms
 local Item = feature.Item
 local Timer = feature.Timer
@@ -909,9 +910,11 @@ end
 local function handleConfigCommand(rest)
 	local sub = Strings.SplitArgs(rest)
 	if sub == "reset" then
-		callWidgetMethod("Config", "Default")
-	else
-		callWidgetMethod("Config", "Toggle")
+		if ConfigController:IsAvailable() then
+			ConfigController:Default()
+		end
+	elseif ConfigController:IsAvailable() then
+		ConfigController:Toggle()
 	end
 end
 
@@ -1449,6 +1452,7 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Controllers/Attendance",
 			"Controllers/Warnings",
 			"Controllers/Spammer",
+			"Controllers/Config",
 		},
 	})
 	registry.SetLoaded("EntryPoints/SlashEvents")

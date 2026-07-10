@@ -18,7 +18,7 @@ MASTER = ADDON / "Controllers" / "Master.lua"
 LOOT_HINTS = ADDON / "Widgets" / "LootHints.lua"
 LOOT_COUNTER = ADDON / "Widgets" / "LootCounter.lua"
 RESERVES_UI = ADDON / "Widgets" / "ReservesUI.lua"
-CONFIG = ADDON / "Widgets" / "Config.lua"
+CONFIG = ADDON / "Controllers" / "Config.lua"
 TRADE_MENU = ADDON / "Widgets" / "TradeMenu.lua"
 ITEM_SELECTION = ADDON / "Widgets" / "ItemSelection.lua"
 ATTENDANCE = ADDON / "Controllers" / "Attendance.lua"
@@ -460,10 +460,10 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         start = config.index("local function onOptionClick(btn, frameName)")
         end = config.index("local function bindInterfaceOptionsPanel(panel)", start)
         on_option_click = config[start:end]
-        registry_start = config.index('registry.AddModule("Widgets/Config"')
+        registry_start = config.index('registry.AddModule("Controllers/Config"')
         registry = config[registry_start:]
 
-        self.assertLess(toc.index("EntryPoints\\Minimap.lua"), toc.index("Widgets\\Config.lua"))
+        self.assertLess(toc.index("EntryPoints\\Minimap.lua"), toc.index("Controllers\\Config.lua"))
         self.assertIn("addon.Minimap:SetMinimapButtonShown(value)", on_option_click)
         self.assertNotIn("addon.Minimap:ToggleMinimapButton()", on_option_click)
         self.assertIn('"EntryPoints/Minimap"', registry)
@@ -522,7 +522,6 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         reserves_ui = read(RESERVES_UI)
 
         for call in (
-            'UI.Widgets.CallMethod("Config", "Toggle")',
             'UI.Widgets.CallMethod("LootCounter", "AttachToMaster", frame)',
             'UI.Widgets.CallMethod("Reserves", "Toggle")',
             'UI.Widgets.CallMethod("Reserves", "ToggleImport")',
@@ -907,10 +906,9 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertNotIn('UIWidgets.Register("LootCounter", {', loot_counter)
 
         self.assertIn("function module:Default()", config)
-        self.assertIn('UIWidgets.Register("Config", module)', config)
-        self.assertIn('UIWidgets.RegisterMethod("Config", "Toggle", module.Toggle)', config)
-        self.assertIn('UIWidgets.RegisterMethod("Config", "Default", module.Default)', config)
-        self.assertNotIn('UIWidgets.Register("Config", {', config)
+        self.assertIn("Controllers.Config = Controllers.Config or {}", config)
+        self.assertNotIn('UIWidgets.Register("Config"', config)
+        self.assertNotIn('UIWidgets.RegisterMethod("Config"', config)
 
         self.assertIn("function module:ToggleImport()", reserves_ui)
         self.assertIn("function module:HideImport()", reserves_ui)

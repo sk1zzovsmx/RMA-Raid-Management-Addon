@@ -8,7 +8,6 @@ local feature = addon.Database.GetFeatureShared()
 
 local L = feature.L
 
-local Widgets = feature.Widgets
 local Database = feature.Database
 local Options = feature.Options
 local UI = feature.UI
@@ -48,9 +47,17 @@ local strsub = string.sub
 local type, tostring, tonumber = type, tostring, tonumber
 local floor = math.floor
 
+Controllers.Config = Controllers.Config or {}
+local module = Controllers.Config
+local configEnabled = UIWidgets.IsEnabled("Config") ~= false
+
+function module:IsAvailable()
+	return configEnabled
+end
+
 local registry = feature.ModuleRegistry
 if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Widgets/Config", {
+	registry.AddModule("Controllers/Config", {
 		deps = {
 			"Init",
 			"Modules/ModuleRegistry",
@@ -72,17 +79,15 @@ if type(registry) == "table" and type(registry.AddModule) == "function" and type
 			"Controllers/Warnings",
 		},
 	})
-	registry.SetLoaded("Widgets/Config")
+	registry.SetLoaded("Controllers/Config")
 end
 
 -- =========== Configuration Frame Module  =========== --
 do
-	if not UIWidgets.IsEnabled("Config") then
+	if not configEnabled then
 		return
 	end
 
-	Widgets.Config = Widgets.Config or {}
-	local module = Widgets.Config
 	local uiState = Scaffold.EnsureModuleState(module)
 
 	-- Namespace registration: generic UI options (tooltip toggle).
@@ -1762,10 +1767,6 @@ do
 	function module:Default()
 		return loadDefaultOptions()
 	end
-
-	UIWidgets.Register("Config", module)
-	UIWidgets.RegisterMethod("Config", "Toggle", module.Toggle)
-	UIWidgets.RegisterMethod("Config", "Default", module.Default)
 
 	RegisterCallback(OptionsLoadedEvent, function()
 		registerInterfaceOptionsPanel()

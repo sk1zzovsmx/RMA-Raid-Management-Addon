@@ -10,7 +10,7 @@ LOOT_COUNTER = ADDON / "Widgets" / "LootCounter.lua"
 MASTER = ADDON / "Controllers" / "Master.lua"
 LOGGER = ADDON / "Controllers" / "Logger.lua"
 RESERVES_UI = ADDON / "Widgets" / "ReservesUI.lua"
-CONFIG = ADDON / "Widgets" / "Config.lua"
+CONFIG = ADDON / "Controllers" / "Config.lua"
 
 
 def read(path):

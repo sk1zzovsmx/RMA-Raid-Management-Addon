@@ -47,7 +47,7 @@ LOGGER_STORE = ADDON / "Services" / "Logger" / "Store.lua"
 LOOT_HINTS = ADDON / "Widgets" / "LootHints.lua"
 LOOT_COUNTER = ADDON / "Widgets" / "LootCounter.lua"
 RAID_GRID = ADDON / "Widgets" / "RaidGrid.lua"
-CONFIG_WIDGET = ADDON / "Widgets" / "Config.lua"
+CONFIG_CONTROLLER = ADDON / "Controllers" / "Config.lua"
 LOOT_SERVICE = ADDON / "Services" / "Loot" / "Service.lua"
 LOOT_INVENTORY = ADDON / "Services" / "Loot" / "Inventory.lua"
 LOOT_CONTEXT = ADDON / "Services" / "Loot" / "Context.lua"
@@ -1006,15 +1006,15 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertNotIn("raidStore and raidStore.MarkLootSyncRevision", actions)
         self.assertNotIn("raidStore and raidStore.TouchRaidSyncRevision", actions)
 
-    def test_config_widget_uses_declared_logger_actions_owner_without_optional_service_guard(self):
-        config = read(CONFIG_WIDGET)
+    def test_config_controller_uses_declared_logger_actions_owner_without_optional_service_guard(self):
+        config = read(CONFIG_CONTROLLER)
 
         self.assertIn('"Services/Logger/Actions"', config)
         self.assertIn("local actions = Services.Logger.Actions", config)
         self.assertNotIn("local actions = Services and Services.Logger and Services.Logger.Actions or nil", config)
 
-    def test_config_widget_binds_options_loaded_without_optional_callback_guard(self):
-        config = read(CONFIG_WIDGET)
+    def test_config_controller_binds_options_loaded_without_optional_callback_guard(self):
+        config = read(CONFIG_CONTROLLER)
 
         self.assertIn('"Modules/Events"', config)
         self.assertIn('"Modules/Bus"', config)
@@ -1032,8 +1032,8 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertNotIn("local InternalEvents = Events.Internal", config)
         self.assertNotIn("Bus.RegisterCallback(Events.Internal.OptionsLoaded", config)
 
-    def test_config_widget_publishes_option_changes_without_optional_event_guards(self):
-        config = read(CONFIG_WIDGET)
+    def test_config_controller_publishes_option_changes_without_optional_event_guards(self):
+        config = read(CONFIG_CONTROLLER)
 
         self.assertIn("local TriggerEvent = assert(", config)
         self.assertIn("Bus.TriggerEvent", config)
@@ -1047,8 +1047,8 @@ class InitCoreMicroCleanupContractTest(unittest.TestCase):
         self.assertNotIn("Events.GetConfigOptionChanged and Events.GetConfigOptionChanged", config)
         self.assertNotIn("Bus.TriggerEvent(eventName, value)", config)
 
-    def test_config_widget_resets_defaults_through_declared_options_owner(self):
-        config = read(CONFIG_WIDGET)
+    def test_config_controller_resets_defaults_through_declared_options_owner(self):
+        config = read(CONFIG_CONTROLLER)
 
         self.assertIn("local GetOptionNamespaces = assert(", config)
         self.assertIn("Options.GetNamespaces", config)

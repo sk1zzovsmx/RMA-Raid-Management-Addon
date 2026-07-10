@@ -40,6 +40,7 @@ local Database = feature.Database
 local Options = feature.Options
 local Bus = feature.Bus
 local Services = feature.Services
+local Controllers = feature.Controllers
 local Loot = assert(Services.Loot, "Master loot service is not initialized")
 local LootDistribution = assert(Loot._DistributionSession, "Master loot distribution owner is not initialized")
 local LootInventory = assert(Loot._Inventory, "Loot inventory helpers are not initialized")
@@ -95,6 +96,14 @@ local LOOT_CONTEXT_SESSION_TTL_SECONDS =
 	math.max(tonumber(C.GROUP_LOOT_PENDING_AWARD_TTL_SECONDS) or 60, tonumber(C.BOSS_EVENT_CONTEXT_TTL_SECONDS) or 30)
 
 local isDebugEnabled = Options.IsDebugEnabled
+
+local function getConfigController()
+	local controller = Controllers.Config
+	if controller and controller:IsAvailable() then
+		return controller
+	end
+	return nil
+end
 
 local function isTraceEnabled()
 	return addon.hasTrace ~= nil
@@ -985,7 +994,10 @@ do
 		end
 
 		SetScriptSafely(refs.configBtn, "OnClick", function()
-			UI.Widgets.CallMethod("Config", "Toggle")
+			local configController = getConfigController()
+			if configController then
+				configController:Toggle()
+			end
 		end)
 		SetScriptSafely(refs.selectItemBtn, "OnClick", function(self, button)
 			if not ensureItemSelectionAccess() then

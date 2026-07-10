@@ -72,7 +72,7 @@ runtime placement; the feature boundaries describe workflow and data ownership.
   and warnings XML.
 - LFM spammer: `Controllers/Spammer.lua`, `Services/Spammer/Draft.lua`, and
   spammer XML.
-- Configuration: `Widgets/Config.lua`, `Database/DBOptions.lua`, and config XML.
+- Configuration: `Controllers/Config.lua`, `Database/DBOptions.lua`, and config XML.
 
 ## Event Flow
 

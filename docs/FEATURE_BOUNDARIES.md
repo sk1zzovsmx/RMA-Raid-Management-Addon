@@ -31,6 +31,7 @@ addon.Bus may carry UI requests only as imperative one-way notifications.
 
 Owns the top-level configuration frame, option composition, presets, and shortcuts
 to feature-owned actions. It does not own Warnings, Spammer, Logger, or Raid data.
+`Controllers/Config.lua` is the top-level configuration owner.
 
 ## Raid
 

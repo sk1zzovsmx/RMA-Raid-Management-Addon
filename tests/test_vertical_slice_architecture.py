@@ -8,6 +8,12 @@ ADDON = ROOT / "Raid Management Addon"
 BOUNDARIES = ROOT / "docs" / "FEATURE_BOUNDARIES.md"
 ARCHITECTURE = ROOT / "docs" / "ARCHITECTURE.md"
 REGISTRY = ADDON / "Modules" / "ModuleRegistry.lua"
+CONFIG_CONTROLLER = ADDON / "Controllers" / "Config.lua"
+CONFIG_WIDGET = ADDON / "Widgets" / "Config.lua"
+MASTER = ADDON / "Controllers" / "Master.lua"
+MINIMAP = ADDON / "EntryPoints" / "Minimap.lua"
+SLASH = ADDON / "EntryPoints" / "SlashEvents.lua"
+TOC = ADDON / "Raid Management Addon.toc"
 
 
 def read(path):
@@ -71,3 +77,19 @@ class VerticalSliceArchitectureTest(unittest.TestCase):
 
     def test_architecture_document_links_the_boundary_contract(self):
         self.assertIn("FEATURE_BOUNDARIES.md", read(ARCHITECTURE))
+
+    def test_config_is_a_top_level_controller(self):
+        self.assertTrue(CONFIG_CONTROLLER.exists())
+        self.assertFalse(CONFIG_WIDGET.exists())
+        config = read(CONFIG_CONTROLLER)
+        self.assertIn("Controllers.Config = Controllers.Config or {}", config)
+        self.assertIn("function module:IsAvailable()", config)
+        self.assertNotIn('UIWidgets.Register("Config"', config)
+        self.assertIn("Controllers\\Config.lua", read(TOC))
+
+    def test_config_callers_use_the_controller_owner(self):
+        for path in (MASTER, MINIMAP, SLASH):
+            source = read(path)
+            with self.subTest(path=path.name):
+                self.assertIn("ConfigController", source)
+                self.assertNotIn('CallMethod("Config"', source)
