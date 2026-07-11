@@ -7,6 +7,7 @@ stable external contracts, and current validation options.
 ## Documents
 
 - `ARCHITECTURE.md` maps the runtime ownership boundaries and TOC load layers.
+- `API_SURFACE.md` defines the supported `_G.RMA` and external compatibility surfaces.
 - `DEVELOPMENT.md` defines the development workflow for WotLK 3.3.5a work.
 - `SAVED_VARIABLES.md` documents the `RMA_*` persistence contract.
 - `VALIDATION.md` documents static/offline validation gates and non-blocking

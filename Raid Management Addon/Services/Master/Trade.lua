@@ -5,7 +5,7 @@
 -- events: none
 -- notes: pure Master manual-trade matching and manual-accept confirmation flow
 local addon = select(2, ...)
-local Master = addon.Database.EnsureServiceNamespace("Master")
+local Master = addon.Services.EnsureNamespace("Master")
 local Services = addon.Services
 
 local Trade = Master.Trade or {}

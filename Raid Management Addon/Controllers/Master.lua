@@ -124,6 +124,7 @@ local GetMasterLootCandidate =
 	assert(_G.GetMasterLootCandidate, "Master controller loot candidate API is not initialized")
 local GetRaidRosterInfo = assert(_G.GetRaidRosterInfo, "Master controller raid roster API is not initialized")
 local GetLootSlotInfo = assert(_G.GetLootSlotInfo, "Master controller loot slot info API is not initialized")
+local GiveMasterLoot = assert(_G.GiveMasterLoot, "Master controller loot assignment API is not initialized")
 local UIDropDownMenu_AddButton =
 	assert(_G.UIDropDownMenu_AddButton, "Master controller dropdown button API is not initialized")
 local UIDropDownMenu_CreateInfo =
@@ -299,8 +300,6 @@ do
 
 	module._announced = false
 	module._cachedRosterVersion = nil
-	local ROLL_WINNER_PREFIX = "RMA-RollWinner"
-	Comms.RegisterPrefixIfAvailable(ROLL_WINNER_PREFIX)
 	module._rollSelectionState = module._rollSelectionState
 		or {
 			mode = RollSelectionService.Mode.AUTO,
@@ -1024,9 +1023,6 @@ do
 		rollRows = MasterService.RollRows,
 		selection = UI.Selection,
 		state = module._rollSelectionState,
-		syncWinner = function(name)
-			Comms.Sync(ROLL_WINNER_PREFIX, name)
-		end,
 		warnTooMany = function(maxSel)
 			addon:warn(Diag.W.ErrMLMultiSelectTooMany:format(maxSel))
 		end,

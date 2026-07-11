@@ -69,7 +69,7 @@ end
 -- =========== Rolls Helpers Module  =========== --
 -- Manages roll tracking, response state, and winner determination.
 do
-	addon.Database.EnsureServiceNamespace("Rolls")
+	addon.Services.EnsureNamespace("Rolls")
 	local Rolls = Services.Rolls
 	local module = Rolls
 

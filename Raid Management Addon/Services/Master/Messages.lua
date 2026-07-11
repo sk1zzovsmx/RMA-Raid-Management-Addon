@@ -5,7 +5,7 @@
 -- events: none
 -- notes: pure Master chat and announcement message-plan models
 local addon = select(2, ...)
-local Master = addon.Database.EnsureServiceNamespace("Master")
+local Master = addon.Services.EnsureNamespace("Master")
 
 local Messages = Master.Messages or {}
 Master.Messages = Messages

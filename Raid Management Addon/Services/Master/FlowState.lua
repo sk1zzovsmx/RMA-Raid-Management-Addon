@@ -5,7 +5,7 @@
 -- events: none
 -- notes: pure Master workflow, SoftRes summary, and session winner state models
 local addon = select(2, ...)
-local Master = addon.Database.EnsureServiceNamespace("Master")
+local Master = addon.Services.EnsureNamespace("Master")
 
 local FlowState = Master.FlowState or {}
 Master.FlowState = FlowState

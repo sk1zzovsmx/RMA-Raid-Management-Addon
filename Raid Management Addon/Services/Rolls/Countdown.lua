@@ -11,7 +11,7 @@ local Services = addon.Services
 local Timer = addon.Timer
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Rolls")
+addon.Services.EnsureNamespace("Rolls")
 local Rolls = Services.Rolls
 local module = Rolls
 module._Countdown = module._Countdown or {}

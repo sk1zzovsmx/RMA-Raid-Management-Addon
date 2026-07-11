@@ -34,7 +34,7 @@ local MIN_AUTO_MASTER_LOOT_NOTICE_SECONDS = 0.1
 local MAX_AUTO_MASTER_LOOT_NOTICE_SECONDS = 5
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Raid")
+addon.Services.EnsureNamespace("Raid")
 local Raid = Services.Raid
 local module = Raid
 

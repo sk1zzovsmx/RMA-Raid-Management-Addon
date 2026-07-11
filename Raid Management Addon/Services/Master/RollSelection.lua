@@ -5,7 +5,7 @@
 -- events: none
 -- notes: owns Master roll winner selection state and display model assembly
 local addon = select(2, ...)
-local Master = addon.Database.EnsureServiceNamespace("Master")
+local Master = addon.Services.EnsureNamespace("Master")
 
 local RollSelection = Master.RollSelection or {}
 Master.RollSelection = RollSelection
@@ -273,7 +273,6 @@ function RollSelection.CreateController(opts)
 		rollRows = assert(opts.rollRows, "Master RollSelection row model owner is not initialized"),
 		selection = assert(opts.selection, "Master RollSelection selection owner is not initialized"),
 		state = assert(opts.state, "Master RollSelection state table is not initialized"),
-		syncWinner = opts.syncWinner,
 		warnTooMany = opts.warnTooMany,
 	}
 
@@ -388,9 +387,6 @@ function RollSelection.CreateController(opts)
 
 		self:Invalidate()
 		self:BuildModel()
-		if not pickMode and type(self.syncWinner) == "function" then
-			self.syncWinner(name)
-		end
 		return true
 	end
 

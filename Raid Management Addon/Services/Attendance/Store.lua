@@ -9,7 +9,7 @@ local Services = addon.Services
 
 local type, tonumber = type, tonumber
 
-addon.Database.EnsureServiceNamespace("Attendance", "Store")
+addon.Services.EnsureNamespace("Attendance", "Store")
 local Attendance = Services.Attendance
 local Store = Attendance.Store
 

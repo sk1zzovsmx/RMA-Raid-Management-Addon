@@ -24,7 +24,7 @@ class AwardTransactionBehaviorTests(unittest.TestCase):
         path = str(AWARD_TRANSACTION).replace("\\", "\\\\")
         run_lua(textwrap.dedent(f"""
             local addon={{Services={{}}, Database={{}}}}
-            addon.Database.EnsureServiceNamespace=function(name)
+            addon.Services.EnsureNamespace=function(name)
                 addon.Services[name]=addon.Services[name] or {{}}
                 return addon.Services[name]
             end

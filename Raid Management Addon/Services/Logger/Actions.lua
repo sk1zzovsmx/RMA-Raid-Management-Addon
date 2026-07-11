@@ -57,7 +57,7 @@ local HISTORY_CLEANUP_CHUNK_SIZE = 25
 local HISTORY_CLEANUP_DELAY_SECONDS = 0.01
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Logger", "Actions")
+addon.Services.EnsureNamespace("Logger", "Actions")
 local Logger = Services.Logger
 local Actions = Logger.Actions
 local Store = Logger.Store

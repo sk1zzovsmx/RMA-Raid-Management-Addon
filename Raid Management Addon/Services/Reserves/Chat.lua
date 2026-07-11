@@ -22,7 +22,7 @@ local tonumber = tonumber
 local type = type
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Reserves")
+addon.Services.EnsureNamespace("Reserves")
 local Reserves = Services.Reserves
 local module = Reserves
 module._Chat = module._Chat or {}

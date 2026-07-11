@@ -11,7 +11,7 @@ local twipe = table.wipe
 local type, tostring, tonumber = type, tostring, tonumber
 local date = date
 
-addon.Database.EnsureServiceNamespace("Raid", "Projections")
+addon.Services.EnsureNamespace("Raid", "Projections")
 local Projections = Services.Raid.Projections
 
 local function buildRaidListRow(raid, seq, queries)

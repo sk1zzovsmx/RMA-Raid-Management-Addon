@@ -27,7 +27,7 @@ local tonumber, tostring, type = tonumber, tostring, type
 local lower = string.lower
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Warnings", "Store")
+addon.Services.EnsureNamespace("Warnings", "Store")
 local Warnings = Services.Warnings
 local Store = Warnings.Store
 

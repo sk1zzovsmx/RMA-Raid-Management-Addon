@@ -375,7 +375,7 @@ end
 -- ----- Public methods ----- --
 
 do
-	addon.Database.EnsureServiceNamespace("SpecInspect")
+	addon.Services.EnsureNamespace("SpecInspect")
 	local module = Services.SpecInspect
 
 	function module:GetPlayerSpecSnapshot(name)

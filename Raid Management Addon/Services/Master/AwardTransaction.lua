@@ -5,7 +5,7 @@
 -- events: none
 -- notes: owns runtime-only Master award transition and terminal policy
 local addon = select(2, ...)
-local Master = addon.Database.EnsureServiceNamespace("Master")
+local Master = addon.Services.EnsureNamespace("Master")
 
 local AwardTransaction = Master.AwardTransaction or {}
 Master.AwardTransaction = AwardTransaction

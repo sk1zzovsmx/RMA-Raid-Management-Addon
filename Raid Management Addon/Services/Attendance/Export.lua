@@ -11,7 +11,7 @@ local Strings = addon.Strings
 local concat = table.concat
 local tostring, tonumber, type = tostring, tonumber, type
 
-addon.Database.EnsureServiceNamespace("Attendance", "Export")
+addon.Services.EnsureNamespace("Attendance", "Export")
 local Attendance = Services.Attendance
 local Export = Attendance.Export
 local RaidProjections = assert(Services.Raid.Projections, "Attendance export raid projections are not initialized")

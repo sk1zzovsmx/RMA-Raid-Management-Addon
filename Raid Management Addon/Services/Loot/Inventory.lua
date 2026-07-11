@@ -24,7 +24,7 @@ local debugDiag = addon.Diag and addon.Diag.D or {}
 local _, lootState, itemInfo = Database.EnsureLootRuntimeState()
 local Item = addon.Item
 
-addon.Database.EnsureServiceNamespace("Loot")
+addon.Services.EnsureNamespace("Loot")
 local Loot = Services.Loot
 Loot.Inventory = Loot.Inventory or {}
 local Inventory = Loot.Inventory

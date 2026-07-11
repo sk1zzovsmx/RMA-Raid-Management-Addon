@@ -24,11 +24,14 @@ local QueueAddonMessage = assert(Comms.QueueAddonMessage, "Loot distribution dir
 local DistributionChangedEvent =
 	assert(InternalEvents.LootDistributionSessionChanged, "Loot distribution change event is not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Loot distribution event bus sender is not initialized")
+local Raid = assert(Services.Raid, "Loot distribution raid service is not initialized")
+local IsGroupMember = assert(Raid.IsGroupMember, "Loot distribution group-membership resolver is not initialized")
+local IsLootAuthority = assert(Raid.IsLootAuthority, "Loot distribution authority resolver is not initialized")
 local type, tostring, tonumber, next = type, tostring, tonumber, next
 local tinsert, tsort, tconcat = table.insert, table.sort, table.concat
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Loot")
+addon.Services.EnsureNamespace("Loot")
 local Loot = Services.Loot
 Loot.DistributionSession = Loot.DistributionSession or {}
 local DistributionSession = Loot.DistributionSession
@@ -96,6 +99,9 @@ local nextStreamSequence = tonumber(DistributionSession._nextStreamSequence) or 
 DistributionSession._sessionOwners = DistributionSession._sessionOwners or {}
 local sessionOwners = DistributionSession._sessionOwners
 local nextSessionOwner = tonumber(DistributionSession._nextSessionOwner) or 1
+local trustedAuthority = type(DistributionSession._trustedAuthority) == "string"
+	and DistributionSession._trustedAuthority
+	or nil
 local sessionEndRequested = false
 local lastWindowNow = tonumber(GetTime())
 assert(lastWindowNow and lastWindowNow == lastWindowNow and lastWindowNow >= 0, "Loot distribution time is invalid")
@@ -842,6 +848,7 @@ local function handleSessionEndMessage(fields, sender)
 		state.revision = tonumber(fields[4]) or state.revision or 0
 		state.ownerKey = nil
 		triggerChanged("session_end", nil)
+		return true, true
 	end
 	return true
 end
@@ -1407,6 +1414,18 @@ function DistributionSession.HandleMessage(prefix, msg, _channel, sender)
 
 	local fields = splitFields(msg)
 	local kind = fields[1]
+	if kind == MSG_SNAPSHOT_REQ then
+		if not IsGroupMember(Raid, sender) then
+			return true
+		end
+	elseif kind ~= MSG_HELLO then
+		if IsLootAuthority(Raid, sender) then
+			trustedAuthority = tostring(sender or "")
+			DistributionSession._trustedAuthority = trustedAuthority
+		elseif kind ~= MSG_SESSION_END or tostring(sender or "") ~= trustedAuthority then
+			return true
+		end
+	end
 	if kind == MSG_CLEAR then
 		if not isSupportedVersion(fields[2]) then
 			return true
@@ -1427,7 +1446,12 @@ function DistributionSession.HandleMessage(prefix, msg, _channel, sender)
 		return handleWindowEndMessage(fields, sender)
 	end
 	if kind == MSG_SESSION_END then
-		return handleSessionEndMessage(fields, sender)
+		local handled, closed = handleSessionEndMessage(fields, sender)
+		if closed then
+			trustedAuthority = nil
+			DistributionSession._trustedAuthority = nil
+		end
+		return handled
 	end
 	if kind == MSG_ROLL_START then
 		return handleRollStartMessage(fields, sender)

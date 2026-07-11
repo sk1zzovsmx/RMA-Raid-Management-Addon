@@ -24,7 +24,7 @@ class PendingAwardExecutionBehaviorTest(unittest.TestCase):
     def test_owner_orchestrates_confirm_fail_timeout_and_timer_cancellation(self):
         run_lua(textwrap.dedent(f"""
             local addon = {{ Database = {{}} , Services = {{ Master = {{}} }} }}
-            function addon.Database.EnsureServiceNamespace(name)
+            function addon.Services.EnsureNamespace(name)
                 addon.Services[name] = addon.Services[name] or {{}}
                 return addon.Services[name]
             end
@@ -96,7 +96,7 @@ class PendingAwardExecutionBehaviorTest(unittest.TestCase):
                 Strings = {{ NormalizeName = function(name) return name end }},
             }}
             function addon.Database.EnsureLootRuntimeState() return nil, state end
-            function addon.Database.EnsureServiceNamespace(name)
+            function addon.Services.EnsureNamespace(name)
                 addon.Services[name] = addon.Services[name] or {{}}
                 return addon.Services[name]
             end

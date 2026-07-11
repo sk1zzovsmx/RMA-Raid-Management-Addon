@@ -19,7 +19,7 @@ local ITEM_LINK_PATTERN = addon.C.ITEM_LINK_PATTERN
 local rollTypes = addon.C.rollTypes
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Loot")
+addon.Services.EnsureNamespace("Loot")
 local Loot = Services.Loot
 local module = Loot
 module._PassiveGroupLoot = module._PassiveGroupLoot or {}

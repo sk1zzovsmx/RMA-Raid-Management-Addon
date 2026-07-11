@@ -5,7 +5,7 @@
 -- events: none
 -- notes: pure Master assignment row models and policy
 local addon = select(2, ...)
-local Master = addon.Database.EnsureServiceNamespace("Master")
+local Master = addon.Services.EnsureNamespace("Master")
 
 local Assignment = Master.Assignment or {}
 Master.Assignment = Assignment

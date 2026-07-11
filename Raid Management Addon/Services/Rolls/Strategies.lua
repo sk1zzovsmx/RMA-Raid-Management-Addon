@@ -11,7 +11,7 @@ local Services = addon.Services
 local tostring, tonumber, type = tostring, tonumber, type
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Rolls")
+addon.Services.EnsureNamespace("Rolls")
 local Rolls = Services.Rolls
 local module = Rolls
 module._Strategies = module._Strategies or {}

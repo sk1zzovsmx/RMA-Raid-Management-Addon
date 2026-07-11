@@ -27,7 +27,7 @@ local ipairs = ipairs
 
 -- =========== Chat Output Helpers  =========== --
 do
-	addon.Database.EnsureServiceNamespace("Chat")
+	addon.Services.EnsureNamespace("Chat")
 	local module = Services.Chat
 
 	-- Timer ownership: ticker for controlled LFM spammer output.

@@ -22,7 +22,7 @@ local IsEnchantingMaterial =
 	assert(IgnoredItems.IsEnchantingMaterial, "Loot rules enchanting-material dataset is not initialized")
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Loot")
+addon.Services.EnsureNamespace("Loot")
 local Loot = Services.Loot
 local module = Loot
 module._Rules = module._Rules or {}

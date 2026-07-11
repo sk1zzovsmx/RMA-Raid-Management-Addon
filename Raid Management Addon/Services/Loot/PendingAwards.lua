@@ -16,7 +16,7 @@ local Strings = addon.Strings
 local _, lootState = Database.EnsureLootRuntimeState()
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Loot")
+addon.Services.EnsureNamespace("Loot")
 local Loot = Services.Loot
 local module = Loot
 module.PendingAwards = module.PendingAwards or {}

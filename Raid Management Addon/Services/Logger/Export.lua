@@ -12,7 +12,7 @@ local tostring, tonumber, type = tostring, tonumber, type
 local concat = table.concat
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Logger", "Export")
+addon.Services.EnsureNamespace("Logger", "Export")
 local Logger = Services.Logger
 local Export = Logger.Export
 local RaidProjections = assert(Services.Raid.Projections, "Logger export raid projections are not initialized")

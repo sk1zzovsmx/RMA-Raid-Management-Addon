@@ -8,7 +8,7 @@ local Services = addon.Services
 local tonumber = tonumber
 local type = type
 
-addon.Database.EnsureServiceNamespace("Loot")
+addon.Services.EnsureNamespace("Loot")
 local Loot = Services.Loot
 local module = Loot
 module._Workflow = module._Workflow or {}

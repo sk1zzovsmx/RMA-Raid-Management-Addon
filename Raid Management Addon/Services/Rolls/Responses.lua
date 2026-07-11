@@ -21,7 +21,7 @@ local pairs, next = pairs, next
 local tostring, tonumber = tostring, tonumber
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Rolls")
+addon.Services.EnsureNamespace("Rolls")
 local Rolls = Services.Rolls
 local module = Rolls
 module._Responses = module._Responses or {}

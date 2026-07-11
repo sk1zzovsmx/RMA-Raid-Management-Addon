@@ -21,7 +21,7 @@ local tonumber = tonumber
 local tostring = tostring
 local type = type
 
-addon.Database.EnsureServiceNamespace("Loot")
+addon.Services.EnsureNamespace("Loot")
 local Loot = Services.Loot
 local module = Loot
 module._Recording = module._Recording or {}

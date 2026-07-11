@@ -5,7 +5,7 @@
 -- events: none
 -- notes: pure Master button and tooltip state models
 local addon = select(2, ...)
-local Master = addon.Database.EnsureServiceNamespace("Master")
+local Master = addon.Services.EnsureNamespace("Master")
 
 local ButtonState = Master.ButtonState or {}
 Master.ButtonState = ButtonState

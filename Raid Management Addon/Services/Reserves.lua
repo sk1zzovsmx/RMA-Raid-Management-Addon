@@ -39,7 +39,7 @@ local IMPORT_APPLY_DELAY_SECONDS = 0.01
 -- =========== Reserves Module  =========== --
 -- Manages item reserves, import, and display.
 do
-	addon.Database.EnsureServiceNamespace("Reserves")
+	addon.Services.EnsureNamespace("Reserves")
 	local Reserves = Services.Reserves
 	local module = Reserves
 	module._Sync = module._Sync or {}

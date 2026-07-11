@@ -250,7 +250,7 @@ local function ensureNamespace(root, ...)
 	return target
 end
 
-function Database.EnsureServiceNamespace(...)
+function addon.Services.EnsureNamespace(...)
 	return ensureNamespace(addon.Services, ...)
 end
 
@@ -517,29 +517,6 @@ do
 		return services[serviceName]
 	end
 
-	local function ensureDBManager()
-		local db = addon.DB
-		if not (db and type(db.SetManager) == "function" and type(db.GetManager) == "function") then
-			return nil
-		end
-
-		local manager = db.GetManager()
-		if manager then
-			return manager
-		end
-
-		local dbManager = addon.DBManager
-		local defaultManager = dbManager and dbManager.GetDefaultManager and dbManager.GetDefaultManager() or nil
-		if defaultManager then
-			db.SetManager(defaultManager)
-			return defaultManager
-		end
-
-		return nil
-	end
-
-	ensureDBManager()
-
 	-- =========== Main Event Handlers  =========== --
 	local addonEvents = {
 		CHAT_MSG_SYSTEM = "CHAT_MSG_SYSTEM",
@@ -615,7 +592,6 @@ do
 			return
 		end
 		self:UnregisterEvent("ADDON_LOADED")
-		ensureDBManager()
 		local SavedVariables = Database.SavedVariables
 		SavedVariables.EnsureAll()
 		local lvl = addon.GetLogLevel and addon:GetLogLevel()

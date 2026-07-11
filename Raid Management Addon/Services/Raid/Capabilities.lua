@@ -31,7 +31,7 @@ local function isPassiveGroupLootMethod(method)
 end
 
 do
-	addon.Database.EnsureServiceNamespace("Raid")
+	addon.Services.EnsureNamespace("Raid")
 	local Raid = Services.Raid
 	local module = Raid
 
@@ -43,6 +43,7 @@ do
 	end
 
 	local IsPlayerInRaid = assert(module.IsPlayerInRaid, "Raid capability raid-membership resolver is not initialized")
+	local GetUnitID = assert(module.GetUnitID, "Raid capability unit resolver is not initialized")
 
 	-- ----- Public methods ----- --
 
@@ -70,6 +71,42 @@ do
 			end
 		end
 		return false
+	end
+
+	function module:IsGroupMember(name)
+		local unit = GetUnitID(module, name)
+		return unit ~= nil and unit ~= "none"
+	end
+
+	function module:IsLootAuthority(name)
+		local unit = GetUnitID(module, name)
+		if not unit or unit == "none" then
+			return false
+		end
+
+		local method, partyMaster, raidMaster = GetLootMethod()
+		if method ~= "master" then
+			return false
+		end
+
+		local masterUnit
+		if partyMaster ~= nil then
+			masterUnit = partyMaster == 0 and "player" or "party" .. tostring(partyMaster)
+		elseif raidMaster ~= nil then
+			masterUnit = raidMaster == 0 and "player" or "raid" .. tostring(raidMaster)
+		end
+		return masterUnit ~= nil and UnitIsUnit(unit, masterUnit) == true
+	end
+
+	function module:IsReservesAuthority(name)
+		local unit = GetUnitID(module, name)
+		if not unit or unit == "none" then
+			return false
+		end
+		if module:IsLootAuthority(name) then
+			return true
+		end
+		return (tonumber(GetUnitRank(unit, 0)) or 0) > 0
 	end
 
 	function module:GetPlayerRoleState()

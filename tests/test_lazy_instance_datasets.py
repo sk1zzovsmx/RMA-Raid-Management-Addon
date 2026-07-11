@@ -241,12 +241,14 @@ class LazyInstanceDatasetsTest(unittest.TestCase):
                     end,
                 }},
                 Database = {{
-                    EnsureServiceNamespace = function() end,
                     GetRaidStore = function() return raidStore end,
                     GetRaidQueries = function() return queries end,
                     EnsureRaidSchema = function() end,
                 }},
-                Services = {{ Logger = {{ Actions = actions, Store = {{ _InvalidateIndexes = function() end }}, Helpers = {{}} }} }},
+                Services = {{
+                    EnsureNamespace = function() end,
+                    Logger = {{ Actions = actions, Store = {{ _InvalidateIndexes = function() end }}, Helpers = {{}} }},
+                }},
                 Timer = {{
                     BindMixin = function(target)
                         function target:ScheduleTimer(callback)

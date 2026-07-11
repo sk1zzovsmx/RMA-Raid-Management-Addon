@@ -21,7 +21,7 @@ local type = type
 local byte = string.byte
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Reserves")
+addon.Services.EnsureNamespace("Reserves")
 local Reserves = Services.Reserves
 local module = Reserves
 module._Import = module._Import or {}

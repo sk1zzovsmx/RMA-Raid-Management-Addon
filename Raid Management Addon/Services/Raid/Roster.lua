@@ -32,7 +32,7 @@ local getRaidRosterInfo = GetRaidRosterInfo
 local UnitRace, UnitSex = UnitRace, UnitSex
 
 do
-	addon.Database.EnsureServiceNamespace("Raid")
+	addon.Services.EnsureNamespace("Raid")
 	local Raid = Services.Raid
 	local module = Raid
 

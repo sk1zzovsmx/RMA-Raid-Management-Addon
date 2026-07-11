@@ -34,7 +34,7 @@ local function normalizeName(value)
 end
 
 do
-	addon.Database.EnsureServiceNamespace("Raid")
+	addon.Services.EnsureNamespace("Raid")
 	local Raid = Services.Raid
 	local module = Raid
 

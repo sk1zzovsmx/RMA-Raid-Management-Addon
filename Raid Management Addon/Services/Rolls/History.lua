@@ -20,7 +20,7 @@ local twipe = table.wipe
 local tostring, tonumber = tostring, tonumber
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Rolls")
+addon.Services.EnsureNamespace("Rolls")
 local Rolls = Services.Rolls
 local module = Rolls
 module._History = module._History or {}

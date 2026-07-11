@@ -11,7 +11,7 @@ local tinsert = table.insert
 local tremove = table.remove
 local type, tonumber = type, tonumber
 
-addon.Database.EnsureServiceNamespace("Attendance", "Actions")
+addon.Services.EnsureNamespace("Attendance", "Actions")
 local Attendance = Services.Attendance
 local Actions = Attendance.Actions
 local Store = Attendance.Store

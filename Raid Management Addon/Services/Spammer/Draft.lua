@@ -14,7 +14,7 @@ local tconcat, tonumber, tostring, type = table.concat, tonumber, tostring, type
 local strlen = string.len
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Spammer", "Draft")
+addon.Services.EnsureNamespace("Spammer", "Draft")
 local Spammer = Services.Spammer
 Spammer.Draft = Spammer.Draft or {}
 

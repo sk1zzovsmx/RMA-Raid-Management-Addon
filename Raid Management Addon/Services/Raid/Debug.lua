@@ -25,7 +25,7 @@ local tostring, tonumber = tostring, tonumber
 -- Debug helper module.
 -- Seeds a current raid with synthetic players and submits synthetic rolls.
 do
-	addon.Database.EnsureServiceNamespace("Raid")
+	addon.Services.EnsureNamespace("Raid")
 	local Raid = Services.Raid
 	Raid.Debug = Raid.Debug or {}
 	local module = Raid.Debug

@@ -15,7 +15,7 @@ local type = type
 local tostring, tonumber = tostring, tonumber
 
 do
-	addon.Database.EnsureServiceNamespace("Raid")
+	addon.Services.EnsureNamespace("Raid")
 	local Raid = Services.Raid
 	local module = Raid
 

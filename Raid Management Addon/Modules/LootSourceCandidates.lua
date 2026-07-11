@@ -17,7 +17,6 @@ local tconcat = table.concat
 -- ----- Internal state ----- --
 local LootSourceCandidates = addon.LootSourceCandidates or {}
 addon.LootSourceCandidates = LootSourceCandidates
-addon.LootSourceCandidates = LootSourceCandidates
 
 local SHARED_SOURCE_LABEL = "Shared"
 local SHARED_SOURCE_PREFIX = "Shared:"

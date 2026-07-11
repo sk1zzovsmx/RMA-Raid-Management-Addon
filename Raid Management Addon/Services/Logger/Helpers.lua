@@ -11,7 +11,7 @@ local tonumber = tonumber
 local ipairs = ipairs
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Logger", "Helpers")
+addon.Services.EnsureNamespace("Logger", "Helpers")
 local Logger = Services.Logger
 local Helpers = Logger.Helpers
 local Store = Logger.Store

@@ -9,7 +9,7 @@ local addon = select(2, ...)
 local Services = addon.Services
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Loot")
+addon.Services.EnsureNamespace("Loot")
 local Loot = Services.Loot
 local module = Loot
 module._Snapshots = module._Snapshots or {}

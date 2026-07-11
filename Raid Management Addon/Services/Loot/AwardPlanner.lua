@@ -12,7 +12,7 @@ local Services = addon.Services
 local rollTypes = addon.C.rollTypes
 -- ----- Internal state ----- --
 
-addon.Database.EnsureServiceNamespace("Loot")
+addon.Services.EnsureNamespace("Loot")
 local Loot = Services.Loot
 Loot.AwardPlanner = Loot.AwardPlanner or {}
 local AwardPlanner = Loot.AwardPlanner

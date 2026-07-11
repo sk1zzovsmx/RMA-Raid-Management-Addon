@@ -12,7 +12,7 @@ local Services = addon.Services
 local _, lootState, _, raidState = Database.EnsureLootRuntimeState()
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Loot")
+addon.Services.EnsureNamespace("Loot")
 local Loot = Services.Loot
 local module = Loot
 module._Tracking = module._Tracking or {}

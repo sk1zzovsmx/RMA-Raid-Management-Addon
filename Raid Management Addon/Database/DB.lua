@@ -12,15 +12,11 @@ assert(type(DB) == "table", "RMA DB bootstrap missing addon.DB")
 addon.DB = DB
 local DBSchema = addon.DBSchema or {}
 addon.DBSchema = DBSchema
-local DBManager = addon.DBManager or {}
-addon.DBManager = DBManager
 
 local strsub = string.sub
 
 -- ----- Internal state ----- --
-DB._manager = DB._manager or nil
 local DEFAULT_RAID_SCHEMA_VERSION = 6
-local defaultManager = {}
 
 -- ----- Private helpers ----- --
 local function normalizeSchemaVersion(value)
@@ -37,42 +33,10 @@ local function getCanonicalRaidSchemaVersion()
 	return version
 end
 
-local function getAddonDbStore(storeKey)
-	local db = addon.DB
-	if type(db) ~= "table" then
-		return nil
-	end
-	return db[storeKey]
-end
-
-local function getDefaultManager()
-	local dbManager = addon.DBManager
-	if dbManager and type(dbManager.GetDefaultManager) == "function" then
-		return dbManager.GetDefaultManager()
-	end
-	return nil
-end
-
-local function ensureManager()
-	if DB._manager then
-		return DB._manager
-	end
-	DB._manager = getDefaultManager()
-	return DB._manager
-end
-
-local function getManagerStore(methodName)
-	local manager = ensureManager()
-	if not manager then
-		return nil
-	end
-
-	local getter = manager[methodName]
-	if type(getter) ~= "function" then
-		return nil
-	end
-
-	return getter(manager)
+local function getRequiredOwner(ownerKey)
+	local owner = DB[ownerKey]
+	assert(type(owner) == "table", "RMA " .. tostring(ownerKey) .. " is not initialized")
+	return owner
 end
 
 -- ----- Package-internal helpers ----- --
@@ -108,62 +72,22 @@ function Database.GetRaidSchemaVersion()
 	return getCanonicalRaidSchemaVersion()
 end
 
--- ----- Public methods ----- --
-function DB.SetManager(manager)
-	if manager == nil or type(manager) == "table" then
-		DB._manager = manager
-		return true
-	end
-
-	return false
-end
-
-function DB.GetManager()
-	return ensureManager()
-end
-
 function Database.GetRaidStore()
-	local raidStore = DB.RaidStore
-	assert(type(raidStore) == "table", "RMA RaidStore is not initialized")
-	return raidStore
+	return getRequiredOwner("RaidStore")
 end
 
 function Database.GetRaidQueries()
-	return getManagerStore("GetRaidQueries")
+	return getRequiredOwner("RaidQueries")
 end
 
 function Database.GetRaidMigrations()
-	return getManagerStore("GetRaidMigrations")
+	return getRequiredOwner("RaidMigrations")
 end
 
 function Database.GetRaidValidator()
-	return getManagerStore("GetRaidValidator")
+	return getRequiredOwner("RaidValidator")
 end
 
 function Database.GetSyncer()
-	return getManagerStore("GetSyncer")
-end
-
-function defaultManager:GetRaidStore()
-	return getAddonDbStore("RaidStore")
-end
-
-function defaultManager:GetRaidQueries()
-	return getAddonDbStore("RaidQueries")
-end
-
-function defaultManager:GetRaidMigrations()
-	return getAddonDbStore("RaidMigrations")
-end
-
-function defaultManager:GetRaidValidator()
-	return getAddonDbStore("RaidValidator")
-end
-
-function defaultManager:GetSyncer()
-	return getAddonDbStore("Syncer")
-end
-
-function DBManager.GetDefaultManager()
-	return defaultManager
+	return getRequiredOwner("Syncer")
 end

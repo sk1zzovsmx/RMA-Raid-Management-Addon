@@ -5,7 +5,7 @@
 -- events: none
 -- notes: owns Master inventory trade execution decisions while the controller keeps WoW event handlers
 local addon = select(2, ...)
-local Master = addon.Database.EnsureServiceNamespace("Master")
+local Master = addon.Services.EnsureNamespace("Master")
 
 local TradeExecution = Master.TradeExecution or {}
 Master.TradeExecution = TradeExecution

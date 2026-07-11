@@ -13,9 +13,10 @@ local Services = addon.Services
 local pairs = pairs
 local tonumber = tonumber
 local type = type
+local SetRaidTarget = assert(_G.SetRaidTarget, "Raid session target icon API is not initialized")
 
 do
-	addon.Database.EnsureServiceNamespace("Raid")
+	addon.Services.EnsureNamespace("Raid")
 	local Raid = Services.Raid
 	local module = Raid
 

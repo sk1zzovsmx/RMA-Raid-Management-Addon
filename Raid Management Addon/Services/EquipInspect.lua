@@ -53,7 +53,7 @@ local SLOT_ORDER = { 1, 2, 3, 15, 5, 9, 10, 6, 7, 8, 11, 12, 13, 14, 16, 17, 18 
 
 -- ----- Internal state ----- --
 
-addon.Database.EnsureServiceNamespace("EquipInspect")
+addon.Services.EnsureNamespace("EquipInspect")
 local module = Services.EquipInspect
 Timer.BindMixin(module, "EquipInspect")
 

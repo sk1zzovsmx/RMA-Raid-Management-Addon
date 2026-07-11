@@ -37,11 +37,14 @@ runtime placement; the feature boundaries describe workflow and data ownership.
 
 - `Init.lua` seeds `addon.Database`, `addon.Services`, `addon.Controllers`,
   `addon.Widgets`, `addon.UI`, `addon.Events`, `addon.State`, and the main event
-  dispatcher.
+  dispatcher. `addon.Services.EnsureNamespace` owns creation of nested service
+  namespaces; service initialization does not depend on `addon.Database`.
 - `Database/*` owns persistence contracts, the single SavedVariables access
   boundary, raid schema, raid-record accessors exposed by
   `Database/DBRaidStore.lua`, sync payload import/export, and database service
-  lookup.
+  lookup. `addon.Database` is the internal facade used by runtime callers;
+  concrete owners live under `addon.DB` and are resolved directly without a
+  replaceable manager layer.
 - `Modules/*` owns shared helpers, constants, event names, communication,
   item/string/time utilities, static datasets, module registry, and shared UI
   helpers. `Modules/UI/Frames.lua` owns shared frame getters, module-frame
@@ -88,4 +91,5 @@ polling.
 The stable external contract is `/rma`, `RMA_*` SavedVariables, RMA-prefixed
 addon-message channels, TOC metadata, and user-visible RMA branding. Internal
 `addon.*` module exports are implementation surfaces unless a caller contract is
-explicitly documented in a future change.
+explicitly documented. The supported `_G.RMA` surface and expansion policy are
+defined in [`API_SURFACE.md`](API_SURFACE.md).

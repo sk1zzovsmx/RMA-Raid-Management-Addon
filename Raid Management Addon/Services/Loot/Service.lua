@@ -65,7 +65,7 @@ local UNCOMMON_ITEM_LINK_COLOR = "ff1eff00"
 -- =========== Loot Helpers Module  =========== --
 -- Manages the loot window items (fetching from loot/inventory).
 do
-	addon.Database.EnsureServiceNamespace("Loot")
+	addon.Services.EnsureNamespace("Loot")
 	local Loot = Services.Loot
 	local module = Loot
 

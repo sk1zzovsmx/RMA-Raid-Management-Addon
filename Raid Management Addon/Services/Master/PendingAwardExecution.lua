@@ -5,7 +5,7 @@
 -- events: none
 -- notes: owns pending master-loot award execution, timers, and terminal effects
 local addon = select(2, ...)
-local Master = addon.Database.EnsureServiceNamespace("Master")
+local Master = addon.Services.EnsureNamespace("Master")
 
 local PendingAwardExecution = Master.PendingAwardExecution or {}
 Master.PendingAwardExecution = PendingAwardExecution

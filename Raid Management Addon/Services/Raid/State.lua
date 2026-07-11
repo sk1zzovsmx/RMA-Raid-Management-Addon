@@ -50,7 +50,7 @@ local GetCreatureId = assert(addon.GetCreatureId, "Raid state creature-id helper
 -- Raid helper module.
 -- Manages raid state, roster, boss kills, and loot logging.
 do
-	addon.Database.EnsureServiceNamespace("Raid")
+	addon.Services.EnsureNamespace("Raid")
 	local Raid = Services.Raid
 	local module = Raid
 	-- ----- Internal state ----- --

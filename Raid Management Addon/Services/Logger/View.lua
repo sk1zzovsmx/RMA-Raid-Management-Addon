@@ -13,7 +13,7 @@ local date = date
 local floor = math.floor
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Logger", "View")
+addon.Services.EnsureNamespace("Logger", "View")
 local Logger = Services.Logger
 local View = Logger.View
 local isBossFightRecord = Database.IsBossFightRecord

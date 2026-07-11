@@ -17,7 +17,7 @@ local tconcat, twipe = table.concat, table.wipe
 local pairs, tostring, tonumber, type = pairs, tostring, tonumber, type
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Reserves")
+addon.Services.EnsureNamespace("Reserves")
 local Reserves = Services.Reserves
 local module = Reserves
 module._Display = module._Display or {}

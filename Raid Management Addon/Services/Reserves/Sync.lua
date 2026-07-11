@@ -19,7 +19,7 @@ local UnitName = assert(_G.UnitName, "Reserves sync unit name API is not initial
 local GetTime = assert(_G.GetTime, "Reserves sync time API is not initialized")
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Reserves")
+addon.Services.EnsureNamespace("Reserves")
 local Reserves = Services.Reserves
 local module = Reserves
 module._Sync = module._Sync or {}
@@ -30,6 +30,8 @@ local sendAddonWhisper = assert(Comms.SendAddonWhisper, "Reserves sync whisper t
 local NormalizeLower = assert(Strings.NormalizeLower, "Reserves sync player normalizer is not initialized")
 local Raid = assert(Services.Raid, "Reserves sync raid service is not initialized")
 local GetPlayerRoleState = assert(Raid.GetPlayerRoleState, "Reserves sync raid-role resolver is not initialized")
+local IsGroupMember = assert(Raid.IsGroupMember, "Reserves sync group-membership resolver is not initialized")
+local IsReservesAuthority = assert(Raid.IsReservesAuthority, "Reserves sync authority resolver is not initialized")
 
 local PREFIX = "RMAResSync"
 local FIELD_SEP = "|"
@@ -433,8 +435,16 @@ function Sync:HandleMessage(prefix, msg, channel, sender)
 	requirePayload().SplitFields(msg, FIELD_SEP, fields)
 	local kind = fields[1]
 	local requestId = fields[2]
+	local rawSource = sender
 	local source = normalizeSender(sender)
 	cleanupIncoming()
+	if kind == MSG_META_REQ or kind == MSG_DATA_REQ then
+		if not IsGroupMember(Raid, rawSource) then
+			return true
+		end
+	elseif not IsReservesAuthority(Raid, rawSource) then
+		return true
+	end
 
 	if kind == MSG_META_REQ then
 		sendMetadata(source, requestId)

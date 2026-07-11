@@ -13,7 +13,7 @@ local pairs, tostring, type = pairs, tostring, type
 local sort = table.sort
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Reserves")
+addon.Services.EnsureNamespace("Reserves")
 local Reserves = Services.Reserves
 local module = Reserves
 module._Aliases = module._Aliases or {}

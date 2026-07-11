@@ -24,6 +24,10 @@ A service may notify that UI attention is needed, but the event name must descri
 the completed condition rather than encode an imperative controller command.
 `GroupLootRestoreNeeded` is the reference pattern.
 
+Bus listeners are registered once by addon-lifetime owners and remain active for
+the loaded session. A temporary listener requires a concrete lifecycle owner and
+must not be modeled by adding unused registration tokens or removal APIs.
+
 ### UI Requests
 
 UI requests do not return a value.

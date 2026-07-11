@@ -11,7 +11,7 @@ local Services = addon.Services
 local type, tonumber = type, tonumber
 
 -- ----- Internal state ----- --
-addon.Database.EnsureServiceNamespace("Logger", "Store")
+addon.Services.EnsureNamespace("Logger", "Store")
 local Logger = Services.Logger
 local Store = Logger.Store
 local bossIdx

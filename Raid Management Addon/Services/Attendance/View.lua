@@ -10,7 +10,7 @@ local Services = addon.Services
 local type, tostring, tonumber = type, tostring, tonumber
 local floor = math.floor
 
-addon.Database.EnsureServiceNamespace("Attendance", "View")
+addon.Services.EnsureNamespace("Attendance", "View")
 local Attendance = Services.Attendance
 local View = Attendance.View
 

@@ -5,7 +5,7 @@
 -- events: none
 -- notes: owns Master loot award orchestration, including single and multi-copy awards
 local addon = select(2, ...)
-local Master = addon.Database.EnsureServiceNamespace("Master")
+local Master = addon.Services.EnsureNamespace("Master")
 local Services = addon.Services
 
 local Award = Master.Award or {}
