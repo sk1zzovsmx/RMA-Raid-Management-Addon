@@ -1,24 +1,22 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: handles RMALogSync addon-message traffic; listens OptionsLoaded, ConfigpersistentSync, RaidCreate
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local L = addon.L
+local Diag = addon.Diag
 
-local L = feature.L
-local Diag = feature.Diag
-
-local DB = feature.DB
-local Events = feature.Events
-local Database = feature.Database
-local Options = feature.Options
-local Bus = feature.Bus
-local Strings = feature.Strings
-local Timer = feature.Timer
-local Comms = feature.Comms
-local Services = feature.Services
-local coreState = feature.coreState
+local DB = addon.DB
+local Events = addon.Events
+local Database = addon.Database
+local Options = addon.Options
+local Bus = addon.Bus
+local Strings = addon.Strings
+local Timer = addon.Timer
+local Comms = addon.Comms
+local Services = addon.Services
+local coreState = addon.State
 
 local _G = _G
 local tconcat = table.concat
@@ -40,8 +38,8 @@ local InternalEvents = assert(Events.Internal, "DBSyncer internal events are not
 local Payload = assert(Comms.Payload, "Comms payload helpers are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "DBSyncer event publisher is not initialized")
 local RegisterCallback = assert(Bus.RegisterCallback, "DBSyncer event bus listener is not initialized")
-local GetConfigOptionChanged =
-	assert(Events.GetConfigOptionChanged, "DBSyncer config event resolver is not initialized")
+local BuildConfigOptionChangedName =
+	assert(Events.BuildConfigOptionChangedName, "DBSyncer config event resolver is not initialized")
 local OptionsLoadedEvent = assert(InternalEvents.OptionsLoaded, "DBSyncer options-loaded event is not initialized")
 local LoggerSelectRaidEvent =
 	assert(InternalEvents.LoggerSelectRaid, "DBSyncer logger-select-raid event is not initialized")
@@ -85,7 +83,7 @@ do
 	local PASSIVE_CLEANUP_INTERVAL_SECONDS = 5
 	local PERSISTENT_SYNC_INTERVAL_SECONDS = 120
 
-	local loggerOptions = Options.AddNamespace("Logger", {
+	local loggerOptions = Options.RegisterNamespace("Logger", {
 		persistentSync = false,
 		ignoreGroupLoot = false,
 		ignoreSelectionThreshold = true,
@@ -1190,8 +1188,7 @@ do
 		end
 
 		local signature = SnapshotImport.BuildSignatureFromRaid(currentRaid)
-		local raidStore = Database.GetRaidStoreOrNil("DBSyncer.RequestLoggerSync", { "GetRaidSyncRevision" })
-		signature.sinceRevision = raidStore and raidStore:GetRaidSyncRevision(currentRaid) or 0
+		signature.sinceRevision = Database.GetRaidStore():GetRaidSyncRevision(currentRaid)
 		signature.supportsCompression = true
 		local requestId = nextRequestId(syncer)
 
@@ -1269,7 +1266,7 @@ do
 		RegisterCallback(OptionsLoadedEvent, function()
 			module:RefreshPersistentSync(5)
 		end)
-		local persistentSyncEvent = GetConfigOptionChanged("persistentSync")
+		local persistentSyncEvent = BuildConfigOptionChangedName("persistentSync")
 		RegisterCallback(persistentSyncEvent, function()
 			stopPersistentSync()
 			if isPersistentSyncEnabled() then
@@ -1387,26 +1384,4 @@ do
 			handleIncomingDelta(senderName, requestId, mode, raidNid, partIndex, partCount, chunkData)
 		end
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Database/DBSyncer", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DB",
-			"Database/DBOptions",
-			"Database/DBSyncMetrics",
-			"Database/DBSyncPayload",
-			"Database/DBSyncImport",
-			"Database/DBRaidStore",
-			"Modules/Events",
-			"Modules/Bus",
-			"Modules/Timer",
-			"Modules/Strings",
-			"Modules/Comms",
-		},
-	})
-	registry.SetLoaded("Database/DBSyncer")
 end

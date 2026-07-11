@@ -1,15 +1,13 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local L = feature.L
-local DB = feature.DB
-local Database = feature.Database
-local IgnoredMobs = feature.IgnoredMobs
+local L = addon.L
+local DB = addon.DB
+local Database = addon.Database
+local IgnoredMobs = addon.IgnoredMobs
 
 local pairs, type, tonumber = pairs, type, tonumber
 local strsub = string.sub
@@ -50,10 +48,7 @@ do
 			return nil
 		end
 
-		local raidStore = Database.GetRaidStoreOrNil("DBRaidValidator.EnsureNormalizedClone", { "NormalizeRaidRecord" })
-		if raidStore then
-			clone = raidStore:NormalizeRaidRecord(clone)
-		end
+		clone = Database.GetRaidStore():NormalizeRaidRecord(clone)
 
 		if type(clone) ~= "table" then
 			return nil
@@ -349,8 +344,7 @@ do
 			currentSchemaVersion = 1
 		end
 
-		local raidStore = Database.GetRaidStoreOrNil("DBRaidValidator.ValidateAllRaids", { "GetRawRaids" })
-		local raids = raidStore and raidStore:GetRawRaids() or {}
+		local raids = Database.GetRaidStore():GetRawRaids()
 		raids = (type(raids) == "table") and raids or {}
 		local report = {
 			raids = #raids,
@@ -389,20 +383,4 @@ do
 
 		return report
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Database/DBRaidValidator", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DB",
-			"Database/DBSchema",
-			"Database/DBRaidMigrations",
-			"Database/DBRaidStore",
-			"Modules/Dataset/IgnoredMobs",
-		},
-	})
-	registry.SetLoaded("Database/DBRaidValidator")
 end

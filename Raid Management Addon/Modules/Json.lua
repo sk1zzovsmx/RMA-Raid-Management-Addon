@@ -1,12 +1,10 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Json
 -- events: none
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
 local char = string.char
 local find = string.find
 local format = string.format
@@ -15,7 +13,7 @@ local tonumber = tonumber
 local type = type
 
 -- ----- Internal state ----- --
-local Json = feature.Json or {}
+local Json = addon.Json or {}
 addon.Json = Json
 Json.NULL = Json.NULL or {}
 
@@ -312,7 +310,7 @@ parseValue = function(state)
 end
 
 -- ----- Public methods ----- --
-function Json.GetDecoded(text)
+function Json.Decode(text)
 	if type(text) ~= "string" then
 		return nil, "text_expected"
 	end
@@ -331,18 +329,4 @@ function Json.GetDecoded(text)
 		return nil, format("trailing_data_at_%d", state.pos)
 	end
 	return value, nil
-end
-
-do
-	local name = "Modules/Json"
-	local deps = { "Init" }
-	local registry = feature.ModuleRegistry
-	if registry then
-		registry.AddModule(name, { deps = deps })
-		registry.SetLoaded(name)
-	else
-		addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-		local pending = addon.ModuleRegistryPendingRegistrations
-		pending[#pending + 1] = { name = name, deps = deps, loaded = true }
-	end
 end

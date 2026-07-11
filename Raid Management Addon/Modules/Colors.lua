@@ -1,18 +1,16 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
 local _G = _G
 local tostring, type = tostring, type
 
 local GetClassColor = addon.GetClassColor
-local Colors = feature.Colors or {}
-local C = feature.C or {}
+local Colors = addon.Colors or {}
+local C = addon.C or {}
 addon.Colors = Colors
 
 -- ----- Internal state ----- --
@@ -68,18 +66,4 @@ function Colors.GetClassColorHex(className)
 		return token, C.CLASS_COLORS[token]
 	end
 	return token, "ffffffff"
-end
-
-do
-	local name = "Modules/Colors"
-	local deps = { "Init" }
-	local registry = feature.ModuleRegistry
-	if registry then
-		registry.AddModule(name, { deps = deps })
-		registry.SetLoaded(name)
-	else
-		addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-		local pending = addon.ModuleRegistryPendingRegistrations
-		pending[#pending + 1] = { name = name, deps = deps, loaded = true }
-	end
 end

@@ -1,16 +1,14 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 -- notes: canonical lookup for non-loot raid items that RMA should ignore
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
 local tonumber = tonumber
 
-local IgnoredItems = feature.IgnoredItems or {}
+local IgnoredItems = addon.IgnoredItems or {}
 addon.IgnoredItems = IgnoredItems
 
 -- ----- Internal state ----- --
@@ -104,18 +102,4 @@ end
 
 function IgnoredItems.IsEnchantingMaterial(itemId)
 	return IgnoredItems.EnchantingMaterialIds[tonumber(itemId)] == true
-end
-
-do
-	local name = "Modules/Dataset/IgnoredItems"
-	local deps = { "Init" }
-	local registry = feature.ModuleRegistry
-	if registry then
-		registry.AddModule(name, { deps = deps })
-		registry.SetLoaded(name)
-	else
-		addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-		local pending = addon.ModuleRegistryPendingRegistrations
-		pending[#pending + 1] = { name = name, deps = deps, loaded = true }
-	end
 end

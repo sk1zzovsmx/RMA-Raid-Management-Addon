@@ -1,12 +1,10 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...); LibStub("LibCompat-1.0")
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Timer (mixin: ScheduleTimer/CancelTimer; static: RefreshStats/ShowStats)
 -- events: none (purely a timer mixin; does not emit Bus events)
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local L = feature.L
+local L = addon.L
 
 local type, pairs, select, rawget, rawset, tostring, tonumber = type, pairs, select, rawget, rawset, tostring, tonumber
 local pcall, error = pcall, error
@@ -22,7 +20,7 @@ local lcNewTimer = libcompat.NewTimer
 local lcNewTicker = libcompat.NewTicker
 local lcCancelTimer = libcompat.CancelTimer
 
-local Timer = feature.Timer or {}
+local Timer = addon.Timer or {}
 addon.Timer = Timer
 
 -- ----- Internal state ----- --
@@ -271,18 +269,4 @@ function Timer.ShowStats(sortBy)
 	end
 
 	addon:info(L.MsgTimerStatsTip)
-end
-
-do
-	local name = "Modules/Timer"
-	local deps = { "Init" }
-	local registry = feature.ModuleRegistry
-	if registry then
-		registry.AddModule(name, { deps = deps })
-		registry.SetLoaded(name)
-	else
-		addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-		local pending = addon.ModuleRegistryPendingRegistrations
-		pending[#pending + 1] = { name = name, deps = deps, loaded = true }
-	end
 end

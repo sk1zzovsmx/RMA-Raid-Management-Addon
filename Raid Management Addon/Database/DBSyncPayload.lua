@@ -1,19 +1,17 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Database.Syncer._Payload
 -- events: none
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local Diag = addon.Diag
 
-local Diag = feature.Diag
-
-local DB = feature.DB
-local Database = feature.Database
-local Options = feature.Options
-local Strings = feature.Strings
-local Comms = feature.Comms
+local DB = addon.DB
+local Database = addon.Database
+local Options = addon.Options
+local Strings = addon.Strings
+local Comms = addon.Comms
 
 local tinsert = table.insert
 local tconcat = table.concat
@@ -278,8 +276,8 @@ function SnapshotPayload.Build(raid)
 
 	local lines = {}
 	local schemaVersion = tonumber(raid.schemaVersion) or tonumber(Database.GetRaidSchemaVersion()) or 1
-	local raidStore = Database.GetRaidStoreOrNil("DBSyncPayload.Build", { "GetRaidSyncRevision" })
-	local revision = raidStore and raidStore:GetRaidSyncRevision(raid) or 0
+	local raidStore = Database.GetRaidStore()
+	local revision = raidStore:GetRaidSyncRevision(raid)
 
 	lines[#lines + 1] = packFields(
 		FIELD_SEP,
@@ -386,19 +384,16 @@ function SnapshotPayload.BuildDelta(raid, sinceRevision)
 		return nil, 0
 	end
 
-	local raidStore = Database.GetRaidStoreOrNil(
-		"DBSyncPayload.BuildDelta",
-		{ "GetRaidSyncRevision", "GetLootSyncRevision", "RequiresFullSyncSince" }
-	)
+	local raidStore = Database.GetRaidStore()
 	local fromRevision = tonumber(sinceRevision) or 0
 	if fromRevision < 0 then
 		fromRevision = 0
 	end
-	if raidStore and raidStore:RequiresFullSyncSince(raid, fromRevision) then
+	if raidStore:RequiresFullSyncSince(raid, fromRevision) then
 		return nil, 0
 	end
 
-	local revision = raidStore and raidStore:GetRaidSyncRevision(raid) or 0
+	local revision = raidStore:GetRaidSyncRevision(raid)
 	if revision <= 0 or fromRevision > revision then
 		return nil, 0
 	end
@@ -411,9 +406,7 @@ function SnapshotPayload.BuildDelta(raid, sinceRevision)
 	local playerNameByNid, playerNidByName, validPlayerNids = buildPlayerNameMaps(raid.players)
 	for i = 1, #lootRows do
 		local row = lootRows[i]
-		local rowRevision = raidStore and raidStore:GetLootSyncRevision(raid, row)
-			or tonumber(row and row.syncRevision)
-			or 0
+		local rowRevision = raidStore:GetLootSyncRevision(raid, row) or 0
 		if rowRevision > fromRevision then
 			deltaRows = deltaRows + 1
 			lines[#lines + 1] = packFields(
@@ -707,21 +700,4 @@ function SnapshotPayload.ParseDelta(payload)
 		return nil
 	end
 	return delta
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Database/DBSyncPayload", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DB",
-			"Database/DBOptions",
-			"Database/DBSchema",
-			"Database/DBRaidQueries",
-			"Modules/Strings",
-			"Modules/Comms",
-		},
-	})
-	registry.SetLoaded("Database/DBSyncPayload")
 end

@@ -1,42 +1,20 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local Database = addon.Database
+local Services = addon.Services
 
-local Database = feature.Database
-local Services = feature.Services
+local type, tonumber = type, tonumber
 
-local type, tonumber, tostring = type, tonumber, tostring
-
-feature.EnsureServiceNamespace("Attendance", "Store")
+addon.Database.EnsureServiceNamespace("Attendance", "Store")
 local Attendance = Services.Attendance
 local Store = Attendance.Store
 
-local function ensureRaid(raid)
-	local raidStore = Database.GetRaidStoreOrNil("Attendance.Store.EnsureRaid", { "NormalizeRaidRecord" })
-	if raidStore then
-		return raidStore:NormalizeRaidRecord(raid)
-	end
-	return Database.EnsureRaidSchema(raid)
-end
-
 function Store:GetRaid(rID)
-	local raidStore = Database.GetRaidStoreOrNil("Attendance.Store.GetRaid", { "GetRaidByIndex" })
-	if raidStore then
-		local raid = rID and raidStore:GetRaidByIndex(rID) or nil
-		if raid then
-			ensureRaid(raid)
-		end
-		return raid
-	end
-	local raid = rID and Database.EnsureRaidById(rID) or nil
-	if raid then
-		ensureRaid(raid)
-	end
-	return raid
+	return rID and Database.GetRaidStore():EnsureRaidByIndex(rID) or nil
 end
 
 function Store:GetPlayer(raid, playerNid)
@@ -44,8 +22,7 @@ function Store:GetPlayer(raid, playerNid)
 	if not (raid and queryNid) then
 		return nil
 	end
-	local raidStore = Database.GetRaidStoreOrNil("Attendance.Store.GetPlayer", { "EnsureRaidRuntime" })
-	local runtime = raidStore and raidStore:EnsureRaidRuntime(raid) or nil
+	local runtime = Database.GetRaidStore():EnsureRaidRuntime(raid)
 	local idxByNid = runtime and runtime.playerIdxByNid or nil
 	local idx = idxByNid and idxByNid[queryNid] or nil
 	return idx and raid.players[idx] or nil, idx
@@ -56,16 +33,4 @@ function Store:InvalidateRaidIndexes(raid)
 		return
 	end
 	Database.StripRuntimeRaidCaches(raid)
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Attendance/Store", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DBRaidStore",
-		},
-	})
-	registry.SetLoaded("Services/Attendance/Store")
 end

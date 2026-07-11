@@ -1,19 +1,18 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Logger.Export
 -- events: none
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Database = feature.Database
-local Services = feature.Services
+local Database = addon.Database
+local Services = addon.Services
+local Strings = addon.Strings
 
 local tostring, tonumber, type = tostring, tonumber, type
 local concat = table.concat
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Logger", "Export")
+addon.Database.EnsureServiceNamespace("Logger", "Export")
 local Logger = Services.Logger
 local Export = Logger.Export
 local RaidProjections = assert(Services.Raid.Projections, "Logger export raid projections are not initialized")
@@ -22,6 +21,7 @@ local Store = assert(Logger.Store, "Logger export store is not initialized")
 local Helpers = assert(Logger.Helpers, "Logger export helpers are not initialized")
 local formatRollTypeForExport = Helpers.FormatRollTypeForExport
 local formatRollValueForExport = Helpers.FormatRollValueForExport
+local AppendCSVRow = assert(Strings.AppendCSVRow, "Logger CSV row encoder is not initialized")
 
 local HEADER_LOOT = {
 	"raidNid",
@@ -45,27 +45,6 @@ local HEADER_LOOT = {
 -- ----- Private helpers ----- --
 local function normalizeContext(context)
 	return type(context) == "table" and context or {}
-end
-
-local function encodeCSVField(value)
-	if value == nil then
-		return ""
-	end
-
-	local text = tostring(value)
-	if text:find('[",\r\n]') then
-		text = text:gsub('"', '""')
-		return '"' .. text .. '"'
-	end
-	return text
-end
-
-local function appendCSVLine(lines, fields, encoded, fieldCount)
-	local count = fieldCount or #fields
-	for i = 1, count do
-		encoded[i] = encodeCSVField(fields[i])
-	end
-	lines[#lines + 1] = concat(encoded, ",", 1, count)
 end
 
 local function finishPerf(label, startedAt, raidNid, rowCount, csvText)
@@ -105,19 +84,11 @@ local function getBossTimeByNid(raid, bossNid)
 end
 
 -- ----- Public methods ----- --
-function Export:GetCSV(mode, raid, context)
+function Export:BuildCSV(raid, context)
 	if type(raid) ~= "table" then
 		return "", "INVALID_RAID"
 	end
 
-	if mode == "loot" then
-		return self:GetLootCSV(raid, context)
-	end
-
-	return "", "INVALID_MODE"
-end
-
-function Export:GetLootCSV(raid, context)
 	local perfStart = addon.hasPerf and addon._PerfStart and addon:_PerfStart() or nil
 	context = normalizeContext(context)
 	local raidMetadata = RaidProjections.BuildExportMetadata(raid)
@@ -129,7 +100,7 @@ function Export:GetLootCSV(raid, context)
 	local fields = {}
 	local encoded = {}
 	local rowCount = 0
-	appendCSVLine(lines, HEADER_LOOT, encoded, #HEADER_LOOT)
+	AppendCSVRow(lines, HEADER_LOOT, encoded, #HEADER_LOOT)
 
 	for i = 1, #lootRows do
 		local loot = lootRows[i]
@@ -152,25 +123,11 @@ function Export:GetLootCSV(raid, context)
 			fields[15] = formatRollValueForExport(loot.rollValue)
 			fields[16] = FormatTimestamp(loot.time)
 			rowCount = rowCount + 1
-			appendCSVLine(lines, fields, encoded, 16)
+			AppendCSVRow(lines, fields, encoded, 16)
 		end
 	end
 
 	local csv = concat(lines, "\n")
 	finishPerf("Logger.Export.GetLootCSV", perfStart, raidMetadata.raidNid, rowCount, csv)
 	return csv
-end
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Logger/Export", {
-		deps = {
-			"Init",
-			"Database/DBRaidQueries",
-			"Modules/ModuleRegistry",
-			"Services/Raid/Projections",
-			"Services/Logger/Store",
-			"Services/Logger/Helpers",
-		},
-	})
-	registry.SetLoaded("Services/Logger/Export")
 end

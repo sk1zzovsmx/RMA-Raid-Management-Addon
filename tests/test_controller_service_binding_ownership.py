@@ -37,6 +37,30 @@ def read(path):
 
 
 class ControllerServiceBindingOwnershipTest(unittest.TestCase):
+    def test_logger_maintenance_names_describe_sync_and_chunked_work(self):
+        actions = read(LOGGER_ACTIONS)
+        config = read(CONFIG)
+        combined = actions + "\n" + config
+        retired = (
+            "Ensure" + "LootSources",
+            "RequestEnsure" + "LootSources",
+            "GetRaidHistory" + "Scan",
+            "RequestRaidHistory" + "Scan",
+            "RemoveRaidHistory" + "Entries",
+            "RequestRemoveRaidHistory" + "Entries",
+        )
+        for name in retired:
+            self.assertNotIn(name, combined)
+        for name in (
+            "RebuildLootSources",
+            "StartLootSourceRebuild",
+            "ScanRaidHistory",
+            "StartRaidHistoryScan",
+            "CleanupRaidHistory",
+            "StartRaidHistoryCleanup",
+        ):
+            self.assertIn(name, actions)
+
     def test_ui_consumers_call_explicit_controller_owners_without_database_dispatch(self):
         init = read(INIT)
         minimap = read(MINIMAP)
@@ -112,16 +136,12 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
         attendance_view = read(ATTENDANCE_VIEW)
         attendance_store = read(ATTENDANCE_STORE)
 
-        self.assertIn('feature.EnsureServiceNamespace("Raid", "Projections")', projections)
-        self.assertIn("function Projections.FillRaidList(out, contextTag)", projections)
+        self.assertIn('addon.Database.EnsureServiceNamespace("Raid", "Projections")', projections)
+        self.assertIn("function Projections.FillRaidList(out)", projections)
         self.assertIn("function Projections.GetDifficultyLabel(raid)", projections)
         self.assertIn("function Projections.BuildExportMetadata(raid)", projections)
-        self.assertIn('"Services/Raid/Projections"', logger)
-        self.assertIn('"Services/Raid/Projections"', attendance)
-        self.assertIn("RaidProjections.FillRaidList(out, \"Logger.Raids.GetData\")", logger)
-        self.assertIn("RaidProjections.FillRaidList(out, \"Attendance.Raids.GetData\")", attendance)
-        self.assertIn('"Services/Raid/Projections"', logger_export)
-        self.assertIn('"Services/Raid/Projections"', attendance_export)
+        self.assertIn("RaidProjections.FillRaidList(out)", logger)
+        self.assertIn("RaidProjections.FillRaidList(out)", attendance)
         self.assertIn("RaidProjections.BuildExportMetadata(raid)", logger_export)
         self.assertIn("RaidProjections.BuildExportMetadata(raid)", attendance_export)
         self.assertNotIn("local function buildRaidListRow", logger_view)
@@ -141,14 +161,13 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
             attendance,
         )
         self.assertIn("module.Export = AttendanceExport", attendance)
-        self.assertIn('"Services/Attendance/Export"', attendance)
         self.assertIn("local Export = Attendance.Export", attendance_export)
 
     def test_attendance_export_is_not_owned_by_logger_controller_or_service(self):
         attendance = read(ATTENDANCE)
         logger = read(ROOT / "Raid Management Addon" / "Services" / "Logger" / "Export.lua")
 
-        self.assertIn("AttendanceExport:GetRaidAttendanceCSV(raid, getAttendanceExportContext())", attendance)
+        self.assertIn("AttendanceExport:BuildCSV(raid, getAttendanceExportContext())", attendance)
         self.assertNotIn("GetRaidAttendanceCSV", logger)
         self.assertNotIn("raidAttendance", logger)
 
@@ -211,8 +230,6 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
             "GetStore",
             "GetWarning",
             "EnsureDefaultTemplates",
-            "BuildTemplatePreview",
-            "ClearSavedWarnings",
             "DeleteWarning",
             "SaveWarning",
         ):
@@ -223,8 +240,8 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
         self.assertIn("local warning = GetWarning(wID)", warnings)
         self.assertIn("local warnings = GetStore()", warnings)
         self.assertIn("local result = EnsureDefaultTemplates()", warnings)
-        self.assertIn('return BuildTemplatePreview(L.StrConfigRaidWarningPreviewEmpty or "")', warnings)
-        self.assertIn("local result = ClearSavedWarnings(includeStock)", warnings)
+        self.assertNotIn("BuildTemplatePreview", warnings)
+        self.assertNotIn("ClearSavedWarnings", warnings)
         self.assertIn("local deleteResult = DeleteWarning(selectedID)", warnings)
         self.assertIn("local savedID, reason = SaveWarning(wContent, wName, wID, isEdit)", warnings)
         self.assertNotIn("local WarningStoreApi = {", warnings)
@@ -317,7 +334,6 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
             attendance,
         )
         self.assertIn("ForceInspectPlayer(EquipInspect, selectedRaid, selectedPlayer)", attendance)
-        self.assertIn('"Services/EquipInspect"', attendance)
         self.assertNotIn("if Services.EquipInspect and Services.EquipInspect.ForcePlayer then", attendance)
         self.assertNotIn("Services.EquipInspect:ForcePlayer", attendance)
 
@@ -348,8 +364,6 @@ class ControllerServiceBindingOwnershipTest(unittest.TestCase):
         self.assertIn("Raid:GetPlayerClass(it.looter)", logger)
         self.assertIn('local Raid = assert(Services.Raid, "Attendance raid service is not initialized")', attendance)
         self.assertIn("Raid:UpdateRaidRoster()", attendance)
-        self.assertIn('"Services/Raid/State"', logger)
-        self.assertIn('"Services/Raid/Attendance"', attendance)
         self.assertNotIn("Services.Raid:", logger)
         self.assertNotIn("local Raid = Services.Raid", logger)
 

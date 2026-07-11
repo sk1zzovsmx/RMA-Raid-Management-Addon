@@ -1,21 +1,19 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Master.Award
 -- events: none
 -- notes: owns Master loot award orchestration, including single and multi-copy awards
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Master = feature.EnsureServiceNamespace("Master")
-local Services = feature.Services
+local Master = addon.Database.EnsureServiceNamespace("Master")
+local Services = addon.Services
 
 local Award = Master.Award or {}
 Master.Award = Award
 
 local Loot = assert(Services.Loot, "Master award loot service is not initialized")
-local L = feature.L
-local Diag = feature.Diag
+local L = addon.L
+local Diag = addon.Diag
 
 local tonumber = tonumber
 local tostring = tostring
@@ -405,21 +403,6 @@ function Award.CreateController(opts)
 	end
 
 	return controller
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Master/Award", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Services/Loot/Service",
-			"Services/Loot/AwardPlanner",
-			"Services/Loot/Inventory",
-			"Services/Master/RollSelection",
-		},
-	})
-	registry.SetLoaded("Services/Master/Award")
 end
 
 return Award

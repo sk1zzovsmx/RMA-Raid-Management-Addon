@@ -1,18 +1,16 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish selection APIs on addon.UI.Selection
 -- events: none
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Diag = feature.Diag
-local coreState = feature.coreState
+local Diag = addon.Diag
+local coreState = addon.State
 
 local pairs, tostring, tonumber, type = pairs, tostring, tonumber, type
 
-local UI = feature.UI or {}
+local UI = addon.UI or {}
 local Selection = UI.Selection or {}
 UI.Selection = Selection
 
@@ -341,10 +339,4 @@ function Selection.GetSelected(contextKey)
 		return tostring(a) < tostring(b)
 	end)
 	return out
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Modules/UI/MultiSelect", { deps = { "Init", "Modules/ModuleRegistry" } })
-	registry.SetLoaded("Modules/UI/MultiSelect")
 end

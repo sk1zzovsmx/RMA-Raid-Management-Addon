@@ -1,15 +1,13 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: listens forwarded loot/trade events and Master bus refresh events
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local L = addon.L
+local Diag = addon.Diag
 
-local L = feature.L
-local Diag = feature.Diag
-
-local UI = feature.UI
+local UI = addon.UI
 local Frames = UI.Frames
 local Tooltips = UI.Tooltips
 local Lists = assert(UI.Lists, "Master list controller namespace is not initialized")
@@ -31,16 +29,17 @@ local DefinePopup = assert(Popups.Define, "Master popup definer is not initializ
 local IsPopupDefined = assert(Popups.IsDefined, "Master popup defined-state checker is not initialized")
 local ShowPopup = assert(Popups.Show, "Master popup shower is not initialized")
 local ShowConfirmPopup = assert(Popups.ShowConfirm, "Master confirm popup shower is not initialized")
-local Item = feature.Item
-local Colors = feature.Colors
-local Comms = feature.Comms
-local Events = feature.Events
-local C = feature.C
-local Database = feature.Database
-local Options = feature.Options
-local Bus = feature.Bus
-local Services = feature.Services
-local Controllers = feature.Controllers
+local Item = addon.Item
+local Colors = addon.Colors
+local Comms = addon.Comms
+local Events = addon.Events
+local C = addon.C
+local Database = addon.Database
+local Options = addon.Options
+local Bus = addon.Bus
+local Services = addon.Services
+local Controllers = addon.Controllers
+local Widgets = addon.Widgets
 local Loot = assert(Services.Loot, "Master loot service is not initialized")
 local LootDistribution = assert(Loot.DistributionSession, "Master loot distribution owner is not initialized")
 local LootInventory = assert(Loot.Inventory, "Loot inventory owner is not initialized")
@@ -55,12 +54,13 @@ local AwardService = assert(MasterService.Award, "Master award service is not in
 local AssignmentService = assert(MasterService.Assignment, "Master assignment service is not initialized")
 local RaidDebug = assert(Services.Raid.Debug, "Raid debug service is not initialized")
 local TradeExecutionService = assert(MasterService.TradeExecution, "Master trade execution service is not initialized")
-local ItemSelectionWidget = assert(feature.Widgets.ItemSelection, "Master item selection widget is not initialized")
+local ItemSelectionWidget = assert(addon.Widgets.ItemSelection, "Master item selection widget is not initialized")
 
 local InternalEvents = assert(Events.Internal, "Master controller internal events are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Master controller event publisher is not initialized")
 local RegisterCallback = assert(Bus.RegisterCallback, "Master controller event listener is not initialized")
-local GetWowForwarded = assert(Events.GetWowForwarded, "Master controller forwarded-event resolver is not initialized")
+local ResolveWowForwardedName =
+	assert(Events.ResolveWowForwardedName, "Master controller forwarded-event resolver is not initialized")
 local MasterEvents = {
 	GroupLootRestoreNeeded = assert(
 		InternalEvents.GroupLootRestoreNeeded,
@@ -89,21 +89,13 @@ local MasterEvents = {
 		"Master controller spec inspect update event is not initialized"
 	),
 }
-local rollTypes = feature.rollTypes
+local rollTypes = addon.C.rollTypes
 local PENDING_AWARD_TTL_SECONDS = C.PENDING_AWARD_TTL_SECONDS
 local ML_MULTI_AWARD_TIMEOUT_SECONDS = C.ML_MULTI_AWARD_TIMEOUT_SECONDS
 local LOOT_CONTEXT_SESSION_TTL_SECONDS =
 	math.max(tonumber(C.GROUP_LOOT_PENDING_AWARD_TTL_SECONDS) or 60, tonumber(C.BOSS_EVENT_CONTEXT_TTL_SECONDS) or 30)
 
 local isDebugEnabled = Options.IsDebugEnabled
-
-local function getConfigController()
-	local controller = Controllers.Config
-	if controller and controller:IsAvailable() then
-		return controller
-	end
-	return nil
-end
 
 local function isTraceEnabled()
 	return addon.hasTrace ~= nil
@@ -186,17 +178,17 @@ local Announce = requireServiceMethod("Chat", Chat, "Announce")
 
 -- =========== Master Looter Frame Module  =========== --
 do
-	feature.Controllers.Master = feature.Controllers.Master or {}
-	local module = feature.Controllers.Master
-	local uiState = UI.Scaffold.EnsureModuleState(module)
+	addon.Controllers.Master = addon.Controllers.Master or {}
+	local module = addon.Controllers.Master
+	local uiState = UI.ModuleState.Ensure(module)
 
 	-- Timer ownership: all Master controller timers (module._PendingCounter, multi-award timeout/delay, loot close).
-	feature.Timer.BindMixin(module, "Master")
+	addon.Timer.BindMixin(module, "Master")
 
 	-- Namespace registrations owned by the Master controller. Stored on `module`
 	-- to avoid extra upvalues because this file is near Lua 5.1's 200 local/upvalue limit.
 	-- Lookups happen through inline Options.Get(...) calls at call sites.
-	Options.AddNamespace("Master", {
+	Options.RegisterNamespace("Master", {
 		sortAscending = false,
 		useRaidWarning = true,
 		screenReminder = true,
@@ -207,7 +199,7 @@ do
 		autoSpamLootOnLootOpened = false,
 		autoSpamSoftResOnLootOpened = false,
 	})
-	Options.AddNamespace("Loot", {
+	Options.RegisterNamespace("Loot", {
 		lootWhispers = false,
 		ignoreStacks = false,
 	})
@@ -535,8 +527,7 @@ do
 			return
 		end
 
-		local raidStore = Database.GetRaidStoreOrNil("Master.UpdateAssignmentDropDown", { "GetRaidByIndex" })
-		local raid = raidStore and raidStore:GetRaidByIndex(Database.GetCurrentRaid()) or nil
+		local raid = Database.GetRaidStore():EnsureRaidByIndex(Database.GetCurrentRaid())
 		if not raid then
 			return
 		end
@@ -564,9 +555,8 @@ do
 			return false
 		end
 
-		local raidStore = Database.GetRaidStoreOrNil("Master.SetAssignmentTarget", { "GetRaidByIndex" })
 		local raidId = Database.GetCurrentRaid()
-		local raid = raidStore and raidId and raidStore:GetRaidByIndex(raidId) or nil
+		local raid = raidId and Database.GetRaidStore():EnsureRaidByIndex(raidId) or nil
 		if raid then
 			raid[field.raidKey] = playerName
 		end
@@ -581,7 +571,7 @@ do
 		module._dirtyFlags.dropdowns = true
 		module._dirtyFlags.buttons = true
 		Private.HideBlizzardDropDownLists()
-		UI.Widgets.CallFunction("RaidGrid", "Hide")
+		Widgets.RaidGrid.Hide()
 		module:RequestRefresh()
 		return true
 	end
@@ -651,7 +641,7 @@ do
 			title = title .. ": " .. field.label
 		end
 
-		UI.Widgets.CallFunction("RaidGrid", "ShowPicker", {
+		Widgets.RaidGrid.ShowPicker({
 			mode = "target",
 			title = title,
 			emptyText = L.StrRaidGridEmpty,
@@ -821,7 +811,7 @@ do
 		lootState.currentRollType = rollTypes.MANUAL
 		local ok = assignItem(itemLink, data.playerName, rollTypes.MANUAL, 0)
 		if ok then
-			UI.Widgets.CallFunction("RaidGrid", "Hide")
+			Widgets.RaidGrid.Hide()
 		end
 		return ok
 	end
@@ -838,19 +828,16 @@ do
 		local debugFallback = false
 		if
 			#entries <= 0
-			and RaidDebug.IsRaidGridDebugFallbackEnabled(
-				feature.coreState and feature.coreState.debug or nil,
-				isDebugEnabled()
-			)
+			and RaidDebug.IsRaidGridDebugFallbackEnabled(addon.State and addon.State.debug or nil, isDebugEnabled())
 		then
-			local debugState = feature.coreState and feature.coreState.debug or nil
+			local debugState = addon.State and addon.State.debug or nil
 			local count = RaidDebug.GetRaidGridDebugTargetCount(debugState)
 			entries = RaidDebug.BuildRaidGridDebugRows(count, collectRaidGridRosterRows())
 			title = title .. " (" .. (L.StrRaidGridDebugTitle or "Debug") .. ")"
 			debugFallback = true
 		end
 
-		UI.Widgets.CallFunction("RaidGrid", "ShowPicker", {
+		Widgets.RaidGrid.ShowPicker({
 			mode = debugFallback and "debug" or "award",
 			title = title,
 			texture = Private.GetSelectedMasterLootTexture(),
@@ -869,25 +856,22 @@ do
 	end
 
 	Private.RefreshManualAwardGrid = function()
-		if
-			UI.Widgets.CallFunction("RaidGrid", "IsShown")
-			and UI.Widgets.CallFunction("RaidGrid", "GetMode") == "award"
-		then
+		if Widgets.RaidGrid.IsShown() and Widgets.RaidGrid.GetMode() == "award" then
 			return Private.OpenManualAwardGrid()
 		end
 		return false
 	end
 
 	Private.OpenDebugRaidGrid = function(count)
-		local debugState = feature.coreState and feature.coreState.debug or nil
+		local debugState = addon.State and addon.State.debug or nil
 		if not debugState then
-			feature.coreState.debug = {}
-			debugState = feature.coreState.debug
+			addon.State.debug = {}
+			debugState = addon.State.debug
 		end
 		debugState.raidGridTargetCount = count or 25
 
 		local entries, total = RaidDebug.BuildRaidGridDebugRows(count, collectRaidGridRosterRows())
-		UI.Widgets.CallFunction("RaidGrid", "ShowPicker", {
+		Widgets.RaidGrid.ShowPicker({
 			mode = "debug",
 			title = (L.StrRaidGridDebugTitle or "Raid Grid Debug") .. " (" .. tostring(total) .. ")",
 			emptyText = L.StrRaidGridEmpty,
@@ -994,10 +978,7 @@ do
 		end
 
 		SetScriptSafely(refs.configBtn, "OnClick", function()
-			local configController = getConfigController()
-			if configController then
-				configController:Toggle()
-			end
+			Controllers.Config:Toggle()
 		end)
 		SetScriptSafely(refs.selectItemBtn, "OnClick", function(self, button)
 			if not ensureItemSelectionAccess() then
@@ -1270,7 +1251,6 @@ do
 	end
 
 	module._Private = Private
-	UI.Widgets.CallFunction("LootHints", "EnsureLootFrameHooks")
 
 	local function resetItemCountAndRefresh(focus)
 		Private.ResetItemCount(focus)
@@ -1881,7 +1861,7 @@ do
 	local function completeManualTradeCloseSettle()
 		manualTradeCloseSettleHandle = nil
 		MasterService.Trade.SettleClose()
-		UI.Widgets.CallFunction("TradeMenu", "HideDropdowns")
+		Widgets.TradeMenu.HideDropdowns()
 		module:RequestRefresh()
 	end
 
@@ -1889,11 +1869,11 @@ do
 		cancelManualTradeCloseSettle()
 		if not MasterService.Trade.HasClosePending() then
 			MasterService.Trade.Reset(true, true)
-			UI.Widgets.CallFunction("TradeMenu", "HideDropdowns")
+			Widgets.TradeMenu.HideDropdowns()
 			return false
 		end
 
-		UI.Widgets.CallFunction("TradeMenu", "HideDropdowns")
+		Widgets.TradeMenu.HideDropdowns()
 		manualTradeCloseSettleHandle = module:ScheduleTimer(completeManualTradeCloseSettle, 0)
 		if not manualTradeCloseSettleHandle then
 			completeManualTradeCloseSettle()
@@ -1905,7 +1885,7 @@ do
 		local failed = MasterService.Trade.CancelClose(message)
 		if failed then
 			cancelManualTradeCloseSettle()
-			UI.Widgets.CallFunction("TradeMenu", "HideDropdowns")
+			Widgets.TradeMenu.HideDropdowns()
 			return true
 		end
 		return false
@@ -1992,7 +1972,7 @@ do
 		buildLootRollSessionOptions = buildLootRollSessionOptions,
 		resetTradeState = resetTradeState,
 		hideTradeDropdowns = function()
-			return UI.Widgets.CallFunction("TradeMenu", "HideDropdowns")
+			return Widgets.TradeMenu.HideDropdowns()
 		end,
 		clearLootAndResetRecordedRolls = clearLootAndResetRecordedRolls,
 		ensureTradeLootContext = ensureTradeLootContext,
@@ -2191,7 +2171,7 @@ do
 			return
 		end
 		uiState.Loaded = true
-		UI.Widgets.CallMethod("LootCounter", "AttachToMaster", frame)
+		Widgets.LootCounter:AttachToMaster(frame)
 		initItemButtonScripts()
 		if module._rollListController and module._rollListController.OnLoad and not frame._RMARollListBound then
 			module._rollListController:OnLoad(frame)
@@ -2340,15 +2320,15 @@ do
 	Private.BtnReserveList = function(_btn, _button)
 		local reserves = Services.Reserves
 		if reserves and reserves.HasData and reserves:HasData() then
-			UI.Widgets.CallMethod("Reserves", "Toggle")
+			Widgets.ReservesUI:Toggle()
 		else
-			UI.Widgets.CallMethod("Reserves", "ToggleImport")
+			Widgets.ReservesUI:ToggleImport()
 		end
 	end
 
 	-- Button: Loot Counter
 	Private.BtnLootCounter = function(_btn, _button)
-		UI.Widgets.CallMethod("LootCounter", "Toggle")
+		Widgets.LootCounter:Toggle()
 	end
 
 	-- ============================================================================
@@ -3002,7 +2982,7 @@ do
 	function module:LOOT_OPENED()
 		local perfTotal = addon.hasPerf and addon:_PerfStart() or nil
 		cancelLootClosedCleanup()
-		UI.Widgets.CallFunction("LootHints", "ApplyLootFrameReserveHints")
+		Widgets.LootHints.ApplyLootFrameReserveHints()
 		if canHandleLootWindow() then
 			local debugEnabled = isDebugEnabled()
 			local raidNum = Database.GetCurrentRaid()
@@ -3083,8 +3063,8 @@ do
 
 	-- LOOT_CLOSED: Triggered when the loot window closes.
 	function module:LOOT_CLOSED()
-		UI.Widgets.CallFunction("RaidGrid", "Hide")
-		UI.Widgets.CallFunction("LootHints", "ClearLootFrameReserveHints")
+		Widgets.RaidGrid.Hide()
+		Widgets.LootHints.ClearLootFrameReserveHints()
 		if canHandleLootWindow() or lootState.opened == true then
 			if Raid.ClearLootWindowBossContext then
 				Raid:ClearLootWindowBossContext()
@@ -3115,7 +3095,7 @@ do
 	-- LOOT_SLOT_CLEARED: Triggered when an item is looted.
 	function module:LOOT_SLOT_CLEARED(clearedSlot)
 		local perfTotal = addon.hasPerf and addon:_PerfStart() or nil
-		UI.Widgets.CallFunction("LootHints", "ApplyLootFrameReserveHints")
+		Widgets.LootHints.ApplyLootFrameReserveHints()
 		if canHandleLootWindow() then
 			module._PendingCounter:Confirm(clearedSlot, "LOOT_SLOT_CLEARED")
 			if canAutoManageLootFrame() then
@@ -3202,7 +3182,7 @@ do
 		if not RMATradeHandled then
 			local _, manualState = MasterService.Trade.ApplyAccept(playerAccepted, targetAccepted, isAddonDrivenTrade)
 			if manualState then
-				UI.Widgets.CallFunction("TradeMenu", "RefreshDropdowns", manualState)
+				Widgets.TradeMenu.RefreshDropdowns(manualState)
 			end
 		end
 	end
@@ -3210,15 +3190,15 @@ do
 	function module:TRADE_SHOW()
 		cancelManualTradeCloseSettle()
 		MasterService.Trade.Reset(true, false)
-		UI.Widgets.CallFunction("TradeMenu", "RefreshCandidate", "TRADE_SHOW")
+		Widgets.TradeMenu.RefreshCandidate("TRADE_SHOW")
 	end
 
 	function module:TRADE_PLAYER_ITEM_CHANGED()
-		UI.Widgets.CallFunction("TradeMenu", "RefreshCandidate", "TRADE_PLAYER_ITEM_CHANGED")
+		Widgets.TradeMenu.RefreshCandidate("TRADE_PLAYER_ITEM_CHANGED")
 	end
 
 	function module:TRADE_TARGET_ITEM_CHANGED()
-		UI.Widgets.CallFunction("TradeMenu", "RefreshCandidate", "TRADE_TARGET_ITEM_CHANGED")
+		Widgets.TradeMenu.RefreshCandidate("TRADE_TARGET_ITEM_CHANGED")
 	end
 
 	-- TRADE_CLOSED: trade window closed (completed or canceled)
@@ -3231,7 +3211,7 @@ do
 	function module:TRADE_REQUEST_CANCEL()
 		cancelManualTradeCloseSettle()
 		MasterService.Trade.Reset(true, false)
-		UI.Widgets.CallFunction("TradeMenu", "HideDropdowns")
+		Widgets.TradeMenu.HideDropdowns()
 		handleTradeClosedOrCancelled()
 	end
 
@@ -3341,7 +3321,7 @@ do
 		end
 
 		Private.RegisterWowForwarded = function(methodName)
-			RegisterCallback(GetWowForwarded(methodName), function(_, ...)
+			RegisterCallback(ResolveWowForwardedName(methodName), function(_, ...)
 				local fn = module[methodName]
 				if fn then
 					fn(module, ...)
@@ -3436,7 +3416,7 @@ do
 
 	-- Keep Master UI in sync when SoftRes data changes (import/clear), event-driven.
 	RegisterCallback(MasterEvents.ReservesDataChanged, function()
-		UI.Widgets.CallFunction("LootHints", "ApplyLootFrameReserveHints")
+		Widgets.LootHints.ApplyLootFrameReserveHints()
 		requestCoalescedUiRefresh("reserves")
 	end)
 
@@ -3462,52 +3442,4 @@ do
 		module._dirtyFlags.rolls = true
 		module:RequestRefresh()
 	end)
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Controllers/Master", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DBOptions",
-			"Modules/C",
-			"Modules/Timer",
-			"Modules/Events",
-			"Modules/Bus",
-			"Modules/Item",
-			"Modules/Colors",
-			"Modules/Comms",
-			"Modules/UI/Facade",
-			"Modules/UI/Frames",
-			"Modules/UI/Visuals",
-			"Modules/UI/ListController",
-			"Modules/UI/MultiSelect",
-			"Services/Chat",
-			"Services/Logger/Actions",
-			"Services/Loot/State",
-			"Services/Loot/Service",
-			"Services/Loot/Inventory",
-			"Services/Loot/AwardPlanner",
-			"Services/Rolls/Service",
-			"Services/Raid/State",
-			"Services/Raid/Capabilities",
-			"Services/Raid/Roster",
-			"Services/Raid/LootRecords",
-			"Services/Raid/LootMethod",
-			"Services/Master/FlowState",
-			"Services/Master/ButtonState",
-			"Services/Master/RollRows",
-			"Services/Master/RollSelection",
-			"Services/Master/Award",
-			"Services/Master/Assignment",
-			"Services/Raid/Debug",
-			"Services/Master/Messages",
-			"Services/Master/AwardCounter",
-			"Services/Master/Trade",
-			"Services/Master/TradeExecution",
-			"Widgets/ItemSelection",
-		},
-	})
-	registry.SetLoaded("Controllers/Master")
 end

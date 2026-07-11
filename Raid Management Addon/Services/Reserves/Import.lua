@@ -1,20 +1,18 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Reserves._Import
 -- events: no bus events; import parsing helpers only
 -- notes: reserves import parsing helpers
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local L = feature.L
-local Diag = feature.Diag
-local Options = feature.Options
-local Strings = feature.Strings
-local Base64 = feature.Base64
-local Json = feature.Json
-local Services = feature.Services
+local L = addon.L
+local Diag = addon.Diag
+local Options = addon.Options
+local Strings = addon.Strings
+local Base64 = addon.Base64
+local Json = addon.Json
+local Services = addon.Services
 local _G = _G
 local pcall = pcall
 local tostring = tostring
@@ -23,7 +21,7 @@ local type = type
 local byte = string.byte
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Reserves")
+addon.Database.EnsureServiceNamespace("Reserves")
 local Reserves = Services.Reserves
 local module = Reserves
 module._Import = module._Import or {}
@@ -180,12 +178,12 @@ local function parseCSVRows(csv)
 end
 
 local function getBase64()
-	Base64 = Base64 or feature.Base64
+	Base64 = Base64 or addon.Base64
 	return Base64
 end
 
 local function getJson()
-	Json = Json or feature.Json
+	Json = Json or addon.Json
 	return Json
 end
 
@@ -237,10 +235,10 @@ end
 
 local function parseJsonText(text)
 	local decoder = getJson()
-	if not (decoder and type(decoder.GetDecoded) == "function") then
+	if not (decoder and type(decoder.Decode) == "function") then
 		return nil, "JSON_UNAVAILABLE"
 	end
-	local data, reason = decoder.GetDecoded(text)
+	local data, reason = decoder.Decode(text)
 	if type(data) == "table" then
 		return data
 	end
@@ -611,19 +609,4 @@ function Import.BuildParser()
 	return {
 		ParseImport = parseImport,
 	}
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Reserves/Import", {
-		deps = {
-			"Init",
-			"Database/DBOptions",
-			"Modules/ModuleRegistry",
-			"Modules/Strings",
-			"Modules/Base64",
-			"Modules/Json",
-		},
-	})
-	registry.SetLoaded("Services/Reserves/Import")
 end

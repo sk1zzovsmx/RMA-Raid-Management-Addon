@@ -14,12 +14,7 @@ class Base64ModuleTests(unittest.TestCase):
         script = textwrap.dedent(
             f"""
             local addon = {{
-                Database = {{
-                    GetFeatureShared = function()
-                        return {{ ModuleRegistry = nil }}
-                    end,
-                }},
-                ModuleRegistryPendingRegistrations = nil,
+                Database = {{}},
             }}
             _G = _G or {{}}
             package.path = package.path .. ";{str(BASE64_LUA).replace("\\", "\\\\")}"

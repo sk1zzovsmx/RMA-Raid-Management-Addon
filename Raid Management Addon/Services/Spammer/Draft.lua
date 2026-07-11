@@ -1,22 +1,20 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 -- notes: pure spammer draft/store/preview model helpers
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local L = feature.L
-local SavedVariables = feature.Database.SavedVariables
-local Services = feature.Services
-local Strings = feature.Strings
+local L = addon.L
+local SavedVariables = addon.Database.SavedVariables
+local Services = addon.Services
+local Strings = addon.Strings
 
 local tconcat, tonumber, tostring, type = table.concat, tonumber, tostring, type
 local strlen = string.len
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Spammer", "Draft")
+addon.Database.EnsureServiceNamespace("Spammer", "Draft")
 local Spammer = Services.Spammer
 Spammer.Draft = Spammer.Draft or {}
 
@@ -111,7 +109,7 @@ function Draft.SetChannelChecked(store, channel, checked)
 	return true
 end
 
-function Draft.BuildStateFromStore(store)
+function Draft.BuildState(store)
 	store = store or Draft.GetStore()
 	return {
 		name = store.Name or "",
@@ -172,7 +170,7 @@ function Draft.BuildOutput(state, defaultOutput)
 end
 
 function Draft.BuildPreview(store, defaultOutput)
-	local state = Draft.BuildStateFromStore(store)
+	local state = Draft.BuildState(store)
 	local output = Draft.BuildOutput(state, defaultOutput)
 	return {
 		output = output,
@@ -190,17 +188,4 @@ function Draft.ClearDraft(store)
 	end
 	store.Duration = DEFAULT_DURATION_STR
 	return store
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Spammer/Draft", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/SavedVariables",
-			"Modules/Strings",
-		},
-	})
-	registry.SetLoaded("Services/Spammer/Draft")
 end

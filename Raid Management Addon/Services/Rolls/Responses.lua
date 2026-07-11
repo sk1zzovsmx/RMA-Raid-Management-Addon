@@ -1,20 +1,18 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Rolls._Responses
 -- events: announces countdown blocks and whispers denial reasons
 -- notes: response and eligibility helpers for rolls service
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local L = feature.L
-local Diag = feature.Diag
-local Comms = feature.Comms
-local Database = feature.Database
-local Options = feature.Options
-local Services = feature.Services
-local Strings = feature.Strings
+local L = addon.L
+local Diag = addon.Diag
+local Comms = addon.Comms
+local Database = addon.Database
+local Options = addon.Options
+local Services = addon.Services
+local Strings = addon.Strings
 local Chat = Services.Chat
 local NormalizeName = assert(Strings.NormalizeName, "Roll response name normalizer is not initialized")
 
@@ -23,7 +21,7 @@ local pairs, next = pairs, next
 local tostring, tonumber = tostring, tonumber
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Rolls")
+addon.Database.EnsureServiceNamespace("Rolls")
 local Rolls = Services.Rolls
 local module = Rolls
 module._Responses = module._Responses or {}
@@ -198,14 +196,14 @@ local function buildEligibilityResult(
 end
 
 local function getEligibilityBaseReason(currentRollType, bucket)
-	if currentRollType == feature.rollTypes.RESERVED then
+	if currentRollType == addon.C.rollTypes.RESERVED then
 		return bucket == "SR" and reasonCodes.RESERVED or reasonCodes.FALLBACK
 	end
 	return reasonCodes.ELIGIBLE
 end
 
 local function isAwardRollType(rollType)
-	local rollTypes = feature.rollTypes
+	local rollTypes = addon.C.rollTypes
 	return rollType == rollTypes.MAINSPEC
 		or rollType == rollTypes.OFFSPEC
 		or rollType == rollTypes.RESERVED
@@ -310,7 +308,7 @@ local function seedReservedCandidates(ctx, itemId, itemLink, rollType)
 	local reserves
 	local players
 
-	if not itemId or rollType ~= feature.rollTypes.RESERVED then
+	if not itemId or rollType ~= addon.C.rollTypes.RESERVED then
 		return
 	end
 
@@ -484,7 +482,7 @@ function Responses.BuildCandidateEligibility(ctx, name, itemId, itemLink, rollTy
 	local _, state = assertContext(ctx)
 	local currentRollType = tonumber(rollType)
 		or (ctx.getActiveRollType and ctx.getActiveRollType())
-		or feature.rollTypes.FREE
+		or addon.C.rollTypes.FREE
 	local currentItemLink = itemLink or (ctx.getCurrentItemLink and ctx.getCurrentItemLink())
 	local currentItemId = tonumber(itemId)
 	local allowedRolls = 1
@@ -494,7 +492,7 @@ function Responses.BuildCandidateEligibility(ctx, name, itemId, itemLink, rollTy
 	local hasItemReserve = false
 
 	if not currentItemId and currentItemLink then
-		currentItemId = feature.Item.GetItemIdFromLink(currentItemLink)
+		currentItemId = addon.Item.GetItemIdFromLink(currentItemLink)
 	end
 	if not currentItemId and ctx.getCurrentRollItemID then
 		currentItemId = ctx.getCurrentRollItemID()
@@ -503,7 +501,7 @@ function Responses.BuildCandidateEligibility(ctx, name, itemId, itemLink, rollTy
 		currentItemId = tonumber(currentItemId)
 	end
 
-	if currentRollType == feature.rollTypes.RESERVED and currentItemId then
+	if currentRollType == addon.C.rollTypes.RESERVED and currentItemId then
 		isReservedRoll = true
 		local reserveCount = ctx.getReserveCountForItem and ctx.getReserveCountForItem(currentItemId, name) or 0
 		if reserveCount and reserveCount > 0 then
@@ -924,20 +922,4 @@ function Responses.ValidateWinner(ctx, playerName, itemLink, rollType)
 		return buildWinnerValidationResult(false, reason, playerName, eligibility, response)
 	end
 	return buildWinnerValidationResult(true, nil, playerName, eligibility, response)
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Rolls/Responses", {
-		deps = {
-			"Init",
-			"Database/DB",
-			"Database/DBOptions",
-			"Modules/ModuleRegistry",
-			"Modules/Strings",
-			"Modules/Comms",
-			"Services/Chat",
-		},
-	})
-	registry.SetLoaded("Services/Rolls/Responses")
 end

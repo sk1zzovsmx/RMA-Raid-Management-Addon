@@ -1,23 +1,21 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.LootSourcesData (static data tables; no public methods)
 -- events: none
 -- notes: static raid item source data for Vanilla through Wrath of the Lich King
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
 local pairs = pairs
 local tostring = tostring
 local tonumber = tonumber
 local tconcat = table.concat
 local strlower = string.lower
 local gsub = string.gsub
-local LootSourceCandidates = feature.LootSourceCandidates
+local LootSourceCandidates = addon.LootSourceCandidates
 
 -- ----- Internal state ----- --
-local LootSourcesData = feature.LootSourcesData or {}
+local LootSourcesData = addon.LootSourcesData or {}
 addon.LootSourcesData = LootSourcesData
 LootSourcesData.ByItemId = LootSourcesData.ByItemId or {}
 LootSourcesData.ByInstance = LootSourcesData.ByInstance or {}
@@ -243,18 +241,4 @@ if #RawSources > 0 then
 	loadRaidLootSources(RawSources)
 	markSharedItemSources()
 	buildInstanceIndex()
-end
-
-do
-	local name = "Modules/Dataset/LootSourcesData"
-	local deps = { "Init", "Modules/LootSourceCandidates" }
-	local registry = feature.ModuleRegistry
-	if registry then
-		registry.AddModule(name, { deps = deps })
-		registry.SetLoaded(name)
-	else
-		addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-		local pending = addon.ModuleRegistryPendingRegistrations
-		pending[#pending + 1] = { name = name, deps = deps, loaded = true }
-	end
 end

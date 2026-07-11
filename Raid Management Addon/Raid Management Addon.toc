@@ -51,9 +51,6 @@ Modules\Base64.lua
 Modules\Json.lua
 Modules\Comms.lua
 Modules\Sort.lua
-Modules\Features.lua
-Modules\ModuleRegistry.lua
-Modules\UI\Facade.lua
 Modules\UI\Frames.lua
 Modules\UI\Effects.lua
 Modules\UI\Visuals.lua

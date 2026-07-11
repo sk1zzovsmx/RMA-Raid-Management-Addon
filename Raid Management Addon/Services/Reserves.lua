@@ -1,25 +1,23 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: emits ReservesDataChanged via addon.Bus
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local L = addon.L
+local Diag = addon.Diag
 
-local L = feature.L
-local Diag = feature.Diag
-
-local Events = feature.Events
-local C = feature.C
-local Options = feature.Options
-local Bus = feature.Bus
-local Strings = feature.Strings
-local Database = feature.Database
+local Events = addon.Events
+local C = addon.C
+local Options = addon.Options
+local Bus = addon.Bus
+local Strings = addon.Strings
+local Database = addon.Database
 local SavedVariables = Database.SavedVariables
-local Services = feature.Services
-local Item = feature.Item
-local LootSources = feature.LootSources
-local Timer = feature.Timer
+local Services = addon.Services
+local Item = addon.Item
+local LootSources = addon.LootSources
+local Timer = addon.Timer
 
 local tconcat, twipe = table.concat, table.wipe
 local pairs, ipairs, type, next = pairs, ipairs, type, next
@@ -41,7 +39,7 @@ local IMPORT_APPLY_DELAY_SECONDS = 0.01
 -- =========== Reserves Module  =========== --
 -- Manages item reserves, import, and display.
 do
-	feature.EnsureServiceNamespace("Reserves")
+	addon.Database.EnsureServiceNamespace("Reserves")
 	local Reserves = Services.Reserves
 	local module = Reserves
 	module._Sync = module._Sync or {}
@@ -51,7 +49,7 @@ do
 	Timer.BindMixin(module, "Reserves")
 
 	-- Namespace registration: reserve options (whisper replies and import mode).
-	local reservesNs = Options.AddNamespace("Reserves", {
+	local reservesNs = Options.RegisterNamespace("Reserves", {
 		softResWhisperAdds = false,
 		softResWhisperReplies = false,
 		srImportMode = 0,
@@ -557,7 +555,7 @@ do
 		if type(currentRaid) == "table" then
 			return currentRaid
 		end
-		return Database.EnsureRaidById(currentRaid)
+		return Database.EnsureRaidByIndex(currentRaid)
 	end
 
 	local function buildReserveSourceContext()
@@ -1716,29 +1714,4 @@ do
 	function module:HasPendingItem(itemId)
 		return hasPendingItem(itemId)
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Reserves", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DB",
-			"Database/DBRaidStore",
-			"Database/SavedVariables",
-			"Database/DBOptions",
-			"Modules/C",
-			"Modules/Timer",
-			"Modules/Events",
-			"Modules/Bus",
-			"Modules/Strings",
-			"Modules/Item",
-			"Modules/LootSources",
-			"Services/Reserves/Import",
-			"Services/Reserves/Aliases",
-			"Services/Reserves/Display",
-		},
-	})
-	registry.SetLoaded("Services/Reserves")
 end

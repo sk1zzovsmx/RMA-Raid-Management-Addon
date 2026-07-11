@@ -1,17 +1,15 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Database.SavedVariables
 -- events: none
 -- notes: single owner for public RMA_* SavedVariables access
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Database = feature.Database
-local Services = feature.Services
+local Database = addon.Database
+local Services = addon.Services
 local _G = _G
 local type = type
-local GetRaidStoreOrNil = assert(Database.GetRaidStoreOrNil, "SavedVariables raid store resolver is not initialized")
+local GetRaidStore = assert(Database.GetRaidStore, "SavedVariables raid store resolver is not initialized")
 
 local SavedVariables = Database.SavedVariables or {}
 Database.SavedVariables = SavedVariables
@@ -26,10 +24,6 @@ local function ensureTable(key)
 		_G[key] = {}
 	end
 	return _G[key]
-end
-
-local function getRaidStore(contextTag, requiredMethods)
-	return assert(GetRaidStoreOrNil(contextTag, requiredMethods), "SavedVariables raid store is not initialized")
 end
 
 local function getReservesSave()
@@ -76,10 +70,6 @@ function SavedVariables.GetWarnings()
 	return ensureTable("RMA_Warnings")
 end
 
-function SavedVariables.WasWarningsFresh()
-	return warningsFresh == true
-end
-
 function SavedVariables.GetSpammer()
 	return ensureTable("RMA_Spammer")
 end
@@ -89,12 +79,12 @@ function SavedVariables.GetOptions()
 end
 
 function SavedVariables.NormalizeAfterLoad()
-	local raidStore = getRaidStore("SavedVariables.NormalizeAfterLoad", { "NormalizeAllRaids" })
+	local raidStore = GetRaidStore()
 	raidStore:NormalizeAllRaids("load")
 end
 
 function SavedVariables.PrepareForSave(contextTag)
-	local raidStore = getRaidStore("SavedVariables.PrepareForSave", { "PrepareAllRaidsForSave" })
+	local raidStore = GetRaidStore()
 	raidStore:PrepareAllRaidsForSave()
 
 	local saveReserves, reservesService = getReservesSave()
@@ -102,11 +92,3 @@ function SavedVariables.PrepareForSave(contextTag)
 end
 
 SavedVariables.EnsureAll()
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Database/SavedVariables", {
-		deps = { "Init", "Database/DB" },
-	})
-	registry.SetLoaded("Database/SavedVariables")
-end

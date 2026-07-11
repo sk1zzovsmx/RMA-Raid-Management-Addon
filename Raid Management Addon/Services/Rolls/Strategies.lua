@@ -1,19 +1,17 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Rolls._Strategies
 -- events: none
 -- notes: roll resolution strategy helpers
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Services = feature.Services
+local Services = addon.Services
 
 local tostring, tonumber, type = tostring, tonumber, type
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Rolls")
+addon.Database.EnsureServiceNamespace("Rolls")
 local Rolls = Services.Rolls
 local module = Rolls
 module._Strategies = module._Strategies or {}
@@ -27,7 +25,7 @@ local STRATEGY_RAID_ROLL = "raid_roll"
 
 -- ----- Private helpers ----- --
 local function isReservedRoll(ctx, rollType)
-	local rollTypes = ctx.rollTypes or feature.rollTypes or {}
+	local rollTypes = ctx.rollTypes or addon.C.rollTypes or {}
 	return tonumber(rollType) == rollTypes.RESERVED
 end
 
@@ -125,15 +123,4 @@ function Strategies.AreEntriesTied(strategy, a, b)
 		return false
 	end
 	return a.roll ~= nil and a.roll == b.roll
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Rolls/Strategies", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-		},
-	})
-	registry.SetLoaded("Services/Rolls/Strategies")
 end

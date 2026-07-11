@@ -1,15 +1,13 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
 local type, tonumber, tostring = type, tonumber, tostring
 
-local Sort = feature.Sort or {}
+local Sort = addon.Sort or {}
 addon.Sort = Sort
 
 -- ----- Internal state ----- --
@@ -51,18 +49,4 @@ function Sort.GetLootSortName(itemName, itemLink, itemId)
 		return ("Item %d"):format(id)
 	end
 	return "Item ?"
-end
-
-do
-	local name = "Modules/Sort"
-	local deps = { "Init" }
-	local registry = feature.ModuleRegistry
-	if registry then
-		registry.AddModule(name, { deps = deps })
-		registry.SetLoaded(name)
-	else
-		addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-		local pending = addon.ModuleRegistryPendingRegistrations
-		pending[#pending + 1] = { name = name, deps = deps, loaded = true }
-	end
 end

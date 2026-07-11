@@ -23,6 +23,17 @@ LOOT_INVENTORY = ADDON / "Services" / "Loot" / "Inventory.lua"
 LOOT_AWARD = ADDON / "Services" / "Loot" / "AwardPlanner.lua"
 EVENTS = ADDON / "Modules" / "Events.lua"
 LOOT_METHOD = ADDON / "Services" / "Raid" / "LootMethod.lua"
+RAID_ATTENDANCE = ADDON / "Services" / "Raid" / "Attendance.lua"
+RESERVES_UI = ADDON / "Widgets" / "ReservesUI.lua"
+SPAMMER = ADDON / "Controllers" / "Spammer.lua"
+WARNINGS = ADDON / "Controllers" / "Warnings.lua"
+ROLLS = ADDON / "Services" / "Rolls" / "Service.lua"
+RAID_STORE = ADDON / "Database" / "DBRaidStore.lua"
+DB_OPTIONS = ADDON / "Database" / "DBOptions.lua"
+SAVED_VARIABLES = ADDON / "Database" / "SavedVariables.lua"
+LOOT_WORKFLOW = ADDON / "Services" / "Loot" / "Workflow.lua"
+UI_FRAMES = ADDON / "Modules" / "UI" / "Frames.lua"
+LOGGER_EXPORT = ADDON / "Services" / "Logger" / "Export.lua"
 
 
 def read(path):
@@ -30,6 +41,107 @@ def read(path):
 
 
 class VerticalSliceArchitectureTest(unittest.TestCase):
+    def test_domain_api_names_describe_results_without_argument_or_storage_details(self):
+        runtime_sources = "\n".join(
+            read(path) for path in ADDON.rglob("*.lua") if "Libs" not in path.parts
+        )
+        for retired in (
+            "ResolveInventoryAwardedCount" + "FromArgs",
+            "DeleteRaidAttendee" + "Many",
+            "GetPlayerBossParticipation" + "List",
+            "BuildLootSource" + "Model",
+            "BuildState" + "FromStore",
+            "GetTradePlayer" + "Items",
+        ):
+            self.assertNotIn(retired, runtime_sources)
+        for expected in (
+            "ResolveInventoryAwardedCount",
+            "DeleteRaidAttendees",
+            "FillPlayerBossParticipationList",
+            "ResolveSourceMetadata",
+            "BuildState",
+            "GetPlayerTradeItems",
+        ):
+            self.assertIn(expected, runtime_sources)
+
+    def test_infrastructure_api_names_use_canonical_operations(self):
+        runtime_sources = "\n".join(
+            read(path) for path in ADDON.rglob("*.lua") if "Libs" not in path.parts
+        )
+        for retired in (
+            "Json.Get" + "Decoded",
+            "Options.Add" + "Namespace",
+            "Events.GetConfigOption" + "Changed",
+            "Events.GetWow" + "Forwarded",
+        ):
+            self.assertNotIn(retired, runtime_sources)
+        for expected in (
+            "Json.Decode",
+            "Options.RegisterNamespace",
+            "Events.BuildConfigOptionChangedName",
+            "Events.ResolveWowForwardedName",
+        ):
+            self.assertIn(expected, runtime_sources)
+
+    def test_raid_lookup_api_names_distinguish_index_from_nid(self):
+        store = read(RAID_STORE)
+        runtime_sources = "\n".join(
+            read(path) for path in ADDON.rglob("*.lua") if "Libs" not in path.parts
+        )
+        for current in (
+            "Ensure" + "RaidById",
+            "GetRaidNidBy" + "Id",
+            "GetRaidIdBy" + "Nid",
+        ):
+            self.assertNotIn(current, runtime_sources)
+        for expected in (
+            "function Database.EnsureRaidByIndex(",
+            "function Database.EnsureRaidByNid(",
+            "function Database.GetRaidNidByIndex(",
+            "function Database.GetRaidIndexByNid(",
+        ):
+            self.assertIn(expected, store)
+
+    def test_unused_and_pass_through_apis_do_not_return(self):
+        forbidden_by_file = {
+            LOOT_INVENTORY: ("function Inventory.ResolveInventoryAwardedCount()",),
+            RAID_ATTENDANCE: ("function module:GetAttendanceEntry(",),
+            RESERVES_UI: ("function module:HideImport()",),
+            SPAMMER: ("function module:RequestClear()", "function module:RequestPreview()"),
+            WARNINGS: (
+                "function module:RequestTemplatePreview()",
+                "function module:RequestClearSavedWarnings(",
+            ),
+            ROLLS: ("function module:SetPlayerResponse(",),
+            RAID_STORE: ("function module:StripAllRuntime()",),
+            DB_OPTIONS: ("function namespaceMt:GetDefaults()",),
+            SAVED_VARIABLES: ("function SavedVariables.WasWarningsFresh()",),
+            LOOT_WORKFLOW: (
+                "function Workflow.BuildSnapshot(",
+                "local function buildSteps(",
+                "local function buildSummary(",
+            ),
+            UI_FRAMES: (
+                "function ModuleState.Get(",
+                "function ModuleState.Reset(",
+                "function Scaffold.EnsureModuleState(",
+                "Scaffold.EnsureModuleState(",
+            ),
+            LOGGER_EXPORT: ("function Export:GetCSV(",),
+        }
+        for path, forbidden_symbols in forbidden_by_file.items():
+            source = read(path)
+            for symbol in forbidden_symbols:
+                with self.subTest(path=path.name, symbol=symbol):
+                    self.assertNotIn(symbol, source)
+
+        runtime_sources = "\n".join(
+            read(path) for path in ADDON.rglob("*.lua") if "Libs" not in path.parts
+        )
+        self.assertNotIn("Scaffold.EnsureModuleState(", runtime_sources)
+        self.assertIn("ModuleState.Ensure(", runtime_sources)
+        self.assertIn("Export:BuildCSV(raid, getExportContext())", read(LOGGER))
+
     def test_group_loot_restore_event_is_a_notification(self):
         events = read(EVENTS)
         loot_method = read(LOOT_METHOD)
@@ -87,26 +199,75 @@ class VerticalSliceArchitectureTest(unittest.TestCase):
             content,
         )
 
-    def test_module_registry_remains_diagnostic_only(self):
-        source = read(REGISTRY)
-        public_methods = set()
-        for pattern in (
-            r"\bfunction\s+ModuleRegistry\.([A-Za-z_]\w*)\s*\(",
-            r"\bfunction\s+ModuleRegistry:([A-Za-z_]\w*)\s*\(",
-            r"\bModuleRegistry\.([A-Za-z_]\w*)\s*=\s*function\b",
-        ):
-            public_methods.update(re.findall(pattern, source))
+    def test_module_registry_is_removed(self):
+        self.assertFalse(REGISTRY.exists())
+        self.assertNotIn("Modules\\ModuleRegistry.lua", read(TOC))
 
-        self.assertEqual(
-            {
-                "AddModule",
-                "SetLoaded",
-                "GetStatus",
-                "GetModules",
-                "GetLoadOrderStatus",
-            },
-            public_methods,
+        forbidden = (
+            "ModuleRegistry",
+            "ModuleRegistryPendingLoads",
+            "ModuleRegistryPendingRegistrations",
+            "registerBootstrapModule",
         )
+        for path in ADDON.rglob("*.lua"):
+            if "Libs" in path.parts:
+                continue
+            source = read(path)
+            with self.subTest(path=path.relative_to(ADDON).as_posix()):
+                for token in forbidden:
+                    self.assertNotIn(token, source)
+
+    def test_runtime_uses_explicit_addon_dependencies_without_feature_proxy(self):
+        forbidden = (
+            "GetFeatureShared",
+            "local feature =",
+            "feature.",
+        )
+        for path in ADDON.rglob("*.lua"):
+            if "Libs" in path.parts:
+                continue
+            source = read(path)
+            with self.subTest(path=path.relative_to(ADDON).as_posix()):
+                for token in forbidden:
+                    self.assertNotIn(token, source)
+
+    def test_runtime_has_no_unused_feature_flags_or_widget_registry(self):
+        self.assertFalse((ADDON / "Modules" / "Features.lua").exists())
+        self.assertFalse((ADDON / "Modules" / "UI" / "Facade.lua").exists())
+        self.assertNotIn("Modules\\Features.lua", read(TOC))
+        self.assertNotIn("Modules\\UI\\Facade.lua", read(TOC))
+
+        forbidden = (
+            "addon.Features",
+            "UI.Widgets",
+            "local UIWidgets",
+            "WidgetFlags",
+            "RegisterMethod",
+            "RegisterFunction",
+            "CallMethod",
+            "CallFunction",
+        )
+        for path in ADDON.rglob("*.lua"):
+            if "Libs" in path.parts:
+                continue
+            source = read(path)
+            with self.subTest(path=path.relative_to(ADDON).as_posix()):
+                for token in forbidden:
+                    self.assertNotIn(token, source)
+
+    def test_runtime_requires_the_canonical_raid_store_without_optional_fallbacks(self):
+        attendance_store = read(ADDON / "Services" / "Attendance" / "Store.lua")
+        logger_store = read(ADDON / "Services" / "Logger" / "Store.lua")
+        self.assertNotIn("Database.EnsureRaidByIndex", attendance_store)
+        self.assertNotIn("Database.EnsureRaidByNid", logger_store)
+        for path in ADDON.rglob("*.lua"):
+            if "Libs" in path.parts:
+                continue
+            source = read(path)
+            with self.subTest(path=path.relative_to(ADDON).as_posix()):
+                self.assertNotIn("GetRaidStoreOrNil", source)
+                self.assertNotIn("LogRaidStoreUnavailable", source)
+                self.assertNotIn("LogRaidStoreMethodMissing", source)
 
     def test_architecture_document_links_the_boundary_contract(self):
         self.assertIn("FEATURE_BOUNDARIES.md", read(ARCHITECTURE))
@@ -116,23 +277,29 @@ class VerticalSliceArchitectureTest(unittest.TestCase):
         self.assertFalse(CONFIG_WIDGET.exists())
         config = read(CONFIG_CONTROLLER)
         self.assertIn("Controllers.Config = Controllers.Config or {}", config)
-        self.assertIn("function module:IsAvailable()", config)
+        self.assertNotIn("function module:IsAvailable()", config)
         self.assertNotIn('UIWidgets.Register("Config"', config)
         self.assertIn("Controllers\\Config.lua", read(TOC))
 
-    def test_config_callers_use_the_controller_owner(self):
+    def test_config_callers_do_not_keep_obsolete_availability_resolvers(self):
         for path in (MASTER, MINIMAP, SLASH):
             source = read(path)
             with self.subTest(path=path.name):
-                self.assertIn("ConfigController", source)
-                self.assertNotIn('CallMethod("Config"', source)
+                self.assertNotIn("getConfigController", source)
+                self.assertNotIn(":IsAvailable()", source)
+
+    def test_config_callers_use_the_controller_owner(self):
+        self.assertIn("Controllers.Config:Toggle()", read(MASTER))
+        self.assertIn("Controllers.Config:Toggle()", read(MINIMAP))
+        self.assertIn("ConfigController:Toggle()", read(SLASH))
+        for path in (MASTER, MINIMAP, SLASH):
+            self.assertNotIn('CallMethod("Config"', read(path))
 
     def test_raid_debug_support_lives_inside_the_raid_slice(self):
         self.assertTrue(RAID_DEBUG.exists())
         self.assertFalse(OLD_DEBUG.exists())
         source = read(RAID_DEBUG)
         self.assertIn("Raid.Debug = Raid.Debug or {}", source)
-        self.assertIn('registry.AddModule("Services/Raid/Debug"', source)
 
     def test_no_code_outside_raid_uses_raid_private_helpers(self):
         for path in ADDON.rglob("*.lua"):

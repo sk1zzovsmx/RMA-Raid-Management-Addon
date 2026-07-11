@@ -1,12 +1,10 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.UI.Effects
 -- events: none; owns UI effect OnUpdate drivers
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
 local floor = math.floor
 local max = math.max
 local min = math.min
@@ -14,7 +12,7 @@ local lower = string.lower
 local pairs = pairs
 local tonumber, type = tonumber, type
 
-local UI = feature.UI or {}
+local UI = addon.UI or {}
 local Frames = UI.Frames
 local SetScriptSafely = assert(Frames.SetScriptSafely, "Effects frame script binder is not initialized")
 local Effects = UI.Effects or {}
@@ -654,10 +652,4 @@ function Effects.SetTimedFade(frame, duration, fadeSeconds, onDone)
 	frame:SetAlpha(1)
 	SetScriptSafely(frame, "OnUpdate", onTimedFadeUpdate)
 	return true
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Modules/UI/Effects", { deps = { "Init", "Modules/ModuleRegistry", "Modules/UI/Frames" } })
-	registry.SetLoaded("Modules/UI/Effects")
 end

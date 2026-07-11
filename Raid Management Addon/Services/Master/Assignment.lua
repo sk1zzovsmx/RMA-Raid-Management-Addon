@@ -1,13 +1,11 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Master.Assignment
 -- events: none
 -- notes: pure Master assignment row models and policy
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Master = feature.EnsureServiceNamespace("Master")
+local Master = addon.Database.EnsureServiceNamespace("Master")
 
 local Assignment = Master.Assignment or {}
 Master.Assignment = Assignment
@@ -75,15 +73,4 @@ function Assignment.BuildTargetRows(groupedNames, classProvider)
 		return (tonumber(a.group) or 0) < (tonumber(b.group) or 0)
 	end)
 	return result
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Master/Assignment", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-		},
-	})
-	registry.SetLoaded("Services/Master/Assignment")
 end

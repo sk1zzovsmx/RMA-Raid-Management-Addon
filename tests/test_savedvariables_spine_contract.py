@@ -10,6 +10,7 @@ INIT = ADDON / "Init.lua"
 SV = ADDON / "Database" / "SavedVariables.lua"
 DB_OPTIONS = ADDON / "Database" / "DBOptions.lua"
 DB_RAID_STORE = ADDON / "Database" / "DBRaidStore.lua"
+DB = ADDON / "Database" / "DB.lua"
 WARNINGS_STORE = ADDON / "Services" / "Warnings" / "Store.lua"
 SPAMMER_DRAFT = ADDON / "Services" / "Spammer" / "Draft.lua"
 RESERVES = ADDON / "Services" / "Reserves.lua"
@@ -21,6 +22,14 @@ def read(path):
 
 
 class SavedVariablesSpineContractTest(unittest.TestCase):
+    def test_canonical_raid_store_is_a_required_dependency(self):
+        source = read(DB)
+        self.assertIn("function Database.GetRaidStore()", source)
+        self.assertIn("local raidStore = DB.RaidStore", source)
+        self.assertNotIn('getManagerStore("GetRaidStore")', source)
+        self.assertIn('assert(type(raidStore) == "table", "RMA RaidStore is not initialized")', source)
+        self.assertNotIn("GetRaidStoreOrNil", source)
+
     def test_savedvariables_owner_exists_and_is_loaded_before_store_users(self):
         self.assertTrue(SV.exists(), "Database/SavedVariables.lua must own RMA_* store access")
         toc = read(TOC)
@@ -41,11 +50,11 @@ class SavedVariablesSpineContractTest(unittest.TestCase):
             "ReplaceReserves",
             "ClearReserves",
             "GetWarnings",
-            "WasWarningsFresh",
             "GetSpammer",
             "GetOptions",
         ):
             self.assertRegex(source, r"function\s+SavedVariables\." + method + r"\s*\(")
+        self.assertNotIn("function SavedVariables.WasWarningsFresh()", source)
         self.assertNotRegex(source, r"\bKRT_|Karazhan|KaraRaid|KRaid")
 
     def test_bootstrap_delegates_rma_savedvariable_initialization_to_owner(self):
@@ -62,7 +71,7 @@ class SavedVariablesSpineContractTest(unittest.TestCase):
         self.assertIn('SavedVariables.PrepareForSave("logout")', init)
         self.assertNotIn("function Database.NormalizeSavedVariablesAfterLoad", init)
         self.assertNotIn("function Database.PrepareSavedVariablesForSave", init)
-        self.assertIn("Database.GetRaidStoreOrNil", source)
+        self.assertIn("Database.GetRaidStore", source)
         self.assertIn("NormalizeAllRaids", source)
         self.assertIn("PrepareAllRaidsForSave", source)
 
@@ -72,15 +81,13 @@ class SavedVariablesSpineContractTest(unittest.TestCase):
         normalize_fallback = normalize_fallback.split("function SavedVariables.PrepareForSave", 1)[0]
         save_fallback = source.split("function SavedVariables.PrepareForSave", 1)[1]
 
-        self.assertIn("local GetRaidStoreOrNil = assert(", source)
+        self.assertIn("local GetRaidStore = assert(", source)
         self.assertIn('"SavedVariables raid store resolver is not initialized"', source)
-        self.assertIn("local function getRaidStore", source)
-        self.assertIn('"SavedVariables raid store is not initialized"', source)
         self.assertIn("local function getReservesSave", source)
         self.assertIn('"SavedVariables reserves service is not initialized"', source)
         self.assertIn('"SavedVariables reserves save handler is not initialized"', source)
-        self.assertIn('getRaidStore("SavedVariables.NormalizeAfterLoad", { "NormalizeAllRaids" })', normalize_fallback)
-        self.assertIn('getRaidStore("SavedVariables.PrepareForSave", { "PrepareAllRaidsForSave" })', save_fallback)
+        self.assertIn("local raidStore = GetRaidStore()", normalize_fallback)
+        self.assertIn("local raidStore = GetRaidStore()", save_fallback)
         self.assertIn('raidStore:NormalizeAllRaids("load")', normalize_fallback)
         self.assertIn("raidStore:PrepareAllRaidsForSave()", save_fallback)
         self.assertIn("local saveReserves, reservesService = getReservesSave()", save_fallback)
@@ -105,19 +112,6 @@ class SavedVariablesSpineContractTest(unittest.TestCase):
             self.assertIn("SavedVariables", source, label)
             self.assertNotRegex(source, r"\b_G\.RMA_(Options|Warnings|Spammer)\b", label)
             self.assertNotRegex(source, r"\bRMA_(Raids|Players|Reserves)\b", label)
-
-    def test_savedvariables_store_users_declare_registry_dependency(self):
-        registry_users = {
-            "DBOptions.lua": read(DB_OPTIONS),
-            "DBRaidStore.lua": read(DB_RAID_STORE),
-            "Warnings/Store.lua": read(WARNINGS_STORE),
-            "Spammer/Draft.lua": read(SPAMMER_DRAFT),
-            "Reserves.lua": read(RESERVES),
-            "Raid/Roster.lua": read(RAID_ROSTER),
-        }
-        for label, source in registry_users.items():
-            self.assertIn('"Database/SavedVariables"', source, label)
-
 
 if __name__ == "__main__":
     unittest.main()

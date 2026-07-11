@@ -1,13 +1,11 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.LootSourceCandidates
 -- events: none
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Strings = feature.Strings
+local Strings = addon.Strings
 local NormalizeLower = assert(Strings.NormalizeLower, "Loot source candidate normalizer is not initialized")
 
 local type, tostring, tonumber = type, tostring, tonumber
@@ -17,8 +15,8 @@ local gmatch = string.gmatch
 local tconcat = table.concat
 
 -- ----- Internal state ----- --
-local LootSourceCandidates = feature.LootSourceCandidates or {}
-feature.LootSourceCandidates = LootSourceCandidates
+local LootSourceCandidates = addon.LootSourceCandidates or {}
+addon.LootSourceCandidates = LootSourceCandidates
 addon.LootSourceCandidates = LootSourceCandidates
 
 local SHARED_SOURCE_LABEL = "Shared"
@@ -164,7 +162,7 @@ function LootSourceCandidates.Copy(candidates, fallbackText)
 	return (#copied > 0) and copied or nil
 end
 
-function LootSourceCandidates.BuildLootSourceModel(loot, boss)
+function LootSourceCandidates.ResolveSourceMetadata(loot, boss)
 	local lootSource = type(loot and loot.lootSource) == "table" and loot.lootSource or nil
 	local sourceKind = (lootSource and lootSource.kind) or (boss and boss.sourceKind) or nil
 	local bossName = boss and boss.name or ""
@@ -184,23 +182,4 @@ function LootSourceCandidates.BuildLootSourceModel(loot, boss)
 	end
 
 	return sourceName, sourceKind, nil, sourceKey
-end
-
-local name = "Modules/LootSourceCandidates"
-local deps = {
-	"Init",
-	"Modules/Strings",
-}
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule(name, { deps = deps })
-	registry.SetLoaded(name)
-else
-	addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-	local pending = addon.ModuleRegistryPendingRegistrations
-	pending[#pending + 1] = {
-		name = name,
-		deps = deps,
-		loaded = true,
-	}
 end

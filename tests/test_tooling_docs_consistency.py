@@ -80,10 +80,9 @@ class ToolingDocsConsistencyTest(unittest.TestCase):
         report = read(GREENFIELD_COHERENCE)
 
         for heading in (
-            "## Current Staged Scope",
-            "## Unstaged Runtime Scope",
+            "## Current Scope",
             "## TOC And Load Order",
-            "## Registry And Deleted References",
+            "## Deleted References",
             "## Validation Evidence",
             "## Runtime Smoke Gap",
             "## Residual Risk",
@@ -97,18 +96,22 @@ class ToolingDocsConsistencyTest(unittest.TestCase):
     def test_greenfield_coherence_report_validation_count_matches_current_suite(self):
         report = read(GREENFIELD_COHERENCE)
 
-        self.assertIn("396 tests OK", report)
+        self.assertIn("434 tests OK", report)
+        self.assertNotIn("419 tests OK", report)
+        self.assertNotIn("420 tests OK", report)
+        self.assertNotIn("396 tests OK", report)
         self.assertNotIn("388 tests OK", report)
         self.assertNotIn("387 tests OK", report)
         self.assertNotIn("370 tests OK", report)
         self.assertNotIn("369 tests OK", report)
         self.assertNotIn("368 tests OK", report)
 
-    def test_greenfield_coherence_report_records_no_unstaged_runtime_after_full_stage(self):
+    def test_greenfield_coherence_report_records_simplification_runtime_delta(self):
         report = read(GREENFIELD_COHERENCE)
 
-        self.assertIn("No unstaged runtime files remain in the working tree", report)
-        self.assertNotIn("many unstaged runtime", report)
+        self.assertIn("net reduction of 3,113 lines", report)
+        self.assertIn("No runtime module registry", report)
+        self.assertIn("No feature profile, widget enablement table", report)
 
 
 if __name__ == "__main__":

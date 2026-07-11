@@ -84,7 +84,6 @@ class TooltipOwnershipTest(unittest.TestCase):
         self.assertIn("ShowTooltipLines(self, {", on_enter)
         self.assertIn('title = self.fullName or "Unknown"', on_enter)
         self.assertIn("text = getTooltipLine()", on_enter)
-        self.assertIn('"Modules/UI/Frames"', raid_grid)
         self.assertNotIn("Tooltips and Tooltips.ShowLines", raid_grid)
         self.assertNotIn("Tooltips and Tooltips.Hide", raid_grid)
         self.assertNotIn("GameTooltip", on_enter)

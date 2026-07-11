@@ -1,13 +1,11 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: owns addon-message send helpers and RMAVersion payload handling
 
 local addonName = ...
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
 local type, tostring, tonumber = type, tostring, tonumber
 local pcall = pcall
 local select = select
@@ -22,15 +20,15 @@ local IsInInstance = assert(_G.IsInInstance, "Comms instance state API is not in
 local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "Comms raid member count API is not initialized")
 local GetNumPartyMembers = assert(_G.GetNumPartyMembers, "Comms party member count API is not initialized")
 
-local Comms = feature.Comms or {}
+local Comms = addon.Comms or {}
 addon.Comms = Comms
 Comms.Payload = Comms.Payload or {}
 local Payload = Comms.Payload
-local L = feature.L
-local Database = feature.Database
-local Strings = feature.Strings
+local L = addon.L
+local Database = addon.Database
+local Strings = addon.Strings
 local NormalizeName = assert(Strings.NormalizeName, "Comms sender name normalizer is not initialized")
-local Timer = feature.Timer
+local Timer = addon.Timer
 local BindTimerMixin = assert(Timer.BindMixin, "Comms timer mixin is not initialized")
 
 Comms._addonQueue = Comms._addonQueue or {}
@@ -56,7 +54,7 @@ local function getUnknownText()
 end
 
 local function getBase64()
-	return addon.Base64 or feature.Base64
+	return addon.Base64 or addon.Base64
 end
 
 local function encodeCommsPayloadText(value)
@@ -411,18 +409,4 @@ function Comms:HandleVersionMessage(prefix, msg, channel, sender)
 		return true
 	end
 	return true
-end
-
-do
-	local name = "Modules/Comms"
-	local deps = { "Init", "Modules/Timer", "Modules/Base64", "Modules/Strings" }
-	local registry = feature.ModuleRegistry
-	if registry then
-		registry.AddModule(name, { deps = deps })
-		registry.SetLoaded(name)
-	else
-		addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-		local pending = addon.ModuleRegistryPendingRegistrations
-		pending[#pending + 1] = { name = name, deps = deps, loaded = true }
-	end
 end

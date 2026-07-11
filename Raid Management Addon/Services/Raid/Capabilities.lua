@@ -1,14 +1,12 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Database = feature.Database
-local L = feature.L
-local Services = feature.Services
+local Database = addon.Database
+local L = addon.L
+local Services = addon.Services
 
 local select = select
 local tonumber = tonumber
@@ -33,7 +31,7 @@ local function isPassiveGroupLootMethod(method)
 end
 
 do
-	feature.EnsureServiceNamespace("Raid")
+	addon.Database.EnsureServiceNamespace("Raid")
 	local Raid = Services.Raid
 	local module = Raid
 
@@ -169,15 +167,4 @@ do
 		end
 		return isPassiveGroupLootMethod(method)
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Raid/Capabilities", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-		},
-	})
-	registry.SetLoaded("Services/Raid/Capabilities")
 end

@@ -1,16 +1,14 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Widgets.TradeMenu
 -- events: none
 -- notes: TradeFrame adapter for manual trade candidate dropdowns
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Widgets = feature.Widgets
-local Item = feature.Item
-local L = feature.L
-local Services = feature.Services
+local Widgets = addon.Widgets
+local Item = addon.Item
+local L = addon.L
+local Services = addon.Services
 
 local MasterService = assert(Services.Master, "Master service namespace is not initialized")
 local _G = _G
@@ -20,8 +18,7 @@ local UnitName = assert(_G.UnitName, "Trade menu unit name API is not initialize
 local UIParent = assert(_G.UIParent, "Trade menu root UI parent is not initialized")
 local string = string
 local type = type
-local UI = feature.UI
-local UIWidgets = UI.Widgets
+local UI = addon.UI
 
 local REASON_DROPDOWN_EMPTY_TEXT = ""
 local REASON_DROPDOWN_WIDTH = 32
@@ -39,19 +36,6 @@ local REASON_DROPDOWN_LOCKED_TEXT_COLOR = { 0, 1, 0 }
 local REASON_DROPDOWN_NEUTRAL_TEXT_COLOR = { 1, 1, 1 }
 
 -- ----- Internal state ----- --
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Widgets/TradeMenu", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/UI/Facade",
-			"Services/Master/Trade",
-		},
-	})
-	registry.SetLoaded("Widgets/TradeMenu")
-end
 
 -- ----- Private helpers ----- --
 
@@ -146,16 +130,16 @@ local function findReasonLabel(masterService, reason)
 	for i = 1, #reasonOrder do
 		local value = reasonOrder[i]
 		if reason == value then
-			if value == feature.rollTypes.MAINSPEC then
+			if value == addon.C.rollTypes.MAINSPEC then
 				return L.BtnMS
 			end
-			if value == feature.rollTypes.OFFSPEC then
+			if value == addon.C.rollTypes.OFFSPEC then
 				return L.BtnOS
 			end
-			if value == feature.rollTypes.RESERVED then
+			if value == addon.C.rollTypes.RESERVED then
 				return L.BtnSR
 			end
-			if value == feature.rollTypes.FREE then
+			if value == addon.C.rollTypes.FREE then
 				return L.BtnFree
 			end
 		end
@@ -170,7 +154,7 @@ end
 
 local function getClosedReasonText(reason)
 	local text = getReasonText(reason)
-	if reason == feature.rollTypes.FREE and text ~= "" then
+	if reason == addon.C.rollTypes.FREE and text ~= "" then
 		return string.upper(string.sub(text, 1, 2))
 	end
 	return text
@@ -379,7 +363,7 @@ module._dropdowns = module._dropdowns or {}
 
 -- ----- Public methods ----- --
 
-function module.GetTradePlayerItems()
+function module.GetPlayerTradeItems()
 	local items = {}
 	for slot = 1, 6 do
 		local item = getTradePlayerItem(slot)
@@ -460,7 +444,7 @@ function module.HideDropdowns()
 end
 
 function module.RefreshCandidate(source)
-	local tradeItems = module.GetTradePlayerItems()
+	local tradeItems = module.GetPlayerTradeItems()
 	local partnerName = module.ResolveTradePartnerName()
 	local state = MasterService.Trade.RefreshCandidate({
 		source = source,
@@ -474,11 +458,4 @@ end
 function module.Reset()
 	module._state = nil
 	module.HideDropdowns()
-end
-
-if UIWidgets.IsEnabled("TradeMenu") ~= false then
-	UIWidgets.Register("TradeMenu", module)
-	UIWidgets.RegisterFunction("TradeMenu", "HideDropdowns", module.HideDropdowns)
-	UIWidgets.RegisterFunction("TradeMenu", "RefreshDropdowns", module.RefreshDropdowns)
-	UIWidgets.RegisterFunction("TradeMenu", "RefreshCandidate", module.RefreshCandidate)
 end

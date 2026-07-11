@@ -1,19 +1,17 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Rolls._Countdown
 -- events: announces countdown ticks through Services/Chat
 -- notes: countdown runtime helpers for rolls service
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local L = feature.L
-local Services = feature.Services
-local Timer = feature.Timer
+local L = addon.L
+local Services = addon.Services
+local Timer = addon.Timer
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Rolls")
+addon.Database.EnsureServiceNamespace("Rolls")
 local Rolls = Services.Rolls
 local module = Rolls
 module._Countdown = module._Countdown or {}
@@ -109,17 +107,4 @@ end
 
 function Countdown.IsRunning(state)
 	return state.countdownRunning == true
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Rolls/Countdown", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Timer",
-			"Services/Chat",
-		},
-	})
-	registry.SetLoaded("Services/Rolls/Countdown")
 end

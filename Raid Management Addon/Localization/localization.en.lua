@@ -1,17 +1,15 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
 local setmetatable = setmetatable
 local tostring = tostring
 local rawset = rawset
 
-local L = feature.L
+local L = addon.L
 setmetatable(L, {
 	__index = function(self, k)
 		if k ~= nil then
@@ -824,7 +822,6 @@ L.WhisperSoftResAdded = "Your %s reserve is added!"
 L.WhisperSoftResInvalidItem = "Shift-click an item link after +sr to add a reserve."
 L.ChatSoftResWhisperHelpQuery = "SoftRes: To see your reserves /w %s +sr"
 L.ChatSoftResWhisperHelpAdd = "SoftRes: To add one and receive confirmation /w %s +sr [item link]"
-L.MsgFeatureDisabledByProfile = "Feature '%s' is disabled by current profile (%s)."
 L.MsgFeatureUnavailable = "Feature '%s' action '%s' is not available."
 L.MsgLoggerSyncNotInGroup = "Logger Sync: you must be in a group."
 L.MsgLoggerSyncRaidRefRequired = "Logger Sync: raid reference is required for req/push."

@@ -1,18 +1,16 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: owns addon.Bus callback registration and dispatch
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local L = feature.L
-local Diag = feature.Diag
+local L = addon.L
+local Diag = addon.Diag
 
 local type, pcall, tostring = type, pcall, tostring
 
-local Bus = feature.Bus or {}
+local Bus = addon.Bus or {}
 addon.Bus = Bus
 
 -- ----- Internal state ----- --
@@ -121,10 +119,4 @@ function Bus.TriggerEvent(eventName, ...)
 	if listenerList.dispatchDepth == 0 and listenerList.dirty then
 		compactListenerList(listenerList)
 	end
-end
-
-local registry = feature.ModuleRegistry
-if registry then
-	registry.AddModule("Modules/Bus", { deps = { "Init", "Modules/ModuleRegistry" } })
-	registry.SetLoaded("Modules/Bus")
 end

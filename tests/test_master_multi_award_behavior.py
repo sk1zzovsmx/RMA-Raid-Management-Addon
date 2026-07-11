@@ -45,12 +45,12 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
                         LogMLMultiAwardStarted = "start %s %s %s %s %s",
                     }},
                 }},
-                ModuleRegistry = nil,
             }}
+            for key, value in pairs(shared) do
+                addon[key] = value
+            end
             addon.Database = {{
-                GetFeatureShared = function()
-                    return shared
-                end,
+                EnsureServiceNamespace = shared.EnsureServiceNamespace,
             }}
 
             local chunk = assert(loadfile("{str(MULTI_AWARD).replace("\\", "\\\\")}"))
@@ -183,12 +183,12 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
                         LogMLMultiAwardStarted = "start %s %s %s %s %s",
                     }},
                 }},
-                ModuleRegistry = nil,
             }}
+            for key, value in pairs(shared) do
+                addon[key] = value
+            end
             addon.Database = {{
-                GetFeatureShared = function()
-                    return shared
-                end,
+                EnsureServiceNamespace = shared.EnsureServiceNamespace,
             }}
 
             local chunk = assert(loadfile("{str(MULTI_AWARD).replace("\\", "\\\\")}"))
@@ -332,12 +332,12 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
                         LogMLMultiAwardStarted = "start %s %s %s %s %s",
                     }},
                 }},
-                ModuleRegistry = nil,
             }}
+            for key, value in pairs(shared) do
+                addon[key] = value
+            end
             addon.Database = {{
-                GetFeatureShared = function()
-                    return shared
-                end,
+                EnsureServiceNamespace = shared.EnsureServiceNamespace,
             }}
 
             local chunk = assert(loadfile("{str(MULTI_AWARD).replace("\\", "\\\\")}"))
@@ -454,12 +454,12 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
                         LogMLMultiAwardStarted = "start %s %s %s %s %s",
                     }},
                 }},
-                ModuleRegistry = nil,
             }}
+            for key, value in pairs(shared) do
+                addon[key] = value
+            end
             addon.Database = {{
-                GetFeatureShared = function()
-                    return shared
-                end,
+                EnsureServiceNamespace = shared.EnsureServiceNamespace,
             }}
 
             local chunk = assert(loadfile("{str(MULTI_AWARD).replace("\\", "\\\\")}"))
@@ -594,12 +594,12 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
                         LogMLMultiAwardStarted = "start %s %s %s %s %s",
                     }},
                 }},
-                ModuleRegistry = nil,
             }}
+            for key, value in pairs(shared) do
+                addon[key] = value
+            end
             addon.Database = {{
-                GetFeatureShared = function()
-                    return shared
-                end,
+                EnsureServiceNamespace = shared.EnsureServiceNamespace,
             }}
 
             local chunk = assert(loadfile("{str(MULTI_AWARD).replace("\\", "\\\\")}"))
@@ -749,12 +749,12 @@ class MasterMultiAwardBehaviorTests(unittest.TestCase):
                         LogMLMultiAwardStarted = "start %s %s %s %s %s",
                     }},
                 }},
-                ModuleRegistry = nil,
             }}
+            for key, value in pairs(shared) do
+                addon[key] = value
+            end
             addon.Database = {{
-                GetFeatureShared = function()
-                    return shared
-                end,
+                EnsureServiceNamespace = shared.EnsureServiceNamespace,
             }}
 
             local chunk = assert(loadfile("{str(MULTI_AWARD).replace("\\", "\\\\")}"))

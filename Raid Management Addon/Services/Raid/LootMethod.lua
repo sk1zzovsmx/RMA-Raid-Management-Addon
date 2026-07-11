@@ -1,17 +1,15 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Raid loot-method automation APIs
 -- events: listens forwarded PLAYER_TARGET_CHANGED through Master; emits GroupLootRestoreNeeded
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local L = feature.L
-local Bus = feature.Bus
-local Database = feature.Database
-local Events = feature.Events
-local Options = feature.Options
-local Services = feature.Services
+local L = addon.L
+local Bus = addon.Bus
+local Database = addon.Database
+local Events = addon.Events
+local Options = addon.Options
+local Services = addon.Services
 
 local tostring, tonumber, type = tostring, tonumber, type
 
@@ -23,7 +21,7 @@ local UnitGUID = assert(_G.UnitGUID, "Raid loot method unit GUID API is not init
 local UnitInRaid = assert(_G.UnitInRaid, "Raid loot method unit raid-membership API is not initialized")
 local UnitIsDead = assert(_G.UnitIsDead, "Raid loot method unit death-state API is not initialized")
 local UnitName = assert(_G.UnitName, "Raid loot method unit name API is not initialized")
-local GetCreatureId = assert(feature.GetCreatureId, "Raid loot method creature-id helper is not initialized")
+local GetCreatureId = assert(addon.GetCreatureId, "Raid loot method creature-id helper is not initialized")
 local InternalEvents = assert(Events.Internal, "Raid loot method event registry is not initialized")
 local ScreenNoticeEvent = assert(InternalEvents.ScreenNotice, "Raid loot method screen notice event is not initialized")
 local GroupLootRestoreNeededEvent =
@@ -36,11 +34,11 @@ local MIN_AUTO_MASTER_LOOT_NOTICE_SECONDS = 0.1
 local MAX_AUTO_MASTER_LOOT_NOTICE_SECONDS = 5
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Raid")
+addon.Database.EnsureServiceNamespace("Raid")
 local Raid = Services.Raid
 local module = Raid
 
-Options.AddNamespace("Master", {
+Options.RegisterNamespace("Master", {
 	autoMasterLootOnBossTarget = false,
 	autoMasterLootNoticeSeconds = 1.25,
 	askGroupLootAfterBossLoot = false,
@@ -98,7 +96,7 @@ local function getTargetBossInfo(allowDead)
 
 	local guid = UnitGUID("target")
 	local npcId = guid and GetCreatureId(guid) or nil
-	local bossIds = feature.BossIDs and feature.BossIDs.BossIDs
+	local bossIds = addon.BossIDs and addon.BossIDs.BossIDs
 	if not (npcId and bossIds and bossIds[tonumber(npcId)] == true) then
 		return nil
 	end
@@ -216,20 +214,4 @@ function module:RestoreGroupLoot(source)
 	clearLootWindowPromptState()
 	addon:info(L.MsgGroupLootRestored or "RMA: Loot method set to Group Loot.")
 	return true, source
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Raid/LootMethod", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Events",
-			"Modules/Bus",
-			"Database/DB",
-			"Database/DBOptions",
-			"Services/Raid/Capabilities",
-		},
-	})
-	registry.SetLoaded("Services/Raid/LootMethod")
 end

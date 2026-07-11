@@ -1,22 +1,22 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Attendance.Export
 -- events: none
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Database = feature.Database
-local Services = feature.Services
+local Database = addon.Database
+local Services = addon.Services
+local Strings = addon.Strings
 
 local concat = table.concat
 local tostring, tonumber, type = tostring, tonumber, type
 
-feature.EnsureServiceNamespace("Attendance", "Export")
+addon.Database.EnsureServiceNamespace("Attendance", "Export")
 local Attendance = Services.Attendance
 local Export = Attendance.Export
 local RaidProjections = assert(Services.Raid.Projections, "Attendance export raid projections are not initialized")
 local FormatTimestamp = RaidProjections.FormatTimestamp
+local AppendCSVRow = assert(Strings.AppendCSVRow, "Attendance CSV row encoder is not initialized")
 
 local HEADER_RAID_ATTENDANCE = {
 	"raidNid",
@@ -35,21 +35,6 @@ local HEADER_RAID_ATTENDANCE = {
 	"segmentCount",
 }
 
-local function csvEscape(value)
-	value = tostring(value or "")
-	if value:find('[,"\n\r]') then
-		value = '"' .. value:gsub('"', '""') .. '"'
-	end
-	return value
-end
-
-local function appendCSVLine(lines, fields, encoded, count)
-	for i = 1, count do
-		encoded[i] = csvEscape(fields[i])
-	end
-	lines[#lines + 1] = concat(encoded, ",", 1, count)
-end
-
 local function finishPerf(label, startedAt, raidNid, rowCount, csv)
 	if not (startedAt and addon._PerfFinish) then
 		return
@@ -61,7 +46,7 @@ local function finishPerf(label, startedAt, raidNid, rowCount, csv)
 	)
 end
 
-function Export:GetRaidAttendanceCSV(raid, context)
+function Export:BuildCSV(raid, context)
 	if type(raid) ~= "table" then
 		return "", "INVALID_RAID"
 	end
@@ -75,7 +60,7 @@ function Export:GetRaidAttendanceCSV(raid, context)
 	local fields = {}
 	local encoded = {}
 	local rowCount = 0
-	appendCSVLine(lines, HEADER_RAID_ATTENDANCE, encoded, #HEADER_RAID_ATTENDANCE)
+	AppendCSVRow(lines, HEADER_RAID_ATTENDANCE, encoded, #HEADER_RAID_ATTENDANCE)
 
 	for i = 1, #attendanceRows do
 		local entry = attendanceRows[i]
@@ -95,24 +80,11 @@ function Export:GetRaidAttendanceCSV(raid, context)
 			fields[13] = tonumber(entry.offlineSeconds) or 0
 			fields[14] = tonumber(entry.segmentCount) or 0
 			rowCount = rowCount + 1
-			appendCSVLine(lines, fields, encoded, 14)
+			AppendCSVRow(lines, fields, encoded, 14)
 		end
 	end
 
 	local csv = concat(lines, "\n")
 	finishPerf("Attendance.Export.GetRaidAttendanceCSV", perfStart, raidMetadata.raidNid, rowCount, csv)
 	return csv
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Attendance/Export", {
-		deps = {
-			"Init",
-			"Database/DBRaidQueries",
-			"Modules/ModuleRegistry",
-			"Services/Raid/Projections",
-		},
-	})
-	registry.SetLoaded("Services/Attendance/Export")
 end

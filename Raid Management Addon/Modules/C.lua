@@ -1,15 +1,13 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local C = feature.C or {}
+local C = addon.C or {}
 addon.C = C
-local L = feature.L
+local L = addon.L
 
 -- ----- Internal state ----- --
 
@@ -112,17 +110,3 @@ C.RECENT_TRASH_DEATH_CONTEXT_THROTTLE_SECONDS = 1
 C.LOOT_COUNTER_ROW_HEIGHT = 25
 C.RESERVES_ITEM_FALLBACK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 C.RESERVES_QUERY_COOLDOWN_SECONDS = 2
-
-do
-	local name = "Modules/C"
-	local deps = { "Init" }
-	local registry = feature.ModuleRegistry
-	if registry then
-		registry.AddModule(name, { deps = deps })
-		registry.SetLoaded(name)
-	else
-		addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-		local pending = addon.ModuleRegistryPendingRegistrations
-		pending[#pending + 1] = { name = name, deps = deps, loaded = true }
-	end
-end

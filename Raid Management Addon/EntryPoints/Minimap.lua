@@ -1,23 +1,23 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: owns minimap frame scripts; drag uses allowed OnUpdate exception
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local L = addon.L
 
-local L = feature.L
-
-local Options = feature.Options
-local UI = feature.UI
-local UIWidgets = UI.Widgets
+local Options = addon.Options
+local UI = addon.UI
 local Frames = UI.Frames
 local Tooltips = UI.Tooltips
 local ShowTooltipLines = assert(Tooltips.ShowLines, "Minimap tooltip presenter is not initialized")
 local HideTooltip = assert(Tooltips.Hide, "Minimap tooltip hider is not initialized")
-local Colors = feature.Colors
-local Services = feature.Services
-local Controllers = feature.Controllers
+local Colors = addon.Colors
+local Services = addon.Services
+local Controllers = addon.Controllers
+local Widgets = addon.Widgets
+local LootCounterWidget = assert(Widgets.LootCounter, "Minimap loot counter widget is not initialized")
+local ReservesWidget = assert(Widgets.ReservesUI, "Minimap reserves widget is not initialized")
 local MasterController = assert(Controllers.Master, "Minimap master controller is not initialized")
 local LoggerController = assert(Controllers.Logger, "Minimap logger controller is not initialized")
 local AttendanceController = assert(Controllers.Attendance, "Minimap attendance controller is not initialized")
@@ -28,37 +28,18 @@ local IsPlayerInRaid = assert(Raid.IsPlayerInRaid, "Minimap raid membership reso
 local CanUseCapability = assert(Raid.CanUseCapability, "Minimap raid capability resolver is not initialized")
 local CanObservePassiveLoot = assert(Raid.CanObservePassiveLoot, "Minimap passive-loot observer is not initialized")
 local ClearRaidIcons = assert(Raid.ClearRaidIcons, "Minimap raid-icon cleaner is not initialized")
-local K_COLOR = feature.K_COLOR
-
-local function getConfigController()
-	local controller = Controllers.Config
-	if controller and controller:IsAvailable() then
-		return controller
-	end
-	return nil
-end
+local K_COLOR = addon.C.K_COLOR
 
 -- =========== Minimap Button Module  =========== --
-feature.Minimap = feature.Minimap or {}
-addon.Minimap = feature.Minimap
-local module = feature.Minimap
+addon.Minimap = addon.Minimap or {}
+addon.Minimap = addon.Minimap
+local module = addon.Minimap
 
 -- Namespace registration: minimap options (visibility and angular position).
-local minimapNs = Options.AddNamespace("Minimap", {
+local minimapNs = Options.RegisterNamespace("Minimap", {
 	minimapButton = true,
 	minimapPos = 325,
 })
-
-local function isWidgetAvailable(widgetId)
-	return UIWidgets.IsEnabled(widgetId) and UIWidgets.IsRegistered(widgetId)
-end
-
-local function callWidgetMethod(widgetId, methodName, ...)
-	if not isWidgetAvailable(widgetId) then
-		return nil
-	end
-	return UIWidgets.CallMethod(widgetId, methodName, ...)
-end
 
 -- ----- Internal state ----- --
 local addonMenu
@@ -102,10 +83,6 @@ local function buildMenu()
 	if hasRaidGroup then
 		disableLootRaidActions = nil
 	end
-	local disableReservesActions = nil
-	if not isWidgetAvailable("Reserves") then
-		disableReservesActions = 1
-	end
 	return {
 		{
 			text = L.StrLootMaster,
@@ -118,9 +95,8 @@ local function buildMenu()
 		{
 			text = L.StrLootReserve,
 			notCheckable = 1,
-			disabled = disableReservesActions,
 			func = function()
-				callWidgetMethod("Reserves", "Toggle")
+				ReservesWidget:Toggle()
 			end,
 		},
 		{ text = " ", disabled = 1, notCheckable = 1 },
@@ -132,7 +108,7 @@ local function buildMenu()
 				if not IsPlayerInRaid(Raid) then
 					return
 				end
-				callWidgetMethod("LootCounter", "Toggle")
+				LootCounterWidget:Toggle()
 			end,
 		},
 		{
@@ -309,10 +285,7 @@ local function loadMinimapFrame(frame)
 			return
 		end
 		if button == "RightButton" then
-			local configController = getConfigController()
-			if configController then
-				configController:Toggle()
-			end
+			Controllers.Config:Toggle()
 		elseif button == "LeftButton" then
 			toggleMenu()
 		end
@@ -365,27 +338,4 @@ function module:SetMinimapButtonShown(show)
 		return
 	end
 	setMinimapShown(show == true)
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("EntryPoints/Minimap", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DBOptions",
-			"Modules/C",
-			"Modules/Colors",
-			"Modules/UI/Frames",
-			"Modules/UI/Facade",
-			"Services/Raid/State",
-			"Services/Raid/Capabilities",
-			"Controllers/Master",
-			"Controllers/Logger",
-			"Controllers/Attendance",
-			"Controllers/Warnings",
-			"Controllers/Spammer",
-		},
-	})
-	registry.SetLoaded("EntryPoints/Minimap")
 end

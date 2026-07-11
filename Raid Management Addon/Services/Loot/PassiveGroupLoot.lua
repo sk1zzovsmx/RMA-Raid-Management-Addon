@@ -1,27 +1,25 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Loot._PassiveGroupLoot
 -- events: no bus events; passive group-loot helpers only
 -- notes: passive group-loot parser/state helpers for loot service
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Diag = feature.Diag
-local C = feature.C
-local Database = feature.Database
-local Deformat = feature.Deformat
-local Item = feature.Item
-local Options = feature.Options
-local Services = feature.Services
-local Strings = feature.Strings
+local Diag = addon.Diag
+local C = addon.C
+local Database = addon.Database
+local Deformat = addon.Deformat
+local Item = addon.Item
+local Options = addon.Options
+local Services = addon.Services
+local Strings = addon.Strings
 local _, lootState, _, raidState = Database.EnsureLootRuntimeState()
-local ITEM_LINK_PATTERN = feature.ITEM_LINK_PATTERN
-local rollTypes = feature.rollTypes
+local ITEM_LINK_PATTERN = addon.C.ITEM_LINK_PATTERN
+local rollTypes = addon.C.rollTypes
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Loot")
+addon.Database.EnsureServiceNamespace("Loot")
 local Loot = Services.Loot
 local module = Loot
 module._PassiveGroupLoot = module._PassiveGroupLoot or {}
@@ -962,21 +960,4 @@ end
 function PassiveGroupLoot.AddGroupLootMessage(owner, msg)
 	local observedType = PassiveGroupLoot.ObserveGroupLootMessage(owner, msg)
 	return observedType
-end
-
-local registry = feature.ModuleRegistry
-if registry and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Loot/PassiveGroupLoot", {
-		deps = {
-			"Init",
-			"Database/DBOptions",
-			"Modules/ModuleRegistry",
-			"Modules/C",
-			"Modules/Item",
-			"Modules/Strings",
-			"Services/Loot/State",
-			"Services/Raid/Capabilities",
-		},
-	})
-	registry.SetLoaded("Services/Loot/PassiveGroupLoot")
 end

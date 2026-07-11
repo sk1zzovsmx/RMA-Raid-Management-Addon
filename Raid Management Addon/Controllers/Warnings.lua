@@ -1,26 +1,24 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: owns warning UI scripts; sends announcements through Services/Chat
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local L = addon.L
+local Controllers = addon.Controllers
+local coreState = addon.State
+local Database = addon.Database
+local Bus = addon.Bus
+local Events = addon.Events
 
-local L = feature.L
-local Controllers = feature.Controllers
-local coreState = feature.coreState
-local Database = feature.Database
-local Bus = feature.Bus
-local Events = feature.Events
-
-local UI = feature.UI
+local UI = addon.UI
 local Lists = UI.Lists
 local Frames = UI.Frames
 local Scaffold = UI.Scaffold
 local Primitives = UI.Primitives
 local EditBoxes = UI.EditBoxes
-local Strings = feature.Strings
-local Services = feature.Services
+local Strings = addon.Strings
+local Services = addon.Services
 local WarningsSvc = assert(Services.Warnings, "Warnings controller service namespace is not initialized")
 local WarningStore = assert(WarningsSvc.Store, "Warnings controller store service is not initialized")
 local RegisterCallback = assert(Bus.RegisterCallback, "Warnings controller event listener is not initialized")
@@ -39,8 +37,6 @@ local AnnounceWarningMessage = requireServiceMethod("Chat", Chat, "AnnounceWarni
 local GetStore = requireServiceMethod("Warnings.Store", WarningStore, "GetStore")
 local GetWarning = requireServiceMethod("Warnings.Store", WarningStore, "GetWarning")
 local EnsureDefaultTemplates = requireServiceMethod("Warnings.Store", WarningStore, "EnsureDefaultTemplates")
-local BuildTemplatePreview = requireServiceMethod("Warnings.Store", WarningStore, "BuildTemplatePreview")
-local ClearSavedWarnings = requireServiceMethod("Warnings.Store", WarningStore, "ClearSavedWarnings")
 local DeleteWarning = requireServiceMethod("Warnings.Store", WarningStore, "DeleteWarning")
 local SaveWarning = requireServiceMethod("Warnings.Store", WarningStore, "SaveWarning")
 
@@ -48,7 +44,7 @@ local SaveWarning = requireServiceMethod("Warnings.Store", WarningStore, "SaveWa
 do
 	Controllers.Warnings = Controllers.Warnings or {}
 	local module = Controllers.Warnings
-	local uiState = Scaffold.EnsureModuleState(module)
+	local uiState = UI.ModuleState.Ensure(module)
 
 	local getFrame = Frames.MakeModuleFrameGetter(module, "RMAWarnings")
 	-- ----- Internal state ----- --
@@ -345,15 +341,6 @@ do
 		return result
 	end
 
-	function module:RequestTemplatePreview()
-		return BuildTemplatePreview(L.StrConfigRaidWarningPreviewEmpty or "")
-	end
-
-	function module:RequestClearSavedWarnings(includeStock)
-		local result = ClearSavedWarnings(includeStock)
-		return result
-	end
-
 	-- Localizing UI frame:
 	function uiState.Localize()
 		if uiState.Localized then
@@ -454,23 +441,4 @@ do
 		module:RequestEnsureDefaultTemplates()
 		coreState.warningsSavedVariablesFresh = false
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Controllers/Warnings", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Bus",
-			"Modules/Events",
-			"Modules/Strings",
-			"Modules/UI/Frames",
-			"Modules/UI/Visuals",
-			"Modules/UI/ListController",
-			"Services/Warnings/Store",
-			"Services/Chat",
-		},
-	})
-	registry.SetLoaded("Controllers/Warnings")
 end

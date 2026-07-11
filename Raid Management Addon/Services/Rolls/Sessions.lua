@@ -1,24 +1,22 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Rolls._Sessions
 -- events: none
 -- notes: session and context helpers for rolls service
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Item = feature.Item
-local Services = feature.Services
-local Strings = feature.Strings
+local Item = addon.Item
+local Services = addon.Services
+local Strings = addon.Strings
 local NormalizeLower = assert(Strings.NormalizeLower, "Roll session candidate normalizer is not initialized")
 
-local rollTypes = feature.rollTypes
+local rollTypes = addon.C.rollTypes
 local tostring, tonumber = tostring, tonumber
 local next = next
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Rolls")
+addon.Database.EnsureServiceNamespace("Rolls")
 local Rolls = Services.Rolls
 local module = Rolls
 module._Sessions = module._Sessions or {}
@@ -390,17 +388,4 @@ function Sessions.GetCurrentRollContext(ctx, itemLink, rollType)
 		itemLink = currentItemLink,
 		rollType = tonumber(rollType) or Sessions.GetActiveRollType(ctx),
 	}
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Rolls/Sessions", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Item",
-			"Modules/Strings",
-		},
-	})
-	registry.SetLoaded("Services/Rolls/Sessions")
 end

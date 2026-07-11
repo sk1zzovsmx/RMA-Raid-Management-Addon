@@ -1,20 +1,19 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Loot._State
 -- events: no bus events; state helpers only
 -- notes: bootstrap-sensitive internal loot state helpers
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-local C = feature.C
-local Database = feature.Database
-local Services = feature.Services
-local Time = feature.Time
+local C = addon.C
+local Database = addon.Database
+local Services = addon.Services
+local Time = addon.Time
 local GetTime = assert(_G.GetTime, "Loot state time API is not initialized")
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Loot")
+addon.Database.EnsureServiceNamespace("Loot")
 local Loot = Services.Loot
 local module = Loot
 module._State = module._State or {}
@@ -362,17 +361,4 @@ function Sessions.Resolve(raidState, raid, raidNum, rollSessionId, now, findBoss
 
 	state.bySessionId[sessionId] = nil
 	return 0
-end
-
-local registry = feature.ModuleRegistry
-if registry and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Loot/State", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/C",
-			"Services/Loot/Context",
-		},
-	})
-	registry.SetLoaded("Services/Loot/State")
 end

@@ -1,16 +1,15 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Loot._Snapshots
 -- events: no bus events; snapshot helpers only
 -- notes: internal loot-window snapshot helpers
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-local Services = feature.Services
+local Services = addon.Services
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Loot")
+addon.Database.EnsureServiceNamespace("Loot")
 local Loot = Services.Loot
 local module = Loot
 module._Snapshots = module._Snapshots or {}
@@ -18,8 +17,8 @@ module._Snapshots = module._Snapshots or {}
 local Snapshots = module._Snapshots
 local ContextState = assert(module._State, "Loot state helpers are not initialized")
 local ContextHelpers = assert(module._Context, "Loot context helpers are not initialized")
-local Item = feature.Item
-local Time = feature.Time
+local Item = addon.Item
+local Time = addon.Time
 
 local GetItemStringFromLink = assert(Item.GetItemStringFromLink, "Loot snapshot item-key resolver is not initialized")
 local normalizeLootSnapshotState =
@@ -362,18 +361,4 @@ function Snapshots.ConsumeActive(raidState, itemLink, now)
 	end
 
 	return tonumber(snapshot.bossNid) or 0
-end
-
-local registry = feature.ModuleRegistry
-if registry and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Loot/Snapshots", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Item",
-			"Services/Loot/State",
-			"Services/Loot/Context",
-		},
-	})
-	registry.SetLoaded("Services/Loot/Snapshots")
 end

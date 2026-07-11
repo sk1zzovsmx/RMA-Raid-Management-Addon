@@ -1,19 +1,17 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: no direct bus events; publishes synthetic roster deltas through the Raid slice
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local Diag = addon.Diag
 
-local Diag = feature.Diag
-
-local Database = feature.Database
-local Options = feature.Options
-local Services = feature.Services
-local Strings = feature.Strings
-local Time = feature.Time
-local coreState = feature.coreState
+local Database = addon.Database
+local Options = addon.Options
+local Services = addon.Services
+local Strings = addon.Strings
+local Time = addon.Time
+local coreState = addon.State
 local NormalizeName = assert(Strings.NormalizeName, "Debug synthetic name normalizer is not initialized")
 local NormalizeLower = assert(Strings.NormalizeLower, "Debug mode normalizer is not initialized")
 
@@ -25,7 +23,7 @@ local tostring, tonumber = tostring, tonumber
 -- Debug helper module.
 -- Seeds a current raid with synthetic players and submits synthetic rolls.
 do
-	feature.EnsureServiceNamespace("Raid")
+	addon.Database.EnsureServiceNamespace("Raid")
 	local Raid = Services.Raid
 	Raid.Debug = Raid.Debug or {}
 	local module = Raid.Debug
@@ -101,7 +99,7 @@ do
 		if not raidId then
 			return nil, nil
 		end
-		return Database.EnsureRaidById(raidId), raidId
+		return Database.EnsureRaidByIndex(raidId), raidId
 	end
 
 	local function getSyntheticStateForRaid(raidId, create)
@@ -384,7 +382,7 @@ do
 			end
 		end
 
-		raid = Database.EnsureRaidById(raidId)
+		raid = Database.EnsureRaidByIndex(raidId)
 		rebuildSyntheticState(raid, raidId)
 		publishSyntheticDelta(delta, raidId)
 
@@ -578,21 +576,4 @@ do
 		end
 		return debugEnabled == true
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Raid/Debug", {
-		deps = {
-			"Init",
-			"Database/DB",
-			"Database/DBOptions",
-			"Modules/ModuleRegistry",
-			"Modules/Strings",
-			"Modules/Time",
-			"Services/Raid/Roster",
-			"Services/Rolls/Service",
-		},
-	})
-	registry.SetLoaded("Services/Raid/Debug")
 end

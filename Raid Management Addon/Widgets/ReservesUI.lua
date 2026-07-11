@@ -1,17 +1,14 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: listens ReservesDataChanged and GET_ITEM_INFO_RECEIVED
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local L = addon.L
+local Diag = addon.Diag
 
-local L = feature.L
-local Diag = feature.Diag
-
-local Widgets = feature.Widgets
-local UI = feature.UI
-local UIWidgets = UI.Widgets
+local Widgets = addon.Widgets
+local UI = addon.UI
 local Frames = UI.Frames
 local Scaffold = UI.Scaffold
 local Popups = assert(UI.Popups, "Reserves UI popup namespace is not initialized")
@@ -26,13 +23,13 @@ local Tooltips = UI.Tooltips
 local HideTooltip = assert(Tooltips.Hide, "Reserves UI tooltip hider is not initialized")
 local ShowItemTooltip = assert(Tooltips.ShowItem, "Reserves UI item tooltip presenter is not initialized")
 local BindTooltip = assert(Tooltips.Bind, "Reserves UI tooltip binder is not initialized")
-local Events = feature.Events
-local C = feature.C
-local Colors = feature.Colors
+local Events = addon.Events
+local C = addon.C
+local Colors = addon.Colors
 local GetClassColor = assert(Colors.GetClassColor, "Reserves UI class-color resolver is not initialized")
-local Options = feature.Options
-local Bus = feature.Bus
-local Services = feature.Services
+local Options = addon.Options
+local Bus = addon.Bus
+local Services = addon.Services
 
 local _G = _G
 local tinsert, twipe = table.insert, table.wipe
@@ -80,36 +77,11 @@ local InternalEvents = assert(Events.Internal, "Reserves UI internal events are 
 local RegisterCallback = assert(Bus.RegisterCallback, "Reserves UI event bus listener is not initialized")
 local ReservesDataChangedEvent =
 	assert(InternalEvents.ReservesDataChanged, "Reserves UI data-changed event is not initialized")
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Widgets/ReservesUI", {
-		deps = {
-			"Init",
-			"Database/DBOptions",
-			"Modules/ModuleRegistry",
-			"Modules/C",
-			"Modules/Colors",
-			"Modules/Events",
-			"Modules/Bus",
-			"Modules/UI/Facade",
-			"Modules/UI/Frames",
-			"Modules/UI/Visuals",
-			"Services/Chat",
-			"Services/Reserves",
-			"Services/Raid/Roster",
-		},
-	})
-	registry.SetLoaded("Widgets/ReservesUI")
-end
 
 do
-	if not UIWidgets.IsEnabled("Reserves") then
-		return
-	end
-
 	Widgets.ReservesUI = Widgets.ReservesUI or {}
 	local module = Widgets.ReservesUI
-	local uiState = Scaffold.EnsureModuleState(module)
+	local uiState = UI.ModuleState.Ensure(module)
 
 	-- ----- Internal state ----- --
 
@@ -1125,7 +1097,7 @@ do
 
 		if refs.importButton then
 			Frames.SetScriptSafely(refs.importButton, "OnClick", function()
-				UIWidgets.CallMethod("Reserves", "ToggleImport")
+				module:ToggleImport()
 			end)
 			if isDebugEnabled() then
 				addon:debug(Diag.D.LogReservesBindButton:format("ImportButton", "ToggleImport"))
@@ -1232,7 +1204,7 @@ do
 
 	module.Import = module.Import or {}
 	local Import = module.Import
-	local importUiState = Scaffold.EnsureModuleState(Import)
+	local importUiState = UI.ModuleState.Ensure(Import)
 	local getImportFrame = Frames.MakeModuleFrameGetter(Import, "RMAImportWindow")
 	local MODE_MULTI, MODE_PLUS = 0, 1
 	local importFormat = "json"
@@ -1614,14 +1586,6 @@ do
 	function module:ToggleImport()
 		return Import:Toggle()
 	end
-
-	function module:HideImport()
-		return Import:Hide()
-	end
-
-	UIWidgets.Register("Reserves", module)
-	UIWidgets.RegisterMethod("Reserves", "Toggle", module.Toggle)
-	UIWidgets.RegisterMethod("Reserves", "ToggleImport", module.ToggleImport)
 
 	RegisterCallback(ReservesDataChangedEvent, function()
 		module:RequestRefresh()

@@ -1,16 +1,14 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Reserves._Sync
 -- events: handles RMAResSync addon-message traffic
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local L = feature.L
-local Comms = feature.Comms
-local Services = feature.Services
-local Strings = feature.Strings
+local L = addon.L
+local Comms = addon.Comms
+local Services = addon.Services
+local Strings = addon.Strings
 
 local floor = math.floor
 local sort = table.sort
@@ -21,7 +19,7 @@ local UnitName = assert(_G.UnitName, "Reserves sync unit name API is not initial
 local GetTime = assert(_G.GetTime, "Reserves sync time API is not initialized")
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Reserves")
+addon.Database.EnsureServiceNamespace("Reserves")
 local Reserves = Services.Reserves
 local module = Reserves
 module._Sync = module._Sync or {}
@@ -512,18 +510,4 @@ function Sync:HandleMessage(prefix, msg, channel, sender)
 	end
 
 	return true
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Reserves/Sync", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Comms",
-			"Modules/Strings",
-			"Services/Raid/Capabilities",
-		},
-	})
-	registry.SetLoaded("Services/Reserves/Sync")
 end

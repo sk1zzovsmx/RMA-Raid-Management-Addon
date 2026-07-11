@@ -1,23 +1,21 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local Database = addon.Database
+local Strings = addon.Strings
+local Item = addon.Item
+local Services = addon.Services
 
-local Database = feature.Database
-local Strings = feature.Strings
-local Item = feature.Item
-local Services = feature.Services
-
-local rollTypes = feature.rollTypes
+local rollTypes = addon.C.rollTypes
 
 local type = type
 local tostring, tonumber = tostring, tonumber
 
 do
-	feature.EnsureServiceNamespace("Raid")
+	addon.Database.EnsureServiceNamespace("Raid")
 	local Raid = Services.Raid
 	local module = Raid
 
@@ -63,7 +61,7 @@ do
 	-- ----- Public methods ----- --
 	function module:GetLootByNid(lootNid, raidNum)
 		raidNum = raidNum or Database.GetCurrentRaid()
-		local raid = Database.EnsureRaidById(raidNum)
+		local raid = Database.EnsureRaidByIndex(raidNum)
 		if not raid or lootNid == nil then
 			return nil
 		end
@@ -131,7 +129,7 @@ do
 
 	function module:GetHeldLootNid(itemLink, raidNum, holderName, bossNid)
 		raidNum = raidNum or Database.GetCurrentRaid()
-		local raid = Database.EnsureRaidById(raidNum)
+		local raid = Database.EnsureRaidByIndex(raidNum)
 		if not raid or not itemLink then
 			return 0
 		end
@@ -166,7 +164,7 @@ do
 		end
 
 		raidNum = raidNum or Database.GetCurrentRaid()
-		local raid = Database.EnsureRaidById(raidNum)
+		local raid = Database.EnsureRaidByIndex(raidNum)
 		if not raid then
 			return 0
 		end
@@ -189,20 +187,4 @@ do
 		end
 		return 0
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Raid/LootRecords", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/C",
-			"Modules/Item",
-			"Modules/Strings",
-			"Database/DBRaidQueries",
-			"Services/Raid/Counts",
-		},
-	})
-	registry.SetLoaded("Services/Raid/LootRecords")
 end

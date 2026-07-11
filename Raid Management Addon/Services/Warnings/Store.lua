@@ -1,18 +1,16 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: emits WarningsDataChanged after saved warning mutations
 -- notes: pure warnings saved-variable and template helpers
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local L = feature.L
-local SavedVariables = feature.Database.SavedVariables
-local Services = feature.Services
-local Strings = feature.Strings
-local Bus = feature.Bus
-local Events = feature.Events
+local L = addon.L
+local SavedVariables = addon.Database.SavedVariables
+local Services = addon.Services
+local Strings = addon.Strings
+local Bus = addon.Bus
+local Events = addon.Events
 local TriggerEvent = assert(Bus.TriggerEvent, "Warnings store event publisher is not initialized")
 local InternalEvents = assert(Events.Internal, "Warnings store internal events are not initialized")
 local WarningsDataChangedEvent =
@@ -29,7 +27,7 @@ local tonumber, tostring, type = tonumber, tostring, type
 local lower = string.lower
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Warnings", "Store")
+addon.Database.EnsureServiceNamespace("Warnings", "Store")
 local Warnings = Services.Warnings
 local Store = Warnings.Store
 
@@ -260,19 +258,4 @@ function Store.SaveWarning(wContent, wName, wID, isEdit)
 	}
 	notifyWarningsDataChanged("save")
 	return #warnings
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Warnings/Store", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/SavedVariables",
-			"Modules/Bus",
-			"Modules/Events",
-			"Modules/Strings",
-		},
-	})
-	registry.SetLoaded("Services/Warnings/Store")
 end

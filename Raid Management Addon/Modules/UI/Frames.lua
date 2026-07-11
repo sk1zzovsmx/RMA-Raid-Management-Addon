@@ -1,13 +1,11 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
--- exports: addon.UI.Frames/Scaffold/ModuleState/EditBoxes/Popups/Tooltips
+-- shared: direct addon namespace bindings
+-- exports: addon.UI.Frames/Scaffold/ModuleState/EditBoxes/Popups/Tooltips/ExportDialog
 -- events: none; owns shared refresh driver
 -- ui ownership: Lua owns frame binding, named-reference resolution, scripts, and refresh drivers.
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
 local type = type
 local format = string.format
 local ipairs = ipairs
@@ -19,12 +17,12 @@ local _G = _G
 local CreateFrame = assert(_G.CreateFrame, "UI frame creation API is not initialized")
 local InCombatLockdown = assert(_G.InCombatLockdown, "UI combat-lockdown API is not initialized")
 
-local C = feature.C
-local Strings = feature.Strings
-local coreState = feature.coreState
+local C = addon.C
+local Strings = addon.Strings
+local coreState = addon.State
 local TrimText = assert(Strings.TrimText, "UI edit-box text normalizer is not initialized")
 
-local UI = feature.UI or {}
+local UI = addon.UI or {}
 local Frames = UI.Frames or {}
 UI.Frames = Frames
 
@@ -35,6 +33,8 @@ local ModuleState = UI.ModuleState or {}
 UI.ModuleState = ModuleState
 
 local EditBoxes = UI.EditBoxes or {}
+local ExportDialog = UI.ExportDialog or {}
+UI.ExportDialog = ExportDialog
 UI.EditBoxes = EditBoxes
 
 local Popups = UI.Popups or {}
@@ -85,19 +85,6 @@ function ModuleState.Ensure(module)
 		stateByModule[module] = uiState
 	end
 	return uiState
-end
-
-function ModuleState.Get(module)
-	if type(module) ~= "table" then
-		return nil
-	end
-	return stateByModule[module]
-end
-
-function ModuleState.Reset(module)
-	if type(module) == "table" then
-		stateByModule[module] = nil
-	end
 end
 
 function ModuleState.MarkDirty(module, reason)
@@ -729,10 +716,6 @@ local function makeUIFrameController(getFrame, requestRefreshFn)
 	}
 end
 
-function Scaffold.EnsureModuleState(mod)
-	return ModuleState.Ensure(mod)
-end
-
 local function validateScaffoldConfig(module, getFrame, acquireRefs, bindHandlers, localize, onLoadFrame, refreshFn)
 	if type(module) ~= "table" then
 		error("UI.Scaffold.DefineModule: cfg.module must be a table")
@@ -803,7 +786,7 @@ function Scaffold.DefineModule(cfg)
 	local refreshFn = cfg.refresh
 	validateScaffoldConfig(module, getFrame, acquireRefs, bindHandlers, localize, onLoadFrame, refreshFn)
 
-	local uiState = Scaffold.EnsureModuleState(module)
+	local uiState = ModuleState.Ensure(module)
 
 	local function doRefresh()
 		local frame = getFrame()
@@ -926,11 +909,125 @@ function EditBoxes.BindHandlers(frameName, specs, requestRefreshFn)
 	end
 end
 
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule(
-		"Modules/UI/Frames",
-		{ deps = { "Init", "Modules/ModuleRegistry", "Modules/C", "Modules/Strings" } }
-	)
-	registry.SetLoaded("Modules/UI/Frames")
+local function acquireExportDialogRefs()
+	local frame = Frames.Get("RMAExportFrame")
+	if not frame then
+		return nil
+	end
+	return {
+		frame = frame,
+		hint = Frames.GetRef(frame, "Hint"),
+		lootBtn = Frames.GetRef(frame, "LootBtn"),
+		output = Frames.GetRef(frame, "Output"),
+		outputScroll = Frames.GetRef(frame, "OutputScroll"),
+		closeBtn = Frames.GetRef(frame, "CloseBtn"),
+	}
+end
+
+local function adjustExportDialogScrollBar(refs)
+	local scroll = refs and refs.outputScroll
+	if not (scroll and scroll.GetName) then
+		return
+	end
+
+	local scrollName = scroll:GetName()
+	local scrollBar = scroll.ScrollBar or _G[scrollName .. "ScrollBar"]
+	if not scrollBar then
+		return
+	end
+
+	local upButton = _G[scrollBar:GetName() .. "ScrollUpButton"]
+	local downButton = _G[scrollBar:GetName() .. "ScrollDownButton"]
+	if upButton then
+		upButton:ClearAllPoints()
+		upButton:SetPoint("TOP", scroll, "TOPRIGHT", 10, -4)
+	end
+	if downButton then
+		downButton:ClearAllPoints()
+		downButton:SetPoint("BOTTOM", scroll, "BOTTOMRIGHT", 10, 8)
+	end
+
+	scrollBar:ClearAllPoints()
+	scrollBar:SetPoint("TOP", scroll, "TOPRIGHT", 10, -20)
+	scrollBar:SetPoint("BOTTOM", scroll, "BOTTOMRIGHT", 10, 24)
+end
+
+function ExportDialog.Bind(config)
+	config = config or {}
+	local refs = acquireExportDialogRefs()
+	if not refs then
+		return nil
+	end
+
+	Frames.SetFrameTitle(refs.frame, config.title)
+	Frames.EnableDrag(refs.frame)
+	if refs.hint then
+		refs.hint:SetText(config.hint or "")
+	end
+	if refs.lootBtn then
+		if config.modeButtonText then
+			refs.lootBtn:Show()
+			refs.lootBtn:SetText(config.modeButtonText)
+			Frames.SetScriptSafely(refs.lootBtn, "OnClick", config.onModeButtonClick)
+		else
+			refs.lootBtn:Hide()
+			Frames.SetScriptSafely(refs.lootBtn, "OnClick", nil)
+		end
+	end
+	if refs.output and refs.output.SetTextInsets then
+		refs.output:SetTextInsets(8, 8, 8, 8)
+	end
+	if refs.output and refs.output.SetWordWrap then
+		refs.output:SetWordWrap(true)
+	end
+	if refs.output then
+		Frames.SetScriptSafely(refs.output, "OnTextChanged", function(self, userInput)
+			if userInput then
+				self:SetText((config.getText and config.getText()) or "")
+				self:SetCursorPosition(0)
+				self:HighlightText()
+			end
+		end)
+	end
+	if config.adjustScrollBar then
+		adjustExportDialogScrollBar(refs)
+	end
+	if refs.closeBtn then
+		refs.closeBtn:SetText(addon.L.BtnClose)
+		Frames.SetScriptSafely(refs.closeBtn, "OnClick", function()
+			refs.frame:Hide()
+		end)
+	end
+	return refs
+end
+
+function ExportDialog.SetText(refs, text)
+	local output = refs and refs.output
+	if not output then
+		return
+	end
+
+	if output.SetTextInsets then
+		output:SetTextInsets(8, 8, 8, 8)
+	end
+	if output.SetJustifyH then
+		output:SetJustifyH("LEFT")
+	end
+	if output.SetJustifyV then
+		output:SetJustifyV("TOP")
+	end
+	output:SetText(text or "")
+	output:SetCursorPosition(0)
+	output:HighlightText()
+	if output.SetFocus then
+		output:SetFocus()
+	end
+
+	local scroll = refs.outputScroll
+	if scroll and scroll.UpdateScrollChildRect then
+		scroll:UpdateScrollChildRect()
+	end
+	if scroll and scroll.SetVerticalScroll then
+		scroll:SetVerticalScroll(0)
+	end
 end

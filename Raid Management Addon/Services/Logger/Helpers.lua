@@ -1,19 +1,17 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Strings = feature.Strings
-local Services = feature.Services
+local Strings = addon.Strings
+local Services = addon.Services
 
 local tonumber = tonumber
 local ipairs = ipairs
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Logger", "Helpers")
+addon.Database.EnsureServiceNamespace("Logger", "Helpers")
 local Logger = Services.Logger
 local Helpers = Logger.Helpers
 local Store = Logger.Store
@@ -101,17 +99,4 @@ end
 -- Format roll value for CSV export.
 function Helpers.FormatRollValueForExport(value)
 	return Helpers.NormalizeRollValue(value) or ""
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Logger/Helpers", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Strings",
-			"Services/Logger/Store",
-		},
-	})
-	registry.SetLoaded("Services/Logger/Helpers")
 end

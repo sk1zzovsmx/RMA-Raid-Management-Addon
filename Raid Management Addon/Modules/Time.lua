@@ -1,13 +1,11 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Time = feature.Time or {}
+local Time = addon.Time or {}
 addon.Time = Time
 
 -- ----- Internal state ----- --
@@ -35,18 +33,4 @@ function Time.GetCurrentTime(server)
 		ts = time({ year = year, month = month, day = day, hour = hour, min = minute })
 	end
 	return ts
-end
-
-do
-	local name = "Modules/Time"
-	local deps = { "Init" }
-	local registry = feature.ModuleRegistry
-	if registry then
-		registry.AddModule(name, { deps = deps })
-		registry.SetLoaded(name)
-	else
-		addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-		local pending = addon.ModuleRegistryPendingRegistrations
-		pending[#pending + 1] = { name = name, deps = deps, loaded = true }
-	end
 end

@@ -1,30 +1,27 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Widgets.RaidGrid
 -- events: listens SpecInspectUpdated
 -- ui ownership: XML owns fixed picker skeletons; Lua owns dynamic buttons, data, and selection.
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Widgets = feature.Widgets
-local UI = feature.UI
+local Widgets = addon.Widgets
+local UI = addon.UI
 local Frames = UI.Frames
 local Tooltips = UI.Tooltips
 local SetFrameTitle = assert(Frames.SetFrameTitle, "RaidGrid frame title service is not initialized")
 local ShowTooltipLines = assert(Tooltips.ShowLines, "RaidGrid tooltip display service is not initialized")
 local HideTooltip = assert(Tooltips.Hide, "RaidGrid tooltip hide service is not initialized")
-local UIWidgets = UI.Widgets
 local Primitives = UI.Primitives
-local Services = feature.Services
+local Services = addon.Services
 local SpecInspect = assert(Services.SpecInspect, "RaidGrid spec inspect service is not initialized")
 local GetPlayerSpecSnapshot =
 	assert(SpecInspect.GetPlayerSpecSnapshot, "RaidGrid spec snapshot resolver is not initialized")
-local Colors = feature.Colors
-local L = feature.L
-local Events = feature.Events
-local Bus = feature.Bus
+local Colors = addon.Colors
+local L = addon.L
+local Events = addon.Events
+local Bus = addon.Bus
 local InternalEvents = assert(Events.Internal, "RaidGrid internal events are not initialized")
 local RegisterCallback = assert(Bus.RegisterCallback, "RaidGrid event bus listener is not initialized")
 local SpecInspectUpdatedEvent =
@@ -37,29 +34,7 @@ local type, tostring, tonumber = type, tostring, tonumber
 local strmatch, strlen, strsub = string.match, string.len, string.sub
 local ceil, floor, min, max = math.ceil, math.floor, math.min, math.max
 
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Widgets/RaidGrid", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Bus",
-			"Modules/Events",
-			"Modules/Colors",
-			"Services/SpecInspect",
-			"Modules/UI/Facade",
-			"Modules/UI/Frames",
-			"Modules/UI/Visuals",
-		},
-	})
-	registry.SetLoaded("Widgets/RaidGrid")
-end
-
 do
-	if not UIWidgets.IsEnabled("RaidGrid") then
-		return
-	end
-
 	Widgets.RaidGrid = Widgets.RaidGrid or {}
 	local module = Widgets.RaidGrid
 	addon.Widgets.RaidGrid = module
@@ -374,16 +349,9 @@ do
 		safeCall(frame, "Raise")
 	end
 
-	local function normalizeConfig(selfOrConfig, maybeConfig)
-		if selfOrConfig == module then
-			return maybeConfig
-		end
-		return selfOrConfig
-	end
-
 	-- ----- Public methods ----- --
-	function module.ShowPicker(selfOrConfig, maybeConfig)
-		local config = normalizeConfig(selfOrConfig, maybeConfig) or {}
+	function module.ShowPicker(config)
+		config = config or {}
 		local source = type(config.entries) == "table" and config.entries or {}
 
 		if not ensureFrame() then
@@ -402,11 +370,7 @@ do
 		return true
 	end
 
-	function module.Refresh(selfOrEntries, maybeEntries)
-		local overrideEntries = selfOrEntries
-		if selfOrEntries == module then
-			overrideEntries = maybeEntries
-		end
+	function module.Refresh(overrideEntries)
 		if type(overrideEntries) == "table" then
 			entries = {}
 			for i = 1, #overrideEntries do
@@ -505,10 +469,4 @@ do
 	end
 
 	RegisterCallback(SpecInspectUpdatedEvent, requestSpecRefresh)
-
-	UIWidgets.Register("RaidGrid", module)
-	UIWidgets.RegisterFunction("RaidGrid", "ShowPicker", module.ShowPicker)
-	UIWidgets.RegisterFunction("RaidGrid", "Hide", module.Hide)
-	UIWidgets.RegisterFunction("RaidGrid", "IsShown", module.IsShown)
-	UIWidgets.RegisterFunction("RaidGrid", "GetMode", module.GetMode)
 end

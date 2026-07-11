@@ -1,15 +1,13 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Loot.Inventory
 -- events: none
 -- notes: Inventory and awarded-count helpers for loot trade flows
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Database = feature.Database
-local Services = feature.Services
+local Database = addon.Database
+local Services = addon.Services
 -- ----- Internal state ----- --
 
 local _G = _G
@@ -22,11 +20,11 @@ local GetContainerItemLink =
 local GetContainerItemInfo =
 	assert(_G.GetContainerItemInfo, "Loot inventory container item info API is not initialized")
 
-local debugDiag = feature.Diag and feature.Diag.D or {}
+local debugDiag = addon.Diag and addon.Diag.D or {}
 local _, lootState, itemInfo = Database.EnsureLootRuntimeState()
-local Item = feature.Item
+local Item = addon.Item
 
-feature.EnsureServiceNamespace("Loot")
+addon.Database.EnsureServiceNamespace("Loot")
 local Loot = Services.Loot
 Loot.Inventory = Loot.Inventory or {}
 local Inventory = Loot.Inventory
@@ -208,18 +206,7 @@ function Inventory.ResolveTradeAwardedCount()
 	return awarded
 end
 
-function Inventory.ResolveInventoryAwardedCount()
-	local awardedCount = tonumber(lootState.selectedItemCount) or 1
-	if awardedCount < 1 then
-		awardedCount = 1
-	end
-	if lootState.fromInventory and awardedCount > 1 then
-		awardedCount = 1
-	end
-	return awardedCount
-end
-
-function Inventory.ResolveInventoryAwardedCountFromArgs(selectedItemCount, fromInventory)
+function Inventory.ResolveInventoryAwardedCount(selectedItemCount, fromInventory)
 	local awardedCount = tonumber(selectedItemCount) or 1
 	if awardedCount < 1 then
 		awardedCount = 1
@@ -244,17 +231,4 @@ function Inventory.BuildMultiAwardSlotCandidates(itemLink)
 		end
 	end
 	return slots, slotMap
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Loot/Inventory", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Item",
-			"Services/Loot/State",
-		},
-	})
-	registry.SetLoaded("Services/Loot/Inventory")
 end

@@ -1,6 +1,6 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: defines addon.Database.GetFeatureShared()
+-- shared: seeds explicit addon namespaces
 -- exports: publish module APIs on addon.*
 -- events: seeds Internal/Wow event names; marks Init bootstrap load
 
@@ -17,12 +17,12 @@ addon.Database = addon.Database or {}
 addon.L = addon.L or {}
 addon.Diagnose = addon.Diagnose or {}
 addon.State = addon.State or {}
+addon.State.raid = addon.State.raid or {}
 addon.C = addon.C or {}
 addon.Events = addon.Events or {}
 addon.Events.Internal = addon.Events.Internal or {}
 addon.Events.Wow = addon.Events.Wow or {}
 addon.DB = addon.DB or {}
-addon.Features = addon.Features or {}
 addon.Controllers = addon.Controllers or {}
 addon.Services = addon.Services or {}
 addon.Services.Logger = addon.Services.Logger or {}
@@ -53,37 +53,6 @@ local GetNumPartyMembers = assert(_G.GetNumPartyMembers, "RMA party member count
 local Database = addon.Database
 local Diagnose = addon.Diagnose
 local DEFAULT_PERF_THRESHOLD_MS = 5
-local featureShared
-local FEATURE_CONSTANT_KEYS = {
-	ITEM_LINK_PATTERN = true,
-	rollTypes = true,
-	lootTypesColored = true,
-	itemColors = true,
-	RAID_TARGET_MARKERS = true,
-	K_COLOR = true,
-	RT_COLOR = true,
-}
-local FEATURE_RUNTIME_KEYS = {
-	coreState = true,
-	raidState = true,
-	lootState = true,
-	itemInfo = true,
-}
-
-local function markBootstrapModuleLoaded()
-	-- Bootstrap exception: ModuleRegistry may not be loaded yet.
-	local registry = addon.ModuleRegistry
-	if registry and type(registry.SetLoaded) == "function" then
-		registry.SetLoaded("Init")
-		return
-	end
-
-	addon.ModuleRegistryPendingLoads = addon.ModuleRegistryPendingLoads or {}
-	local pending = addon.ModuleRegistryPendingLoads
-	pending[#pending + 1] = "Init"
-end
-
-markBootstrapModuleLoaded()
 
 local Diag = setmetatable({}, {
 	__index = Diagnose,
@@ -91,6 +60,7 @@ local Diag = setmetatable({}, {
 		Diagnose[key] = value
 	end,
 })
+addon.Diag = Diag
 
 -- ----- Private helpers ----- --
 local function seedBootstrapEvents()
@@ -372,100 +342,25 @@ end
 -- IsDebugEnabled / ApplyDebugSetting are exposed on addon.Options there.
 -- Namespace registrations are owned by the modules that use them.
 
-local function getFeatureRuntimeValue(key)
-	local core = addon.Database
-	local state = addon.State
-	state.raid = state.raid or {}
-	if key == "coreState" then
-		return state
-	end
-	if key == "raidState" then
-		return state.raid
-	end
-	if type(core.EnsureLootRuntimeState) ~= "function" then
-		state.loot = state.loot or {}
-		state.loot.itemInfo = state.loot.itemInfo or {}
-		if key == "lootState" then
-			return state.loot
-		end
-		if key == "itemInfo" then
-			return state.loot.itemInfo
-		end
-		return nil
-	end
-	local _, lootState, itemInfo, raidState = core.EnsureLootRuntimeState()
-	if key == "coreState" then
-		return state
-	end
-	if key == "raidState" then
-		return raidState
-	end
-	if key == "lootState" then
-		return lootState
-	end
-	if key == "itemInfo" then
-		return itemInfo
-	end
-	return nil
-end
-
-local function getFeatureSharedValue(key)
-	if key == "Diag" then
-		return Diag
-	end
-	if key == "Database" then
-		return addon.Database
-	end
-	if key == "EnsureServiceNamespace" then
-		return addon.Database.EnsureServiceNamespace
-	end
-	if FEATURE_RUNTIME_KEYS[key] then
-		return getFeatureRuntimeValue(key)
-	end
-	if FEATURE_CONSTANT_KEYS[key] then
-		return (addon.C or {})[key]
-	end
-	return addon[key]
-end
-
-function Database.GetFeatureShared()
-	if not featureShared then
-		featureShared = setmetatable({}, {
-			__index = function(_, key)
-				return getFeatureSharedValue(key)
-			end,
-			__newindex = function(t, key, value)
-				if FEATURE_RUNTIME_KEYS[key] then
-					return
-				end
-				rawset(t, key, value)
-			end,
-		})
-	end
-	return featureShared
-end
-
 do
 	-- ----- RMA Lua Contract ----- --
 	-- deps: local addon = select(2, ...)
-	-- shared: local feature = addon.Database.GetFeatureShared()
+	-- shared: direct addon namespace bindings
 	-- exports: publish module APIs on addon.*
 	-- events: owns main WoW event dispatcher; forwards events to Bus and Services
 
 	local addon = select(2, ...)
-	local feature = addon.Database.GetFeatureShared()
-
 	local addonName = addon.name
 
-	local L = feature.L
-	local Diag = feature.Diag
+	local L = addon.L
+	local Diag = addon.Diag
 
-	local Bus = feature.Bus
-	local UI = feature.UI
+	local Bus = addon.Bus
+	local UI = addon.UI
 	local Frames = UI and UI.Frames
-	local Time = feature.Time
-	local Events = feature.Events
-	local C = feature.C
+	local Time = addon.Time
+	local Events = addon.Events
+	local C = addon.C
 
 	local InternalEvents = assert(Events.Internal, "RMA internal events are not initialized")
 	local WowEvents = Events.Wow

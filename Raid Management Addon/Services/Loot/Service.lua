@@ -1,30 +1,28 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: emits SetItem/RaidLootUpdate; delegates distribution messages
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local Diag = addon.Diag
+local L = addon.L
 
-local Diag = feature.Diag
-local L = feature.L
-
-local Events = feature.Events
-local C = feature.C
-local Database = feature.Database
-local Bus = feature.Bus
-local Deformat = feature.Deformat
-local Item = feature.Item
-local Options = feature.Options
-local Strings = feature.Strings
-local Time = feature.Time
-local Timer = feature.Timer
+local Events = addon.Events
+local C = addon.C
+local Database = addon.Database
+local Bus = addon.Bus
+local Deformat = addon.Deformat
+local Item = addon.Item
+local Options = addon.Options
+local Strings = addon.Strings
+local Time = addon.Time
+local Timer = addon.Timer
 
 local NormalizeName = Strings.NormalizeName
 
-local Services = feature.Services
+local Services = addon.Services
 
-local itemColors = feature.itemColors
+local itemColors = addon.C.itemColors
 
 local InternalEvents = assert(Events.Internal, "Loot service internal events are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Loot service event publisher is not initialized")
@@ -33,7 +31,7 @@ local RaidLootUpdateEvent =
 local SetItemEvent = assert(InternalEvents.SetItem, "Loot service selected-item event is not initialized")
 
 local _, lootState, itemInfo, raidState = Database.EnsureLootRuntimeState()
-local rollTypes = feature.rollTypes
+local rollTypes = addon.C.rollTypes
 
 lootState.lootCount = tonumber(lootState.lootCount) or 0
 lootState.currentItemIndex = tonumber(lootState.currentItemIndex) or 0
@@ -67,7 +65,7 @@ local UNCOMMON_ITEM_LINK_COLOR = "ff1eff00"
 -- =========== Loot Helpers Module  =========== --
 -- Manages the loot window items (fetching from loot/inventory).
 do
-	feature.EnsureServiceNamespace("Loot")
+	addon.Database.EnsureServiceNamespace("Loot")
 	local Loot = Services.Loot
 	local module = Loot
 
@@ -307,20 +305,8 @@ do
 		lootState.currentRollItem = resolvedLootNid
 	end
 
-	local function invalidateRaidRuntime(raid)
-		if type(raid) == "table" then
-			Database.StripRuntimeRaidCaches(raid)
-		end
-	end
-
 	local function indexAppendedLootRuntime(raid, lootInfo, index)
-		local raidStore = Database.GetRaidStoreOrNil("Loot.UpsertLootIndex", { "UpsertLootIndex" })
-		if not raidStore then
-			invalidateRaidRuntime(raid)
-			return nil
-		end
-
-		return raidStore:UpsertLootIndex(raid, lootInfo, index)
+		return Database.GetRaidStore():UpsertLootIndex(raid, lootInfo, index)
 	end
 
 	local function getLootItemKey(loot)
@@ -1484,38 +1470,4 @@ do
 		end
 		return 0
 	end
-end
-
-local registry = feature.ModuleRegistry
-if registry and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Loot/Service", {
-		deps = {
-			"Init",
-			"Database/DB",
-			"Database/DBOptions",
-			"Modules/ModuleRegistry",
-			"Modules/C",
-			"Modules/Timer",
-			"Modules/Events",
-			"Modules/Bus",
-			"Modules/Item",
-			"Modules/Strings",
-			"Modules/Time",
-			"Database/DBRaidStore",
-			"Database/DBRaidQueries",
-			"Services/Raid/State",
-			"Services/Loot/State",
-			"Services/Loot/AwardPlanner",
-			"Services/Loot/DistributionSession",
-			"Services/Loot/Inventory",
-			"Services/Loot/Context",
-			"Services/Loot/PendingAwards",
-			"Services/Loot/PassiveGroupLoot",
-			"Services/Loot/Tracking",
-			"Services/Loot/Workflow",
-			"Services/Loot/Recording",
-			"Services/Loot/Rules",
-		},
-	})
-	registry.SetLoaded("Services/Loot/Service")
 end

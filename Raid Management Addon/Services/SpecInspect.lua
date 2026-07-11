@@ -1,18 +1,16 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.SpecInspect
 -- events: listens wow.READY_CHECK and LibGroupTalents callbacks; emits SpecInspectUpdated
 -- notes: runtime-only spec display cache backed by LibGroupTalents-1.0
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Database = feature.Database
-local Services = feature.Services
-local Events = feature.Events
-local Bus = feature.Bus
-local Strings = feature.Strings
+local Database = addon.Database
+local Services = addon.Services
+local Events = addon.Events
+local Bus = addon.Bus
+local Strings = addon.Strings
 local NormalizeName = assert(Strings.NormalizeName, "SpecInspect name normalizer is not initialized")
 
 local GetTime = assert(_G.GetTime, "SpecInspect time API is not initialized")
@@ -28,7 +26,7 @@ local TriggerEvent = assert(Bus.TriggerEvent, "SpecInspect event publisher is no
 local RegisterCallback = assert(Bus.RegisterCallback, "SpecInspect event bus listener is not initialized")
 local SpecInspectUpdatedEvent = assert(InternalEvents.SpecInspectUpdated, "SpecInspect update event is not initialized")
 local ReadyCheckEvent =
-	assert(Events.GetWowForwarded("READY_CHECK"), "SpecInspect ready-check event is not initialized")
+	assert(Events.ResolveWowForwardedName("READY_CHECK"), "SpecInspect ready-check event is not initialized")
 local STALE_AFTER_SECONDS = 1800
 
 -- ----- Internal state ----- --
@@ -377,7 +375,7 @@ end
 -- ----- Public methods ----- --
 
 do
-	feature.EnsureServiceNamespace("SpecInspect")
+	addon.Database.EnsureServiceNamespace("SpecInspect")
 	local module = Services.SpecInspect
 
 	function module:GetPlayerSpecSnapshot(name)
@@ -535,19 +533,4 @@ do
 		lgt.RegisterCallback(module, "LibGroupTalents_Update", handleLibraryUpdate)
 		lgt.RegisterCallback(module, "LibGroupTalents_UpdateComplete", handleUpdateComplete)
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/SpecInspect", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Events",
-			"Modules/Bus",
-			"Modules/Strings",
-			"Services/Raid/Roster",
-		},
-	})
-	registry.SetLoaded("Services/SpecInspect")
 end

@@ -1,21 +1,19 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Reserves._Aliases
 -- events: no bus events; alias helpers only
 -- notes: reserves name-alias helpers
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Strings = feature.Strings
-local Services = feature.Services
+local Strings = addon.Strings
+local Services = addon.Services
 
 local pairs, tostring, type = pairs, tostring, type
 local sort = table.sort
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Reserves")
+addon.Database.EnsureServiceNamespace("Reserves")
 local Reserves = Services.Reserves
 local module = Reserves
 module._Aliases = module._Aliases or {}
@@ -143,16 +141,4 @@ function Aliases.ClearAlias(aliasMap, reserveName)
 	end
 	aliasMap[reserveKey] = nil
 	return true
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Reserves/Aliases", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Strings",
-		},
-	})
-	registry.SetLoaded("Services/Reserves/Aliases")
 end

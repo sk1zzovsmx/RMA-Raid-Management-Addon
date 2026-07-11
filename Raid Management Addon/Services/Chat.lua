@@ -1,23 +1,21 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: owns chat output helpers and LFM spam Timer ticker
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local L = addon.L
 
-local L = feature.L
+local C = addon.C
+local Database = addon.Database
+local Comms = addon.Comms
+local Deformat = addon.Deformat
+local Options = addon.Options
+local Services = addon.Services
+local Strings = addon.Strings
+local Timer = addon.Timer
 
-local C = feature.C
-local Database = feature.Database
-local Comms = feature.Comms
-local Deformat = feature.Deformat
-local Options = feature.Options
-local Services = feature.Services
-local Strings = feature.Strings
-local Timer = feature.Timer
-
-local GetGroupTypeAndCount = assert(feature.GetGroupTypeAndCount, "Chat group policy helper is not initialized")
+local GetGroupTypeAndCount = assert(addon.GetGroupTypeAndCount, "Chat group policy helper is not initialized")
 
 local find = string.find
 local len = string.len
@@ -29,7 +27,7 @@ local ipairs = ipairs
 
 -- =========== Chat Output Helpers  =========== --
 do
-	feature.EnsureServiceNamespace("Chat")
+	addon.Database.EnsureServiceNamespace("Chat")
 	local module = Services.Chat
 
 	-- Timer ownership: ticker for controlled LFM spammer output.
@@ -350,20 +348,4 @@ do
 		fireSpamTick()
 		return true, getSpamRuntimeSnapshot()
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Chat", {
-		deps = {
-			"Init",
-			"Database/DBOptions",
-			"Modules/ModuleRegistry",
-			"Modules/C",
-			"Modules/Timer",
-			"Modules/Strings",
-			"Modules/Comms",
-		},
-	})
-	registry.SetLoaded("Services/Chat")
 end

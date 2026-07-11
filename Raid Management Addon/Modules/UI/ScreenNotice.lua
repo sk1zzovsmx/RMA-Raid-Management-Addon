@@ -1,20 +1,18 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.UI.ScreenNotice
 -- events: listens Internal.ScreenNotice; delegates fade timing to UI.Effects
 -- ui ownership: XML owns static notice frame parts; Lua owns text, sizing, timing, and fade state.
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local UI = feature.UI or {}
+local UI = addon.UI or {}
 local ScreenNotice = UI.ScreenNotice or {}
 UI.ScreenNotice = ScreenNotice
 
 local Effects = UI.Effects
-local Bus = feature.Bus
-local Events = feature.Events
+local Bus = addon.Bus
+local Events = addon.Events
 local InternalEvents = assert(Events.Internal, "Screen notice internal events are not initialized")
 local RegisterCallback = assert(Bus.RegisterCallback, "Screen notice event bus listener is not initialized")
 local ScreenNoticeEvent = assert(InternalEvents.ScreenNotice, "Screen notice event name is not initialized")
@@ -119,17 +117,3 @@ function ScreenNotice.Show(message, requestedDuration)
 end
 
 RegisterCallback(ScreenNoticeEvent, showNotice)
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Modules/UI/ScreenNotice", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Bus",
-			"Modules/Events",
-			"Modules/UI/Effects",
-		},
-	})
-	registry.SetLoaded("Modules/UI/ScreenNotice")
-end

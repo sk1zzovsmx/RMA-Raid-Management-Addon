@@ -1,24 +1,19 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Database = feature.Database
-local Diag = feature.Diag
+local Database = addon.Database
 
 assert(type(addon.DB) == "table", "RMA DB bootstrap missing addon.DB")
-local DB = feature.DB
-assert(type(DB) == "table", "RMA DB bootstrap missing feature.DB")
+local DB = addon.DB
+assert(type(DB) == "table", "RMA DB bootstrap missing addon.DB")
 addon.DB = DB
-local DBSchema = feature.DBSchema or {}
+local DBSchema = addon.DBSchema or {}
 addon.DBSchema = DBSchema
-feature.DBSchema = DBSchema
-local DBManager = feature.DBManager or {}
+local DBManager = addon.DBManager or {}
 addon.DBManager = DBManager
-feature.DBManager = DBManager
 
 local strsub = string.sub
 
@@ -26,7 +21,6 @@ local strsub = string.sub
 DB._manager = DB._manager or nil
 local DEFAULT_RAID_SCHEMA_VERSION = 6
 local defaultManager = {}
-local missingRaidStoreWarned = {}
 
 -- ----- Private helpers ----- --
 local function normalizeSchemaVersion(value)
@@ -44,7 +38,7 @@ local function getCanonicalRaidSchemaVersion()
 end
 
 local function getAddonDbStore(storeKey)
-	local db = feature.DB
+	local db = addon.DB
 	if type(db) ~= "table" then
 		return nil
 	end
@@ -52,7 +46,7 @@ local function getAddonDbStore(storeKey)
 end
 
 local function getDefaultManager()
-	local dbManager = feature.DBManager
+	local dbManager = addon.DBManager
 	if dbManager and type(dbManager.GetDefaultManager) == "function" then
 		return dbManager.GetDefaultManager()
 	end
@@ -79,19 +73,6 @@ local function getManagerStore(methodName)
 	end
 
 	return getter(manager)
-end
-
-local function warnMissingRaidStoreOnce(warnKey, template, fallbackFmt, arg1, arg2)
-	if missingRaidStoreWarned[warnKey] then
-		return
-	end
-
-	missingRaidStoreWarned[warnKey] = true
-	if type(template) == "string" then
-		addon:warn(template:format(arg1, arg2))
-	else
-		addon:warn(fallbackFmt, arg1, arg2)
-	end
 end
 
 -- ----- Package-internal helpers ----- --
@@ -141,35 +122,9 @@ function DB.GetManager()
 	return ensureManager()
 end
 
-function Database.GetRaidStoreOrNil(contextTag, requiredMethods)
-	local raidStore = getManagerStore("GetRaidStore")
-	local ctx = tostring(contextTag or "?")
-
-	if type(raidStore) ~= "table" then
-		local warnKey = "store:" .. ctx
-		local template = Diag.W and Diag.W.LogRaidStoreUnavailable
-		warnMissingRaidStoreOnce(warnKey, template, "[Database] RaidStore unavailable (context=%s)", ctx)
-		return nil
-	end
-
-	if type(requiredMethods) == "table" then
-		for i = 1, #requiredMethods do
-			local method = requiredMethods[i]
-			if type(method) == "string" and method ~= "" and type(raidStore[method]) ~= "function" then
-				local warnKey = "method:" .. ctx .. ":" .. method
-				local template = Diag.W and Diag.W.LogRaidStoreMethodMissing
-				warnMissingRaidStoreOnce(
-					warnKey,
-					template,
-					"[Database] RaidStore missing method %s (context=%s)",
-					method,
-					ctx
-				)
-				return nil
-			end
-		end
-	end
-
+function Database.GetRaidStore()
+	local raidStore = DB.RaidStore
+	assert(type(raidStore) == "table", "RMA RaidStore is not initialized")
 	return raidStore
 end
 
@@ -211,35 +166,4 @@ end
 
 function DBManager.GetDefaultManager()
 	return defaultManager
-end
-
-local function registerBootstrapModule(name, deps)
-	-- Bootstrap exception: ModuleRegistry may not be loaded yet.
-	local registry = addon.ModuleRegistry
-	if registry then
-		registry.AddModule(name, { deps = deps })
-		registry.SetLoaded(name)
-	else
-		addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-		local pending = addon.ModuleRegistryPendingRegistrations
-		pending[#pending + 1] = { name = name, deps = deps, loaded = true }
-	end
-end
-
-do
-	local name = "Database/DB"
-	local deps = { "Init" }
-	registerBootstrapModule(name, deps)
-end
-
-do
-	local name = "Database/DBSchema"
-	local deps = { "Init" }
-	registerBootstrapModule(name, deps)
-end
-
-do
-	local name = "Database/DBManager"
-	local deps = { "Init", "Database/DB" }
-	registerBootstrapModule(name, deps)
 end

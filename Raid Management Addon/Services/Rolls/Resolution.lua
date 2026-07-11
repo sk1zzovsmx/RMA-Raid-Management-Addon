@@ -1,24 +1,22 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Rolls._Resolution
 -- events: none
 -- notes: resolution and display helpers for rolls service
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local L = feature.L
-local Diag = feature.Diag
-local Options = feature.Options
-local Services = feature.Services
+local L = addon.L
+local Diag = addon.Diag
+local Options = addon.Options
+local Services = addon.Services
 
 local tconcat = table.concat
 local pairs = pairs
 local tostring, tonumber = tostring, tonumber
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Rolls")
+addon.Database.EnsureServiceNamespace("Rolls")
 local Rolls = Services.Rolls
 local module = Rolls
 module._Resolution = module._Resolution or {}
@@ -224,7 +222,7 @@ end
 
 function Resolution.BuildRowCounterText(ctx, itemId, response, currentRollType, plusGetter)
 	local counterText = ""
-	local rollTypes = ctx.rollTypes or feature.rollTypes
+	local rollTypes = ctx.rollTypes or addon.C.rollTypes
 	local currentRaid
 
 	if response.bucket == "SR" then
@@ -294,17 +292,4 @@ function Resolution.BuildRowInfoText(ctx, response, isTied)
 	end
 
 	return ""
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Rolls/Resolution", {
-		deps = {
-			"Init",
-			"Database/DBOptions",
-			"Modules/ModuleRegistry",
-			"Services/Rolls/Strategies",
-		},
-	})
-	registry.SetLoaded("Services/Rolls/Resolution")
 end

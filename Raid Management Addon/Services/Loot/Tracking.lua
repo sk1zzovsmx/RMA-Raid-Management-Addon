@@ -1,20 +1,18 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Loot._Tracking
 -- events: no bus events; tracking helpers only
 -- notes: tracking/snapshot helpers for loot service
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Database = feature.Database
-local Item = feature.Item
-local Services = feature.Services
+local Database = addon.Database
+local Item = addon.Item
+local Services = addon.Services
 local _, lootState, _, raidState = Database.EnsureLootRuntimeState()
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Loot")
+addon.Database.EnsureServiceNamespace("Loot")
 local Loot = Services.Loot
 local module = Loot
 module._Tracking = module._Tracking or {}
@@ -331,20 +329,4 @@ function Tracking.GetSnapshot(raidNum, lootTable, findLootSlotIndex)
 		},
 		masterLoot = buildMasterLootSnapshot(windowItems, findLootSlotIndex),
 	}
-end
-
-local registry = feature.ModuleRegistry
-if registry and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Loot/Tracking", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Item",
-			"Services/Loot/State",
-			"Services/Loot/Context",
-			"Services/Loot/PendingAwards",
-			"Services/Loot/PassiveGroupLoot",
-		},
-	})
-	registry.SetLoaded("Services/Loot/Tracking")
 end

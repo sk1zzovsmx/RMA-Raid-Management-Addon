@@ -1,23 +1,22 @@
 --- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.EquipInspect
 -- events: listens wow.INSPECT_TALENT_READY and wow.PLAYER_REGEN_ENABLED; emits EquipInspectStarted/EquipInspectUpdated/EquipInspectCompleted
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Database = feature.Database
-local Services = feature.Services
-local Events = feature.Events
-local Bus = feature.Bus
-local Timer = feature.Timer
-local Strings = feature.Strings
+local Database = addon.Database
+local Services = addon.Services
+local Events = addon.Events
+local Bus = addon.Bus
+local Timer = addon.Timer
+local Strings = addon.Strings
 
 local InternalEvents = assert(Events.Internal, "EquipInspect internal events are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "EquipInspect event publisher is not initialized")
 local RegisterCallback = assert(Bus.RegisterCallback, "EquipInspect event bus listener is not initialized")
-local GetWowForwarded = assert(Events.GetWowForwarded, "EquipInspect forwarded-event resolver is not initialized")
+local ResolveWowForwardedName =
+	assert(Events.ResolveWowForwardedName, "EquipInspect forwarded-event resolver is not initialized")
 local EquipInspectStartedEvent =
 	assert(InternalEvents.EquipInspectStarted, "EquipInspect started event is not initialized")
 local EquipInspectCompletedEvent =
@@ -54,7 +53,7 @@ local SLOT_ORDER = { 1, 2, 3, 15, 5, 9, 10, 6, 7, 8, 11, 12, 13, 14, 16, 17, 18 
 
 -- ----- Internal state ----- --
 
-feature.EnsureServiceNamespace("EquipInspect")
+addon.Database.EnsureServiceNamespace("EquipInspect")
 local module = Services.EquipInspect
 Timer.BindMixin(module, "EquipInspect")
 
@@ -78,8 +77,8 @@ local function normalizeRaidIndex(raidOrId)
 		end
 
 		local raidNid = tonumber(raidOrId.raidNid)
-		if raidNid and type(Database.GetRaidIdByNid) == "function" then
-			return Database.GetRaidIdByNid(raidNid)
+		if raidNid and type(Database.GetRaidIndexByNid) == "function" then
+			return Database.GetRaidIndexByNid(raidNid)
 		end
 		return nil
 	end
@@ -136,7 +135,7 @@ local function getRaid(raidOrId)
 	if not rid then
 		return nil
 	end
-	return Database.EnsureRaidById(rid)
+	return Database.EnsureRaidByIndex(rid)
 end
 
 local function isCurrentRaid(raidId)
@@ -776,13 +775,13 @@ local function handlePlayerRegenEnabled()
 end
 
 local inspectReadyEvent =
-	assert(GetWowForwarded("INSPECT_TALENT_READY"), "EquipInspect talent-ready event is not initialized")
+	assert(ResolveWowForwardedName("INSPECT_TALENT_READY"), "EquipInspect talent-ready event is not initialized")
 RegisterCallback(inspectReadyEvent, function(_, guid)
 	handleInspectReady(guid)
 end)
 
 local playerRegenEnabledEvent =
-	assert(GetWowForwarded("PLAYER_REGEN_ENABLED"), "EquipInspect regen-enabled event is not initialized")
+	assert(ResolveWowForwardedName("PLAYER_REGEN_ENABLED"), "EquipInspect regen-enabled event is not initialized")
 RegisterCallback(playerRegenEnabledEvent, function()
 	handlePlayerRegenEnabled()
 end)
@@ -792,21 +791,3 @@ RegisterCallback(RaidCreateEvent, function(_, raidId)
 		module:StartRaidSnapshot(raidId, { reason = "raid_start" })
 	end, RAID_CREATE_DELAY_SECONDS)
 end)
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/EquipInspect", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Events",
-			"Modules/Bus",
-			"Modules/Timer",
-			"Modules/Strings",
-			"Services/Raid/Roster",
-			"Services/Raid/Attendance",
-			"Services/SpecInspect",
-		},
-	})
-	registry.SetLoaded("Services/EquipInspect")
-end

@@ -1,23 +1,21 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Loot._PendingAwards
 -- events: no bus events; pending-award helpers only
 -- notes: pending-award helpers for loot service
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Diag = feature.Diag
-local C = feature.C
-local Database = feature.Database
-local Item = feature.Item
-local Options = feature.Options
-local Services = feature.Services
+local Diag = addon.Diag
+local C = addon.C
+local Database = addon.Database
+local Item = addon.Item
+local Options = addon.Options
+local Services = addon.Services
 local _, lootState = Database.EnsureLootRuntimeState()
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Loot")
+addon.Database.EnsureServiceNamespace("Loot")
 local Loot = Services.Loot
 local module = Loot
 module._PendingAwards = module._PendingAwards or {}
@@ -380,19 +378,4 @@ function PendingAwards.Purge(maxAge)
 			end
 		end
 	end
-end
-
-local registry = feature.ModuleRegistry
-if registry and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Loot/PendingAwards", {
-		deps = {
-			"Init",
-			"Database/DBOptions",
-			"Modules/ModuleRegistry",
-			"Modules/C",
-			"Modules/Item",
-			"Services/Loot/State",
-		},
-	})
-	registry.SetLoaded("Services/Loot/PendingAwards")
 end

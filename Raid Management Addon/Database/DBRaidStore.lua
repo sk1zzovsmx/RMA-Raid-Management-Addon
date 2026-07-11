@@ -1,16 +1,14 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local DB = feature.DB
-local coreState = feature.coreState
-local Database = feature.Database
+local DB = addon.DB
+local coreState = addon.State
+local Database = addon.Database
 local SavedVariables = Database.SavedVariables
-local Time = feature.Time
+local Time = addon.Time
 local GetCurrentTime = assert(Time and Time.GetCurrentTime, "Raid store time provider is not initialized")
 
 local tinsert, tremove = table.insert, table.remove
@@ -533,7 +531,7 @@ do
 		return ensureRaidsTable()
 	end
 
-	function module:GetRaidByIndex(index)
+	function module:EnsureRaidByIndex(index)
 		local idx = tonumber(index)
 		if not idx or idx < 1 then
 			return nil, nil
@@ -547,7 +545,7 @@ do
 		return self:NormalizeRaidRecord(raid), idx
 	end
 
-	function module:GetRaidByNid(raidNid)
+	function module:EnsureRaidByNid(raidNid)
 		local nid = tonumber(raidNid)
 		if not nid then
 			return nil, nil, nil
@@ -579,12 +577,12 @@ do
 	end
 
 	function module:GetRaidNidByIndex(index)
-		local raid = self:GetRaidByIndex(index)
+		local raid = self:EnsureRaidByIndex(index)
 		return raid and tonumber(raid.raidNid) or nil
 	end
 
 	function module:GetRaidIndexByNid(raidNid)
-		local _, idx = self:GetRaidByNid(raidNid)
+		local _, idx = self:EnsureRaidByNid(raidNid)
 		return idx
 	end
 
@@ -884,13 +882,6 @@ do
 		stripRuntimeState(raid)
 	end
 
-	function module:StripAllRuntime()
-		local raids = ensureRaidsTable()
-		for i = 1, #raids do
-			self:StripRuntime(raids[i])
-		end
-	end
-
 	function module:NormalizeAllRaids(contextTag)
 		local raids = ensureRaidsTable()
 		markRaidNidIndexDirty()
@@ -971,7 +962,7 @@ do
 	end
 
 	function module:DeleteRaid(raidNid)
-		local raid, idx = self:GetRaidByNid(raidNid)
+		local raid, idx = self:EnsureRaidByNid(raidNid)
 		if not (raid and idx) then
 			return false, nil
 		end
@@ -987,12 +978,12 @@ do
 		return module:NormalizeRaidRecord(raid)
 	end
 
-	function Database.EnsureRaidById(raidNum)
+	function Database.EnsureRaidByIndex(raidNum)
 		local id = tonumber(raidNum)
 		if not id then
 			return nil, nil
 		end
-		return module:GetRaidByIndex(id)
+		return module:EnsureRaidByIndex(id)
 	end
 
 	function Database.EnsureRaidByNid(raidNid)
@@ -1000,35 +991,18 @@ do
 		if not nid then
 			return nil, nil, nil
 		end
-		return module:GetRaidByNid(nid)
+		return module:EnsureRaidByNid(nid)
 	end
 
-	function Database.GetRaidNidById(raidNum)
+	function Database.GetRaidNidByIndex(raidNum)
 		return module:GetRaidNidByIndex(raidNum)
 	end
 
-	function Database.GetRaidIdByNid(raidNid)
+	function Database.GetRaidIndexByNid(raidNid)
 		return module:GetRaidIndexByNid(raidNid)
 	end
 
 	function Database.StripRuntimeRaidCaches(raid)
 		module:StripRuntime(raid)
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Database/DBRaidStore", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DB",
-			"Database/SavedVariables",
-			"Database/DBSchema",
-			"Database/DBRaidMigrations",
-			"Modules/Time",
-			"Modules/Strings",
-		},
-	})
-	registry.SetLoaded("Database/DBRaidStore")
 end

@@ -1,6 +1,6 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: listens RaidRosterDelta, PlayerCountChanged, RaidCreate
 -- UI ownership: XML owns the top-level LootCounter frame and fixed outer buttons.
@@ -8,13 +8,10 @@
 -- those elements are data-driven and rebuilt from raid/player state.
 -- Keep static frame layout in XML and dynamic counter rows in Lua.
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local L = addon.L
 
-local L = feature.L
-
-local Widgets = feature.Widgets
-local UI = feature.UI
-local UIWidgets = UI.Widgets
+local Widgets = addon.Widgets
+local UI = addon.UI
 local Frames = UI.Frames
 local Primitives = UI.Primitives
 local Scaffold = UI.Scaffold
@@ -23,13 +20,13 @@ local DefineConfirmPopup = assert(Popups.DefineConfirm, "LootCounter popup confi
 local IsPopupDefined = assert(Popups.IsDefined, "LootCounter popup registry is not initialized")
 local ShowPopup = assert(Popups.Show, "LootCounter popup display service is not initialized")
 local Tooltips = UI.Tooltips
-local Colors = feature.Colors
-local Events = feature.Events
-local C = feature.C
-local Options = feature.Options
-local Database = feature.Database
-local Bus = feature.Bus
-local Services = feature.Services
+local Colors = addon.Colors
+local Events = addon.Events
+local C = addon.C
+local Options = addon.Options
+local Database = addon.Database
+local Bus = addon.Bus
+local Services = addon.Services
 local Chat = assert(Services.Chat, "LootCounter chat service is not initialized")
 local AnnounceChat = assert(Chat.Announce, "LootCounter chat announcement service is not initialized")
 local Raid = assert(Services.Raid, "LootCounter raid service is not initialized")
@@ -60,44 +57,16 @@ local PlayerCountChangedEvent =
 local SpecInspectUpdatedEvent =
 	assert(InternalEvents.SpecInspectUpdated, "LootCounter spec update event is not initialized")
 local RaidCreateEvent = assert(InternalEvents.RaidCreate, "LootCounter raid-create event is not initialized")
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Widgets/LootCounter", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DBOptions",
-			"Modules/C",
-			"Modules/Colors",
-			"Modules/Events",
-			"Modules/Bus",
-			"Modules/UI/Facade",
-			"Modules/UI/Frames",
-			"Modules/UI/Visuals",
-			"Services/Chat",
-			"Services/Raid/State",
-			"Services/Raid/Capabilities",
-			"Services/Raid/Counts",
-			"Services/Raid/Roster",
-			"Services/SpecInspect",
-		},
-	})
-	registry.SetLoaded("Widgets/LootCounter")
-end
 
 -- Loot counter module.
 -- Tracks and edits item distribution counts (MS wins).
 do
-	if not UIWidgets.IsEnabled("LootCounter") then
-		return
-	end
-
 	Widgets.LootCounter = Widgets.LootCounter or {}
 	local module = Widgets.LootCounter
-	local uiState = Scaffold.EnsureModuleState(module)
+	local uiState = UI.ModuleState.Ensure(module)
 
 	-- Namespace registration: LootCounter widget options.
-	Options.AddNamespace("LootCounter", {
+	Options.RegisterNamespace("LootCounter", {
 		showLootCounterDuringMSRoll = false,
 	})
 
@@ -793,8 +762,4 @@ do
 
 	-- New raid session: reset view.
 	RegisterCallback(RaidCreateEvent, requestRefresh)
-
-	UIWidgets.Register("LootCounter", module)
-	UIWidgets.RegisterMethod("LootCounter", "Toggle", module.Toggle)
-	UIWidgets.RegisterMethod("LootCounter", "AttachToMaster", module.AttachToMaster)
 end

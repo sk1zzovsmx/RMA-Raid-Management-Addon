@@ -1,17 +1,15 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.UI.Primitives, addon.UI.Rows
 -- events: none
 -- ui ownership: XML owns row/header visual skeletons; Lua resolves named parts and applies runtime state.
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
 local tostring, tonumber, type = tostring, tonumber, type
 
-local UI = feature.UI or {}
-local Colors = feature.Colors
+local UI = addon.UI or {}
+local Colors = addon.Colors
 local Effects = UI.Effects
 local Frames = UI.Frames
 
@@ -527,13 +525,4 @@ function Rows.DrawMasterRollRow(row, data, onClick)
 		setSinglePoint(star, "LEFT", row, "LEFT", 2, 0)
 		setFrameShown(star, hasStar)
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule(
-		"Modules/UI/Visuals",
-		{ deps = { "Init", "Modules/ModuleRegistry", "Modules/Colors", "Modules/UI/Effects", "Modules/UI/Frames" } }
-	)
-	registry.SetLoaded("Modules/UI/Visuals")
 end

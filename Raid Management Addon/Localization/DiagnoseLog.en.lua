@@ -1,13 +1,11 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Diag = feature.Diag
+local Diag = addon.Diag
 
 Diag.I = Diag.I or {}
 Diag.W = Diag.W or {}
@@ -22,8 +20,6 @@ Diag.D = Diag.D or {}
 
 -- ==================== Log Messages ==================== --
 -- Database --
-Diag.W.LogRaidStoreUnavailable = "[Database] RaidStore unavailable (context=%s)"
-Diag.W.LogRaidStoreMethodMissing = "[Database] RaidStore missing method %s (context=%s)"
 Diag.I.LogDatabaseLoaded = "[Database] Loaded version=%s logLevel=%s perfMode=%s"
 Diag.D.LogDatabaseEventsRegistered = "[Database] Events registered=%d"
 Diag.D.LogDatabasePlayerEnteringWorld = "[Database] PLAYER_ENTERING_WORLD -> scheduling CheckInitialRaidState"

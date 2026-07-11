@@ -1,25 +1,22 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Widgets.LootHints
 -- events: none
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Widgets = feature.Widgets
-local UI = feature.UI
-local UIWidgets = UI.Widgets
+local Widgets = addon.Widgets
+local UI = addon.UI
 local Frames = UI.Frames
 local Tooltips = UI.Tooltips
 local SetScriptSafely = assert(Frames.SetScriptSafely, "Loot hints frame script binder is not initialized")
 local HookScriptSafely = assert(Frames.HookScriptSafely, "Loot hints frame hook binder is not initialized")
 local ShowItemTooltip = assert(Tooltips.ShowItem, "Loot hints item tooltip presenter is not initialized")
 local HideTooltip = assert(Tooltips.Hide, "Loot hints tooltip hider is not initialized")
-local Item = feature.Item
-local L = feature.L
-local Options = feature.Options
-local Services = feature.Services
+local Item = addon.Item
+local L = addon.L
+local Options = addon.Options
+local Services = addon.Services
 local Reserves = assert(Services.Reserves, "Loot hints reserves service is not initialized")
 local GetPlayersForItem = assert(Reserves.GetPlayersForItem, "Loot hints reserve player lookup is not initialized")
 local HasItemReserves = assert(Reserves.HasItemReserves, "Loot hints reserve-state resolver is not initialized")
@@ -30,27 +27,7 @@ assert(_G.LootFrame_Update, "Loot hints loot-frame update API is not initialized
 local type = type
 local tostring, tonumber = tostring, tonumber
 
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Widgets/LootHints", {
-		deps = {
-			"Init",
-			"Database/DBOptions",
-			"Modules/ModuleRegistry",
-			"Modules/Item",
-			"Modules/UI/Facade",
-			"Modules/UI/Frames",
-			"Services/Reserves",
-		},
-	})
-	registry.SetLoaded("Widgets/LootHints")
-end
-
 do
-	if not UIWidgets.IsEnabled("LootHints") then
-		return
-	end
-
 	Widgets.LootHints = Widgets.LootHints or {}
 	local module = Widgets.LootHints
 	addon.Widgets.LootHints = module
@@ -319,9 +296,4 @@ do
 	end
 
 	module.EnsureLootFrameHooks()
-
-	UIWidgets.Register("LootHints", module)
-	UIWidgets.RegisterFunction("LootHints", "ApplyLootFrameReserveHints", module.ApplyLootFrameReserveHints)
-	UIWidgets.RegisterFunction("LootHints", "ClearLootFrameReserveHints", module.ClearLootFrameReserveHints)
-	UIWidgets.RegisterFunction("LootHints", "EnsureLootFrameHooks", module.EnsureLootFrameHooks)
 end

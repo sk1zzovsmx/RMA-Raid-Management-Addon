@@ -1,18 +1,16 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Master.AwardCounter
 -- events: none
 -- notes: pure Master pending-award counter model helpers
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Master = feature.EnsureServiceNamespace("Master")
+local Master = addon.Database.EnsureServiceNamespace("Master")
 
 local AwardCounter = Master.AwardCounter or {}
 Master.AwardCounter = AwardCounter
 
-local Item = feature.Item
+local Item = addon.Item
 local GetItemStringFromLink =
 	assert(Item.GetItemStringFromLink, "Master award counter item-key resolver is not initialized")
 
@@ -137,16 +135,4 @@ function AwardCounter.Confirm(state, clearedSlot, cancelTimer)
 	pending.counterApplied = true
 	AwardCounter.Remove(state, index, cancelTimer)
 	return pending
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Master/AwardCounter", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Item",
-		},
-	})
-	registry.SetLoaded("Services/Master/AwardCounter")
 end

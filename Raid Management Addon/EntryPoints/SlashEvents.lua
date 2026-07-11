@@ -1,38 +1,34 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: owns /rma slash command routing; dispatches Controller, Widget, and sync commands
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local L = addon.L
 
-local L = feature.L
-
-local Features = feature.Features
-local coreState = feature.coreState
-local Options = feature.Options
-local UI = feature.UI
-local UIWidgets = assert(UI.Widgets, "Slash widget facade is not initialized")
-local IsWidgetEnabled = assert(UIWidgets.IsEnabled, "Slash widget enabled resolver is not initialized")
-local IsWidgetRegistered = assert(UIWidgets.IsRegistered, "Slash widget registration resolver is not initialized")
-local CallWidgetMethod = assert(UIWidgets.CallMethod, "Slash widget method dispatcher is not initialized")
-local Colors = feature.Colors
-local Strings = feature.Strings
-local Database = feature.Database
-local Services = feature.Services
+local coreState = addon.State
+local Options = addon.Options
+local UI = addon.UI
+local Widgets = addon.Widgets
+local LootCounterWidget = assert(Widgets.LootCounter, "Slash loot counter widget is not initialized")
+local ReservesWidget = assert(Widgets.ReservesUI, "Slash reserves widget is not initialized")
+local Colors = addon.Colors
+local Strings = addon.Strings
+local Database = addon.Database
+local Services = addon.Services
 local RaidDebug = assert(Services.Raid.Debug, "Raid debug service is not initialized")
-local Controllers = feature.Controllers
+local Controllers = addon.Controllers
 local MasterController = assert(Controllers.Master, "Slash master controller is not initialized")
 local LoggerController = assert(Controllers.Logger, "Slash logger controller is not initialized")
 local AttendanceController = assert(Controllers.Attendance, "Slash attendance controller is not initialized")
 local WarningsController = assert(Controllers.Warnings, "Slash warnings controller is not initialized")
 local SpammerController = assert(Controllers.Spammer, "Slash spammer controller is not initialized")
 local ConfigController = assert(Controllers.Config, "Config controller is not initialized")
-local Comms = feature.Comms
-local Item = feature.Item
-local Timer = feature.Timer
+local Comms = addon.Comms
+local Item = addon.Item
+local Timer = addon.Timer
 
-local RT_COLOR = feature.RT_COLOR
+local RT_COLOR = addon.C.RT_COLOR
 
 local pairs, ipairs = pairs, ipairs
 local tconcat = table.concat
@@ -327,35 +323,6 @@ local function handleDebugRaidCommand(arg)
 	showDebugRaidHelp()
 end
 
-local function getFeatureProfile()
-	if type(Features) == "table" then
-		return Features.Profile or "full"
-	end
-	return "full"
-end
-
-local function notifyWidgetCallUnavailable(widgetId, methodName)
-	if not IsWidgetEnabled(widgetId) then
-		addon:warn(L.MsgFeatureDisabledByProfile, widgetId, getFeatureProfile())
-		return
-	end
-	addon:warn(L.MsgFeatureUnavailable, widgetId, methodName)
-end
-
-local function callWidgetMethod(widgetId, methodName, ...)
-	if not IsWidgetEnabled(widgetId) then
-		notifyWidgetCallUnavailable(widgetId, methodName)
-		return nil
-	end
-
-	if not IsWidgetRegistered(widgetId) then
-		notifyWidgetCallUnavailable(widgetId, methodName)
-		return nil
-	end
-
-	return CallWidgetMethod(widgetId, methodName, ...)
-end
-
 local function registerAliases(list, fn)
 	for _, cmd in ipairs(list) do
 		slashHandlers[cmd] = fn
@@ -421,8 +388,7 @@ local function yesNo(value)
 end
 
 local function countRaidHistory()
-	local raidStore = Database.GetRaidStoreOrNil("SlashEvents.BugReport", { "GetAllRaids" })
-	local raids = raidStore and raidStore:GetAllRaids() or nil
+	local raids = Database.GetRaidStore():GetAllRaids()
 	if type(raids) ~= "table" then
 		return 0
 	end
@@ -438,9 +404,8 @@ end
 local function getCurrentRaidSummary()
 	local currentRaid = Database.GetCurrentRaid()
 	local raidNid
-	local raidStore = Database.GetRaidStoreOrNil("SlashEvents.CurrentRaid", { "GetRaidNidByIndex" })
-	if raidStore and currentRaid then
-		raidNid = raidStore:GetRaidNidByIndex(currentRaid)
+	if currentRaid then
+		raidNid = Database.GetRaidStore():GetRaidNidByIndex(currentRaid)
 	end
 	return tostring(currentRaid or L.StrNone), tostring(raidNid or L.StrNone)
 end
@@ -905,10 +870,8 @@ end
 local function handleConfigCommand(rest)
 	local sub = Strings.SplitArgs(rest)
 	if sub == "reset" then
-		if ConfigController:IsAvailable() then
-			ConfigController:Default()
-		end
-	elseif ConfigController:IsAvailable() then
+		ConfigController:Default()
+	else
 		ConfigController:Toggle()
 	end
 end
@@ -959,7 +922,7 @@ end
 local function handleCounterCommand(rest)
 	local sub = Strings.SplitArgs(rest)
 	if isToggleCommand(sub) then
-		callWidgetMethod("LootCounter", "Toggle")
+		LootCounterWidget:Toggle()
 	end
 end
 
@@ -1162,9 +1125,9 @@ local function handleReservesCommand(rest)
 		assert(reserves.DeleteSyncedReservesCache, "Slash reserves sync cache cleaner is not initialized")
 
 	if isToggleCommand(sub) then
-		callWidgetMethod("Reserves", "Toggle")
+		ReservesWidget:Toggle()
 	elseif sub == "import" then
-		callWidgetMethod("Reserves", "ToggleImport")
+		ReservesWidget:ToggleImport()
 	elseif sub == "check" then
 		printSoftResReadinessReport()
 	elseif sub == "alias" then
@@ -1419,36 +1382,4 @@ registerAliases(cmdLFM, handleLfmCommand)
 SLASH_RMA1 = "/rma"
 SlashCmdList["RMA"] = function(msg)
 	handleSlashCommand(msg)
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("EntryPoints/SlashEvents", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DB",
-			"Database/DBOptions",
-			"Database/DBRaidStore",
-			"Database/DBRaidValidator",
-			"Database/DBSyncer",
-			"Modules/C",
-			"Modules/Colors",
-			"Modules/Strings",
-			"Modules/Comms",
-			"Modules/Item",
-			"Modules/UI/Facade",
-			"EntryPoints/Minimap",
-			"Services/Raid/Debug",
-			"Services/SpecInspect",
-			"Services/Raid/State",
-			"Controllers/Master",
-			"Controllers/Logger",
-			"Controllers/Attendance",
-			"Controllers/Warnings",
-			"Controllers/Spammer",
-			"Controllers/Config",
-		},
-	})
-	registry.SetLoaded("EntryPoints/SlashEvents")
 end

@@ -1,12 +1,10 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
 local gsub = string.gsub
 local strsub = string.sub
 local char, byte = string.char, string.byte
@@ -20,7 +18,7 @@ for i = 1, #BASE64_ALPHABET do
 	BASE64_DECODE[strsub(BASE64_ALPHABET, i, i)] = i - 1
 end
 
-local Base64 = feature.Base64 or {}
+local Base64 = addon.Base64 or {}
 addon.Base64 = Base64
 
 -- ----- Private helpers ----- --
@@ -98,18 +96,4 @@ function Base64.Decode(data)
 	end
 
 	return tconcat(out)
-end
-
-do
-	local name = "Modules/Base64"
-	local deps = { "Init" }
-	local registry = feature.ModuleRegistry
-	if registry then
-		registry.AddModule(name, { deps = deps })
-		registry.SetLoaded(name)
-	else
-		addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-		local pending = addon.ModuleRegistryPendingRegistrations
-		pending[#pending + 1] = { name = name, deps = deps, loaded = true }
-	end
 end

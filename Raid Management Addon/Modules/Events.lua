@@ -1,17 +1,15 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: centralized event-name registry helpers
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
 local type, tostring = type, tostring
 
-local Events = feature.Events or {}
+local Events = addon.Events or {}
 addon.Events = Events
-local Database = feature.Database
+local Database = addon.Database
 
 -- ----- Internal state ----- --
 Events.Internal = Events.Internal or {}
@@ -58,30 +56,16 @@ Internal.ConfigShowLootCounterDuringMSRoll = "ConfigshowLootCounterDuringMSRoll"
 -- ----- Private helpers ----- --
 
 -- ----- Public methods ----- --
-function Events.GetConfigOptionChanged(optionName)
+function Events.BuildConfigOptionChangedName(optionName)
 	if type(optionName) ~= "string" or optionName == "" then
 		return nil
 	end
 	return "Config" .. optionName
 end
 
-function Events.GetWowForwarded(eventName)
+function Events.ResolveWowForwardedName(eventName)
 	if type(eventName) ~= "string" or eventName == "" then
 		return nil
 	end
 	return Wow[eventName] or ("wow." .. tostring(eventName))
-end
-
-do
-	local name = "Modules/Events"
-	local deps = { "Init" }
-	local registry = feature.ModuleRegistry
-	if registry then
-		registry.AddModule(name, { deps = deps })
-		registry.SetLoaded(name)
-	else
-		addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-		local pending = addon.ModuleRegistryPendingRegistrations
-		pending[#pending + 1] = { name = name, deps = deps, loaded = true }
-	end
 end

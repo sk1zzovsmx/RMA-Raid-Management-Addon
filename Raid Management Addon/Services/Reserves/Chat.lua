@@ -1,19 +1,17 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Reserves._Chat
 -- events: listens to wow.CHAT_MSG_WHISPER and replies with opt-in SoftRes summaries
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local L = feature.L
-local Bus = feature.Bus
-local Comms = feature.Comms
-local Events = feature.Events
-local Options = feature.Options
-local Services = feature.Services
-local Strings = feature.Strings
+local L = addon.L
+local Bus = addon.Bus
+local Comms = addon.Comms
+local Events = addon.Events
+local Options = addon.Options
+local Services = addon.Services
+local Strings = addon.Strings
 
 local format = string.format
 local len = string.len
@@ -24,7 +22,7 @@ local tonumber = tonumber
 local type = type
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Reserves")
+addon.Database.EnsureServiceNamespace("Reserves")
 local Reserves = Services.Reserves
 local module = Reserves
 module._Chat = module._Chat or {}
@@ -264,20 +262,3 @@ end
 -- This service exposes no direct helpers; whisper handling is event-driven.
 
 registerWhisperHandler()
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Reserves/Chat", {
-		deps = {
-			"Init",
-			"Database/DBOptions",
-			"Modules/ModuleRegistry",
-			"Modules/Strings",
-			"Modules/Comms",
-			"Modules/Events",
-			"Modules/Bus",
-			"Services/Raid/Capabilities",
-		},
-	})
-	registry.SetLoaded("Services/Reserves/Chat")
-end

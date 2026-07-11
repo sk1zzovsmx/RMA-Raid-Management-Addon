@@ -1,29 +1,28 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: listens Raid/Attendance/Inspect bus refresh events
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local L = feature.L
-local Diag = feature.Diag
-local Controllers = feature.Controllers
-local UI = feature.UI
+local L = addon.L
+local Diag = addon.Diag
+local Controllers = addon.Controllers
+local UI = addon.UI
 local Rows = UI.Rows
 local Frames = UI.Frames
 local Tooltips = UI.Tooltips
-local Events = feature.Events
-local Bus = feature.Bus
-local Database = feature.Database
-local Services = feature.Services
-local Timer = feature.Timer
-local Sort = feature.Sort
-local Colors = feature.Colors
+local Events = addon.Events
+local Bus = addon.Bus
+local Database = addon.Database
+local Services = addon.Services
+local Timer = addon.Timer
+local Sort = addon.Sort
+local Colors = addon.Colors
+local CalculateColumnWidths =
+	assert(UI.Lists.CalculateColumnWidths, "Attendance column layout owner is not initialized")
+local ExportDialog = assert(UI.ExportDialog, "Attendance export dialog owner is not initialized")
 
-local GetFrame = assert(Frames.Get, "Attendance export frame resolver is not initialized")
 local GetFrameRef = assert(Frames.GetRef, "Attendance frame ref resolver is not initialized")
-local EnableDrag = assert(Frames.EnableDrag, "Attendance export frame drag binder is not initialized")
 local SetScriptSafely = assert(Frames.SetScriptSafely, "Attendance frame script binder is not initialized")
 local SetFrameTitle = assert(Frames.SetFrameTitle, "Attendance frame title binder is not initialized")
 local BindModuleFrame = assert(Frames.BindModuleFrame, "Attendance module frame binder is not initialized")
@@ -191,58 +190,6 @@ local function getColumnBudget(frameName, leadOffset, gapCount)
 	return max(AttendanceLayout.LIST_WIDTH_FALLBACK, floor(budget))
 end
 
-local function calculateColumnWidths(totalWidth, minWidths, ratios, fixedKeys)
-	local widths = {}
-	local variableKeys = {}
-	local fixed = {}
-	local usedWidth = 0
-	local ratioTotal = 0
-
-	if fixedKeys then
-		for i = 1, #fixedKeys do
-			fixed[fixedKeys[i]] = true
-		end
-	end
-
-	for key, minWidth in pairs(minWidths) do
-		local width = tonumber(minWidth) or 0
-		widths[key] = width
-		usedWidth = usedWidth + width
-		if not fixed[key] then
-			variableKeys[#variableKeys + 1] = key
-			ratioTotal = ratioTotal + (tonumber(ratios[key]) or 0)
-		end
-	end
-
-	local extraWidth = floor((tonumber(totalWidth) or 0) - usedWidth)
-	if extraWidth <= 0 or ratioTotal <= 0 then
-		return widths
-	end
-
-	local allocated = 0
-	for i = 1, #variableKeys do
-		local key = variableKeys[i]
-		local ratio = (tonumber(ratios[key]) or 0) / ratioTotal
-		local addition = floor(extraWidth * ratio)
-		widths[key] = widths[key] + addition
-		allocated = allocated + addition
-	end
-
-	local remainder = extraWidth - allocated
-	if remainder > 0 then
-		for i = 1, #variableKeys do
-			local key = variableKeys[i]
-			widths[key] = widths[key] + 1
-			remainder = remainder - 1
-			if remainder <= 0 then
-				break
-			end
-		end
-	end
-
-	return widths
-end
-
 local function getLayoutColumnWidth(widths, column)
 	return tonumber(widths and widths[column.widthKey]) or 0
 end
@@ -287,7 +234,7 @@ local function applyRowColumnWidths(ui, widths, columns)
 end
 
 local function getRaidColumnWidths(frameName)
-	return calculateColumnWidths(
+	return CalculateColumnWidths(
 		getColumnBudget(frameName, AttendanceLayout.ROW_LEFT_INSET, 3),
 		AttendanceLayout.RAID_COLUMN_MIN_WIDTHS,
 		AttendanceLayout.RAID_COLUMN_RATIOS,
@@ -296,7 +243,7 @@ local function getRaidColumnWidths(frameName)
 end
 
 local function getAttendanceColumnWidths(frameName)
-	return calculateColumnWidths(
+	return CalculateColumnWidths(
 		getColumnBudget(frameName, AttendanceLayout.ROW_LEFT_INSET, 5),
 		AttendanceLayout.ATTENDANCE_COLUMN_MIN_WIDTHS,
 		AttendanceLayout.ATTENDANCE_COLUMN_RATIOS
@@ -724,22 +671,6 @@ local function getAttendanceRaid()
 	return AttendanceStore:GetRaid(raidId), raidId
 end
 
-local function getAttendanceExportFrameRefs()
-	local frame = GetFrame("RMAExportFrame")
-	if not frame then
-		return nil
-	end
-
-	return {
-		frame = frame,
-		hint = GetFrameRef(frame, "Hint"),
-		lootBtn = GetFrameRef(frame, "LootBtn"),
-		output = GetFrameRef(frame, "Output"),
-		outputScroll = GetFrameRef(frame, "OutputScroll"),
-		closeBtn = GetFrameRef(frame, "CloseBtn"),
-	}
-end
-
 local function getAttendanceExportContext()
 	return {
 		raidId = module.attendanceSelectedRaid,
@@ -747,71 +678,14 @@ local function getAttendanceExportContext()
 	}
 end
 
-local function setAttendanceExportText(refs, text)
-	local output = refs and refs.output
-	if not output then
-		return
-	end
-
-	if output.SetTextInsets then
-		output:SetTextInsets(8, 8, 8, 8)
-	end
-	if output.SetJustifyH then
-		output:SetJustifyH("LEFT")
-	end
-	if output.SetJustifyV then
-		output:SetJustifyV("TOP")
-	end
-	module._lastAttendanceExportCSV = text or ""
-	output:SetText(module._lastAttendanceExportCSV)
-	output:SetCursorPosition(0)
-	output:HighlightText()
-	if output.SetFocus then
-		output:SetFocus()
-	end
-
-	local scroll = refs.outputScroll
-	if scroll and scroll.UpdateScrollChildRect then
-		scroll:UpdateScrollChildRect()
-	end
-	if scroll and scroll.SetVerticalScroll then
-		scroll:SetVerticalScroll(0)
-	end
-end
-
 local function bindAttendanceExportFrame()
-	local refs = getAttendanceExportFrameRefs()
-	if not refs then
-		return nil
-	end
-
-	SetFrameTitle(refs.frame, L.BtnLoggerExportRaidAttendanceCSV)
-	EnableDrag(refs.frame)
-	if refs.hint then
-		refs.hint:SetText(L.StrLoggerExportHint)
-	end
-	if refs.lootBtn then
-		refs.lootBtn:Hide()
-	end
-	if refs.output and refs.output.SetWordWrap then
-		refs.output:SetWordWrap(true)
-	end
-	if refs.output then
-		SetScriptSafely(refs.output, "OnTextChanged", function(self, userInput)
-			if userInput then
-				self:SetText(module._lastAttendanceExportCSV or "")
-				self:SetCursorPosition(0)
-				self:HighlightText()
-			end
-		end)
-	end
-	if refs.closeBtn then
-		refs.closeBtn:SetText(L.BtnClose)
-		SetScriptSafely(refs.closeBtn, "OnClick", function()
-			refs.frame:Hide()
-		end)
-	end
-	return refs
+	return ExportDialog.Bind({
+		title = L.BtnLoggerExportRaidAttendanceCSV,
+		hint = L.StrLoggerExportHint,
+		getText = function()
+			return module._lastAttendanceExportCSV or ""
+		end,
+	})
 end
 
 local function showAttendanceExport()
@@ -821,7 +695,7 @@ local function showAttendanceExport()
 		return false
 	end
 
-	local csv, errCode = AttendanceExport:GetRaidAttendanceCSV(raid, getAttendanceExportContext())
+	local csv, errCode = AttendanceExport:BuildCSV(raid, getAttendanceExportContext())
 	if errCode then
 		addon:error((L.ErrLoggerExportFailed):format(tostring(errCode)))
 		return false
@@ -832,7 +706,8 @@ local function showAttendanceExport()
 		return false
 	end
 
-	setAttendanceExportText(refs, csv)
+	module._lastAttendanceExportCSV = csv or ""
+	ExportDialog.SetText(refs, module._lastAttendanceExportCSV)
 	refs.frame:Show()
 	return true
 end
@@ -866,7 +741,7 @@ local function selectAttendanceRaid(btn, button)
 		return
 	end
 	local raidNid = btn and btn.GetID and btn:GetID()
-	local raidId = raidNid and Database.GetRaidIdByNid(raidNid) or nil
+	local raidId = raidNid and Database.GetRaidIndexByNid(raidNid) or nil
 	setAttendanceSelectedRaid(raidId)
 end
 
@@ -946,7 +821,7 @@ local function deleteSelectedRaidAttendancePlayer()
 		return
 	end
 
-	local removed = AttendanceActions:DeleteRaidAttendeeMany(selectedRaid, { playerNid })
+	local removed = AttendanceActions:DeleteRaidAttendees(selectedRaid, { playerNid })
 	if removed and removed > 0 then
 		module.attendanceSelectedPlayer = nil
 		TriggerEvent(AttendanceEvents.LoggerClearPlayerSelections)
@@ -973,7 +848,7 @@ attendanceRaidsController = makeAttendanceList(
 		end,
 
 		getData = function(out)
-			RaidProjections.FillRaidList(out, "Attendance.Raids.GetData")
+			RaidProjections.FillRaidList(out)
 		end,
 
 		rowName = UI.Lists.MakeIndexedRowName("RaidBtn"),
@@ -1022,7 +897,7 @@ attendanceRaidsController = makeAttendanceList(
 	"attendanceSelectedRaid",
 	{
 		transform = function(id)
-			return Database.GetRaidNidById(id)
+			return Database.GetRaidNidByIndex(id)
 		end,
 		debugTag = "RaidAttendanceSelectRaid",
 	}
@@ -1267,28 +1142,3 @@ RegisterCallback(AttendanceEvents.RaidAttendanceChanged, function(_, raidId)
 	end
 	markAttendanceListsDirty()
 end)
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Controllers/Attendance", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Timer",
-			"Modules/Events",
-			"Modules/Bus",
-			"Modules/Colors",
-			"Modules/Sort",
-			"Modules/UI/Frames",
-			"Modules/UI/ListController",
-			"Services/Raid/Attendance",
-			"Services/Raid/Projections",
-			"Services/Attendance/Store",
-			"Services/Attendance/View",
-			"Services/Attendance/Actions",
-			"Services/Attendance/Export",
-			"Services/EquipInspect",
-		},
-	})
-	registry.SetLoaded("Controllers/Attendance")
-end

@@ -1,17 +1,15 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: listens Logger/Raid/Loot bus refresh events
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local L = addon.L
+local Diag = addon.Diag
 
-local L = feature.L
-local Diag = feature.Diag
-
-local Controllers = feature.Controllers
-local coreState = feature.coreState
-local UI = feature.UI
+local Controllers = addon.Controllers
+local coreState = addon.State
+local UI = addon.UI
 local Rows = UI.Rows
 local Popups = assert(UI.Popups, "Logger popup namespace is not initialized")
 local DefinePopup = assert(Popups.Define, "Logger popup definer is not initialized")
@@ -27,34 +25,34 @@ local ShowTooltipLines = assert(Tooltips.ShowLines, "Logger tooltip line rendere
 local HideTooltip = assert(Tooltips.Hide, "Logger tooltip hide service is not initialized")
 local BindTooltip = assert(Tooltips.Bind, "Logger tooltip binder is not initialized")
 local BindTooltipModel = assert(Tooltips.BindModel, "Logger source tooltip model binder is not initialized")
-local Events = feature.Events
+local Events = addon.Events
 local Frames = UI.Frames
-local GetFrame = assert(Frames.Get, "Logger frame resolver is not initialized")
 local GetFrameRef = assert(Frames.GetRef, "Logger frame ref resolver is not initialized")
 local SetScriptSafely = assert(Frames.SetScriptSafely, "Logger frame script binder is not initialized")
 local SetFrameTitle = assert(Frames.SetFrameTitle, "Logger frame title binder is not initialized")
-local EnableDrag = assert(Frames.EnableDrag, "Logger frame drag binder is not initialized")
 local BindModuleFrame = assert(Frames.BindModuleFrame, "Logger module frame binder is not initialized")
 local MakeModuleFrameGetter =
 	assert(Frames.MakeModuleFrameGetter, "Logger module frame getter factory is not initialized")
 local MakeFrameGetter = assert(Frames.MakeFrameGetter, "Logger frame getter factory is not initialized")
-local C = feature.C
-local Database = feature.Database
-local Options = feature.Options
-local Bus = feature.Bus
-local Strings = feature.Strings
-local Colors = feature.Colors
-local Base64 = feature.Base64
-local Timer = feature.Timer
-local Sort = feature.Sort
-local IgnoredMobs = feature.IgnoredMobs
-local Services = feature.Services
+local C = addon.C
+local Database = addon.Database
+local Options = addon.Options
+local Bus = addon.Bus
+local Strings = addon.Strings
+local Colors = addon.Colors
+local Base64 = addon.Base64
+local Timer = addon.Timer
+local Sort = addon.Sort
+local IgnoredMobs = addon.IgnoredMobs
+local Services = addon.Services
 local LoggerSvc = assert(Services.Logger, "Logger service namespace is not initialized")
 local LoggerStore = assert(LoggerSvc.Store, "Logger store service is not initialized")
 local LoggerView = assert(LoggerSvc.View, "Logger view service is not initialized")
 local LoggerExport = assert(LoggerSvc.Export, "Logger export service is not initialized")
 local LoggerActions = assert(LoggerSvc.Actions, "Logger actions service is not initialized")
 local LoggerHelpers = assert(LoggerSvc.Helpers, "Logger helper service is not initialized")
+local CalculateColumnWidths = assert(UI.Lists.CalculateColumnWidths, "Logger column layout owner is not initialized")
+local ExportDialog = assert(UI.ExportDialog, "Logger export dialog owner is not initialized")
 local Raid = assert(Services.Raid, "Logger raid service is not initialized")
 local RaidProjections = assert(Raid.Projections, "Logger raid projections service is not initialized")
 
@@ -128,9 +126,9 @@ local LoggerEvents = {
 	),
 }
 
-local rollTypes = feature.rollTypes
-local lootTypesColored = feature.lootTypesColored
-local itemColors = feature.itemColors
+local rollTypes = addon.C.rollTypes
+local lootTypesColored = addon.C.lootTypesColored
+local itemColors = addon.C.itemColors
 local showLoggerExportFrame
 local setLootEntry
 
@@ -321,61 +319,9 @@ local function getLoggerListColumnBudget(frameName, leadOffset, gapCount, return
 	return max(LoggerLayout.LOGGER_LIST_WIDTH_FALLBACK, floor(budget))
 end
 
-local function calculateLoggerColumnWidths(totalWidth, minWidths, ratios, fixedKeys)
-	local widths = {}
-	local variableKeys = {}
-	local fixed = {}
-	local usedWidth = 0
-	local ratioTotal = 0
-
-	if fixedKeys then
-		for i = 1, #fixedKeys do
-			fixed[fixedKeys[i]] = true
-		end
-	end
-
-	for key, minWidth in pairs(minWidths) do
-		local width = tonumber(minWidth) or 0
-		widths[key] = width
-		usedWidth = usedWidth + width
-		if not fixed[key] then
-			variableKeys[#variableKeys + 1] = key
-			ratioTotal = ratioTotal + (tonumber(ratios[key]) or 0)
-		end
-	end
-
-	local extraWidth = floor((tonumber(totalWidth) or 0) - usedWidth)
-	if extraWidth <= 0 or ratioTotal <= 0 then
-		return widths
-	end
-
-	local allocated = 0
-	for i = 1, #variableKeys do
-		local key = variableKeys[i]
-		local ratio = (tonumber(ratios[key]) or 0) / ratioTotal
-		local addition = floor(extraWidth * ratio)
-		widths[key] = widths[key] + addition
-		allocated = allocated + addition
-	end
-
-	local remainder = extraWidth - allocated
-	if remainder > 0 then
-		for i = 1, #variableKeys do
-			local key = variableKeys[i]
-			widths[key] = widths[key] + 1
-			remainder = remainder - 1
-			if remainder <= 0 then
-				break
-			end
-		end
-	end
-
-	return widths
-end
-
 local function getRaidColumnWidths(frameName)
 	local budget = getLoggerListColumnBudget(frameName, LoggerLayout.LOGGER_ROW_LEFT_INSET, 3)
-	return calculateLoggerColumnWidths(
+	return CalculateColumnWidths(
 		budget,
 		LoggerLayout.LOGGER_RAID_COLUMN_MIN_WIDTHS,
 		LoggerLayout.LOGGER_RAID_COLUMN_RATIOS,
@@ -390,7 +336,7 @@ local function getLootColumnWidths(frameName)
 		5,
 		LoggerLayout.LOGGER_LOOT_COLUMN_MIN_WIDTHS.icon
 	)
-	return calculateLoggerColumnWidths(
+	return CalculateColumnWidths(
 		budget,
 		LoggerLayout.LOGGER_LOOT_COLUMN_MIN_WIDTHS,
 		LoggerLayout.LOGGER_LOOT_COLUMN_RATIOS,
@@ -499,7 +445,7 @@ local function bindRaidSortHeaders(frameName, listRef)
 	return bindLoggerSortHeaders(frameName, RAID_LAYOUT_COLUMNS, listRef, "_RMABound")
 end
 
-local uiState = UI.Scaffold.EnsureModuleState(module)
+local uiState = UI.ModuleState.Ensure(module)
 
 local function getCountTitle(baseText, count)
 	return ("%s (%d)"):format(tostring(baseText or ""), tonumber(count) or 0)
@@ -933,22 +879,6 @@ do
 		end
 	end
 
-	local function getExportFrameRefs()
-		local frame = GetFrame("RMAExportFrame")
-		if not frame then
-			return nil
-		end
-
-		return {
-			frame = frame,
-			hint = GetFrameRef(frame, "Hint"),
-			lootBtn = GetFrameRef(frame, "LootBtn"),
-			output = GetFrameRef(frame, "Output"),
-			outputScroll = GetFrameRef(frame, "OutputScroll"),
-			closeBtn = GetFrameRef(frame, "CloseBtn"),
-		}
-	end
-
 	local function setExportModeButtonState(refs, mode)
 		local buttons = {
 			{ button = refs and refs.lootBtn, mode = "loot" },
@@ -977,72 +907,7 @@ do
 		}
 	end
 
-	local function setExportText(refs, text)
-		local output = refs and refs.output
-		if not output then
-			return
-		end
-
-		if output.SetTextInsets then
-			output:SetTextInsets(8, 8, 8, 8)
-		end
-		if output.SetJustifyH then
-			output:SetJustifyH("LEFT")
-		end
-		if output.SetJustifyV then
-			output:SetJustifyV("TOP")
-		end
-		module._lastExportCSV = text or ""
-		output:SetText(module._lastExportCSV)
-		output:SetCursorPosition(0)
-		output:HighlightText()
-		if output.SetFocus then
-			output:SetFocus()
-		end
-
-		local scroll = refs.outputScroll
-		if scroll and scroll.UpdateScrollChildRect then
-			scroll:UpdateScrollChildRect()
-		end
-		if scroll and scroll.SetVerticalScroll then
-			scroll:SetVerticalScroll(0)
-		end
-	end
-
-	local function adjustExportScrollBar(refs)
-		local scroll = refs and refs.outputScroll
-		if not (scroll and scroll.GetName) then
-			return
-		end
-
-		local scrollName = scroll:GetName()
-		local scrollBar = scroll.ScrollBar or _G[scrollName .. "ScrollBar"]
-		if not scrollBar then
-			return
-		end
-
-		local upButton = _G[scrollBar:GetName() .. "ScrollUpButton"]
-		local downButton = _G[scrollBar:GetName() .. "ScrollDownButton"]
-		if upButton then
-			upButton:ClearAllPoints()
-			upButton:SetPoint("TOP", scroll, "TOPRIGHT", 10, -4)
-		end
-		if downButton then
-			downButton:ClearAllPoints()
-			downButton:SetPoint("BOTTOM", scroll, "BOTTOMRIGHT", 10, 8)
-		end
-
-		scrollBar:ClearAllPoints()
-		scrollBar:SetPoint("TOP", scroll, "TOPRIGHT", 10, -20)
-		scrollBar:SetPoint("BOTTOM", scroll, "BOTTOMRIGHT", 10, 24)
-	end
-
-	local function refreshExportFrame(mode)
-		local refs = getExportFrameRefs()
-		if not refs then
-			return false
-		end
-
+	local function refreshExportFrame(mode, refs)
 		local raid = module._needRaid()
 		if not raid then
 			addon:error(L.ErrLoggerInvalidRaid)
@@ -1052,60 +917,32 @@ do
 		mode = mode or module._loggerExportMode or "loot"
 		module._loggerExportMode = mode
 
-		local csv, errCode = Export:GetCSV(mode, raid, getExportContext())
+		local csv, errCode = Export:BuildCSV(raid, getExportContext())
 		if errCode then
 			addon:error((L.ErrLoggerExportFailed):format(tostring(errCode)))
 			return false
 		end
 
 		setExportModeButtonState(refs, mode)
-		adjustExportScrollBar(refs)
-		setExportText(refs, csv)
+		module._lastExportCSV = csv or ""
+		ExportDialog.SetText(refs, module._lastExportCSV)
 		return true
 	end
 
 	local function bindExportFrame()
-		local refs = getExportFrameRefs()
-		if not refs then
-			return refs
-		end
-
-		SetFrameTitle(refs.frame, L.StrLoggerExportTitle)
-		EnableDrag(refs.frame)
-
-		if refs.hint then
-			refs.hint:SetText(L.StrLoggerExportHint)
-		end
-		if refs.lootBtn then
-			refs.lootBtn:Show()
-			refs.lootBtn:SetText(L.BtnLoggerExportLootCSV)
-			SetScriptSafely(refs.lootBtn, "OnClick", function()
-				refreshExportFrame("loot")
-			end)
-		end
-		if refs.output and refs.output.SetTextInsets then
-			refs.output:SetTextInsets(8, 8, 8, 8)
-		end
-		if refs.output and refs.output.SetWordWrap then
-			refs.output:SetWordWrap(true)
-		end
-		if refs.output then
-			SetScriptSafely(refs.output, "OnTextChanged", function(self, userInput)
-				if userInput then
-					self:SetText(module._lastExportCSV or "")
-					self:SetCursorPosition(0)
-					self:HighlightText()
-				end
-			end)
-		end
-		adjustExportScrollBar(refs)
-		if refs.closeBtn then
-			refs.closeBtn:SetText(L.BtnClose)
-			SetScriptSafely(refs.closeBtn, "OnClick", function()
-				refs.frame:Hide()
-			end)
-		end
-
+		local refs
+		refs = ExportDialog.Bind({
+			title = L.StrLoggerExportTitle,
+			hint = L.StrLoggerExportHint,
+			modeButtonText = L.BtnLoggerExportLootCSV,
+			onModeButtonClick = function()
+				refreshExportFrame("loot", refs)
+			end,
+			getText = function()
+				return module._lastExportCSV or ""
+			end,
+			adjustScrollBar = true,
+		})
 		return refs
 	end
 
@@ -1122,7 +959,7 @@ do
 		end
 
 		module._loggerExportMode = "loot"
-		if not refreshExportFrame(module._loggerExportMode) then
+		if not refreshExportFrame(module._loggerExportMode, refs) then
 			return false
 		end
 		refs.frame:Show()
@@ -1215,7 +1052,7 @@ do
 		if not raidNid then
 			return
 		end
-		local raidIndex = raidNid and Database.GetRaidIdByNid(raidNid) or nil
+		local raidIndex = raidNid and Database.GetRaidIndexByNid(raidNid) or nil
 		if not raidIndex then
 			return
 		end
@@ -1237,10 +1074,10 @@ do
 			allowDeselect = opts and opts.allowDeselect,
 			setFocus = module._SetSelectedRaid,
 			mapSelectedToFocus = function(nid)
-				return nid and Database.GetRaidIdByNid(nid) or nil
+				return nid and Database.GetRaidIndexByNid(nid) or nil
 			end,
 			isClickedFocused = function(clickedNid)
-				local selectedRaidNid = module.selectedRaid and Database.GetRaidNidById(module.selectedRaid) or nil
+				local selectedRaidNid = module.selectedRaid and Database.GetRaidNidByIndex(module.selectedRaid) or nil
 				return selectedRaidNid == clickedNid
 			end,
 		})
@@ -1689,7 +1526,7 @@ do
 			end,
 
 			getData = function(out)
-				RaidProjections.FillRaidList(out, "Logger.Raids.GetData")
+				RaidProjections.FillRaidList(out)
 			end,
 
 			rowName = UI.Lists.MakeIndexedRowName("RaidBtn"),
@@ -1714,7 +1551,7 @@ do
 				applyRaidListColumnWidths(n)
 
 				local sel = module.selectedRaid
-				local raid = sel and Database.EnsureRaidById(sel) or nil
+				local raid = sel and Database.EnsureRaidByIndex(sel) or nil
 				local count = controller and controller.data and #controller.data or 0
 
 				local canSetCurrent = false
@@ -1747,7 +1584,7 @@ do
 				local selCount = UI.Selection.GetCount(ctx)
 				local canDelete = (selCount and selCount > 0) or false
 				if canDelete and Database.GetCurrentRaid() then
-					local currentRaidNid = Database.GetRaidNidById(Database.GetCurrentRaid())
+					local currentRaidNid = Database.GetRaidNidByIndex(Database.GetCurrentRaid())
 					local ids = UI.Selection.GetSelected(ctx)
 					for i = 1, #ids do
 						if currentRaidNid and tonumber(ids[i]) == tonumber(currentRaidNid) then
@@ -1782,7 +1619,7 @@ do
 		"_msRaidCtx",
 		{
 			transform = function(id)
-				return Database.GetRaidNidById(id)
+				return Database.GetRaidNidByIndex(id)
 			end,
 		}
 	)
@@ -1828,7 +1665,7 @@ do
 			end
 
 			-- Safety: never delete the current raid
-			local currentRaidNid = Database.GetRaidNidById(Database.GetCurrentRaid())
+			local currentRaidNid = Database.GetRaidNidByIndex(Database.GetCurrentRaid())
 			if currentRaidNid then
 				for i = 1, #raidNids do
 					if tonumber(raidNids[i]) == tonumber(currentRaidNid) then
@@ -1838,19 +1675,18 @@ do
 			end
 
 			local prevFocus = module.selectedRaid
-			local prevFocusNid = prevFocus and Database.GetRaidNidById(prevFocus) or nil
+			local prevFocusNid = prevFocus and Database.GetRaidNidByIndex(prevFocus) or nil
 			for i = 1, #raidNids do
 				module.Actions:DeleteRaidByNid(raidNids[i])
 			end
 
 			UI.Selection.EnsureState(ctx)
 
-			local raidStore = Database.GetRaidStoreOrNil("Logger.Raids.DeleteRaids", { "GetAllRaids" })
-			local raids = raidStore and raidStore:GetAllRaids() or {}
+			local raids = Database.GetRaidStore():GetAllRaids()
 			local n = #raids
 			local newFocus = nil
 			if n > 0 then
-				newFocus = prevFocusNid and Database.GetRaidIdByNid(prevFocusNid) or nil
+				newFocus = prevFocusNid and Database.GetRaidIndexByNid(prevFocusNid) or nil
 				if not newFocus then
 					local base = tonumber(prevFocus) or n
 					if base > n then
@@ -2362,35 +2198,3 @@ module.ToggleLootHistory = function()
 end
 
 module.Toggle = module.ToggleLootHistory
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Controllers/Logger", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DBOptions",
-			"Modules/C",
-			"Modules/Timer",
-			"Modules/Events",
-			"Modules/Bus",
-			"Modules/Strings",
-			"Modules/Colors",
-			"Modules/Base64",
-			"Modules/Sort",
-			"Modules/Dataset/IgnoredMobs",
-			"Modules/UI/Frames",
-			"Modules/UI/Visuals",
-			"Modules/UI/ListController",
-			"Modules/UI/MultiSelect",
-			"Services/Raid/State",
-			"Services/Raid/Projections",
-			"Services/Logger/Store",
-			"Services/Logger/View",
-			"Services/Logger/Export",
-			"Services/Logger/Helpers",
-			"Services/Logger/Actions",
-		},
-	})
-	registry.SetLoaded("Controllers/Logger")
-end

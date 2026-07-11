@@ -1,19 +1,17 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 -- notes: raid-only encounter helpers/adds from LibBossIDs that should not own loot context
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
 local tonumber = tonumber
 local type = type
 
-local IgnoredMobs = feature.IgnoredMobs or {}
+local IgnoredMobs = addon.IgnoredMobs or {}
 addon.IgnoredMobs = IgnoredMobs
-local L = feature.L
+local L = addon.L
 
 -- ----- Internal state ----- --
 local DEFAULT_TRASH_MOB_NAME = "_TrashMob_"
@@ -154,18 +152,4 @@ end
 
 function IgnoredMobs.Contains(npcId)
 	return IgnoredMobs.Ids[tonumber(npcId)] == true
-end
-
-do
-	local name = "Modules/Dataset/IgnoredMobs"
-	local deps = { "Init" }
-	local registry = feature.ModuleRegistry
-	if registry then
-		registry.AddModule(name, { deps = deps })
-		registry.SetLoaded(name)
-	else
-		addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-		local pending = addon.ModuleRegistryPendingRegistrations
-		pending[#pending + 1] = { name = name, deps = deps, loaded = true }
-	end
 end

@@ -1,21 +1,19 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: emits AddRoll through History; owns countdown facade calls
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local L = addon.L
+local Diag = addon.Diag
 
-local L = feature.L
-local Diag = feature.Diag
+local Database = addon.Database
+local Deformat = addon.Deformat
+local Options = addon.Options
+local Services = addon.Services
+local Strings = addon.Strings
 
-local Database = feature.Database
-local Deformat = feature.Deformat
-local Options = feature.Options
-local Services = feature.Services
-local Strings = feature.Strings
-
-local rollTypes = feature.rollTypes
+local rollTypes = addon.C.rollTypes
 
 local _, lootState = Database.EnsureLootRuntimeState()
 lootState.lootCount = tonumber(lootState.lootCount) or 0
@@ -35,7 +33,6 @@ local GetItemIndex = Database.GetItemIndex
 local tconcat = table.concat
 
 local tostring, tonumber = tostring, tonumber
-local upper = string.upper
 
 local function getReserveCountForItem(itemId, name)
 	local reserves = Services.Reserves
@@ -72,12 +69,12 @@ end
 -- =========== Rolls Helpers Module  =========== --
 -- Manages roll tracking, response state, and winner determination.
 do
-	feature.EnsureServiceNamespace("Rolls")
+	addon.Database.EnsureServiceNamespace("Rolls")
 	local Rolls = Services.Rolls
 	local module = Rolls
 
 	-- Namespace registration: options that control countdown and roll-response policy.
-	Options.AddNamespace("Rolls", {
+	Options.RegisterNamespace("Rolls", {
 		countdownDuration = 5,
 		countdownSimpleRaidMsg = false,
 		countdownRollsBlock = true,
@@ -618,17 +615,6 @@ do
 		return submitIncomingRoll(player, value, "debug_roll")
 	end
 
-	function module:SetPlayerResponse(name, status)
-		local responseStatus = type(status) == "string" and upper(status) or status
-		if responseStatus == Responses.STATUS.PASS then
-			return submitExplicitResponse(name, Responses.STATUS.PASS, reasonCodes.PLAYER_PASS, "player_pass")
-		end
-		if responseStatus == Responses.STATUS.CANCELLED or responseStatus == "CANCEL" then
-			return submitExplicitResponse(name, Responses.STATUS.CANCELLED, reasonCodes.PLAYER_CANCEL, "player_cancel")
-		end
-		return false, reasonCodes.STATE_TRANSITION_DENIED
-	end
-
 	function module:GetRolls()
 		return History.GetRolls(getHistoryContext())
 	end
@@ -741,29 +727,4 @@ do
 	function module:FinalizeRollSession()
 		finalizeRollSession()
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Rolls/Service", {
-		deps = {
-			"Init",
-			"Database/DB",
-			"Database/DBOptions",
-			"Modules/ModuleRegistry",
-			"Modules/Item",
-			"Modules/Strings",
-			"Services/Loot/State",
-			"Services/Rolls/Countdown",
-			"Services/Rolls/Sessions",
-			"Services/Rolls/History",
-			"Services/Rolls/Responses",
-			"Services/Rolls/Strategies",
-			"Services/Rolls/Resolution",
-			"Services/Rolls/Display",
-			"Services/Raid/State",
-			"Services/Raid/LootRecords",
-		},
-	})
-	registry.SetLoaded("Services/Rolls/Service")
 end

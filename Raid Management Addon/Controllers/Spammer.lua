@@ -1,23 +1,21 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: owns spammer UI scripts; delegates ticker state to Services/Chat
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local L = addon.L
+local Controllers = addon.Controllers
+local Database = addon.Database
 
-local L = feature.L
-local Controllers = feature.Controllers
-local Database = feature.Database
-
-local UI = feature.UI
+local UI = addon.UI
 local Frames = UI.Frames
 local Scaffold = UI.Scaffold
 local Primitives = UI.Primitives
 local EditBoxes = UI.EditBoxes
 local Tooltips = UI.Tooltips
-local Strings = feature.Strings
-local Services = feature.Services
+local Strings = addon.Strings
+local Services = addon.Services
 
 local SpammerSvc = assert(Services.Spammer, "Spammer controller service namespace is not initialized")
 
@@ -51,7 +49,7 @@ local Draft = {
 do
 	Controllers.Spammer = Controllers.Spammer or {}
 	local module = Controllers.Spammer
-	local uiState = Scaffold.EnsureModuleState(module)
+	local uiState = UI.ModuleState.Ensure(module)
 	-- ----- Internal state ----- --
 
 	local getFrame = Frames.MakeModuleFrameGetter(module, "RMASpammer")
@@ -472,15 +470,6 @@ do
 		return stopSpam()
 	end
 
-	function module:RequestClear()
-		clearSpammer()
-		return Draft.BuildPreview(Draft.GetStore(), DEFAULT_OUTPUT)
-	end
-
-	function module:RequestPreview()
-		return Draft.BuildPreview(Draft.GetStore(), DEFAULT_OUTPUT)
-	end
-
 	pauseSpam = function()
 		local pausedOk = PauseSpamCycle(Chat)
 		if not pausedOk then
@@ -837,20 +826,4 @@ do
 			updateTickDisplay()
 		end
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Controllers/Spammer", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Strings",
-			"Modules/UI/Frames",
-			"Modules/UI/Visuals",
-			"Services/Spammer/Draft",
-			"Services/Chat",
-		},
-	})
-	registry.SetLoaded("Controllers/Spammer")
 end

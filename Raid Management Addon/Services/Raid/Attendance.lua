@@ -1,16 +1,14 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: consumes RaidRosterDelta
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Database = feature.Database
-local Events = feature.Events
-local Bus = feature.Bus
-local Services = feature.Services
-local Time = feature.Time
+local Database = addon.Database
+local Events = addon.Events
+local Bus = addon.Bus
+local Services = addon.Services
+local Time = addon.Time
 
 local InternalEvents = assert(Events.Internal, "Raid attendance internal events are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Raid attendance event publisher is not initialized")
@@ -36,7 +34,7 @@ local function normalizeName(value)
 end
 
 do
-	feature.EnsureServiceNamespace("Raid")
+	addon.Database.EnsureServiceNamespace("Raid")
 	local Raid = Services.Raid
 	local module = Raid
 
@@ -241,7 +239,7 @@ do
 			return
 		end
 
-		local raid = Database.EnsureRaidById(resolvedRaidNum)
+		local raid = Database.EnsureRaidByIndex(resolvedRaidNum)
 		if not raid then
 			return
 		end
@@ -260,30 +258,6 @@ do
 
 	-- ----- Public methods ----- --
 
-	function module:GetAttendanceEntry(raid, playerNid)
-		if type(raid) ~= "table" then
-			return nil
-		end
-
-		local resolvedPlayerNid = tonumber(playerNid) or 0
-		if resolvedPlayerNid <= 0 then
-			return nil
-		end
-
-		local attendance = ensureAttendanceTable(raid)
-		for i = 1, #attendance do
-			local entry = attendance[i]
-			if type(entry) == "table" and tonumber(entry.playerNid) == resolvedPlayerNid then
-				if type(entry.segments) ~= "table" then
-					entry.segments = {}
-				end
-				entry.playerNid = resolvedPlayerNid
-				return entry
-			end
-		end
-		return nil
-	end
-
 	function module:SeedAttendanceFromCurrentRoster(raidOrId, reason)
 		local raidId = tonumber(raidOrId)
 		if not raidId then
@@ -294,7 +268,7 @@ do
 		if not raidId then
 			return false
 		end
-		local raid = Database.EnsureRaidById(raidId)
+		local raid = Database.EnsureRaidByIndex(raidId)
 		if not raid then
 			return false
 		end
@@ -304,7 +278,7 @@ do
 	function module:CloseAttendanceForRaid(raidOrId, timestamp, reason)
 		local raid = raidOrId
 		if type(raidOrId) ~= "table" then
-			raid = Database.EnsureRaidById(tonumber(raidOrId) or 0)
+			raid = Database.EnsureRaidByIndex(tonumber(raidOrId) or 0)
 		end
 		if type(raid) ~= "table" then
 			return false
@@ -332,18 +306,4 @@ do
 	RegisterCallback(RaidCreateEvent, function(_, raidId)
 		module:SeedAttendanceFromCurrentRoster(raidId, "raid_start")
 	end)
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Raid/Attendance", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Events",
-			"Modules/Bus",
-			"Modules/Time",
-		},
-	})
-	registry.SetLoaded("Services/Raid/Attendance")
 end

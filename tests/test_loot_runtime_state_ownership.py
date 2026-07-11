@@ -13,6 +13,7 @@ LOOT_PENDING_AWARDS = ADDON / "Services" / "Loot" / "PendingAwards.lua"
 LOOT_TRACKING = ADDON / "Services" / "Loot" / "Tracking.lua"
 LOOT_PASSIVE_GROUP_LOOT = ADDON / "Services" / "Loot" / "PassiveGroupLoot.lua"
 LOOT_SNAPSHOTS = ADDON / "Services" / "Loot" / "Snapshots.lua"
+LOOT_DISTRIBUTION = ADDON / "Services" / "Loot" / "DistributionSession.lua"
 RAID_STATE = ADDON / "Services" / "Raid" / "State.lua"
 TOC = ADDON / "Raid Management Addon.toc"
 ROLLS_SERVICE = ADDON / "Services" / "Rolls" / "Service.lua"
@@ -28,6 +29,23 @@ def read(path):
 
 
 class LootRuntimeStateOwnershipTest(unittest.TestCase):
+    def test_distribution_keeps_legacy_wire_receive_only(self):
+        distribution = read(LOOT_DISTRIBUTION)
+
+        self.assertNotIn("function DistributionSession.RequestSnapshot()", distribution)
+        self.assertNotIn("function DistributionSession.PublishRollTick(", distribution)
+        self.assertNotIn("function DistributionSession.PublishAwarded(", distribution)
+        self.assertIn('local MSG_SNAPSHOT_REQ = "SNAP_REQ"', distribution)
+        self.assertIn('local MSG_ROLL_TICK = "ROLL_TICK"', distribution)
+        self.assertIn('local MSG_AWARDED = "AWARDED"', distribution)
+        self.assertIn("if kind == MSG_SNAPSHOT_REQ then", distribution)
+        self.assertIn("if kind == MSG_ROLL_TICK then", distribution)
+        self.assertIn("if kind == MSG_AWARDED then", distribution)
+        self.assertIn("return handleRollTickMessage(fields, sender)", distribution)
+        self.assertIn("return handleAwardedMessage(fields, sender)", distribution)
+        self.assertIn("return DistributionSession.PublishSnapshot(sender, fields[3])", distribution)
+        self.assertIn("function DistributionSession.PublishSnapshot(target, requestId)", distribution)
+
     def test_loot_runtime_accessors_are_owned_by_loot_state_service(self):
         init = read(INIT)
         loot_state = read(LOOT_STATE)
@@ -39,11 +57,12 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
             self.assertRegex(loot_state, pattern, method)
             self.assertNotRegex(init, pattern, method)
 
-    def test_bootstrap_feature_shared_exposes_runtime_tables_not_item_index_alias(self):
+    def test_bootstrap_exposes_explicit_runtime_state_without_feature_proxy(self):
         init = read(INIT)
-        self.assertIn('if key == "lootState"', init)
-        self.assertIn('if key == "itemInfo"', init)
-        self.assertNotIn('if key == "GetItemIndex"', init)
+        self.assertIn("addon.State = addon.State or {}", init)
+        self.assertIn("addon.State.raid = addon.State.raid or {}", init)
+        self.assertIn("addon.Diag = Diag", init)
+        self.assertNotIn("GetFeatureShared", init)
 
     def test_loot_service_uses_loot_runtime_state_owner(self):
         loot_service = read(LOOT_SERVICE)
@@ -76,7 +95,6 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
 
         self.assertIn("Database.EnsureLootRuntimeState()", pending_awards)
         self.assertNotIn("local lootState = feature.lootState", pending_awards)
-        self.assertIn('"Services/Loot/State"', pending_awards)
 
     def test_loot_tracking_uses_loot_runtime_state_owner(self):
         tracking = read(LOOT_TRACKING)
@@ -84,7 +102,6 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
         self.assertIn("Database.EnsureLootRuntimeState()", tracking)
         self.assertNotIn("local lootState = feature.lootState", tracking)
         self.assertNotIn("local raidState = feature.raidState", tracking)
-        self.assertIn('"Services/Loot/State"', tracking)
 
     def test_loot_service_does_not_keep_tracking_snapshot_pass_throughs(self):
         loot_service = read(LOOT_SERVICE)
@@ -104,7 +121,7 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
         loot_inventory = read(LOOT_INVENTORY)
         loot_service = read(LOOT_SERVICE)
 
-        self.assertIn("local Item = feature.Item", loot_inventory)
+        self.assertIn("local Item = addon.Item", loot_inventory)
         self.assertIn("Item.IsBagItemSoulbound(bag, slot)", loot_inventory)
         self.assertIn("Item.IsBagItemSoulbound(cachedBag, cachedSlot)", loot_inventory)
         self.assertNotIn("ModuleItemIsSoulbound", loot_inventory)
@@ -139,10 +156,10 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
 
         self.assertIn('assert(Loot.Inventory', master_controller)
         self.assertIn('assert(Loot.AwardPlanner', master_controller)
-        self.assertNotIn("LootInventory.ResolveInventoryAwardedCountFromArgs", master_controller)
+        self.assertNotIn("LootInventory.ResolveInventoryAwardedCount", master_controller)
         self.assertNotIn("LootInventory.ResolveTradeAwardedCount()", master_controller)
         self.assertNotIn("LootAwardPlanner.BuildTradeNotificationPlan", master_controller)
-        self.assertIn("self.inventory.ResolveInventoryAwardedCountFromArgs", trade_execution)
+        self.assertIn("self.inventory.ResolveInventoryAwardedCount", trade_execution)
         self.assertIn("self.inventory.ResolveTradeAwardedCount()", trade_execution)
         self.assertIn("self.awardPlanner.BuildTradeNotificationPlan({", trade_execution)
         for bridge_name in (
@@ -204,7 +221,6 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
         self.assertIn("Database.EnsureLootRuntimeState()", passive_group_loot)
         self.assertNotIn("local lootState = feature.lootState", passive_group_loot)
         self.assertNotIn("local raidState = feature.raidState", passive_group_loot)
-        self.assertIn('"Services/Loot/State"', passive_group_loot)
 
     def test_raid_state_uses_concrete_loot_context_owners_without_aggregate_bridge(self):
         snapshots = read(LOOT_SNAPSHOTS)
@@ -223,7 +239,6 @@ class LootRuntimeStateOwnershipTest(unittest.TestCase):
 
         self.assertIn("local GetItemIndex = Database.GetItemIndex", rolls_service)
         self.assertNotIn("feature.GetItemIndex", rolls_service)
-        self.assertIn('"Services/Loot/State"', rolls_service)
 
     def test_rolls_service_uses_loot_runtime_state_owner(self):
         rolls_service = read(ROLLS_SERVICE)

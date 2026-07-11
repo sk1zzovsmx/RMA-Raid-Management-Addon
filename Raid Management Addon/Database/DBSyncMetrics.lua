@@ -1,13 +1,11 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Database.Syncer._Metrics
 -- events: none
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local DB = feature.DB
+local DB = addon.DB
 -- ----- Internal state ----- --
 
 DB.Syncer = DB.Syncer or {}
@@ -178,16 +176,4 @@ end
 function Metrics.Reset()
 	module._syncMetrics = nil
 	return true
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Database/DBSyncMetrics", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DB",
-		},
-	})
-	registry.SetLoaded("Database/DBSyncMetrics")
 end

@@ -1,14 +1,12 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.LootSourcesData
 -- events: none
 -- notes: static raid loot source data for Classic Vanilla
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local LootSourcesData = feature.LootSourcesData or {}
+local LootSourcesData = addon.LootSourcesData or {}
 addon.LootSourcesData = LootSourcesData
 LootSourcesData.Raw = LootSourcesData.Raw or {}
 

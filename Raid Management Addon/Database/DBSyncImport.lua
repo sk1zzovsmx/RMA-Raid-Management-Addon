@@ -1,17 +1,15 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Database.Syncer._Import
 -- events: none
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local DB = feature.DB
-local Database = feature.Database
-local Strings = feature.Strings
-local Time = feature.Time
-local coreState = feature.coreState
+local DB = addon.DB
+local Database = addon.Database
+local Strings = addon.Strings
+local Time = addon.Time
+local coreState = addon.State
 
 local type = type
 local tonumber, tostring = tonumber, tostring
@@ -134,7 +132,7 @@ local function finalizeSnapshotRaid(raid)
 end
 
 local function getSnapshotImportRaidStore()
-	return Database.GetRaidStoreOrNil("DBSyncer.ImportSnapshotAsNewRaid", { "CreateRaidRecord", "InsertRaid" })
+	return Database.GetRaidStore()
 end
 
 local function createRaidFromSnapshotHeader(raidStore, header)
@@ -176,13 +174,13 @@ function SnapshotImport.GetCurrentRaidRecord()
 	if not currentId then
 		return nil, nil
 	end
-	return Database.EnsureRaidById(currentId), currentId
+	return Database.EnsureRaidByIndex(currentId), currentId
 end
 
 function SnapshotImport.ResolveRaidByReference(raidRef, allowFallback)
 	local n = tonumber(raidRef)
 	if n and n > 0 then
-		local byId, byIdIndex = Database.EnsureRaidById(n)
+		local byId, byIdIndex = Database.EnsureRaidByIndex(n)
 		if byId then
 			return byId, byIdIndex
 		end
@@ -201,7 +199,7 @@ function SnapshotImport.ResolveRaidByReference(raidRef, allowFallback)
 
 	local selectedRaid = coreState and coreState.selectedRaid
 	if selectedRaid then
-		local raid = Database.EnsureRaidById(selectedRaid)
+		local raid = Database.EnsureRaidByIndex(selectedRaid)
 		if raid then
 			return raid, selectedRaid
 		end
@@ -209,7 +207,7 @@ function SnapshotImport.ResolveRaidByReference(raidRef, allowFallback)
 
 	local currentRaid = Database.GetCurrentRaid()
 	if currentRaid then
-		return Database.EnsureRaidById(currentRaid), currentRaid
+		return Database.EnsureRaidByIndex(currentRaid), currentRaid
 	end
 
 	return nil, nil
@@ -344,10 +342,7 @@ function SnapshotImport.ApplySnapshotToRaid(raid, snapshot, updateMeta)
 	end
 
 	applySnapshotNextNids(raid, header)
-	local raidStore = Database.GetRaidStoreOrNil("DBSyncImport.ApplySnapshotToRaid", { "SetRaidSyncRevision" })
-	if raidStore then
-		raidStore:SetRaidSyncRevision(raid, tonumber(header.revision) or 0, "snapshot")
-	end
+	Database.GetRaidStore():SetRaidSyncRevision(raid, tonumber(header.revision) or 0, "snapshot")
 	return finalizeSnapshotRaid(raid)
 end
 
@@ -359,8 +354,7 @@ function SnapshotImport.ApplyDeltaToRaid(raid, delta)
 	raid.loot = raid.loot or {}
 	local _, playerNidByName, validPlayerNids = SnapshotPayload.BuildPlayerNameMaps(raid.players)
 	local lootIdx = buildNidIndex(raid.loot, "lootNid")
-	local raidStore =
-		Database.GetRaidStoreOrNil("DBSyncImport.ApplyDeltaToRaid", { "SetRaidSyncRevision", "SetLootSyncRevision" })
+	local raidStore = Database.GetRaidStore()
 
 	for i = 1, #(delta.loot or {}) do
 		local src = delta.loot[i]
@@ -396,20 +390,12 @@ function SnapshotImport.ApplyDeltaToRaid(raid, delta)
 			dst.bossNid = tonumber(src.bossNid) or 0
 			dst.time = tonumber(src.time) or dst.time
 
-			if raidStore then
-				raidStore:SetLootSyncRevision(
-					raid,
-					dst,
-					tonumber(src.syncRevision) or tonumber(delta.header.revision) or 0
-				)
-			end
+			raidStore:SetLootSyncRevision(raid, dst, tonumber(src.syncRevision) or tonumber(delta.header.revision) or 0)
 		end
 	end
 
 	applySnapshotNextNids(raid, delta.header)
-	if raidStore then
-		raidStore:SetRaidSyncRevision(raid, tonumber(delta.header.revision) or 0, "delta")
-	end
+	raidStore:SetRaidSyncRevision(raid, tonumber(delta.header.revision) or 0, "delta")
 	return finalizeSnapshotRaid(raid)
 end
 
@@ -420,10 +406,6 @@ function SnapshotImport.ImportSnapshotAsNewRaid(snapshot)
 	end
 
 	local raidStore = getSnapshotImportRaidStore()
-	if not raidStore then
-		return nil, nil
-	end
-
 	local raid = createRaidFromSnapshotHeader(raidStore, header)
 
 	raid = SnapshotImport.ApplySnapshotToRaid(raid, snapshot, true)
@@ -432,21 +414,4 @@ function SnapshotImport.ImportSnapshotAsNewRaid(snapshot)
 	end
 
 	return raidStore:InsertRaid(raid)
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Database/DBSyncImport", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DB",
-			"Database/DBSchema",
-			"Database/DBRaidStore",
-			"Database/DBSyncPayload",
-			"Modules/Strings",
-			"Modules/Time",
-		},
-	})
-	registry.SetLoaded("Database/DBSyncImport")
 end

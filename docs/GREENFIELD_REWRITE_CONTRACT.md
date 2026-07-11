@@ -45,7 +45,6 @@ The following are **not** stable compatibility surfaces:
 - current file count
 - current folder split
 - current private function names
-- current ModuleRegistry entries created only because of file boundaries
 - current pass-through wrappers
 - current temporary Bind APIs
 - current tests that lock implementation details rather than user-visible behavior
@@ -280,7 +279,12 @@ External command/SavedVariables/protocol changes require a stronger compatibilit
 - `line_count_policy`: `do not split or merge by line count alone`
 - `api_surface_policy`: `extraction is allowed only when it reduces caller complexity, stabilizes a contract, or isolates a real policy/integration boundary`
 - `toc_complexity_policy`: `each TOC entry must justify its load-order and dependency cost`
-- `registry_policy`: `ModuleRegistry entries must represent real runtime dependencies, not artifacts of unnecessary file splitting`
+- `load_order_policy`: `the TOC is the sole load-order authority; runtime module registries that duplicate it are forbidden`
+- `dependency_binding_policy`: `runtime files bind explicit addon namespaces and must not use a shared dependency proxy or service locator`
+- `feature_flag_policy`: `runtime feature flags require at least one real supported configuration; permanently enabled full-profile flags are forbidden`
+- `widget_dependency_policy`: `widget consumers call concrete addon.Widgets owners directly; string-keyed widget registries and generic dispatch facades are forbidden`
+- `required_dependency_policy`: `once the TOC guarantees a concrete runtime owner, consumers must fail fast on load-order errors instead of carrying nil-owner, missing-method, or empty-data fallback paths`
+- `shared_ui_policy`: `reusable frame behavior and deterministic list layout algorithms have one concrete UI owner; feature controllers retain only feature context and domain actions`
 
 ## Recommended Macro Areas
 
@@ -385,7 +389,7 @@ Tests must **not** lock:
 - temporary file splits
 - private helper names
 - exact internal Bind APIs
-- ModuleRegistry entries that may disappear after consolidation
+- duplicated runtime load-order metadata
 - TOC entries for modules that the cohesion gate may still merge
 - current bugs or accidental implementation behavior
 
@@ -513,7 +517,7 @@ A rewrite batch is not committable until the following are coherent:
 - TOC references
 - runtime Lua/XML files
 - deleted/renamed file references
-- ModuleRegistry dependencies
+- TOC load-order dependencies
 - SavedVariables ownership
 - generated docs or API references
 - tests

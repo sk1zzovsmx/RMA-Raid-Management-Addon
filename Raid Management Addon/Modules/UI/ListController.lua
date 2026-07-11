@@ -1,22 +1,21 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.UI.Lists
 -- events: none; owns deferred list refresh driver
 -- ui ownership: Lua owns list virtualization, row reuse, row placement, and scroll sizing.
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Diag = feature.Diag
-local Options = feature.Options
-local UI = feature.UI or {}
+local Diag = addon.Diag
+local Options = addon.Options
+local UI = addon.UI or {}
 local Frames = UI.Frames
 local Rows = UI.Rows
 local Primitives = UI.Primitives
 
 local _G = _G
 local type, pairs, tostring = type, pairs, tostring
+local floor = math.floor
 local twipe = table.wipe
 
 local CreateFrame = assert(_G.CreateFrame, "List controller frame creation API is not initialized")
@@ -62,6 +61,58 @@ function Lists.MakeIndexedRowName(suffix)
 	return function(frameName, _, index)
 		return tostring(frameName or "") .. suffix .. tostring(index or "")
 	end
+end
+
+function Lists.CalculateColumnWidths(totalWidth, minWidths, ratios, fixedKeys)
+	local widths = {}
+	local variableKeys = {}
+	local fixed = {}
+	local usedWidth = 0
+	local ratioTotal = 0
+
+	if fixedKeys then
+		for i = 1, #fixedKeys do
+			fixed[fixedKeys[i]] = true
+		end
+	end
+
+	for key, minWidth in pairs(minWidths) do
+		local width = tonumber(minWidth) or 0
+		widths[key] = width
+		usedWidth = usedWidth + width
+		if not fixed[key] then
+			variableKeys[#variableKeys + 1] = key
+			ratioTotal = ratioTotal + (tonumber(ratios[key]) or 0)
+		end
+	end
+
+	local extraWidth = floor((tonumber(totalWidth) or 0) - usedWidth)
+	if extraWidth <= 0 or ratioTotal <= 0 then
+		return widths
+	end
+
+	local allocated = 0
+	for i = 1, #variableKeys do
+		local key = variableKeys[i]
+		local ratio = (tonumber(ratios[key]) or 0) / ratioTotal
+		local addition = floor(extraWidth * ratio)
+		widths[key] = widths[key] + addition
+		allocated = allocated + addition
+	end
+
+	local remainder = extraWidth - allocated
+	if remainder > 0 then
+		for i = 1, #variableKeys do
+			local key = variableKeys[i]
+			widths[key] = widths[key] + 1
+			remainder = remainder - 1
+			if remainder <= 0 then
+				break
+			end
+		end
+	end
+
+	return widths
 end
 
 function Lists.CreateController(cfg)
@@ -521,12 +572,4 @@ function Lists.BindController(module, controller)
 	module.Sort = function(_, key)
 		controller:Sort(key)
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Modules/UI/ListController", {
-		deps = { "Init", "Database/DBOptions", "Modules/ModuleRegistry", "Modules/UI/Frames", "Modules/UI/Visuals" },
-	})
-	registry.SetLoaded("Modules/UI/ListController")
 end

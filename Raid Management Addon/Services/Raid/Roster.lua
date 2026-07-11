@@ -1,22 +1,20 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: emits RaidRosterDelta
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local Diag = addon.Diag
 
-local Diag = feature.Diag
-
-local Database = feature.Database
+local Database = addon.Database
 local SavedVariables = Database.SavedVariables
-local Events = feature.Events
-local Bus = feature.Bus
-local Services = feature.Services
-local Strings = feature.Strings
-local Time = feature.Time
-local Timer = feature.Timer
-local coreState = feature.coreState
+local Events = addon.Events
+local Bus = addon.Bus
+local Services = addon.Services
+local Strings = addon.Strings
+local Time = addon.Time
+local Timer = addon.Timer
+local coreState = addon.State
 
 local InternalEvents = assert(Events.Internal, "Raid roster internal events are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Raid roster event publisher is not initialized")
@@ -34,7 +32,7 @@ local getRaidRosterInfo = GetRaidRosterInfo
 local UnitRace, UnitSex = UnitRace, UnitSex
 
 do
-	feature.EnsureServiceNamespace("Raid")
+	addon.Database.EnsureServiceNamespace("Raid")
 	local Raid = Services.Raid
 	local module = Raid
 
@@ -57,7 +55,7 @@ do
 	local isUnknownName = assert(module._IsUnknownNameInternal, "Raid unknown-name helper is not initialized")
 
 	-- ----- Private helpers ----- --
-	local isDebugEnabled = feature.Options.IsDebugEnabled
+	local isDebugEnabled = addon.Options.IsDebugEnabled
 
 	local function resetLiveUnitCaches()
 		twipe(liveUnitsByName)
@@ -256,7 +254,7 @@ do
 
 	function module:IsSyntheticPlayerActive(name, raidNum)
 		local currentRaidId = raidNum or Database.GetCurrentRaid()
-		local raid = Database.EnsureRaidById(currentRaidId)
+		local raid = Database.EnsureRaidByIndex(currentRaidId)
 		local resolvedName
 
 		if not raid or not name then
@@ -281,7 +279,7 @@ do
 		end
 
 		local instanceName, instanceType, instanceDiff = GetInstanceInfo()
-		if instanceType == "raid" and feature.L.RaidZones[instanceName] ~= nil then
+		if instanceType == "raid" and addon.L.RaidZones[instanceName] ~= nil then
 			module:Check(instanceName, instanceDiff)
 		end
 	end
@@ -465,15 +463,14 @@ do
 		end
 
 		local currentRaidId = Database.GetCurrentRaid()
-		local raid = Database.EnsureRaidById(currentRaidId)
+		local raid = Database.EnsureRaidByIndex(currentRaidId)
 		if not raid then
 			return false
 		end
 
 		local realm = Database.GetRealmName()
 		local realmPlayers = ensureRealmPlayerMeta(realm)
-		local raidStore = Database.GetRaidStoreOrNil("Raid.UpdateRaidRoster", { "EnsureRaidRuntime" })
-		local runtime = raidStore and raidStore:EnsureRaidRuntime(raid) or nil
+		local runtime = Database.GetRaidStore():EnsureRaidRuntime(raid)
 		local playersByName = runtime and runtime.playersByName or {}
 
 		local prevNumRaid = numRaid
@@ -574,7 +571,7 @@ do
 	function module:GetPlayerID(name, raidNum)
 		local playerNid = 0
 		raidNum = raidNum or Database.GetCurrentRaid()
-		local raid = raidNum and Database.EnsureRaidById(raidNum)
+		local raid = raidNum and Database.EnsureRaidByIndex(raidNum)
 		if raid then
 			name = Strings.NormalizeName(name or Database.GetPlayerName(), true)
 			local players = raid.players or {}
@@ -592,7 +589,7 @@ do
 	function module:GetPlayerName(id, raidNum)
 		local name
 		raidNum = raidNum or (coreState and coreState.selectedRaid) or Database.GetCurrentRaid()
-		local raid = raidNum and Database.EnsureRaidById(raidNum)
+		local raid = raidNum and Database.EnsureRaidByIndex(raidNum)
 		if raid then
 			local qid = tonumber(id) or id
 			local players = raid.players or {}
@@ -622,7 +619,7 @@ do
 	-- Returns players from the raid log. Can be filtered by boss kill.
 	function module:GetPlayers(raidNum, bossNid, out)
 		raidNum = raidNum or Database.GetCurrentRaid()
-		local raid = Database.EnsureRaidById(raidNum)
+		local raid = Database.EnsureRaidByIndex(raidNum)
 		if not raid then
 			return {}
 		end
@@ -691,22 +688,4 @@ do
 		end
 		return "none"
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Raid/Roster", {
-		deps = {
-			"Init",
-			"Database/DBOptions",
-			"Modules/ModuleRegistry",
-			"Database/SavedVariables",
-			"Modules/Timer",
-			"Modules/Events",
-			"Modules/Bus",
-			"Modules/Strings",
-			"Modules/Time",
-		},
-	})
-	registry.SetLoaded("Services/Raid/Roster")
 end

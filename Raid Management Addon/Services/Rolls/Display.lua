@@ -1,16 +1,14 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Rolls._Display
 -- events: none
 -- notes: display-model helpers for rolls service
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local L = feature.L
-local Services = feature.Services
-local rollTypes = feature.rollTypes
+local L = addon.L
+local Services = addon.Services
+local rollTypes = addon.C.rollTypes
 
 local sort = table.sort
 local twipe = table.wipe
@@ -18,7 +16,7 @@ local pairs = pairs
 local tostring, tonumber = tostring, tonumber
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Rolls")
+addon.Database.EnsureServiceNamespace("Rolls")
 local Rolls = Services.Rolls
 local module = Rolls
 module._Display = module._Display or {}
@@ -352,17 +350,4 @@ function Display.ShouldUseTieReroll(ctx, model)
 		and resolution.requiresManualResolution == true
 		and requiredWinnerCount == 1
 		and selectedCount <= 0
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Rolls/Display", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Services/Rolls/Responses",
-			"Services/Rolls/Resolution",
-		},
-	})
-	registry.SetLoaded("Services/Rolls/Display")
 end

@@ -1,21 +1,19 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.Options
 -- events: emits OptionChanged, OptionsReset, OptionsLoaded via addon.Bus
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
 local type, pairs, tostring, tonumber = type, pairs, tostring, tonumber
 local format = string.format
 
-local Options = feature.Options or {}
+local Options = addon.Options or {}
 addon.Options = Options
-local SavedVariables = feature.Database.SavedVariables
-local Bus = feature.Bus
-local coreState = feature.coreState
+local SavedVariables = addon.Database.SavedVariables
+local Bus = addon.Bus
+local coreState = addon.State
 
-local eventRoot = feature.Events
+local eventRoot = addon.Events
 addon.Events = eventRoot
 eventRoot.Internal = eventRoot.Internal or {}
 local Events = eventRoot.Internal
@@ -141,10 +139,6 @@ function namespaceMt:Set(key, value)
 	return true
 end
 
-function namespaceMt:GetDefaults()
-	return shallowCopy(self._defaults)
-end
-
 function namespaceMt:ResetDefaults()
 	local saved = ensureSavedTable()
 	local fresh = shallowCopy(self._defaults)
@@ -167,12 +161,12 @@ function namespaceMt:Name()
 end
 
 -- ----- Public methods ----- --
-function Options.AddNamespace(name, defaults)
+function Options.RegisterNamespace(name, defaults)
 	if type(name) ~= "string" or name == "" then
-		error("Options.AddNamespace: name must be a non-empty string", 2)
+		error("Options.RegisterNamespace: name must be a non-empty string", 2)
 	end
 	if type(defaults) ~= "table" then
-		error("Options.AddNamespace: defaults must be a table", 2)
+		error("Options.RegisterNamespace: defaults must be a table", 2)
 	end
 
 	local existing = namespaces[name]
@@ -309,20 +303,5 @@ function Options.SetDebugEnabled(enabled)
 	local level = enabled and (levels and levels.DEBUG) or (levels and levels.INFO)
 	if level and addon and addon.SetLogLevel then
 		addon:SetLogLevel(level)
-	end
-end
-
-do
-	local name = "Database/DBOptions"
-	local deps = { "Init", "Database/SavedVariables" }
-	-- Bootstrap exception: ModuleRegistry may not be loaded yet.
-	local registry = addon.ModuleRegistry
-	if registry then
-		registry.AddModule(name, { deps = deps })
-		registry.SetLoaded(name)
-	else
-		addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-		local pending = addon.ModuleRegistryPendingRegistrations
-		pending[#pending + 1] = { name = name, deps = deps, loaded = true }
 	end
 end

@@ -1,18 +1,16 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Master.ButtonState
 -- events: none
 -- notes: pure Master button and tooltip state models
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Master = feature.EnsureServiceNamespace("Master")
+local Master = addon.Database.EnsureServiceNamespace("Master")
 
 local ButtonState = Master.ButtonState or {}
 Master.ButtonState = ButtonState
 
-local L = feature.L
+local L = addon.L
 
 local type = type
 local tonumber = tonumber
@@ -200,15 +198,4 @@ function ButtonState.BuildState(opts)
 		glowBankSuggestion = hasItemActionAccess and suggestedAction == "bank" and lootState.banker,
 		glowDisenchantSuggestion = hasItemActionAccess and suggestedAction == "disenchant" and lootState.disenchanter,
 	}
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Master/ButtonState", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-		},
-	})
-	registry.SetLoaded("Services/Master/ButtonState")
 end

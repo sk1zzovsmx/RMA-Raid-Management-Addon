@@ -1,17 +1,15 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Reserves._Display
 -- events: no bus events; display helpers only
 -- notes: reserves display/grouping helpers
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local L = feature.L
-local Colors = feature.Colors
-local Strings = feature.Strings
-local Services = feature.Services
+local L = addon.L
+local Colors = addon.Colors
+local Strings = addon.Strings
+local Services = addon.Services
 
 local format = string.format
 local sort = table.sort
@@ -19,7 +17,7 @@ local tconcat, twipe = table.concat, table.wipe
 local pairs, tostring, tonumber, type = pairs, tostring, tonumber, type
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Reserves")
+addon.Database.EnsureServiceNamespace("Reserves")
 local Reserves = Services.Reserves
 local module = Reserves
 module._Display = module._Display or {}
@@ -1264,18 +1262,4 @@ function Display.GetDisplayList(ctx)
 		ctx.setDirty(false)
 	end
 	return ctx.reservesDisplayList
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Reserves/Display", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Colors",
-			"Modules/Strings",
-			"Services/Reserves/Aliases",
-		},
-	})
-	registry.SetLoaded("Services/Reserves/Display")
 end

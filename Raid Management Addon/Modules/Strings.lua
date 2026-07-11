@@ -1,23 +1,22 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
 local type, tostring = type, tostring
 local find, gsub = string.find, string.gsub
 local strsub = string.sub
 local format = string.format
 local lower, upper = string.lower, string.upper
+local concat = table.concat
 
 local GetAchievementLink = GetAchievementLink
 
-local Colors = feature.Colors or {}
+local Colors = addon.Colors or {}
 
-local Strings = feature.Strings or {}
+local Strings = addon.Strings or {}
 addon.Strings = Strings
 
 -- ----- Internal state ----- --
@@ -38,12 +37,31 @@ local function upperFirst(value)
 	return gsub(value, "%a", upper, 1)
 end
 
+local function encodeCSVField(value)
+	if value == nil then
+		return ""
+	end
+	local text = tostring(value)
+	if find(text, '[",\r\n]') then
+		return '"' .. gsub(text, '"', '""') .. '"'
+	end
+	return text
+end
+
 -- ----- Public methods ----- --
 function Strings.TrimText(value, allowNil)
 	if value == nil then
 		return allowNil and nil or ""
 	end
 	return trimRaw(value)
+end
+
+function Strings.AppendCSVRow(lines, fields, encoded, fieldCount)
+	local count = fieldCount or #fields
+	for i = 1, count do
+		encoded[i] = encodeCSVField(fields[i])
+	end
+	lines[#lines + 1] = concat(encoded, ",", 1, count)
 end
 
 function Strings.NilIfEmpty(value)
@@ -105,18 +123,4 @@ function Strings.SplitArgs(msg)
 	end
 	local cmd, rest = msg:match("^(%S+)%s*(.-)$")
 	return Strings.NormalizeLower(cmd), Strings.TrimText(rest)
-end
-
-do
-	local name = "Modules/Strings"
-	local deps = { "Init", "Modules/Colors" }
-	local registry = feature.ModuleRegistry
-	if registry then
-		registry.AddModule(name, { deps = deps })
-		registry.SetLoaded(name)
-	else
-		addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-		local pending = addon.ModuleRegistryPendingRegistrations
-		pending[#pending + 1] = { name = name, deps = deps, loaded = true }
-	end
 end

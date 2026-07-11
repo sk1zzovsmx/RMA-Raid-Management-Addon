@@ -19,10 +19,10 @@ class RaidStoreApiOwnershipTest(unittest.TestCase):
         raid_store = read(DB_RAID_STORE)
         for method in (
             "EnsureRaidSchema",
-            "EnsureRaidById",
+            "EnsureRaidByIndex",
             "EnsureRaidByNid",
-            "GetRaidNidById",
-            "GetRaidIdByNid",
+            "GetRaidNidByIndex",
+            "GetRaidIndexByNid",
             "StripRuntimeRaidCaches",
         ):
             pattern = r"function\s+Database\." + method + r"\s*\("

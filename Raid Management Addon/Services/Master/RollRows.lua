@@ -1,14 +1,12 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Master.RollRows
 -- events: none
 -- notes: pure Master roll row display models and list row adapters
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Master = feature.EnsureServiceNamespace("Master")
-local Services = feature.Services
+local Master = addon.Database.EnsureServiceNamespace("Master")
+local Services = addon.Services
 
 local RollRows = Master.RollRows or {}
 Master.RollRows = RollRows
@@ -184,15 +182,4 @@ function RollRows.BuildModel(opts)
 	end
 
 	return decoratedRows, visibleRows
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Master/RollRows", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-		},
-	})
-	registry.SetLoaded("Services/Master/RollRows")
 end

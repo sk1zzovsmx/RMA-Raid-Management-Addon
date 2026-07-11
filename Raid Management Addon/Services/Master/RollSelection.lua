@@ -1,13 +1,11 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Master.RollSelection
 -- events: none
 -- notes: owns Master roll winner selection state and display model assembly
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Master = feature.EnsureServiceNamespace("Master")
+local Master = addon.Database.EnsureServiceNamespace("Master")
 
 local RollSelection = Master.RollSelection or {}
 Master.RollSelection = RollSelection
@@ -438,17 +436,4 @@ function RollSelection.CreateController(opts)
 	end
 
 	return controller
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Master/RollSelection", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/UI/MultiSelect",
-			"Services/Master/RollRows",
-		},
-	})
-	registry.SetLoaded("Services/Master/RollSelection")
 end

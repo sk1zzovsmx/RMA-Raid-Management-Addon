@@ -1,13 +1,11 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Database = feature.Database
-local Services = feature.Services
+local Database = addon.Database
+local Services = addon.Services
 
 local twipe = table.wipe
 local tostring, tonumber = tostring, tonumber
@@ -15,7 +13,7 @@ local date = date
 local floor = math.floor
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Logger", "View")
+addon.Database.EnsureServiceNamespace("Logger", "View")
 local Logger = Services.Logger
 local View = Logger.View
 local isBossFightRecord = Database.IsBossFightRecord
@@ -73,11 +71,11 @@ function View:FillBossAttendeesList(out, raid, bossNid)
 	return result
 end
 
-function View:GetPlayerBossParticipationList(out, raid, playerNid)
+function View:FillPlayerBossParticipationList(out, raid, playerNid)
 	local perfStart = addon.hasPerf and addon._PerfStart and addon:_PerfStart() or nil
 	if not out then
 		finishPerf(
-			"Logger.View.GetPlayerBossParticipationList",
+			"Logger.View.FillPlayerBossParticipationList",
 			perfStart,
 			raid,
 			out,
@@ -89,7 +87,7 @@ function View:GetPlayerBossParticipationList(out, raid, playerNid)
 	local selectedPlayerNid = tonumber(playerNid)
 	if not (raid and selectedPlayerNid) then
 		finishPerf(
-			"Logger.View.GetPlayerBossParticipationList",
+			"Logger.View.FillPlayerBossParticipationList",
 			perfStart,
 			raid,
 			out,
@@ -122,7 +120,7 @@ function View:GetPlayerBossParticipationList(out, raid, playerNid)
 		end
 	end
 	finishPerf(
-		"Logger.View.GetPlayerBossParticipationList",
+		"Logger.View.FillPlayerBossParticipationList",
 		perfStart,
 		raid,
 		out,
@@ -142,16 +140,4 @@ function View:FillLootList(out, raid, bossNid, playerName)
 		"boss=" .. tostring(bossNid or "?") .. " player=" .. tostring(playerName or "")
 	)
 	return result
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Logger/View", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DBRaidQueries",
-		},
-	})
-	registry.SetLoaded("Services/Logger/View")
 end

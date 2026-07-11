@@ -1,19 +1,17 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Raid.Projections
 -- events: none
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Database = feature.Database
-local Services = feature.Services
+local Database = addon.Database
+local Services = addon.Services
 
 local twipe = table.wipe
 local type, tostring, tonumber = type, tostring, tonumber
 local date = date
 
-feature.EnsureServiceNamespace("Raid", "Projections")
+addon.Database.EnsureServiceNamespace("Raid", "Projections")
 local Projections = Services.Raid.Projections
 
 local function buildRaidListRow(raid, seq, queries)
@@ -64,17 +62,17 @@ function Projections.GetDifficultyLabel(raid)
 	return ""
 end
 
-function Projections.FillRaidList(out, contextTag)
+function Projections.FillRaidList(out)
 	if type(out) ~= "table" then
 		return
 	end
 
 	twipe(out)
-	local raidStore = Database.GetRaidStoreOrNil(contextTag, { "GetAllRaids", "GetRaidByIndex" })
-	local raids = raidStore and raidStore:GetAllRaids() or {}
+	local raidStore = Database.GetRaidStore()
+	local raids = raidStore:GetAllRaids()
 	local queries = Database.GetRaidQueries()
 	for i = 1, #raids do
-		local raid = (raidStore and raidStore:GetRaidByIndex(i)) or Database.EnsureRaidById(i)
+		local raid = raidStore:EnsureRaidByIndex(i)
 		local row = buildRaidListRow(raid, i, queries)
 		if row then
 			out[i] = row
@@ -90,17 +88,4 @@ function Projections.BuildExportMetadata(raid)
 		size = tonumber(raid and raid.size) or "",
 		difficulty = tonumber(raid and raid.difficulty) or "",
 	}
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Raid/Projections", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DBRaidStore",
-			"Database/DBRaidQueries",
-		},
-	})
-	registry.SetLoaded("Services/Raid/Projections")
 end

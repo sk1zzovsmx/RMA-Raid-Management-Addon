@@ -1,15 +1,13 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: emits PlayerCountChanged
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Events = feature.Events
-local Bus = feature.Bus
-local Database = feature.Database
-local Services = feature.Services
+local Events = addon.Events
+local Bus = addon.Bus
+local Database = addon.Database
+local Services = addon.Services
 
 local InternalEvents = assert(Events.Internal, "Raid counts internal events are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Raid counts event publisher is not initialized")
@@ -55,7 +53,7 @@ end
 
 local function resolveRaidWithSchema(raidNum)
 	local resolvedRaidNum = raidNum or Database.GetCurrentRaid()
-	local raid = Database.EnsureRaidById(resolvedRaidNum)
+	local raid = Database.EnsureRaidByIndex(resolvedRaidNum)
 	if not raid then
 		return nil, nil
 	end
@@ -73,7 +71,7 @@ local function resolveRaidPlayerByNid(playerNid, raidNum)
 end
 
 do
-	feature.EnsureServiceNamespace("Raid")
+	addon.Database.EnsureServiceNamespace("Raid")
 	local Raid = Services.Raid
 	local module = Raid
 	module._FindRaidPlayerByNid = findRaidPlayerByNid
@@ -86,7 +84,7 @@ do
 
 	function module:GetLootCounterRows(raidNum, out)
 		raidNum = raidNum or Database.GetCurrentRaid()
-		local raid = Database.EnsureRaidById(raidNum)
+		local raid = Database.EnsureRaidByIndex(raidNum)
 		local rows = out or {}
 		if out then
 			twipe(rows)
@@ -189,7 +187,7 @@ do
 			end
 		end
 
-		name = feature.Strings.NormalizeName(name, true)
+		name = addon.Strings.NormalizeName(name, true)
 		if not name then
 			return
 		end
@@ -230,18 +228,4 @@ do
 		end
 		return module:GetPlayerLootCountByNid(playerNid, "ms", raidNum)
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Raid/Counts", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Events",
-			"Modules/Bus",
-			"Modules/Strings",
-		},
-	})
-	registry.SetLoaded("Services/Raid/Counts")
 end

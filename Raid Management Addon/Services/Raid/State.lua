@@ -1,32 +1,30 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: emits RaidCreate
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local L = addon.L
+local Diag = addon.Diag
 
-local L = feature.L
-local Diag = feature.Diag
-
-local Events = feature.Events
-local C = feature.C
-local Database = feature.Database
-local Bus = feature.Bus
-local Strings = feature.Strings
-local Time = feature.Time
-local Services = feature.Services
-local Base64 = feature.Base64
-local IgnoredMobs = feature.IgnoredMobs or {}
-local LootSources = feature.LootSources
-local LootSourceCandidates = feature.LootSourceCandidates
+local Events = addon.Events
+local C = addon.C
+local Database = addon.Database
+local Bus = addon.Bus
+local Strings = addon.Strings
+local Time = addon.Time
+local Services = addon.Services
+local Base64 = addon.Base64
+local IgnoredMobs = addon.IgnoredMobs or {}
+local LootSources = addon.LootSources
+local LootSourceCandidates = addon.LootSourceCandidates
 
 local InternalEvents = assert(Events.Internal, "Raid state internal events are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Raid state event publisher is not initialized")
 local RaidCreateEvent = assert(InternalEvents.RaidCreate, "Raid state raid-create event is not initialized")
 
-local coreState = feature.coreState
-local raidState = feature.raidState
+local coreState = addon.State
+local raidState = addon.State.raid
 if coreState.nextReset == nil then
 	coreState.nextReset = 0
 end
@@ -45,14 +43,14 @@ local UnitName = assert(_G.UnitName, "Raid state unit name API is not initialize
 local UnitRace = UnitRace
 local GetInstanceInfo = assert(_G.GetInstanceInfo, "Raid state instance info API is not initialized")
 local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "Raid state roster count API is not initialized")
-local GetGroupTypeAndCount = feature.GetGroupTypeAndCount
-local BossIDs = feature.BossIDs
-local GetCreatureId = assert(feature.GetCreatureId, "Raid state creature-id helper is not initialized")
+local GetGroupTypeAndCount = addon.GetGroupTypeAndCount
+local BossIDs = addon.BossIDs
+local GetCreatureId = assert(addon.GetCreatureId, "Raid state creature-id helper is not initialized")
 
 -- Raid helper module.
 -- Manages raid state, roster, boss kills, and loot logging.
 do
-	feature.EnsureServiceNamespace("Raid")
+	addon.Database.EnsureServiceNamespace("Raid")
 	local Raid = Services.Raid
 	local module = Raid
 	-- ----- Internal state ----- --
@@ -84,7 +82,7 @@ do
 	local recentTrashDeathContextActivityAt = 0
 
 	-- ----- Private helpers ----- --
-	local isDebugEnabled = feature.Options.IsDebugEnabled
+	local isDebugEnabled = addon.Options.IsDebugEnabled
 
 	local function notifyRaidCreate(raidId)
 		TriggerEvent(RaidCreateEvent, raidId)
@@ -1280,7 +1278,7 @@ do
 
 	function module:FindAndRememberBossContextForLootSession(raidNum, rollSessionId, options)
 		options = options or {}
-		local raid = Database.EnsureRaidById(raidNum)
+		local raid = Database.EnsureRaidByIndex(raidNum)
 		if not raid then
 			return 0
 		end
@@ -1303,7 +1301,7 @@ do
 
 	function module:EnsureLootWindowItemContext(raidNum, items, options)
 		options = options or {}
-		local raid = Database.EnsureRaidById(raidNum)
+		local raid = Database.EnsureRaidByIndex(raidNum)
 		if not raid then
 			return 0
 		end
@@ -1477,10 +1475,7 @@ do
 			instanceDiff = resolveRaidDifficulty()
 		end
 
-		local raidStore = Database.GetRaidStoreOrNil("Raid.Create", { "CreateRaidRecord", "InsertRaid" })
-		if not raidStore then
-			return false
-		end
+		local raidStore = Database.GetRaidStore()
 
 		local raidInfo = raidStore:CreateRaidRecord({
 			realm = realm,
@@ -1564,7 +1559,7 @@ do
 			module._CancelRosterRefreshInternal()
 		end
 		local currentTime = Time.GetCurrentTime()
-		local raid = Database.EnsureRaidById(Database.GetCurrentRaid())
+		local raid = Database.EnsureRaidByIndex(Database.GetCurrentRaid())
 		if raid then
 			local duration = currentTime - (raid.startTime or currentTime)
 			addon:info(
@@ -1636,7 +1631,7 @@ do
 		if not raidNum or not t or not t.name then
 			return
 		end
-		local raid = Database.EnsureRaidById(raidNum)
+		local raid = Database.EnsureRaidByIndex(raidNum)
 		if not raid then
 			return
 		end
@@ -1699,7 +1694,7 @@ do
 		end
 		local isTrashBoss = IsTrashMobName(bossName)
 
-		local raid = Database.EnsureRaidById(raidNum)
+		local raid = Database.EnsureRaidByIndex(raidNum)
 		if not raid then
 			return 0
 		end
@@ -1826,7 +1821,7 @@ do
 
 	-- Checks if a raid log is expired (older than the weekly reset).
 	function module:IsRaidExpired(rID)
-		local raid = Database.EnsureRaidById(rID)
+		local raid = Database.EnsureRaidByIndex(rID)
 		if not raid then
 			return true
 		end
@@ -1845,7 +1840,7 @@ do
 	-- Retrieves all loot for a given raid and optional boss number.
 	function module:GetLoot(raidNum, bossNid)
 		raidNum = raidNum or Database.GetCurrentRaid()
-		local raid = Database.EnsureRaidById(raidNum)
+		local raid = Database.EnsureRaidByIndex(raidNum)
 		bossNid = tonumber(bossNid) or 0
 		if not raid then
 			return {}
@@ -1922,29 +1917,4 @@ do
 			)
 		end
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Raid/State", {
-		deps = {
-			"Init",
-			"Database/DBOptions",
-			"Modules/ModuleRegistry",
-			"Modules/C",
-			"Modules/Events",
-			"Modules/Bus",
-			"Modules/Strings",
-			"Modules/Time",
-			"Modules/Base64",
-			"Modules/Dataset/IgnoredMobs",
-			"Modules/LootSources",
-			"Database/DBRaidStore",
-			"Database/DBRaidQueries",
-			"Services/Loot/Context",
-			"Services/Loot/State",
-			"Services/Loot/Snapshots",
-		},
-	})
-	registry.SetLoaded("Services/Raid/State")
 end

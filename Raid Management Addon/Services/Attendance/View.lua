@@ -1,18 +1,16 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Database = feature.Database
-local Services = feature.Services
+local Database = addon.Database
+local Services = addon.Services
 
 local type, tostring, tonumber = type, tostring, tonumber
 local floor = math.floor
 
-feature.EnsureServiceNamespace("Attendance", "View")
+addon.Database.EnsureServiceNamespace("Attendance", "View")
 local Attendance = Services.Attendance
 local View = Attendance.View
 
@@ -114,18 +112,4 @@ function View:FillRaidAttendeesList(out, raid)
 	enrichAttendanceRowsWithInspect(raid, out)
 	finishPerf("Attendance.View.FillRaidAttendeesList", perfStart, raid, out)
 	return result
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Attendance/View", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DBRaidQueries",
-			"Services/Attendance/Store",
-			"Services/EquipInspect",
-		},
-	})
-	registry.SetLoaded("Services/Attendance/View")
 end

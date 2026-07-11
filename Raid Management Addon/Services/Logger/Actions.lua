@@ -1,22 +1,20 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: emits logger data-change notifications via addon.Bus
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local L = feature.L
-local Diag = feature.Diag
-local Strings = feature.Strings
-local Base64 = feature.Base64
-local Database = feature.Database
-local Services = feature.Services
-local LootSourceCandidates = feature.LootSourceCandidates
-local Timer = feature.Timer
-local Time = feature.Time
-local Bus = feature.Bus
-local Events = feature.Events
+local L = addon.L
+local Diag = addon.Diag
+local Strings = addon.Strings
+local Base64 = addon.Base64
+local Database = addon.Database
+local Services = addon.Services
+local LootSourceCandidates = addon.LootSourceCandidates
+local Timer = addon.Timer
+local Time = addon.Time
+local Bus = addon.Bus
+local Events = addon.Events
 local GetCurrentTime = assert(Time and Time.GetCurrentTime, "Logger actions time provider is not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Logger actions event publisher is not initialized")
 local InternalEvents = assert(Events.Internal, "Logger actions internal events are not initialized")
@@ -59,12 +57,12 @@ local HISTORY_CLEANUP_CHUNK_SIZE = 25
 local HISTORY_CLEANUP_DELAY_SECONDS = 0.01
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Logger", "Actions")
+addon.Database.EnsureServiceNamespace("Logger", "Actions")
 local Logger = Services.Logger
 local Actions = Logger.Actions
 local Store = Logger.Store
 local Helpers = Logger.Helpers
-local LootSources = feature.LootSources
+local LootSources = addon.LootSources
 Timer.BindMixin(Actions, "Logger.Actions")
 
 local commitRaidSelections
@@ -91,17 +89,11 @@ local activeLootSourceRebuild
 -- ----- Private helpers ----- --
 
 local function markLootSyncRevision(raid, loot, reason)
-	local raidStore = Database.GetRaidStoreOrNil("Logger.Actions.MarkLootSyncRevision", { "MarkLootSyncRevision" })
-	if raidStore then
-		raidStore:MarkLootSyncRevision(raid, loot, reason or "loot")
-	end
+	Database.GetRaidStore():MarkLootSyncRevision(raid, loot, reason or "loot")
 end
 
 local function touchRaidSyncRevision(raid, reason)
-	local raidStore = Database.GetRaidStoreOrNil("Logger.Actions.TouchRaidSyncRevision", { "TouchRaidSyncRevision" })
-	if raidStore then
-		raidStore:TouchRaidSyncRevision(raid, reason or "loot")
-	end
+	Database.GetRaidStore():TouchRaidSyncRevision(raid, reason or "loot")
 end
 
 trimText = function(value)
@@ -217,7 +209,7 @@ getCurrentRaidNid = function()
 	if not currentRaid then
 		return nil
 	end
-	return Database.GetRaidNidById(currentRaid)
+	return Database.GetRaidNidByIndex(currentRaid)
 end
 
 restoreCurrentRaidIndex = function(currentRaidNid)
@@ -227,7 +219,7 @@ restoreCurrentRaidIndex = function(currentRaidNid)
 		return
 	end
 
-	local currentRaidId = Database.GetRaidIdByNid(currentRaidNid)
+	local currentRaidId = Database.GetRaidIndexByNid(currentRaidNid)
 	Database.SetCurrentRaid(currentRaidId)
 	if not currentRaidId then
 		Database.SetLastBoss(nil)
@@ -504,9 +496,7 @@ local function countDuplicateRaidCandidates(raids)
 end
 
 local function getRaidHistoryScanRaids()
-	local requiredMethods = { "GetRawRaids" }
-	local raidStore = Database.GetRaidStoreOrNil("Logger.Actions.GetRaidHistoryScan", requiredMethods)
-	return raidStore and raidStore:GetRawRaids() or nil
+	return Database.GetRaidStore():GetRawRaids()
 end
 
 local function normalizeHistoryScanChunkSize(value)
@@ -615,9 +605,8 @@ local function newHistoryCleanupResult()
 end
 
 local function getHistoryCleanupContext()
-	local requiredMethods = { "GetRawRaids", "GetAllRaids" }
-	local raidStore = Database.GetRaidStoreOrNil("Logger.Actions.RemoveRaidHistoryEntries", requiredMethods)
-	local raids = raidStore and raidStore:GetRawRaids() or nil
+	local raidStore = Database.GetRaidStore()
+	local raids = raidStore:GetRawRaids()
 	return raidStore, raids
 end
 
@@ -649,9 +638,7 @@ local function newLootSourceRebuildResult()
 end
 
 local function getLootSourceRebuildRaids()
-	local requiredMethods = { "GetAllRaids" }
-	local raidStore = Database.GetRaidStoreOrNil("Logger.Actions.EnsureLootSources", requiredMethods)
-	return raidStore and raidStore:GetAllRaids() or nil
+	return Database.GetRaidStore():GetAllRaids()
 end
 
 local function applyLootSourceRebuildChange(raid)
@@ -1079,7 +1066,7 @@ end
 
 function Actions:DeleteRaid(rID)
 	local sel = tonumber(rID)
-	local raid = sel and Database.EnsureRaidById(sel) or nil
+	local raid = sel and Database.EnsureRaidByIndex(sel) or nil
 	if not raid then
 		return false
 	end
@@ -1089,17 +1076,13 @@ function Actions:DeleteRaid(rID)
 		return false
 	end
 
-	local raidStore = Database.GetRaidStoreOrNil("Logger.Actions.DeleteRaid", { "DeleteRaid" })
+	local raidStore = Database.GetRaidStore()
 	local removedIdx = sel
-	if raidStore then
-		local deleted, idx = raidStore:DeleteRaid(raid.raidNid)
-		if not deleted then
-			return false
-		end
-		removedIdx = idx or removedIdx
-	else
+	local deleted, idx = raidStore:DeleteRaid(raid.raidNid)
+	if not deleted then
 		return false
 	end
+	removedIdx = idx or removedIdx
 
 	if Database.GetCurrentRaid() and Database.GetCurrentRaid() > removedIdx then
 		Database.SetCurrentRaid(Database.GetCurrentRaid() - 1)
@@ -1118,23 +1101,19 @@ function Actions:DeleteRaidByNid(raidNid)
 		return false
 	end
 
-	local currentRaidNid = Database.GetRaidNidById(Database.GetCurrentRaid())
+	local currentRaidNid = Database.GetRaidNidByIndex(Database.GetCurrentRaid())
 	if currentRaidNid and tonumber(currentRaidNid) == nid then
 		addon:error(L.ErrCannotDeleteRaid)
 		return false
 	end
 
-	local raidStore = Database.GetRaidStoreOrNil("Logger.Actions.DeleteRaidByNid", { "DeleteRaid" })
+	local raidStore = Database.GetRaidStore()
 	local removedIdx = sel
-	if raidStore then
-		local deleted, idx = raidStore:DeleteRaid(nid)
-		if not deleted then
-			return false
-		end
-		removedIdx = idx or removedIdx
-	else
+	local deleted, idx = raidStore:DeleteRaid(nid)
+	if not deleted then
 		return false
 	end
+	removedIdx = idx or removedIdx
 
 	if Database.GetCurrentRaid() and Database.GetCurrentRaid() > removedIdx then
 		Database.SetCurrentRaid(Database.GetCurrentRaid() - 1)
@@ -1144,16 +1123,13 @@ function Actions:DeleteRaidByNid(raidNid)
 end
 
 function Actions:PurgeRaidHistory()
-	local requiredMethods = { "GetRawRaids", "GetAllRaids" }
-	local raidStore = Database.GetRaidStoreOrNil("Logger.Actions.PurgeRaidHistory", requiredMethods)
-	local raids = raidStore and raidStore:GetRawRaids() or nil
+	local raidStore = Database.GetRaidStore()
+	local raids = raidStore:GetRawRaids()
 	local removed = type(raids) == "table" and #raids or 0
-	if raids then
-		for i = #raids, 1, -1 do
-			tremove(raids, i)
-		end
-		raidStore:GetAllRaids()
+	for i = #raids, 1, -1 do
+		tremove(raids, i)
 	end
+	raidStore:GetAllRaids()
 
 	Database.SetCurrentRaid(nil)
 	Database.SetLastBoss(nil)
@@ -1165,7 +1141,7 @@ function Actions:PurgeRaidHistory()
 	return result
 end
 
-function Actions:RemoveRaidHistoryEntries(options)
+function Actions:CleanupRaidHistory(options)
 	options = (type(options) == "table") and options or {}
 	local raidStore, raids = getHistoryCleanupContext()
 	local result = newHistoryCleanupResult()
@@ -1199,7 +1175,7 @@ function Actions:RemoveRaidHistoryEntries(options)
 	return result
 end
 
-function Actions:RequestRemoveRaidHistoryEntries(callback, opts)
+function Actions:StartRaidHistoryCleanup(callback, opts)
 	opts = (type(opts) == "table") and opts or {}
 	if activeHistoryCleanup then
 		activeHistoryCleanup.cancelled = true
@@ -1322,7 +1298,7 @@ function Actions:RequestRemoveRaidHistoryEntries(callback, opts)
 	return handle
 end
 
-function Actions:EnsureLootSources()
+function Actions:RebuildLootSources()
 	local raids = getLootSourceRebuildRaids()
 	local result = newLootSourceRebuildResult()
 	if type(raids) ~= "table" then
@@ -1351,7 +1327,7 @@ function Actions:EnsureLootSources()
 	return result
 end
 
-function Actions:RequestEnsureLootSources(callback, opts)
+function Actions:StartLootSourceRebuild(callback, opts)
 	opts = opts or {}
 	if activeLootSourceRebuild then
 		activeLootSourceRebuild.cancelled = true
@@ -1474,11 +1450,11 @@ function Actions:RequestEnsureLootSources(callback, opts)
 	return handle
 end
 
-function Actions:GetRaidHistoryScan()
+function Actions:ScanRaidHistory()
 	return scanRaidHistory()
 end
 
-function Actions:RequestRaidHistoryScan(callback, opts)
+function Actions:StartRaidHistoryScan(callback, opts)
 	opts = opts or {}
 	if activeHistoryScan then
 		activeHistoryScan.cancelled = true
@@ -1580,7 +1556,7 @@ end
 
 function Actions:SetCurrentRaid(rID)
 	local sel = tonumber(rID)
-	local raid = sel and Database.EnsureRaidById(sel) or nil
+	local raid = sel and Database.EnsureRaidByIndex(sel) or nil
 	if not (sel and raid) then
 		return false
 	end
@@ -1631,26 +1607,4 @@ function Actions:SetCurrentRaid(rID)
 
 	addon:info(L.LogRaidSetCurrent:format(sel, tostring(raid.zone), raidSize))
 	return true
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Logger/Actions", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Timer",
-			"Modules/Time",
-			"Modules/Events",
-			"Modules/Bus",
-			"Modules/Strings",
-			"Modules/Base64",
-			"Database/DB",
-			"Database/DBRaidStore",
-			"Database/DBRaidQueries",
-			"Services/Logger/Store",
-			"Services/Logger/Helpers",
-		},
-	})
-	registry.SetLoaded("Services/Logger/Actions")
 end

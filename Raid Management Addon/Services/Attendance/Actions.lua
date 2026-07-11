@@ -1,29 +1,23 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Database = feature.Database
-local Services = feature.Services
+local Database = addon.Database
+local Services = addon.Services
 
 local tinsert = table.insert
 local tremove = table.remove
 local type, tonumber = type, tonumber
 
-feature.EnsureServiceNamespace("Attendance", "Actions")
+addon.Database.EnsureServiceNamespace("Attendance", "Actions")
 local Attendance = Services.Attendance
 local Actions = Attendance.Actions
 local Store = Attendance.Store
 
 local function touchRaidSyncRevision(raid, reason)
-	local raidStore =
-		Database.GetRaidStoreOrNil("Attendance.Actions.TouchRaidSyncRevision", { "TouchRaidSyncRevision" })
-	if raidStore then
-		raidStore:TouchRaidSyncRevision(raid, reason or "attendance")
-	end
+	Database.GetRaidStore():TouchRaidSyncRevision(raid, reason or "attendance")
 end
 
 local function normalizeRaidAfterMutation(raid)
@@ -34,7 +28,7 @@ local function normalizeRaidAfterMutation(raid)
 	Store:InvalidateRaidIndexes(raid)
 end
 
-function Actions:DeleteRaidAttendeeMany(rID, playerNids)
+function Actions:DeleteRaidAttendees(rID, playerNids)
 	local raid = Store:GetRaid(rID)
 	if not (raid and raid.players and playerNids and #playerNids > 0) then
 		return 0
@@ -110,17 +104,4 @@ function Actions:DeleteRaidAttendeeMany(rID, playerNids)
 	touchRaidSyncRevision(raid, "attendance_delete")
 	normalizeRaidAfterMutation(raid)
 	return removed
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Attendance/Actions", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DBRaidStore",
-			"Services/Attendance/Store",
-		},
-	})
-	registry.SetLoaded("Services/Attendance/Actions")
 end

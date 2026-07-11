@@ -1,21 +1,19 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Master.TradeExecution
 -- events: none
 -- notes: owns Master inventory trade execution decisions while the controller keeps WoW event handlers
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Master = feature.EnsureServiceNamespace("Master")
+local Master = addon.Database.EnsureServiceNamespace("Master")
 
 local TradeExecution = Master.TradeExecution or {}
 Master.TradeExecution = TradeExecution
 
-local L = feature.L
-local Diag = feature.Diag
-local RAID_TARGET_MARKERS = feature.RAID_TARGET_MARKERS
-local rollTypes = feature.rollTypes
+local L = addon.L
+local Diag = addon.Diag
+local RAID_TARGET_MARKERS = addon.C.RAID_TARGET_MARKERS
+local rollTypes = addon.C.rollTypes
 
 local tonumber = tonumber
 local tostring = tostring
@@ -383,10 +381,8 @@ function TradeExecution.CreateController(opts)
 		if type(self.debug) == "function" then
 			self.debug(Diag.D.LogTradeTraderKeeps:format(tostring(itemLink), tostring(winnerName)))
 		end
-		local awardedCount = self.inventory.ResolveInventoryAwardedCountFromArgs(
-			self.lootState.selectedItemCount,
-			self.lootState.fromInventory
-		)
+		local awardedCount =
+			self.inventory.ResolveInventoryAwardedCount(self.lootState.selectedItemCount, self.lootState.fromInventory)
 		local lootNid, createdTradeOnly = self.ensureTradeLootContext(
 			itemLink,
 			winnerName,
@@ -540,17 +536,6 @@ function TradeExecution.CreateController(opts)
 	end
 
 	return controller
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Master/TradeExecution", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-		},
-	})
-	registry.SetLoaded("Services/Master/TradeExecution")
 end
 
 return TradeExecution

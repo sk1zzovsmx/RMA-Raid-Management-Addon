@@ -43,16 +43,10 @@ class BusDispatchArrayContractTest(unittest.TestCase):
             local calls = {{}}
             local errors = {{}}
             local addon = {{
-                Database = {{
-                    GetFeatureShared = function()
-                        return {{
-                            L = {{ StrCbErrUsage = "bad callback registration" }},
-                            Diag = {{ E = {{ LogUtilsCallbackExec = "callback %s for %s failed: %s" }} }},
-                            Bus = {{}},
-                            ModuleRegistry = nil,
-                        }}
-                    end,
-                }},
+                Database = {{}},
+                L = {{ StrCbErrUsage = "bad callback registration" }},
+                Diag = {{ E = {{ LogUtilsCallbackExec = "callback %s for %s failed: %s" }} }},
+                Bus = {{}},
                 error = function(_, msg)
                     errors[#errors + 1] = msg
                 end,

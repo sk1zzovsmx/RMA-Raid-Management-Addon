@@ -1,17 +1,16 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: no bus events; item cache polling uses the Timer dependency
 -- notes: consolidated item helpers + tooltip-based item metadata probing
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-local Timer = feature.Timer
-local Deformat = feature.Deformat
-local Strings = feature.Strings
+local Timer = addon.Timer
+local Deformat = addon.Deformat
+local Strings = addon.Strings
 
-local Item = feature.Item or {}
+local Item = addon.Item or {}
 addon.Item = Item
 
 -- Timer ownership: ticker for polling item-cache requests.
@@ -549,18 +548,4 @@ end
 function Item.ResetInfoMetrics()
 	resetItemInfoMetrics()
 	return true
-end
-
-do
-	local name = "Modules/Item"
-	local deps = { "Init", "Modules/Timer", "Modules/Strings" }
-	local registry = feature.ModuleRegistry
-	if registry then
-		registry.AddModule(name, { deps = deps })
-		registry.SetLoaded(name)
-	else
-		addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-		local pending = addon.ModuleRegistryPendingRegistrations
-		pending[#pending + 1] = { name = name, deps = deps, loaded = true }
-	end
 end

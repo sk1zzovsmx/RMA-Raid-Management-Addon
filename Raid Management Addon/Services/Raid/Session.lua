@@ -1,23 +1,21 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local L = addon.L
+local Diag = addon.Diag
 
-local L = feature.L
-local Diag = feature.Diag
-
-local Database = feature.Database
-local Services = feature.Services
+local Database = addon.Database
+local Services = addon.Services
 
 local pairs = pairs
 local tonumber = tonumber
 local type = type
 
 do
-	feature.EnsureServiceNamespace("Raid")
+	addon.Database.EnsureServiceNamespace("Raid")
 	local Raid = Services.Raid
 	local module = Raid
 
@@ -26,7 +24,7 @@ do
 	local RAID_INSTANCE_CHECK_DELAYS = { 0.3, 0.8, 1.5, 2.5, 3.5 }
 
 	-- ----- Private helpers ----- --
-	local isDebugEnabled = feature.Options.IsDebugEnabled
+	local isDebugEnabled = addon.Options.IsDebugEnabled
 
 	local function cancelRaidInstanceChecks()
 		for idx, handle in pairs(raidInstanceCheckHandles) do
@@ -62,7 +60,7 @@ do
 	-- ----- Public methods ----- --
 
 	function module:InvalidateRaidRuntime(raidNum)
-		local raid = Database.EnsureRaidById(raidNum)
+		local raid = Database.EnsureRaidByIndex(raidNum)
 		if raid then
 			if type(module._InvalidateRaidRuntimeInternal) == "function" then
 				module._InvalidateRaidRuntimeInternal(raid)
@@ -112,7 +110,7 @@ do
 			return
 		end
 
-		local current = Database.EnsureRaidById(Database.GetCurrentRaid())
+		local current = Database.EnsureRaidByIndex(Database.GetCurrentRaid())
 		if not current then
 			createRaidSessionWithReason(instanceName, newSize, instanceDiff, true)
 			return
@@ -131,7 +129,7 @@ do
 
 	function module:GetBossByNid(bossNid, raidNum)
 		raidNum = raidNum or Database.GetCurrentRaid()
-		local raid = raidNum and Database.EnsureRaidById(raidNum)
+		local raid = raidNum and Database.EnsureRaidByIndex(raidNum)
 		if not raid or bossNid == nil then
 			return nil
 		end
@@ -159,16 +157,4 @@ do
 			SetRaidTarget("raid" .. tostring(i), 0)
 		end
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Raid/Session", {
-		deps = {
-			"Init",
-			"Database/DBOptions",
-			"Modules/ModuleRegistry",
-		},
-	})
-	registry.SetLoaded("Services/Raid/Session")
 end

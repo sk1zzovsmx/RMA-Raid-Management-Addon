@@ -1,28 +1,26 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Rolls._History
 -- events: emits AddRoll via addon.Bus
 -- notes: raw roll history and tracker helpers for rolls service
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Diag = feature.Diag
-local Events = feature.Events
-local Bus = feature.Bus
-local Options = feature.Options
-local Services = feature.Services
+local Diag = addon.Diag
+local Events = addon.Events
+local Bus = addon.Bus
+local Options = addon.Options
+local Services = addon.Services
 local InternalEvents = assert(Events.Internal, "Roll history internal events are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Roll history event publisher is not initialized")
 local AddRollEvent = assert(InternalEvents.AddRoll, "Roll history add-roll event is not initialized")
 
-local rollTypes = feature.rollTypes
+local rollTypes = addon.C.rollTypes
 local twipe = table.wipe
 local tostring, tonumber = tostring, tonumber
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Rolls")
+addon.Database.EnsureServiceNamespace("Rolls")
 local Rolls = Services.Rolls
 local module = Rolls
 module._History = module._History or {}
@@ -189,18 +187,4 @@ function History.GetHighestRoll(ctx, name)
 	end
 
 	return bestRoll or 0
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Rolls/History", {
-		deps = {
-			"Init",
-			"Database/DBOptions",
-			"Modules/ModuleRegistry",
-			"Modules/Events",
-			"Modules/Bus",
-		},
-	})
-	registry.SetLoaded("Services/Rolls/History")
 end

@@ -1,18 +1,16 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Master.FlowState
 -- events: none
 -- notes: pure Master workflow, SoftRes summary, and session winner state models
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Master = feature.EnsureServiceNamespace("Master")
+local Master = addon.Database.EnsureServiceNamespace("Master")
 
 local FlowState = Master.FlowState or {}
 Master.FlowState = FlowState
 
-local L = feature.L
+local L = addon.L
 
 local tconcat = table.concat
 local type = type
@@ -331,15 +329,4 @@ function FlowState.BuildState(opts)
 	end
 
 	return state
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Master/FlowState", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-		},
-	})
-	registry.SetLoaded("Services/Master/FlowState")
 end

@@ -1,21 +1,19 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Master.Trade
 -- events: none
 -- notes: pure Master manual-trade matching and manual-accept confirmation flow
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Master = feature.EnsureServiceNamespace("Master")
-local Services = feature.Services
+local Master = addon.Database.EnsureServiceNamespace("Master")
+local Services = addon.Services
 
 local Trade = Master.Trade or {}
 Master.Trade = Trade
 
-local Database = feature.Database
-local L = feature.L
-local Diag = feature.Diag
+local Database = addon.Database
+local L = addon.L
+local Diag = addon.Diag
 local LoggerActions = assert(Services.Logger.Actions, "Master trade logger actions service is not initialized")
 
 local type = type
@@ -24,7 +22,7 @@ local tostring = tostring
 local tinsert = table.insert
 local strlower = string.lower
 
-local rollTypes = feature.rollTypes
+local rollTypes = addon.C.rollTypes
 local HOLD = rollTypes.HOLD
 local MS = rollTypes.MAINSPEC
 local OS = rollTypes.OFFSPEC
@@ -50,7 +48,7 @@ local function ensureRaidStore(raidNum)
 	if not raidNum then
 		return nil
 	end
-	return Database.EnsureRaidById(raidNum)
+	return Database.EnsureRaidByIndex(raidNum)
 end
 
 local function normalizeName(name)
@@ -614,23 +612,6 @@ function Trade.CompletePending()
 	end
 
 	return loggedAny
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Master/Trade", {
-		deps = {
-			"Init",
-			"Database/DB",
-			"Database/DBRaidStore",
-			"Modules/ModuleRegistry",
-			"Services/Logger/Actions",
-			"Services/Loot/State",
-			"Services/Raid/Counts",
-			"Services/Raid/Roster",
-		},
-	})
-	registry.SetLoaded("Services/Master/Trade")
 end
 
 return Trade

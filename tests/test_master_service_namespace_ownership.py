@@ -48,7 +48,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         for path in service_files:
             with self.subTest(file=path.name):
                 text = read(path)
-                self.assertIn('feature.EnsureServiceNamespace("Master")', text)
+                self.assertIn('addon.Database.EnsureServiceNamespace("Master")', text)
                 self.assertNotIn("addon.Services.Master = Master", text)
                 self.assertNotIn("Services.Master = Master", text)
 
@@ -254,7 +254,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertNotIn("Private.TryAcceptInventoryItemFromCursor = function", controller)
 
         self.assertIn(
-            'local ItemSelectionWidget = assert(feature.Widgets.ItemSelection, "Master item selection widget is not initialized")',
+            'local ItemSelectionWidget = assert(addon.Widgets.ItemSelection, "Master item selection widget is not initialized")',
             controller,
         )
         self.assertIn("itemSelectionController = ItemSelectionWidget.CreateController({", controller)
@@ -395,7 +395,7 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertIn("Private.AcceptManualGridAward = function(data)", controller)
         self.assertIn("Private.OnClickDropDown = function(_button, owner, value)", controller)
         self.assertIn("UIDropDownMenu_Initialize(frame, Private.InitializeDropDownMenu)", controller)
-        self.assertIn("UI.Widgets.CallFunction(\"RaidGrid\", \"ShowPicker\"", controller)
+        self.assertIn("Widgets.RaidGrid.ShowPicker({", controller)
         self.assertIn("Private.OpenManualAwardGrid()", controller)
         self.assertIn("Private.RefreshManualAwardGrid()", controller)
 
@@ -462,7 +462,6 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertNotIn("Services\\Master\\Service.lua", toc)
         self.assertNotIn('"Services/Master/Service"', trade_menu)
         self.assertIn("Services\\Master\\Trade.lua", toc)
-        self.assertIn('"Services/Master/Trade"', trade_menu)
         self.assertIn('local MasterService = assert(Services.Master, "Master service namespace is not initialized")', controller)
         self.assertIn('local MasterService = assert(Services.Master, "Master service namespace is not initialized")', trade_menu)
         self.assertNotIn("MasterService and MasterService.Trade", trade_menu)
@@ -476,28 +475,6 @@ class MasterServiceNamespaceOwnershipTest(unittest.TestCase):
         self.assertIn("MasterService.Trade.ApplyAccept(playerAccepted, targetAccepted, isAddonDrivenTrade)", controller)
         self.assertIn("MasterService.Trade.GetReasonOrder()", trade_menu)
         self.assertIn("MasterService.Trade.RefreshCandidate({", trade_menu)
-
-    def test_master_controller_registry_names_direct_master_service_owners(self):
-        controller = read(MASTER_CONTROLLER)
-
-        required_deps = (
-            "Services/Master/FlowState",
-            "Services/Master/ButtonState",
-            "Services/Master/RollRows",
-            "Services/Master/RollSelection",
-            "Services/Master/Award",
-            "Services/Master/Assignment",
-            "Services/Raid/Debug",
-            "Services/Master/Messages",
-            "Services/Master/AwardCounter",
-            "Services/Master/Trade",
-            "Services/Master/TradeExecution",
-            "Widgets/ItemSelection",
-        )
-
-        for dep in required_deps:
-            with self.subTest(dep=dep):
-                self.assertIn('"' + dep + '"', controller)
 
     def test_master_extracted_owners_receive_warning_callback_without_missing_flag_gate(self):
         controller = read(MASTER_CONTROLLER)

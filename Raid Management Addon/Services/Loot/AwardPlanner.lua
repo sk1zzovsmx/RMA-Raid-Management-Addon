@@ -1,20 +1,18 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Loot.AwardPlanner
 -- events: none
 -- notes: Award planning helpers split from Services/Loot/Service
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local L = feature.L
-local Item = feature.Item
-local Services = feature.Services
-local rollTypes = feature.rollTypes
+local L = addon.L
+local Item = addon.Item
+local Services = addon.Services
+local rollTypes = addon.C.rollTypes
 -- ----- Internal state ----- --
 
-feature.EnsureServiceNamespace("Loot")
+addon.Database.EnsureServiceNamespace("Loot")
 local Loot = Services.Loot
 Loot.AwardPlanner = Loot.AwardPlanner or {}
 local AwardPlanner = Loot.AwardPlanner
@@ -303,16 +301,4 @@ function AwardPlanner.BuildMultiAwardState(args)
 			congratsSent = false,
 		},
 	}
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Loot/AwardPlanner", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Item",
-		},
-	})
-	registry.SetLoaded("Services/Loot/AwardPlanner")
 end

@@ -1,16 +1,14 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Loot._Recording
 -- events: no bus events; loot receipt, record, and reconciliation helpers
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Item = feature.Item
-local Services = feature.Services
-local Database = feature.Database
-local Strings = feature.Strings
-local Time = feature.Time
+local Item = addon.Item
+local Services = addon.Services
+local Database = addon.Database
+local Strings = addon.Strings
+local Time = addon.Time
 
 local GetCurrentTime = assert(Time and Time.GetCurrentTime, "Loot recording time provider is not initialized")
 local GetItemKey = assert(Item.GetItemKey, "Loot recording item-key resolver is not initialized")
@@ -23,7 +21,7 @@ local tonumber = tonumber
 local tostring = tostring
 local type = type
 
-feature.EnsureServiceNamespace("Loot")
+addon.Database.EnsureServiceNamespace("Loot")
 local Loot = Services.Loot
 local module = Loot
 module._Recording = module._Recording or {}
@@ -179,10 +177,7 @@ function Recording.Append(raid, args)
 		return nil, 0
 	end
 	tinsert(raid.loot, row)
-	local raidStore = Database.GetRaidStoreOrNil("Loot.Recording.Append", { "MarkLootSyncRevision" })
-	if raidStore then
-		raidStore:MarkLootSyncRevision(raid, row, "loot_row")
-	end
+	Database.GetRaidStore():MarkLootSyncRevision(raid, row, "loot_row")
 	return row, lootNid, #raid.loot
 end
 
@@ -269,19 +264,4 @@ function Recording.MarkPassiveLogged(args)
 	if args.passiveGroupLoot and args.isPassiveWinnerMessage and passive and passive.RememberLoggedPassiveLoot then
 		passive.RememberLoggedPassiveLoot(args.itemLink, args.playerName, args.rollSessionId)
 	end
-end
-
-local registry = feature.ModuleRegistry
-if registry and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Loot/Recording", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DBRaidStore",
-			"Modules/Item",
-			"Modules/Strings",
-			"Modules/Time",
-		},
-	})
-	registry.SetLoaded("Services/Loot/Recording")
 end

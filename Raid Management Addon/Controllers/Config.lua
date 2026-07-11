@@ -1,28 +1,25 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: emits option-specific events; listens OptionsLoaded
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local L = addon.L
 
-local L = feature.L
-
-local Database = feature.Database
-local Options = feature.Options
-local UI = feature.UI
-local UIWidgets = UI.Widgets
+local Database = addon.Database
+local Options = addon.Options
+local UI = addon.UI
 local Frames = UI.Frames
 local Scaffold = UI.Scaffold
 local Layout = assert(UI.Layout, "Config options layout owner is not initialized")
 local ApplyOptionsRows = assert(Layout.ApplyRows, "Config options row layout applier is not initialized")
 local Popups = assert(UI.Popups, "Config popup namespace is not initialized")
 local ShowConfirmPopup = assert(Popups.ShowConfirm, "Config confirm popup shower is not initialized")
-local Strings = feature.Strings
-local Events = feature.Events
-local Bus = feature.Bus
-local Services = feature.Services
-local Controllers = feature.Controllers
+local Strings = addon.Strings
+local Events = addon.Events
+local Bus = addon.Bus
+local Services = addon.Services
+local Controllers = addon.Controllers
 local SpammerController = assert(Controllers.Spammer, "Config spammer controller is not initialized")
 local WarningsController = assert(Controllers.Warnings, "Config warnings controller is not initialized")
 local SpammerDraft = assert(Services.Spammer.Draft, "Config spammer draft service is not initialized")
@@ -30,8 +27,8 @@ local WarningStore = assert(Services.Warnings.Store, "Config warnings store serv
 local InternalEvents = assert(Events.Internal, "Config internal events are not initialized")
 local RegisterCallback = assert(Bus.RegisterCallback, "Config event bus listener is not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Config event bus sender is not initialized")
-local GetConfigOptionChanged =
-	assert(Events.GetConfigOptionChanged, "Config option-change event resolver is not initialized")
+local BuildConfigOptionChangedName =
+	assert(Events.BuildConfigOptionChangedName, "Config option-change event resolver is not initialized")
 local OptionsLoadedEvent = assert(InternalEvents.OptionsLoaded, "Config options-loaded event is not initialized")
 local GetOptionNamespaces = assert(Options.GetNamespaces, "Config options namespace iterator is not initialized")
 local SetDebugEnabled = assert(Options.SetDebugEnabled, "Config debug option setter is not initialized")
@@ -49,51 +46,15 @@ local floor = math.floor
 
 Controllers.Config = Controllers.Config or {}
 local module = Controllers.Config
-local configEnabled = UIWidgets.IsEnabled("Config") ~= false
-
-function module:IsAvailable()
-	return configEnabled
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Controllers/Config", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DB",
-			"Database/DBOptions",
-			"Database/DBSyncer",
-			"Modules/Events",
-			"Modules/Bus",
-			"Modules/Strings",
-			"Modules/UI/Facade",
-			"Modules/UI/Frames",
-			"Modules/UI/OptionsLayout",
-			"EntryPoints/Minimap",
-			"Services/Raid/State",
-			"Services/Logger/Actions",
-			"Services/Spammer/Draft",
-			"Services/Warnings/Store",
-			"Controllers/Spammer",
-			"Controllers/Warnings",
-		},
-	})
-	registry.SetLoaded("Controllers/Config")
-end
 
 -- =========== Configuration Frame Module  =========== --
 do
-	if not configEnabled then
-		return
-	end
-
-	local uiState = Scaffold.EnsureModuleState(module)
+	local uiState = UI.ModuleState.Ensure(module)
 
 	-- Namespace registration: generic UI options (tooltip toggle).
 	-- Other options exposed by this widget are owned by their source modules
 	-- (Master, Loot, Rolls, Reserves, Minimap, LootCounter).
-	Options.AddNamespace("UI", {
+	Options.RegisterNamespace("UI", {
 		showTooltips = true,
 	})
 
@@ -641,7 +602,7 @@ do
 		end
 		for key, value in pairs(values) do
 			Options.Set(key, value)
-			local eventName = GetConfigOptionChanged(key)
+			local eventName = BuildConfigOptionChangedName(key)
 			if eventName then
 				TriggerEvent(eventName, value)
 			end
@@ -1047,7 +1008,7 @@ do
 			Options.Set("autoSpamSoftResOnLootOpened", false)
 		end
 		Options.Set(name, value)
-		local eventName = GetConfigOptionChanged(name)
+		local eventName = BuildConfigOptionChangedName(name)
 		if eventName then
 			TriggerEvent(eventName, value)
 		end
@@ -1085,8 +1046,8 @@ do
 
 	local function scanCleanupPreview()
 		local actions = Services.Logger.Actions
-		if actions and actions.GetRaidHistoryScan then
-			return actions:GetRaidHistoryScan()
+		if actions and actions.ScanRaidHistory then
+			return actions:ScanRaidHistory()
 		end
 		return nil
 	end
@@ -1108,11 +1069,11 @@ do
 
 	local function refreshLootHistoryReport()
 		local actions = Services.Logger.Actions
-		if not (actions and actions.GetRaidHistoryScan) then
+		if not (actions and actions.ScanRaidHistory) then
 			setText(lootHistoryContentFrameName, "ReportSummary", formatLootHistoryReport(nil))
 			return nil
 		end
-		local result = actions:GetRaidHistoryScan()
+		local result = actions:ScanRaidHistory()
 		setText(lootHistoryContentFrameName, "ReportSummary", formatLootHistoryReport(result))
 		return result
 	end
@@ -1174,8 +1135,8 @@ do
 		end
 
 		local result
-		if actionName == "scan" and actions.RequestRaidHistoryScan then
-			return actions:RequestRaidHistoryScan(function(scanResult)
+		if actionName == "scan" and actions.StartRaidHistoryScan then
+			return actions:StartRaidHistoryScan(function(scanResult)
 				setText(lootHistoryContentFrameName, "ReportSummary", formatLootHistoryReport(scanResult))
 				addon:info(
 					L.MsgLoggerHistoryScanned:format(
@@ -1186,7 +1147,7 @@ do
 					)
 				)
 			end)
-		elseif actionName == "scan" and actions.GetRaidHistoryScan then
+		elseif actionName == "scan" and actions.ScanRaidHistory then
 			result = refreshLootHistoryReport()
 			addon:info(
 				L.MsgLoggerHistoryScanned:format(
@@ -1199,8 +1160,8 @@ do
 		elseif actionName == "purge" and actions.PurgeRaidHistory then
 			result = actions:PurgeRaidHistory()
 			addon:info(L.MsgLoggerHistoryPurged:format(tonumber(result and result.removed) or 0))
-		elseif actionName == "rebuildSources" and actions.RequestEnsureLootSources then
-			return actions:RequestEnsureLootSources(function(rebuildResult)
+		elseif actionName == "rebuildSources" and actions.StartLootSourceRebuild then
+			return actions:StartLootSourceRebuild(function(rebuildResult)
 				addon:info(
 					L.MsgLoggerLootSourcesRebuilt:format(
 						tonumber(rebuildResult and rebuildResult.repaired) or 0,
@@ -1210,8 +1171,8 @@ do
 				)
 				refreshLootHistoryReport()
 			end)
-		elseif actionName == "rebuildSources" and actions.EnsureLootSources then
-			result = actions:EnsureLootSources()
+		elseif actionName == "rebuildSources" and actions.RebuildLootSources then
+			result = actions:RebuildLootSources()
 			addon:info(
 				L.MsgLoggerLootSourcesRebuilt:format(
 					tonumber(result and result.repaired) or 0,
@@ -1219,13 +1180,13 @@ do
 					tonumber(result and result.unresolved) or 0
 				)
 			)
-		elseif actionName == "cleanUp" and actions.RequestRemoveRaidHistoryEntries then
+		elseif actionName == "cleanUp" and actions.StartRaidHistoryCleanup then
 			options = options or {}
 			if options.emptyRaids ~= true and options.nonEpicLoot ~= true and options.noBossEncounter ~= true then
 				addon:warn(L.MsgLoggerCleanupNoSelection)
 				return nil
 			end
-			return actions:RequestRemoveRaidHistoryEntries(function(cleanupResult)
+			return actions:StartRaidHistoryCleanup(function(cleanupResult)
 				addon:info(
 					L.MsgLoggerCleanupDone:format(
 						tonumber(cleanupResult and cleanupResult.raidsRemoved) or 0,
@@ -1234,13 +1195,13 @@ do
 				)
 				refreshLootHistoryReport()
 			end, options)
-		elseif actionName == "cleanUp" and actions.RemoveRaidHistoryEntries then
+		elseif actionName == "cleanUp" and actions.CleanupRaidHistory then
 			options = options or {}
 			if options.emptyRaids ~= true and options.nonEpicLoot ~= true and options.noBossEncounter ~= true then
 				addon:warn(L.MsgLoggerCleanupNoSelection)
 				return nil
 			end
-			result = actions:RemoveRaidHistoryEntries(options)
+			result = actions:CleanupRaidHistory(options)
 			addon:info(
 				L.MsgLoggerCleanupDone:format(
 					tonumber(result and result.raidsRemoved) or 0,

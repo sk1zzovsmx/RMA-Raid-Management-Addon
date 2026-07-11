@@ -1,17 +1,15 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Loot._Rules
 -- events: no bus events; suggestion-only classification
 -- notes: suggestion-only auto-loot classification; never awards or trades items
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local C = feature.C
-local IgnoredItems = assert(feature.IgnoredItems, "Loot rules ignored-items namespace is not initialized")
-local Item = feature.Item
-local Services = feature.Services
+local C = addon.C
+local IgnoredItems = assert(addon.IgnoredItems, "Loot rules ignored-items namespace is not initialized")
+local Item = addon.Item
+local Services = addon.Services
 
 local tonumber, tostring, type = tonumber, tostring, type
 local _G = _G
@@ -24,7 +22,7 @@ local IsEnchantingMaterial =
 	assert(IgnoredItems.IsEnchantingMaterial, "Loot rules enchanting-material dataset is not initialized")
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Loot")
+addon.Database.EnsureServiceNamespace("Loot")
 local Loot = Services.Loot
 local module = Loot
 module._Rules = module._Rules or {}
@@ -131,18 +129,4 @@ function Rules:GetItemSuggestion(item, opts)
 	end
 
 	return buildDecision(ACTION_NONE, REASON_NONE)
-end
-
-local registry = feature.ModuleRegistry
-if registry and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Loot/Rules", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/C",
-			"Modules/Item",
-			"Modules/Dataset/IgnoredItems",
-		},
-	})
-	registry.SetLoaded("Services/Loot/Rules")
 end

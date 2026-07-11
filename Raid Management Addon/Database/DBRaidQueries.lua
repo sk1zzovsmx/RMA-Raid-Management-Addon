@@ -1,17 +1,15 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local DB = feature.DB
-local Database = feature.Database
-local Sort = feature.Sort
-local Strings = feature.Strings
-local LootSourceCandidates = feature.LootSourceCandidates
-local Time = feature.Time
+local DB = addon.DB
+local Database = addon.Database
+local Sort = addon.Sort
+local Strings = addon.Strings
+local LootSourceCandidates = addon.LootSourceCandidates
+local Time = addon.Time
 local GetLootSortName = Sort and Sort.GetLootSortName
 local GetCurrentTime = assert(Time and Time.GetCurrentTime, "Raid queries time provider is not initialized")
 
@@ -29,11 +27,7 @@ do
 
 	-- ----- Private helpers ----- --
 	local function normalizeRaid(raid)
-		local raidStore = Database.GetRaidStoreOrNil("DBRaidQueries.NormalizeRaid", { "NormalizeRaidRecord" })
-		if raidStore then
-			return raidStore:NormalizeRaidRecord(raid)
-		end
-		return raid
+		return Database.GetRaidStore():NormalizeRaidRecord(raid)
 	end
 
 	local function normalizeRaidForQuery(raid, opts)
@@ -44,11 +38,7 @@ do
 	end
 
 	local function ensureRuntime(raid)
-		local raidStore = Database.GetRaidStoreOrNil("DBRaidQueries.EnsureRuntime", { "EnsureRaidRuntime" })
-		if raidStore then
-			return raidStore:EnsureRaidRuntime(raid)
-		end
-		return nil
+		return Database.GetRaidStore():EnsureRaidRuntime(raid)
 	end
 
 	local function clearRow(row)
@@ -484,7 +474,7 @@ do
 					local lootTime = tonumber(loot.time) or 0
 					local sourceBoss = bossByNid and bossByNid[tonumber(loot.bossNid)] or nil
 					local sourceName, sourceKind, sourceCandidates, sourceKey =
-						LootSourceCandidates.BuildLootSourceModel(loot, sourceBoss)
+						LootSourceCandidates.ResolveSourceMetadata(loot, sourceBoss)
 					local looterPlayer = looterNid and getPlayerByNid(raid, runtime, looterNid) or nil
 					count = count + 1
 					local row = acquireOutputRow(rows, count)
@@ -524,21 +514,4 @@ do
 
 		return clearOutputTail(rows, count)
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Database/DBRaidQueries", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DB",
-			"Database/DBRaidStore",
-			"Modules/Time",
-			"Modules/Strings",
-			"Modules/Sort",
-			"Modules/LootSourceCandidates",
-		},
-	})
-	registry.SetLoaded("Database/DBRaidQueries")
 end

@@ -1,12 +1,10 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.UI.Layout
 -- events: none
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local UI = feature.UI or {}
+local UI = addon.UI or {}
 local Frames = UI.Frames
 
 local _G = _G
@@ -470,10 +468,4 @@ function Layout.ApplyRows(frameOrName, rows, cfg)
 	local height = max(minHeight, -minY + bottomPadding)
 	setSize(frame, getCfg(cfg, "scrollChildWidth"), height)
 	return height
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Modules/UI/OptionsLayout", { deps = { "Init", "Modules/ModuleRegistry", "Modules/UI/Frames" } })
-	registry.SetLoaded("Modules/UI/OptionsLayout")
 end

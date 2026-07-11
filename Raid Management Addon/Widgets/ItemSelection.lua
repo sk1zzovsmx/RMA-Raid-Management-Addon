@@ -1,13 +1,11 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Widgets.ItemSelection
 -- events: none
 -- notes: owns Master item-selection child frame creation and inventory cursor acceptance
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Widgets = feature.Widgets
+local Widgets = addon.Widgets
 
 local ItemSelection = Widgets.ItemSelection or {}
 Widgets.ItemSelection = ItemSelection
@@ -213,7 +211,7 @@ function ItemSelection.CreateController(opts)
 					self.warn(self.L.ErrMLInventorySoulbound:format(itemRef))
 				end
 				if type(self.debug) == "function" then
-					self.debug(feature.Diag.D.LogMLInventorySoulbound:format(itemRef))
+					self.debug(addon.Diag.D.LogMLInventorySoulbound:format(itemRef))
 				end
 			elseif type(self.warn) == "function" then
 				self.warn(self.L.ErrMLInventoryItemMissing:format(itemRef))
@@ -303,17 +301,6 @@ function ItemSelection.CreateController(opts)
 	end
 
 	return controller
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Widgets/ItemSelection", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-		},
-	})
-	registry.SetLoaded("Widgets/ItemSelection")
 end
 
 return ItemSelection

@@ -1,4 +1,6 @@
 import re
+import subprocess
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -11,6 +13,7 @@ FRAMES = ADDON / "Modules" / "UI" / "Frames.lua"
 EFFECTS = ADDON / "Modules" / "UI" / "Effects.lua"
 VISUALS = ADDON / "Modules" / "UI" / "Visuals.lua"
 LIST_CONTROLLER = ADDON / "Modules" / "UI" / "ListController.lua"
+EXPORT_DIALOG = FRAMES
 MINIMAP = ADDON / "EntryPoints" / "Minimap.lua"
 SLASH_EVENTS = ADDON / "EntryPoints" / "SlashEvents.lua"
 WARNINGS = ADDON / "Controllers" / "Warnings.lua"
@@ -42,6 +45,137 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertNotIn("Database.MakeModuleFrameGetter = makeModuleFrameGetter", init)
         self.assertNotIn("Database.MakeModuleFrameGetter = Frames.MakeModuleFrameGetter", frames)
 
+    def test_list_column_width_allocation_has_one_shared_owner(self):
+        lists = read(LIST_CONTROLLER)
+        attendance = read(ATTENDANCE)
+        logger = read(ADDON / "Controllers" / "Logger.lua")
+
+        self.assertIn("function Lists.CalculateColumnWidths(", lists)
+        self.assertNotIn("local function calculateColumnWidths(", attendance)
+        self.assertNotIn("local function calculateLoggerColumnWidths(", logger)
+        self.assertIn("CalculateColumnWidths(", attendance)
+        self.assertIn("CalculateColumnWidths(", logger)
+
+    def test_shared_column_width_owner_preserves_allocation_behavior(self):
+        script = textwrap.dedent(
+            f"""
+            _G.CreateFrame = function() return {{}} end
+            local addon = {{
+                Diag = {{ D = {{}}, E = {{}}, W = {{}} }},
+                Options = {{ IsDebugEnabled = function() return false end }},
+                UI = {{ Frames = {{}}, Rows = {{}}, Primitives = {{}} }},
+            }}
+            local chunk = assert(loadfile("{str(LIST_CONTROLLER).replace(chr(92), chr(92) * 2)}"))
+            chunk("RMA", addon)
+            local widths = addon.UI.Lists.CalculateColumnWidths(
+                108,
+                {{ alpha = 20, beta = 30, fixed = 10 }},
+                {{ alpha = 1, beta = 2 }},
+                {{ "fixed" }}
+            )
+            assert(widths.alpha == 36 and widths.beta == 62 and widths.fixed == 10)
+            local minimums = addon.UI.Lists.CalculateColumnWidths(
+                40,
+                {{ alpha = 20, beta = 30 }},
+                {{ alpha = 1, beta = 1 }}
+            )
+            assert(minimums.alpha == 20 and minimums.beta == 30)
+            """
+        )
+        subprocess.run(
+            ["lua.cmd", "-e", " ".join(line.strip() for line in script.splitlines())],
+            check=True,
+            cwd=ROOT,
+        )
+
+    def test_export_frame_has_one_concrete_ui_owner(self):
+        self.assertTrue(EXPORT_DIALOG.exists())
+        toc = read(TOC)
+        self.assertNotIn("Modules\\UI\\ExportDialog.lua", toc)
+        self.assertLess(toc.index("Modules\\UI\\Frames.lua"), toc.index("Controllers\\Logger.lua"))
+
+        export_dialog = read(EXPORT_DIALOG)
+        self.assertIn("function ExportDialog.Bind(config)", export_dialog)
+        self.assertIn("function ExportDialog.SetText(refs, text)", export_dialog)
+
+        for path in (ATTENDANCE, ADDON / "Controllers" / "Logger.lua"):
+            source = read(path)
+            with self.subTest(path=path.name):
+                self.assertIn("ExportDialog.Bind({", source)
+                self.assertIn("ExportDialog.SetText(", source)
+                self.assertNotIn('GetFrame("RMAExportFrame")', source)
+                self.assertNotIn("getAttendanceExportFrameRefs", source)
+                self.assertNotIn("local function getExportFrameRefs", source)
+
+    def test_shared_export_owner_preserves_binding_and_text_behavior(self):
+        script = textwrap.dedent(
+            f"""
+            local function widget(name)
+                return {{
+                    name = name,
+                    Show = function(self) self.shown = true end,
+                    Hide = function(self) self.shown = false end,
+                    SetText = function(self, value) self.text = value end,
+                    SetTextInsets = function(self, ...) self.insets = {{ ... }} end,
+                    SetJustifyH = function(self, value) self.justifyH = value end,
+                    SetJustifyV = function(self, value) self.justifyV = value end,
+                    SetWordWrap = function(self, value) self.wordWrap = value end,
+                    SetCursorPosition = function(self, value) self.cursor = value end,
+                    HighlightText = function(self) self.highlighted = true end,
+                    SetFocus = function(self) self.focused = true end,
+                    UpdateScrollChildRect = function(self) self.updated = true end,
+                    SetVerticalScroll = function(self, value) self.scroll = value end,
+                }}
+            end
+            local frame = widget("RMAExportFrame")
+            local refs = {{
+                Hint = widget("Hint"), LootBtn = widget("LootBtn"),
+                Output = widget("Output"), OutputScroll = widget("OutputScroll"),
+                CloseBtn = widget("CloseBtn"),
+            }}
+            _G.CreateFrame = function() return widget("Frame") end
+            _G.InCombatLockdown = function() return false end
+            local addon = {{
+                C = {{}}, L = {{ BtnClose = "Close" }}, State = {{}},
+                Strings = {{ TrimText = function(value) return value end }},
+                UI = {{ Frames = {{}} }},
+            }}
+            local chunk = assert(loadfile("{str(FRAMES).replace(chr(92), chr(92) * 2)}"))
+            chunk("RMA", addon)
+            addon.UI.Frames.Get = function(name) assert(name == "RMAExportFrame"); return frame end
+            addon.UI.Frames.GetRef = function(_, suffix) return refs[suffix] end
+            addon.UI.Frames.EnableDrag = function(target) target.dragEnabled = true end
+            addon.UI.Frames.SetFrameTitle = function(target, title) target.title = title end
+            addon.UI.Frames.SetScriptSafely = function(target, event, fn) target[event] = fn end
+            local bound = addon.UI.ExportDialog.Bind({{
+                title = "Export", hint = "Read only", modeButtonText = "Loot",
+                onModeButtonClick = function() end,
+                getText = function() return "canonical" end,
+            }})
+            assert(bound.frame == frame and frame.title == "Export" and frame.dragEnabled)
+            assert(refs.Hint.text == "Read only")
+            assert(refs.LootBtn.shown == true and refs.LootBtn.text == "Loot")
+            assert(type(refs.LootBtn.OnClick) == "function")
+            assert(refs.Output.wordWrap == true and type(refs.Output.OnTextChanged) == "function")
+            assert(refs.CloseBtn.text == "Close" and type(refs.CloseBtn.OnClick) == "function")
+            addon.UI.ExportDialog.SetText(bound, "csv")
+            assert(refs.Output.text == "csv" and refs.Output.cursor == 0)
+            assert(refs.Output.highlighted and refs.Output.focused)
+            assert(refs.OutputScroll.updated and refs.OutputScroll.scroll == 0)
+            refs.Output:OnTextChanged(true)
+            assert(refs.Output.text == "canonical")
+            addon.UI.ExportDialog.Bind({{
+                title = "Attendance", getText = function() return "attendance" end,
+            }})
+            assert(refs.LootBtn.shown == false and refs.LootBtn.OnClick == nil)
+            """
+        )
+        subprocess.run(
+            ["lua.cmd", "-e", " ".join(line.strip() for line in script.splitlines())],
+            check=True,
+            cwd=ROOT,
+        )
+
     def test_feature_files_get_module_frame_getters_from_ui_frames_owner(self):
         feature_files = [WARNINGS, MASTER, LOOT_COUNTER, RESERVES_UI, CONFIG, ADDON / "Controllers" / "Spammer.lua", ADDON / "Controllers" / "Logger.lua", ATTENDANCE]
         for path in feature_files:
@@ -72,18 +206,12 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
     def test_logger_binds_frame_scripts_and_titles_through_local_frame_owner_bindings(self):
         logger = read(ADDON / "Controllers" / "Logger.lua")
 
-        self.assertIn("local GetFrame = assert(Frames.Get", logger)
-        self.assertIn('"Logger frame resolver is not initialized"', logger)
         self.assertIn("local SetScriptSafely = assert(Frames.SetScriptSafely", logger)
         self.assertIn('"Logger frame script binder is not initialized"', logger)
         self.assertIn("local SetFrameTitle = assert(Frames.SetFrameTitle", logger)
         self.assertIn('"Logger frame title binder is not initialized"', logger)
-        self.assertIn("local EnableDrag = assert(Frames.EnableDrag", logger)
-        self.assertIn('"Logger frame drag binder is not initialized"', logger)
-        self.assertIn('local frame = GetFrame("RMAExportFrame")', logger)
         self.assertIn('SetScriptSafely(_G[n .. "CurrentBtn"], "OnClick"', logger)
-        self.assertIn("SetFrameTitle(refs.frame, L.StrLoggerExportTitle)", logger)
-        self.assertIn("EnableDrag(refs.frame)", logger)
+        self.assertIn("ExportDialog.Bind({", logger)
         self.assertNotIn("UI.Frames.Get", logger)
         self.assertNotIn("UI.Frames.SetScriptSafely", logger)
         self.assertNotIn("UI.Frames.SetFrameTitle", logger)
@@ -98,9 +226,9 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertIn('name="$parentExportBtn"', attendance_xml)
         self.assertIn('relativeTo="$parentForceInspectBtn"', attendance_xml)
         self.assertIn('GetFrameRef(frame, "ExportBtn")', attendance)
-        self.assertIn("AttendanceExport:GetRaidAttendanceCSV(raid, getAttendanceExportContext())", attendance)
+        self.assertIn("AttendanceExport:BuildCSV(raid, getAttendanceExportContext())", attendance)
         self.assertIn("L.BtnLoggerExportRaidAttendanceCSV", attendance)
-        self.assertIn('local frame = GetFrame("RMAExportFrame")', attendance)
+        self.assertIn("ExportDialog.Bind({", attendance)
         self.assertNotIn("Controllers.Logger", attendance)
 
         self.assertNotIn('name="$parentRaidAttendanceBtn"', loot_history_xml)
@@ -111,15 +239,18 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
     def test_shared_export_frame_is_reconfigured_by_each_owner_on_open(self):
         logger = read(ADDON / "Controllers" / "Logger.lua")
         attendance = read(ATTENDANCE)
+        export_dialog = read(EXPORT_DIALOG)
 
         self.assertNotIn("if not refs or refs.frame._RMABound then", logger)
-        self.assertIn("SetFrameTitle(refs.frame, L.StrLoggerExportTitle)", logger)
-        self.assertIn("refs.lootBtn:Show()", logger)
+        self.assertIn("title = L.StrLoggerExportTitle", logger)
+        self.assertIn("modeButtonText = L.BtnLoggerExportLootCSV", logger)
         self.assertIn("module._lastExportCSV or \"\"", logger)
 
-        self.assertIn("SetFrameTitle(refs.frame, L.BtnLoggerExportRaidAttendanceCSV)", attendance)
-        self.assertIn("refs.lootBtn:Hide()", attendance)
+        self.assertIn("title = L.BtnLoggerExportRaidAttendanceCSV", attendance)
+        self.assertNotIn("modeButtonText", attendance)
         self.assertIn("module._lastAttendanceExportCSV or \"\"", attendance)
+        self.assertIn("refs.lootBtn:Show()", export_dialog)
+        self.assertIn("refs.lootBtn:Hide()", export_dialog)
 
     def test_attendance_export_button_preserves_logger_action_width(self):
         attendance_xml = read(ADDON / "UI" / "RaidAttendance.xml")
@@ -233,7 +364,7 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
     def test_edit_box_bindings_use_guarded_frame_script_owner(self):
         frames = read(FRAMES)
         start = frames.index("function EditBoxes.BindHandlers(frameName, specs, requestRefreshFn)")
-        end = frames.index("local registry = feature.ModuleRegistry", start)
+        end = len(frames)
         bind_handlers = frames[start:end]
 
         self.assertIn('Frames.SetScriptSafely(editBox, "OnEscapePressed", spec.onEscape)', bind_handlers)
@@ -300,111 +431,55 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
 
     def test_slash_events_declares_minimap_owner_dependency(self):
         toc = read(TOC)
-        slash_events = read(SLASH_EVENTS)
-        start = slash_events.index('registry.AddModule("EntryPoints/SlashEvents"')
-        registry = slash_events[start:]
 
         self.assertLess(toc.index("EntryPoints\\Minimap.lua"), toc.index("EntryPoints\\SlashEvents.lua"))
         self.assertLess(toc.index("UI\\RaidAttendance.xml"), toc.index("Controllers\\Attendance.lua"))
-        self.assertIn('"EntryPoints/Minimap"', registry)
 
-    def test_slash_events_registry_omits_unused_frame_dependency(self):
+    def test_slash_events_omits_unused_frame_owner(self):
         slash_events = read(SLASH_EVENTS)
-        start = slash_events.index('registry.AddModule("EntryPoints/SlashEvents"')
-        registry = slash_events[start:]
 
         self.assertNotIn("local Frames = UI.Frames", slash_events)
         self.assertNotIn("UI.Frames", slash_events)
-        self.assertNotIn('"Modules/UI/Frames"', registry)
-        self.assertIn('"Modules/UI/Facade"', registry)
 
-    def test_slash_events_uses_declared_widget_facade_without_optional_dispatch_guards(self):
+    def test_slash_events_uses_concrete_widget_owners(self):
         slash_events = read(SLASH_EVENTS)
 
-        self.assertIn('local UIWidgets = assert(UI.Widgets, "Slash widget facade is not initialized")', slash_events)
-        self.assertIn(
-            'local IsWidgetEnabled = assert(UIWidgets.IsEnabled, "Slash widget enabled resolver is not initialized")',
-            slash_events,
-        )
-        self.assertIn(
-            'local IsWidgetRegistered = assert(UIWidgets.IsRegistered, "Slash widget registration resolver is not initialized")',
-            slash_events,
-        )
-        self.assertIn(
-            'local CallWidgetMethod = assert(UIWidgets.CallMethod, "Slash widget method dispatcher is not initialized")',
-            slash_events,
-        )
-        self.assertIn("if not IsWidgetEnabled(widgetId) then", slash_events)
-        self.assertIn("if not IsWidgetRegistered(widgetId) then", slash_events)
-        self.assertIn("return CallWidgetMethod(widgetId, methodName, ...)", slash_events)
-        self.assertNotIn("UIWidgets and type(UIWidgets.IsEnabled)", slash_events)
-        self.assertNotIn("UIWidgets and type(UIWidgets.IsRegistered)", slash_events)
-        self.assertNotIn("UIWidgets and type(UIWidgets.Call)", slash_events)
-        self.assertNotIn("UIWidgets.Call(", slash_events)
+        self.assertIn('local LootCounterWidget = assert(Widgets.LootCounter', slash_events)
+        self.assertIn('local ReservesWidget = assert(Widgets.ReservesUI', slash_events)
+        self.assertIn("LootCounterWidget:Toggle()", slash_events)
+        self.assertIn("ReservesWidget:Toggle()", slash_events)
+        self.assertIn("ReservesWidget:ToggleImport()", slash_events)
+        self.assertNotIn("UI.Widgets", slash_events)
 
-    def test_trade_menu_registry_omits_unused_frame_dependency(self):
+    def test_trade_menu_omits_unused_frame_owner(self):
         trade_menu = read(TRADE_MENU)
-        start = trade_menu.index('registry.AddModule("Widgets/TradeMenu"')
-        registry = trade_menu[start:]
 
         self.assertNotIn("local Frames = UI.Frames", trade_menu)
         self.assertNotIn("UI.Frames", trade_menu)
-        self.assertNotIn('"Modules/UI/Frames"', registry)
-        self.assertIn('"Modules/UI/Facade"', registry)
-        self.assertIn('"Services/Master/Trade"', registry)
 
-    def test_trade_menu_uses_declared_ui_widget_facade_owner(self):
+    def test_trade_menu_publishes_concrete_widget_owner(self):
         trade_menu = read(TRADE_MENU)
 
-        self.assertIn("local UIWidgets = UI.Widgets", trade_menu)
-        self.assertIn('UIWidgets.Register("TradeMenu", module)', trade_menu)
-        self.assertIn('UIWidgets.RegisterFunction("TradeMenu", "HideDropdowns", module.HideDropdowns)', trade_menu)
-        self.assertIn('UIWidgets.RegisterFunction("TradeMenu", "RefreshDropdowns", module.RefreshDropdowns)', trade_menu)
-        self.assertIn('UIWidgets.RegisterFunction("TradeMenu", "RefreshCandidate", module.RefreshCandidate)', trade_menu)
-        self.assertIn('UIWidgets.IsEnabled("TradeMenu")', trade_menu)
-        self.assertNotIn("UI and UI.Widgets or nil", trade_menu)
-        self.assertNotIn("if UIWidgets and UIWidgets.IsEnabled then", trade_menu)
-        self.assertNotIn("if UIWidgets.Register then", trade_menu)
+        self.assertIn("local module = Widgets.TradeMenu or {}", trade_menu)
+        self.assertIn("local module = Widgets.TradeMenu", trade_menu)
+        self.assertIn("function module.HideDropdowns()", trade_menu)
+        self.assertNotIn("UIWidgets", trade_menu)
 
-    def test_loot_hints_uses_declared_ui_widget_facade_owner(self):
+    def test_loot_hints_publishes_concrete_widget_owner(self):
         loot_hints = read(LOOT_HINTS)
-        start = loot_hints.index('registry.AddModule("Widgets/LootHints"')
-        registry = loot_hints[start:]
 
-        self.assertIn('"Modules/UI/Facade"', registry)
-        self.assertIn("local UIWidgets = UI.Widgets", loot_hints)
-        self.assertIn('if not UIWidgets.IsEnabled("LootHints") then', loot_hints)
-        self.assertIn('UIWidgets.Register("LootHints", module)', loot_hints)
-        self.assertIn(
-            'UIWidgets.RegisterFunction("LootHints", "ApplyLootFrameReserveHints", module.ApplyLootFrameReserveHints)',
-            loot_hints,
-        )
-        self.assertIn(
-            'UIWidgets.RegisterFunction("LootHints", "ClearLootFrameReserveHints", module.ClearLootFrameReserveHints)',
-            loot_hints,
-        )
-        self.assertIn(
-            'UIWidgets.RegisterFunction("LootHints", "EnsureLootFrameHooks", module.EnsureLootFrameHooks)',
-            loot_hints,
-        )
-        self.assertNotIn("UIWidgets and UIWidgets.IsEnabled", loot_hints)
-        self.assertNotIn("UIWidgets and UIWidgets.Register", loot_hints)
+        self.assertIn("Widgets.LootHints = Widgets.LootHints or {}", loot_hints)
+        self.assertIn("local module = Widgets.LootHints", loot_hints)
+        self.assertIn("module.ApplyLootFrameReserveHints = function()", loot_hints)
+        self.assertNotIn("UIWidgets", loot_hints)
 
-    def test_raid_grid_uses_declared_ui_widget_facade_owner(self):
+    def test_raid_grid_publishes_concrete_widget_owner(self):
         raid_grid = read(ADDON / "Widgets" / "RaidGrid.lua")
-        start = raid_grid.index('registry.AddModule("Widgets/RaidGrid"')
-        registry = raid_grid[start:]
 
-        self.assertIn('"Modules/UI/Facade"', registry)
-        self.assertIn("local UIWidgets = UI.Widgets", raid_grid)
-        self.assertIn('if not UIWidgets.IsEnabled("RaidGrid") then', raid_grid)
-        self.assertIn('UIWidgets.Register("RaidGrid", module)', raid_grid)
-        self.assertIn('UIWidgets.RegisterFunction("RaidGrid", "ShowPicker", module.ShowPicker)', raid_grid)
-        self.assertIn('UIWidgets.RegisterFunction("RaidGrid", "Hide", module.Hide)', raid_grid)
-        self.assertIn('UIWidgets.RegisterFunction("RaidGrid", "IsShown", module.IsShown)', raid_grid)
-        self.assertIn('UIWidgets.RegisterFunction("RaidGrid", "GetMode", module.GetMode)', raid_grid)
-        self.assertNotIn("UIWidgets and UIWidgets.IsEnabled", raid_grid)
-        self.assertNotIn("UIWidgets and UIWidgets.Register", raid_grid)
+        self.assertIn("Widgets.RaidGrid = Widgets.RaidGrid or {}", raid_grid)
+        self.assertIn("local module = Widgets.RaidGrid", raid_grid)
+        self.assertIn("function module.ShowPicker(config)", raid_grid)
+        self.assertNotIn("UIWidgets", raid_grid)
 
     def test_raid_grid_depends_on_wotlk_create_frame_api_without_button_fallback(self):
         raid_grid = read(ADDON / "Widgets" / "RaidGrid.lua")
@@ -460,13 +535,10 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         start = config.index("local function onOptionClick(btn, frameName)")
         end = config.index("local function bindInterfaceOptionsPanel(panel)", start)
         on_option_click = config[start:end]
-        registry_start = config.index('registry.AddModule("Controllers/Config"')
-        registry = config[registry_start:]
 
         self.assertLess(toc.index("EntryPoints\\Minimap.lua"), toc.index("Controllers\\Config.lua"))
         self.assertIn("addon.Minimap:SetMinimapButtonShown(value)", on_option_click)
         self.assertNotIn("addon.Minimap:ToggleMinimapButton()", on_option_click)
-        self.assertIn('"EntryPoints/Minimap"', registry)
 
     def test_minimap_owner_does_not_keep_obsolete_toggle_wrapper(self):
         minimap = read(MINIMAP)
@@ -482,29 +554,10 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertNotIn("local function callControllerMethod(", minimap)
         self.assertNotIn("local function toggleLootCounterWidget()", minimap)
         self.assertIn("local Raid = assert(Services.Raid", minimap)
-        self.assertIn('"Services/Raid/State"', minimap)
-        self.assertIn('"Services/Raid/Capabilities"', minimap)
         self.assertIn("MasterController:Toggle()", minimap)
-        self.assertIn('callWidgetMethod("LootCounter", "Toggle")', minimap)
+        self.assertIn("LootCounterWidget:Toggle()", minimap)
 
-    def test_widget_facade_separates_method_and_function_calls(self):
-        facade = read(ADDON / "Modules" / "UI" / "Facade.lua")
-
-        self.assertIn("local function registerCallable(widgetId, methodName, fn, style)", facade)
-        self.assertIn("local function getWidgetFunction(widgetId, methodName, style)", facade)
-        self.assertIn("function Widgets.RegisterMethod(widgetId, methodName, fn)", facade)
-        self.assertIn("function Widgets.RegisterFunction(widgetId, methodName, fn)", facade)
-        self.assertIn("function Widgets.CallMethod(widgetId, methodName, ...)", facade)
-        self.assertIn("function Widgets.CallFunction(widgetId, methodName, ...)", facade)
-        self.assertIn('local fn, api = getWidgetFunction(widgetId, methodName, "method")', facade)
-        self.assertIn('local fn = getWidgetFunction(widgetId, methodName, "function")', facade)
-        self.assertIn("return fn(api, ...)", facade)
-        self.assertIn("return fn(...)", facade)
-        self.assertNotIn("function Widgets.Call(", facade)
-        self.assertNotIn("SELF_METHODS", facade)
-        self.assertNotIn("methodName] == true", facade)
-
-    def test_widget_call_sites_use_explicit_method_or_function_dispatch(self):
+    def test_widget_call_sites_use_concrete_owners(self):
         runtime_files = [
             path
             for path in ADDON.rglob("*.lua")
@@ -513,8 +566,8 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         for path in runtime_files:
             src = read(path)
             with self.subTest(path=path.relative_to(ADDON)):
-                self.assertNotIn("UI.Widgets.Call(", src)
-                self.assertNotIn("UIWidgets.Call(", src)
+                self.assertNotIn("UI.Widgets", src)
+                self.assertNotIn("local UIWidgets", src)
 
         master = read(MASTER)
         minimap = read(MINIMAP)
@@ -522,29 +575,29 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         reserves_ui = read(RESERVES_UI)
 
         for call in (
-            'UI.Widgets.CallMethod("LootCounter", "AttachToMaster", frame)',
-            'UI.Widgets.CallMethod("Reserves", "Toggle")',
-            'UI.Widgets.CallMethod("Reserves", "ToggleImport")',
-            'UI.Widgets.CallMethod("LootCounter", "Toggle")',
+            "Widgets.LootCounter:AttachToMaster(frame)",
+            "Widgets.ReservesUI:Toggle()",
+            "Widgets.ReservesUI:ToggleImport()",
+            "Widgets.LootCounter:Toggle()",
         ):
             self.assertIn(call, master)
 
         for call in (
-            'UI.Widgets.CallFunction("LootHints", "EnsureLootFrameHooks")',
-			'UI.Widgets.CallFunction("TradeMenu", "HideDropdowns")',
-			'UI.Widgets.CallFunction("TradeMenu", "RefreshDropdowns", manualState)',
-			'UI.Widgets.CallFunction("TradeMenu", "RefreshCandidate", "TRADE_SHOW")',
-			'UI.Widgets.CallFunction("RaidGrid", "ShowPicker", {',
-			'UI.Widgets.CallFunction("RaidGrid", "Hide")',
-			'UI.Widgets.CallFunction("RaidGrid", "IsShown")',
-			'UI.Widgets.CallFunction("RaidGrid", "GetMode")',
-            'UI.Widgets.CallFunction("LootHints", "ApplyLootFrameReserveHints")',
+            "Widgets.TradeMenu.HideDropdowns()",
+            "Widgets.TradeMenu.RefreshDropdowns(manualState)",
+            'Widgets.TradeMenu.RefreshCandidate("TRADE_SHOW")',
+            "Widgets.RaidGrid.ShowPicker({",
+            "Widgets.RaidGrid.Hide()",
+            "Widgets.RaidGrid.IsShown()",
+            "Widgets.RaidGrid.GetMode()",
+            "Widgets.LootHints.ApplyLootFrameReserveHints()",
         ):
             self.assertIn(call, master)
 
-        self.assertIn("return UIWidgets.CallMethod(widgetId, methodName, ...)", minimap)
-        self.assertIn("return CallWidgetMethod(widgetId, methodName, ...)", slash_events)
-        self.assertIn('UIWidgets.CallMethod("Reserves", "ToggleImport")', reserves_ui)
+        self.assertIn("ReservesWidget:Toggle()", minimap)
+        self.assertIn("LootCounterWidget:Toggle()", slash_events)
+        self.assertIn("module:ToggleImport()", reserves_ui)
+        self.assertIn("module.EnsureLootFrameHooks()", read(LOOT_HINTS))
 
     def test_slash_events_routes_controllers_without_private_pass_through_wrapper(self):
         slash_events = read(SLASH_EVENTS)
@@ -580,10 +633,6 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertNotIn("getLoggerActions()", config)
         self.assertNotIn("local function getLoggerSyncer()", config)
         self.assertNotIn("getLoggerSyncer()", config)
-        self.assertIn('"Database/DB"', config)
-        self.assertIn('"Database/DBSyncer"', config)
-        self.assertIn('"Services/Raid/State"', config)
-        self.assertIn('"Services/Logger/Actions"', config)
         self.assertIn("local actions = Services.Logger.Actions", config)
         self.assertNotIn("local actions = Services and Services.Logger and Services.Logger.Actions or nil", config)
         self.assertIn("local syncer = Database.GetSyncer()", config)
@@ -594,7 +643,6 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
     def test_config_options_reads_use_dboptions_key_index_without_local_fallback(self):
         config = read(CONFIG)
 
-        self.assertIn('"Database/DBOptions"', config)
         self.assertIn("local GetOptionByKey = Options.GetByKey", config)
         self.assertNotIn("local GetOptionByKey = Options.GetByKey\n\t\tor function", config)
         self.assertNotIn("local GetOptionByKey = Options.GetByKey\r\n\t\tor function", config)
@@ -602,7 +650,6 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
     def test_config_options_writes_use_dboptions_key_index_without_local_helper(self):
         config = read(CONFIG)
 
-        self.assertIn('"Database/DBOptions"', config)
         self.assertNotIn("local function getOptionConfig(key)", config)
         self.assertNotIn("local function setOption(key, value)", config)
         self.assertIn('Options.Set("autoSpamSoftResOnLootOpened", false)', config)
@@ -640,7 +687,6 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
     def test_config_logger_quality_uses_dboptions_normalizer_without_local_fallback(self):
         config = read(CONFIG)
 
-        self.assertIn('"Database/DBOptions"', config)
         self.assertIn("local NormalizeLoggerLootQualityThreshold = Options.NormalizeLoggerLootQualityThreshold", config)
         self.assertNotIn("local normalizeLoggerLootQualityThreshold = Options.NormalizeLoggerLootQualityThreshold", config)
         self.assertNotIn("loggerLootQualityOptions[i].value == threshold", config)
@@ -848,8 +894,6 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         row_click_binding = visuals[start:end]
 
         self.assertLess(toc.index("Modules\\UI\\Frames.lua"), toc.index("Modules\\UI\\Visuals.lua"))
-        self.assertRegex(visuals, r"registry\.AddModule\(\s*\"Modules/UI/Visuals\"")
-        self.assertIn('"Modules/UI/Frames"', visuals)
         self.assertEqual(visuals.count("local Frames = UI.Frames"), 1)
         self.assertIn("local Frames = UI.Frames", visuals)
         self.assertIn('Frames.SetScriptSafely(row, "OnClick", onClick)', row_click_binding)
@@ -862,7 +906,6 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         end = list_controller.index("fetchRows = function()", start)
         controller_bindings = list_controller[start:end]
 
-        self.assertIn('"Modules/UI/Frames"', list_controller)
         self.assertIn('Frames.SetScriptSafely(defer, "OnUpdate"', controller_bindings)
         self.assertIn('Frames.HookScriptSafely(frame, "OnShow"', controller_bindings)
         self.assertIn('Frames.HookScriptSafely(frame, "OnHide"', controller_bindings)
@@ -878,7 +921,6 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
 
         self.assertLess(toc.index("Modules\\UI\\Frames.lua"), toc.index("Modules\\UI\\Effects.lua"))
         self.assertIn("local Frames = UI.Frames", effects)
-        self.assertIn('"Modules/UI/Frames"', effects)
         self.assertIn('Frames.HookScriptSafely(button, "OnSizeChanged"', ensure_glow)
         self.assertNotIn('button:HookScript("OnSizeChanged"', ensure_glow)
         self.assertIn('local SetScriptSafely = assert(Frames.SetScriptSafely, "Effects frame script binder is not initialized")', effects)
@@ -888,7 +930,7 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertIn('SetScriptSafely(frame, "OnUpdate", onTimedFadeUpdate)', effects)
         self.assertNotIn(':SetScript("OnUpdate"', effects)
 
-    def test_widget_registration_uses_feature_module_api_without_pass_through_tables(self):
+    def test_widgets_publish_direct_owner_apis_without_pass_through_tables(self):
         frames = read(FRAMES)
         loot_counter = read(LOOT_COUNTER)
         config = read(CONFIG)
@@ -900,22 +942,17 @@ class UIFrameHelperOwnershipTest(unittest.TestCase):
         self.assertNotIn("Scaffold.CreateWidgetApi", reserves_ui)
 
         self.assertIn("function module:AttachToMaster(masterFrame)", loot_counter)
-        self.assertIn('UIWidgets.Register("LootCounter", module)', loot_counter)
-        self.assertIn('UIWidgets.RegisterMethod("LootCounter", "Toggle", module.Toggle)', loot_counter)
-        self.assertIn('UIWidgets.RegisterMethod("LootCounter", "AttachToMaster", module.AttachToMaster)', loot_counter)
-        self.assertNotIn('UIWidgets.Register("LootCounter", {', loot_counter)
+        self.assertIn("Widgets.LootCounter = Widgets.LootCounter or {}", loot_counter)
+        self.assertNotIn("UIWidgets", loot_counter)
 
         self.assertIn("function module:Default()", config)
         self.assertIn("Controllers.Config = Controllers.Config or {}", config)
-        self.assertNotIn('UIWidgets.Register("Config"', config)
-        self.assertNotIn('UIWidgets.RegisterMethod("Config"', config)
+        self.assertNotIn("UIWidgets", config)
 
         self.assertIn("function module:ToggleImport()", reserves_ui)
-        self.assertIn("function module:HideImport()", reserves_ui)
-        self.assertIn('UIWidgets.Register("Reserves", module)', reserves_ui)
-        self.assertIn('UIWidgets.RegisterMethod("Reserves", "Toggle", module.Toggle)', reserves_ui)
-        self.assertIn('UIWidgets.RegisterMethod("Reserves", "ToggleImport", module.ToggleImport)', reserves_ui)
-        self.assertNotIn('UIWidgets.Register("Reserves", {', reserves_ui)
+        self.assertNotIn("function module:HideImport()", reserves_ui)
+        self.assertIn("Widgets.ReservesUI = Widgets.ReservesUI or {}", reserves_ui)
+        self.assertNotIn("UIWidgets", reserves_ui)
 
     def test_warnings_owns_its_list_panel_binding_without_single_use_scaffold(self):
         frames = read(FRAMES)

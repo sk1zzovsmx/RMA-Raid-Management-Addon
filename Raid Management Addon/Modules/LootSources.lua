@@ -1,14 +1,12 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.LootSources
 -- events: none
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Strings = assert(feature.Strings, "Loot source string helpers are not initialized")
-local LootSourceCandidates = feature.LootSourceCandidates
+local Strings = assert(addon.Strings, "Loot source string helpers are not initialized")
+local LootSourceCandidates = addon.LootSourceCandidates
 local TrimText = assert(Strings.TrimText, "Loot source text trimmer is not initialized")
 local NormalizeLower = assert(Strings.NormalizeLower, "Loot source text normalizer is not initialized")
 
@@ -16,10 +14,10 @@ local type, tonumber, tostring = type, tonumber, tostring
 local pairs = pairs
 local tconcat = table.concat
 
-local LootSourcesData = feature.LootSourcesData or {}
+local LootSourcesData = addon.LootSourcesData or {}
 addon.LootSourcesData = LootSourcesData
 LootSourcesData.ByItemId = LootSourcesData.ByItemId or {}
-local LootSources = feature.LootSources or {}
+local LootSources = addon.LootSources or {}
 addon.LootSources = LootSources
 
 -- ----- Internal state ----- --
@@ -593,17 +591,3 @@ function LootSources.FindSource(itemId, context)
 end
 
 LootSources._SetDataForTests = setDataForTests
-
-do
-	local name = "Modules/LootSources"
-	local deps = { "Init", "Modules/Strings", "Modules/LootSourceCandidates", "Modules/Dataset/LootSourcesData" }
-	local registry = feature.ModuleRegistry
-	if registry then
-		registry.AddModule(name, { deps = deps })
-		registry.SetLoaded(name)
-	else
-		addon.ModuleRegistryPendingRegistrations = addon.ModuleRegistryPendingRegistrations or {}
-		local pending = addon.ModuleRegistryPendingRegistrations
-		pending[#pending + 1] = { name = name, deps = deps, loaded = true }
-	end
-end

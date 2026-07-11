@@ -1,15 +1,13 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.DB.RaidMigrations
 -- events: none
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local DB = feature.DB
-local Database = feature.Database
-local Strings = assert(feature.Strings, "String helpers are not initialized")
-local LootSourceCandidates = assert(feature.LootSourceCandidates, "Loot source candidate helpers are not initialized")
+local DB = addon.DB
+local Database = addon.Database
+local Strings = assert(addon.Strings, "String helpers are not initialized")
+local LootSourceCandidates = assert(addon.LootSourceCandidates, "Loot source candidate helpers are not initialized")
 
 local isBossFightRecord = Database.IsBossFightRecord
 local tconcat = table.concat
@@ -151,7 +149,7 @@ do
 	end
 
 	local function getLootSourceResolver()
-		local resolver = feature.LootSources
+		local resolver = addon.LootSources
 		if type(resolver) == "table" and type(resolver.FindSource) == "function" then
 			return resolver
 		end
@@ -540,19 +538,4 @@ do
 		migrateSharedLootSources(raid)
 		return compactRaidForPersistence(raid)
 	end
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Database/DBRaidMigrations", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DB",
-			"Database/DBSchema",
-			"Modules/Strings",
-			"Modules/LootSourceCandidates",
-		},
-	})
-	registry.SetLoaded("Database/DBRaidMigrations")
 end

@@ -1,19 +1,17 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
 -- events: none
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
+local Strings = addon.Strings
+local Database = addon.Database
+local Services = addon.Services
 
-local Strings = feature.Strings
-local Database = feature.Database
-local Services = feature.Services
-
-local type, tostring, tonumber = type, tostring, tonumber
+local type, tonumber = type, tonumber
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Logger", "Store")
+addon.Database.EnsureServiceNamespace("Logger", "Store")
 local Logger = Services.Logger
 local Store = Logger.Store
 local bossIdx
@@ -68,14 +66,6 @@ resolveLootLooterName = function(raid, loot)
 	return queries:ResolveLootLooterName(raid, loot)
 end
 
-local function ensureRaid(raid)
-	local raidStore = Database.GetRaidStoreOrNil("Logger.Store.EnsureRaid", { "NormalizeRaidRecord" })
-	if raidStore then
-		return raidStore:NormalizeRaidRecord(raid)
-	end
-	return Database.EnsureRaidSchema(raid)
-end
-
 resolveLootLooterClass = function(raid, loot)
 	if type(loot) ~= "table" then
 		return nil
@@ -88,35 +78,11 @@ resolveLootLooterClass = function(raid, loot)
 end
 
 function Store:GetRaid(rID)
-	local raidStore = Database.GetRaidStoreOrNil("Logger.Store.GetRaid", { "GetRaidByIndex" })
-	if raidStore then
-		local raid = rID and raidStore:GetRaidByIndex(rID) or nil
-		if raid then
-			ensureRaid(raid)
-		end
-		return raid
-	end
-	local raid = rID and Database.EnsureRaidById(rID) or nil
-	if raid then
-		ensureRaid(raid)
-	end
-	return raid
+	return rID and Database.GetRaidStore():EnsureRaidByIndex(rID) or nil
 end
 
-function Store:GetRaidByNid(raidNid)
-	local raidStore = Database.GetRaidStoreOrNil("Logger.Store.GetRaidByNid", { "GetRaidByNid" })
-	if raidStore then
-		local raid = raidNid and raidStore:GetRaidByNid(raidNid) or nil
-		if raid then
-			ensureRaid(raid)
-		end
-		return raid
-	end
-	local raid = raidNid and Database.EnsureRaidByNid(raidNid) or nil
-	if raid then
-		ensureRaid(raid)
-	end
-	return raid
+function Store:EnsureRaidByNid(raidNid)
+	return raidNid and Database.GetRaidStore():EnsureRaidByNid(raidNid) or nil
 end
 
 invalidateIndexes = function(raid)
@@ -138,8 +104,7 @@ bossIdx = function(raid, bossNid)
 	if not (raid and queryNid) then
 		return nil
 	end
-	local raidStore = Database.GetRaidStoreOrNil("Logger.Store.BossIdx", { "EnsureRaidRuntime" })
-	local runtime = raidStore and raidStore:EnsureRaidRuntime(raid) or nil
+	local runtime = Database.GetRaidStore():EnsureRaidRuntime(raid)
 	local idxByNid = runtime and runtime.bossIdxByNid or nil
 	return idxByNid and idxByNid[queryNid] or nil
 end
@@ -149,8 +114,7 @@ lootIdx = function(raid, lootNid)
 	if not (raid and queryNid) then
 		return nil
 	end
-	local raidStore = Database.GetRaidStoreOrNil("Logger.Store.LootIdx", { "EnsureRaidRuntime" })
-	local runtime = raidStore and raidStore:EnsureRaidRuntime(raid) or nil
+	local runtime = Database.GetRaidStore():EnsureRaidRuntime(raid)
 	local idxByNid = runtime and runtime.lootIdxByNid or nil
 	return idxByNid and idxByNid[queryNid] or nil
 end
@@ -170,8 +134,7 @@ playerIdx = function(raid, playerNid)
 	if not (raid and queryNid) then
 		return nil
 	end
-	local raidStore = Database.GetRaidStoreOrNil("Logger.Store.PlayerIdx", { "EnsureRaidRuntime" })
-	local runtime = raidStore and raidStore:EnsureRaidRuntime(raid) or nil
+	local runtime = Database.GetRaidStore():EnsureRaidRuntime(raid)
 	local idxByNid = runtime and runtime.playerIdxByNid or nil
 	return idxByNid and idxByNid[queryNid] or nil
 end
@@ -179,18 +142,4 @@ end
 function Store:GetPlayer(raid, playerNid)
 	local idx = playerIdx(raid, playerNid)
 	return idx and raid.players[idx] or nil, idx
-end
-
-local registry = feature.ModuleRegistry
-if type(registry) == "table" and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Logger/Store", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Database/DBRaidStore",
-			"Database/DBRaidQueries",
-			"Modules/Strings",
-		},
-	})
-	registry.SetLoaded("Services/Logger/Store")
 end

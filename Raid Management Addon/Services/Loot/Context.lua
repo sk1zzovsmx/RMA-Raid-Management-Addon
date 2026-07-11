@@ -1,19 +1,18 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Loot._Context
 -- events: no bus events; context helpers only
 -- notes: bootstrap-sensitive internal loot helpers
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-local Database = feature.Database
-local Services = feature.Services
-local Strings = feature.Strings
-local LootSourceCandidates = feature.LootSourceCandidates
+local Database = addon.Database
+local Services = addon.Services
+local Strings = addon.Strings
+local LootSourceCandidates = addon.LootSourceCandidates
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Loot")
+addon.Database.EnsureServiceNamespace("Loot")
 local Loot = Services.Loot
 local module = Loot
 module._Context = module._Context or {}
@@ -22,7 +21,7 @@ local LootContext = module._Context
 
 -- ----- Private helpers ----- --
 local NormalizeText = assert(Strings.NormalizeText, "Loot context text normalizer is not initialized")
-local EnsureRaidById = assert(Database.EnsureRaidById, "Loot context raid resolver is not initialized")
+local EnsureRaidByIndex = assert(Database.EnsureRaidByIndex, "Loot context raid resolver is not initialized")
 local EnsureRaidSchema = assert(Database.EnsureRaidSchema, "Loot context raid schema normalizer is not initialized")
 
 local function isValidLootSourceKind(kind)
@@ -267,7 +266,7 @@ function LootContext.ResolveRaidRecord(raidNum)
 		return resolvedRaidNum, nil
 	end
 
-	local raid = EnsureRaidById(resolvedRaidNum)
+	local raid = EnsureRaidByIndex(resolvedRaidNum)
 	if raid then
 		EnsureRaidSchema(raid)
 	end
@@ -299,17 +298,4 @@ function LootContext.CopyLootSource(context, bossNidOverride)
 		copied.candidates = LootSourceCandidates.Copy(source.candidates)
 	end
 	return copied
-end
-
-local registry = feature.ModuleRegistry
-if registry and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Loot/Context", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Strings",
-			"Modules/LootSourceCandidates",
-		},
-	})
-	registry.SetLoaded("Services/Loot/Context")
 end

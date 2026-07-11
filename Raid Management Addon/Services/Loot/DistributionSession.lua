@@ -1,20 +1,18 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
--- shared: local feature = addon.Database.GetFeatureShared()
+-- shared: direct addon namespace bindings
 -- exports: addon.Services.Loot.DistributionSession
 -- events: LootDistributionSessionChanged
 
 local addon = select(2, ...)
-local feature = addon.Database.GetFeatureShared()
-
-local Database = feature.Database
-local Diag = feature.Diag
-local Events = feature.Events
-local Bus = feature.Bus
-local Comms = feature.Comms
-local Item = feature.Item
-local Services = feature.Services
-local Strings = feature.Strings
+local Database = addon.Database
+local Diag = addon.Diag
+local Events = addon.Events
+local Bus = addon.Bus
+local Comms = addon.Comms
+local Item = addon.Item
+local Services = addon.Services
+local Strings = addon.Strings
 local Payload = assert(Comms.Payload, "Loot distribution payload codec is not initialized")
 local InternalEvents = assert(Events.Internal, "Loot distribution internal events are not initialized")
 
@@ -30,7 +28,7 @@ local type, tostring, tonumber = type, tostring, tonumber
 local tinsert, tsort, tconcat = table.insert, table.sort, table.concat
 
 -- ----- Internal state ----- --
-feature.EnsureServiceNamespace("Loot")
+addon.Database.EnsureServiceNamespace("Loot")
 local Loot = Services.Loot
 Loot.DistributionSession = Loot.DistributionSession or {}
 local DistributionSession = Loot.DistributionSession
@@ -766,10 +764,6 @@ function DistributionSession.PublishItemDone(itemKeyOrLink, winnerName)
 	return publishItemDoneRow(row)
 end
 
-function DistributionSession.RequestSnapshot()
-	return publishMessage(MSG_SNAPSHOT_REQ, PROTOCOL_VERSION, ensureSessionId())
-end
-
 function DistributionSession.PublishSnapshot(target, requestId)
 	if not canPublish() then
 		return false
@@ -836,22 +830,6 @@ function DistributionSession.PublishSnapshot(target, requestId)
 	return sentAll == true
 end
 
-function DistributionSession.PublishRollTick(itemKeyOrLink, remaining)
-	if not canPublish() then
-		return false
-	end
-	local itemKey = resolveItemKey(itemKeyOrLink, itemKeyOrLink)
-	local row = upsertRow({
-		itemKey = itemKey,
-		remaining = remaining,
-		state = STATE_ROLLING,
-	}, "roll_tick")
-	if not row then
-		return false
-	end
-	return publishMessage(MSG_ROLL_TICK, PROTOCOL_VERSION, ensureSessionId(), row.itemKey, row.remaining or "")
-end
-
 function DistributionSession.PublishTieStart(itemKeyOrLink, names)
 	if not canPublish() then
 		return false
@@ -867,30 +845,6 @@ function DistributionSession.PublishTieStart(itemKeyOrLink, names)
 		return false
 	end
 	return publishMessage(MSG_TIE_START, PROTOCOL_VERSION, ensureSessionId(), row.itemKey, encodeText(tieNamesText))
-end
-
-function DistributionSession.PublishAwarded(itemKeyOrLink, winnerName, rollValue)
-	if not canPublish() then
-		return false
-	end
-	local itemKey = resolveItemKey(itemKeyOrLink, itemKeyOrLink)
-	local row = upsertRow({
-		itemKey = itemKey,
-		winnerName = winnerName,
-		rollValue = rollValue,
-		state = STATE_AWARDED,
-	}, "awarded")
-	if not row then
-		return false
-	end
-	return publishMessage(
-		MSG_AWARDED,
-		PROTOCOL_VERSION,
-		ensureSessionId(),
-		row.itemKey,
-		encodeText(winnerName),
-		row.rollValue or ""
-	)
 end
 
 function DistributionSession.HandleMessage(prefix, msg, _channel, sender)
@@ -972,18 +926,3 @@ function DistributionSession.GetDisplayModel()
 end
 
 ensurePrefix()
-
-local registry = feature.ModuleRegistry
-if registry and type(registry.AddModule) == "function" and type(registry.SetLoaded) == "function" then
-	registry.AddModule("Services/Loot/DistributionSession", {
-		deps = {
-			"Init",
-			"Modules/ModuleRegistry",
-			"Modules/Events",
-			"Modules/Bus",
-			"Modules/Comms",
-			"Modules/Item",
-		},
-	})
-	registry.SetLoaded("Services/Loot/DistributionSession")
-end
