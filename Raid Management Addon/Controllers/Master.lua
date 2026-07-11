@@ -6,6 +6,7 @@
 local addon = select(2, ...)
 local L = addon.L
 local Diag = addon.Diag
+local DebugEntryPoint = assert(addon.EntryPoints.Debug, "Master debug entrypoint is not initialized")
 
 local UI = addon.UI
 local Frames = UI.Frames
@@ -3112,6 +3113,20 @@ do
 	function module:ShowDebugRaidGrid(count)
 		return Private.OpenDebugRaidGrid(count)
 	end
+
+	DebugEntryPoint.RegisterCommand("raidgrid", "raidgrid [1-40]", L.StrCmdDebugRaidGrid, function(argument)
+		local count = argument ~= "" and tonumber(argument) or 25
+		if not count or count < 1 or count > 40 or count ~= math.floor(count) then
+			addon:warn(L.MsgDebugRaidGridInvalidCount)
+			return
+		end
+		local shown = module:ShowDebugRaidGrid(count)
+		if shown then
+			addon:info(L.MsgDebugRaidGridShown, shown)
+		else
+			addon:warn(L.MsgFeatureUnavailable, "Master", "debug raidgrid")
+		end
+	end)
 
 	-- LOOT_SLOT_CLEARED: Triggered when an item is looted.
 	function module:LOOT_SLOT_CLEARED(clearedSlot)

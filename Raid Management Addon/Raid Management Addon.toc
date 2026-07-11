@@ -32,6 +32,7 @@ UI\ScreenNotice.xml
 UI\RaidGrid.xml
 
 # Layer 4 - Shared modules (helpers/constants)
+EntryPoints\Debug.lua
 Modules\C.lua
 Modules\Timer.lua
 Modules\Events.lua

@@ -16,7 +16,7 @@ local Colors = addon.Colors
 local Strings = addon.Strings
 local Database = addon.Database
 local Services = addon.Services
-local RaidDebug = assert(Services.Raid.Debug, "Raid debug service is not initialized")
+local DebugEntryPoint = assert(addon.EntryPoints.Debug, "Debug entrypoint is not initialized")
 local Controllers = addon.Controllers
 local MasterController = assert(Controllers.Master, "Slash master controller is not initialized")
 local LoggerController = assert(Controllers.Logger, "Slash logger controller is not initialized")
@@ -26,7 +26,6 @@ local SpammerController = assert(Controllers.Spammer, "Slash spammer controller 
 local ConfigController = assert(Controllers.Config, "Config controller is not initialized")
 local Comms = addon.Comms
 local Item = addon.Item
-local Timer = addon.Timer
 
 local RT_COLOR = addon.C.RT_COLOR
 
@@ -34,7 +33,6 @@ local pairs, ipairs = pairs, ipairs
 local tconcat = table.concat
 local sort = table.sort
 local format = string.format
-local upper = string.upper
 local type = type
 local tostring, tonumber = tostring, tonumber
 local floor = math.floor
@@ -178,151 +176,6 @@ local function showToggleHelp(commandRoot)
 	printHelp("toggle", L.StrCmdToggle)
 end
 
-local function showDebugRaidHelp()
-	addon:info(format(L.StrCmdCommands, "RMA debug raid"), "RMA")
-	printHelp("seed", L.StrCmdDebugRaidSeed)
-	printHelp("clear", L.StrCmdDebugRaidClear)
-	printHelp("rolls [tie]", L.StrCmdDebugRaidRolls)
-	printHelp("roll <1-4|name> [1-100]", L.StrCmdDebugRaidRoll)
-end
-
-local debugNoActiveRollReasons = {
-	record_inactive = true,
-	missing_item = true,
-	session_inactive = true,
-}
-
-local function reportDebugRaidError(reason, playerRef)
-	if reason == "no_current_raid" then
-		addon:warn(L.MsgDebugRaidNoCurrent)
-		return
-	end
-	if reason == "invalid_player" or reason == "unknown_player" then
-		addon:warn(L.MsgDebugRaidUnknownPlayer, tostring(playerRef or "?"))
-		return
-	end
-	if reason == "invalid_roll" then
-		addon:warn(L.MsgDebugRaidInvalidRoll)
-		return
-	end
-	if reason == "raid_service_unavailable" then
-		addon:warn(L.MsgFeatureUnavailable, "Debug", "raid")
-		return
-	end
-	if reason == "rolls_service_unavailable" then
-		addon:warn(L.MsgFeatureUnavailable, "Debug", "rolls")
-		return
-	end
-	if debugNoActiveRollReasons[reason] then
-		addon:warn(L.MsgDebugRaidNoActiveRoll)
-		return
-	end
-	addon:warn(L.MsgDebugRaidRollRejected, tostring(playerRef or "?"), tostring(reason or "unknown"))
-end
-
-local function handleDebugRaidCommand(arg)
-	local raidCmd, raidArg = Strings.SplitArgs(arg)
-	local result
-	local err
-	local playerRef
-	local rollArg
-
-	if raidCmd == "" then
-		raidCmd = nil
-	end
-	if not raidCmd or raidCmd == "help" then
-		showDebugRaidHelp()
-		return
-	end
-
-	if raidCmd == "seed" or raidCmd == "add" then
-		result, err = RaidDebug:SeedRaidPlayers()
-		if not result then
-			reportDebugRaidError(err)
-			return
-		end
-		addon:info(L.MsgDebugRaidSeeded, result.total, result.added, result.refreshed)
-		return
-	end
-
-	if raidCmd == "clear" or raidCmd == "reset" then
-		result, err = RaidDebug:ClearRaidPlayers()
-		if not result then
-			reportDebugRaidError(err)
-			return
-		end
-		addon:info(L.MsgDebugRaidCleared, result.removed, result.blocked)
-		if result.clearedRolls then
-			addon:info(L.MsgDebugRaidClearResetRolls)
-		end
-		return
-	end
-
-	if raidCmd == "rolls" or raidCmd == "all" then
-		local rollsMode, rollsModeExtra = Strings.SplitArgs(raidArg)
-		if rollsMode == "" then
-			rollsMode = nil
-		end
-		if (rollsMode and rollsMode ~= "tie") or (rollsModeExtra and rollsModeExtra ~= "") then
-			showDebugRaidHelp()
-			return
-		end
-
-		result, err = RaidDebug:RequestRaidRolls(rollsMode)
-		if not result then
-			reportDebugRaidError(err)
-			return
-		end
-		if result.submitted <= 0 and result.firstFailure then
-			if debugNoActiveRollReasons[result.firstFailure] then
-				reportDebugRaidError(result.firstFailure)
-			else
-				addon:warn(L.MsgDebugRaidRollsPartial, result.submitted, result.total, tostring(result.firstFailure))
-			end
-			return
-		end
-		if result.failed > 0 and result.firstFailure then
-			addon:warn(L.MsgDebugRaidRollsPartial, result.submitted, result.total, tostring(result.firstFailure))
-			return
-		end
-		if result.tieMode then
-			addon:info(
-				L.MsgDebugRaidRollsTie,
-				result.submitted,
-				result.total,
-				tonumber(result.tieCount) or 0,
-				tonumber(result.tieRoll) or 0
-			)
-		else
-			addon:info(L.MsgDebugRaidRolls, result.submitted, result.total)
-		end
-		return
-	end
-
-	if raidCmd == "roll" then
-		playerRef, rollArg = Strings.SplitArgs(raidArg)
-		if not playerRef or playerRef == "" then
-			showDebugRaidHelp()
-			return
-		end
-
-		result, err = RaidDebug:RollRaidPlayer(playerRef, rollArg)
-		if not result then
-			reportDebugRaidError(err, playerRef)
-			return
-		end
-		if not result.ok then
-			reportDebugRaidError(result.reason, result.name)
-			return
-		end
-
-		addon:info(L.MsgDebugRaidRollSingle, result.name, result.roll)
-		return
-	end
-
-	showDebugRaidHelp()
-end
-
 local function registerAliases(list, fn)
 	for _, cmd in ipairs(list) do
 		slashHandlers[cmd] = fn
@@ -450,107 +303,6 @@ local function showBugReport()
 			yesNo(role.isMasterLooter)
 		)
 	)
-end
-
-local function handleDebugRaidGridCommand(arg)
-	local countArg, extra = Strings.SplitArgs(arg)
-	local count
-
-	if countArg == "" then
-		countArg = nil
-	end
-	if extra and extra ~= "" then
-		addon:warn(L.MsgDebugRaidGridInvalidCount)
-		return
-	end
-
-	if countArg then
-		count = tonumber(countArg)
-		if not count or count < 1 or count > 40 or count ~= floor(count) then
-			addon:warn(L.MsgDebugRaidGridInvalidCount)
-			return
-		end
-	end
-
-	local shown = MasterController:ShowDebugRaidGrid(count or 25)
-	if not shown then
-		addon:warn(L.MsgFeatureUnavailable, "Master", "debug raidgrid")
-		return
-	end
-	addon:info(L.MsgDebugRaidGridShown, shown)
-end
-
-local function handleDebugCommand(rest)
-	local subCmd, arg = Strings.SplitArgs(rest)
-	if isBlank(subCmd) then
-		subCmd = nil
-	end
-
-	if subCmd == "levels" then
-		addon:info(L.MsgLogLevelList)
-		return
-	end
-
-	if subCmd == "level" or subCmd == "lvl" then
-		if not arg or arg == "" then
-			local lvl = addon.GetLogLevel and addon:GetLogLevel()
-			addon:info(L.MsgLogLevelCurrent, getLogLevelName(lvl))
-			addon:info(L.MsgLogLevelList)
-			return
-		end
-
-		local lv = tonumber(arg)
-		if not lv and addon.logLevels then
-			lv = addon.logLevels[upper(arg)]
-		end
-		if lv then
-			addon:SetLogLevel(lv)
-			addon:info(L.MsgLogLevelSet, arg)
-		else
-			addon:warn(L.MsgLogLevelUnknown, arg)
-		end
-		return
-	end
-
-	if subCmd == "timers" or subCmd == "timer" then
-		if arg == "reset" then
-			if Timer and Timer.RefreshStats then
-				Timer.RefreshStats()
-				addon:info(L.MsgTimerStatsReset)
-			end
-		else
-			if Timer and Timer.ShowStats then
-				Timer.ShowStats(arg)
-			else
-				addon:warn(L.MsgTimerModuleUnavailable)
-			end
-		end
-		return
-	end
-
-	if subCmd == "raid" or subCmd == "players" then
-		handleDebugRaidCommand(arg)
-		return
-	end
-
-	if subCmd == "raidgrid" or subCmd == "mlgrid" or subCmd == "lootgrid" then
-		handleDebugRaidGridCommand(arg)
-		return
-	end
-
-	if subCmd == "on" then
-		Options.SetDebugEnabled(true)
-	elseif subCmd == "off" then
-		Options.SetDebugEnabled(false)
-	else
-		Options.SetDebugEnabled(not Options.IsDebugEnabled())
-	end
-
-	if Options.IsDebugEnabled() then
-		addon:info(L.MsgDebugOn)
-	else
-		addon:info(L.MsgDebugOff)
-	end
 end
 
 local function formatPerfThreshold(value)
@@ -1291,12 +1043,7 @@ local function handleHelpCommand(rest)
 	elseif topic == "counter" or topic == "counters" or topic == "counts" then
 		showToggleHelp("RMA counter")
 	elseif topic == "debug" or topic == "dbg" or topic == "debugger" then
-		addon:info(format(L.StrCmdCommands, "RMA debug"), "RMA")
-		printHelp("on", L.StrCmdToggle)
-		printHelp("off", L.StrCmdToggle)
-		printHelp("level <name|num>", L.StrCmdDebugLevel)
-		printHelp("raid", L.StrCmdDebugRaid)
-		printHelp("raidgrid [1-40]", L.StrCmdDebugRaidGrid)
+		DebugEntryPoint.ShowHelp()
 	elseif topic == "perf" or topic == "performance" then
 		handlePerfCommand("help")
 	elseif topic == "rw" or topic == "warn" or topic == "warning" or topic == "warnings" then
@@ -1361,7 +1108,7 @@ end
 registerAliases(cmdHelp, handleHelpCommand)
 registerAliases(cmdBug, handleBugCommand)
 registerAliases(cmdVersion, handleVersionCommand)
-registerAliases(cmdDebug, handleDebugCommand)
+registerAliases(cmdDebug, DebugEntryPoint.Handle)
 registerAliases(cmdPerf, handlePerfCommand)
 registerAliases(cmdMinimap, handleMinimapCommand)
 registerAliases(cmdAchiev, handleAchievementCommand)

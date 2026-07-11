@@ -5,6 +5,7 @@
 -- events: emits option-specific events; listens OptionsLoaded
 local addon = select(2, ...)
 local L = addon.L
+local DebugEntryPoint = assert(addon.EntryPoints.Debug, "Config debug entrypoint is not initialized")
 
 local Database = addon.Database
 local Options = addon.Options
@@ -501,12 +502,13 @@ do
 				gap = 12,
 			}),
 			Layout.TextRow("DiagnosticsTitle", "DiagnosticsBody", { bodyHeight = 68, gap = 0 }),
+			Layout.TextRow("CommandsTitle", "CommandsBody", { bodyHeight = 660, gap = 0 }),
 		}, {
 			contentWidth = 380,
 			scrollChildWidth = 420,
 			rowGap = 7,
 			bottomPadding = 28,
-			minHeight = 640,
+			minHeight = 1280,
 		})
 	end
 
@@ -759,6 +761,8 @@ do
 		setText(helpContentFrameName, "CommandPermissionsBody", L.StrConfigHelpCommandPermissionsBody)
 		setText(helpContentFrameName, "DiagnosticsTitle", L.StrConfigHelpDiagnosticsTitle)
 		setText(helpContentFrameName, "DiagnosticsBody", L.StrConfigHelpDiagnosticsBody)
+		setText(helpContentFrameName, "CommandsTitle", L.StrConfigHelpCommandsTitle)
+		setText(helpContentFrameName, "CommandsBody", L.StrConfigHelpCommandsBody .. "\n\n" .. DebugEntryPoint.GetHelpText())
 		layoutHelpPanel()
 	end
 

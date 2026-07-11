@@ -4,7 +4,9 @@
 -- exports: publish module APIs on addon.*
 -- events: no direct bus events; publishes synthetic roster deltas through the Raid slice
 local addon = select(2, ...)
+local L = addon.L
 local Diag = addon.Diag
+local DebugEntryPoint = assert(addon.EntryPoints.Debug, "Raid debug entrypoint is not initialized")
 
 local Database = addon.Database
 local Options = addon.Options
@@ -576,4 +578,80 @@ do
 		end
 		return debugEnabled == true
 	end
+
+	local function reportCommandError(reason, playerRef)
+		if reason == "no_current_raid" then
+			addon:warn(L.MsgDebugRaidNoCurrent)
+		elseif reason == "invalid_player" or reason == "unknown_player" then
+			addon:warn(L.MsgDebugRaidUnknownPlayer, tostring(playerRef or "?"))
+		elseif reason == "invalid_roll" then
+			addon:warn(L.MsgDebugRaidInvalidRoll)
+		elseif reason == "raid_service_unavailable" then
+			addon:warn(L.MsgFeatureUnavailable, "Debug", "raid")
+		elseif reason == "rolls_service_unavailable" then
+			addon:warn(L.MsgFeatureUnavailable, "Debug", "rolls")
+		elseif reason == "record_inactive" or reason == "missing_item" or reason == "session_inactive" then
+			addon:warn(L.MsgDebugRaidNoActiveRoll)
+		else
+			addon:warn(L.MsgDebugRaidRollRejected, tostring(playerRef or "?"), tostring(reason or "unknown"))
+		end
+	end
+
+	DebugEntryPoint.RegisterCommand("raid", "raid [seed|clear|rolls [tie]|roll <1-4|name> [1-100]]", L.StrCmdDebugRaid, function(argument)
+		local command, args = Strings.SplitArgs(argument)
+		local result, err
+		if command == "seed" or command == "add" then
+			result, err = module:SeedRaidPlayers()
+			if result then
+				addon:info(L.MsgDebugRaidSeeded, result.total, result.added, result.refreshed)
+			else
+				reportCommandError(err)
+			end
+			return
+		end
+		if command == "clear" or command == "reset" then
+			result, err = module:ClearRaidPlayers()
+			if result then
+				addon:info(L.MsgDebugRaidCleared, result.removed, result.blocked)
+				if result.clearedRolls then addon:info(L.MsgDebugRaidClearResetRolls) end
+			else
+				reportCommandError(err)
+			end
+			return
+		end
+		if command == "rolls" or command == "all" then
+			local mode, extra = Strings.SplitArgs(args)
+			if mode == "" then mode = nil end
+			if (mode and mode ~= "tie") or (extra and extra ~= "") then
+				DebugEntryPoint.ShowHelp()
+				return
+			end
+			result, err = module:RequestRaidRolls(mode)
+			if not result then
+				reportCommandError(err)
+			elseif result.submitted <= 0 and result.firstFailure then
+				reportCommandError(result.firstFailure)
+			elseif result.failed > 0 and result.firstFailure then
+				addon:warn(L.MsgDebugRaidRollsPartial, result.submitted, result.total, tostring(result.firstFailure))
+			elseif result.tieMode then
+				addon:info(L.MsgDebugRaidRollsTie, result.submitted, result.total, result.tieCount, result.tieRoll)
+			else
+				addon:info(L.MsgDebugRaidRolls, result.submitted, result.total)
+			end
+			return
+		end
+		if command == "roll" then
+			local playerRef, rollValue = Strings.SplitArgs(args)
+			result, err = module:RollRaidPlayer(playerRef, rollValue)
+			if not result then
+				reportCommandError(err, playerRef)
+			elseif not result.ok then
+				reportCommandError(result.reason, result.name)
+			else
+				addon:info(L.MsgDebugRaidRollSingle, result.name, result.roll)
+			end
+			return
+		end
+		DebugEntryPoint.ShowHelp()
+	end)
 end

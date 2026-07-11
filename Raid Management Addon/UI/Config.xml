@@ -2230,6 +2230,28 @@
 										</Anchor>
 									</Anchors>
 								</FontString>
+								<FontString name="$parentCommandsTitle" inherits="GameFontNormalSmall" justifyH="LEFT">
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentDiagnosticsBody" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-10" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+								<FontString name="$parentCommandsBody" inherits="GameFontHighlightSmall"
+									justifyH="LEFT" justifyV="TOP">
+									<Size>
+										<AbsDimension x="430" y="660" />
+									</Size>
+									<Anchors>
+										<Anchor point="TOPLEFT" relativeTo="$parentCommandsTitle" relativePoint="BOTTOMLEFT">
+											<Offset>
+												<AbsDimension x="0" y="-4" />
+											</Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
 							</Layer>
 						</Layers>
 					</Frame>

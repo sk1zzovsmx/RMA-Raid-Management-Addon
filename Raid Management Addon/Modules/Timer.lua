@@ -5,6 +5,7 @@
 -- events: none (purely a timer mixin; does not emit Bus events)
 local addon = select(2, ...)
 local L = addon.L
+local DebugEntryPoint = assert(addon.EntryPoints.Debug, "Timer debug entrypoint is not initialized")
 
 local type, pairs, select, rawget, rawset, tostring, tonumber = type, pairs, select, rawget, rawset, tostring, tonumber
 local pcall, error = pcall, error
@@ -270,3 +271,12 @@ function Timer.ShowStats(sortBy)
 
 	addon:info(L.MsgTimerStatsTip)
 end
+
+DebugEntryPoint.RegisterCommand("timers", "timers [reset]", L.MsgTimerStatsTip, function(argument)
+	if argument == "reset" then
+		Timer.RefreshStats()
+		addon:info(L.MsgTimerStatsReset)
+		return
+	end
+	Timer.ShowStats(argument)
+end)
