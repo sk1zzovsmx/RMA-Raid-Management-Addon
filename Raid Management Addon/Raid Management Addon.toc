@@ -76,6 +76,7 @@ Services\Loot\State.lua
 Services\Loot\Snapshots.lua
 Services\Loot\PendingAwards.lua
 Services\Raid\State.lua
+Services\Raid\Roster.lua
 Services\Raid\Capabilities.lua
 Services\Loot\PassiveGroupLoot.lua
 Services\Loot\Tracking.lua
@@ -87,7 +88,6 @@ Services\Loot\AwardPlanner.lua
 Services\Loot\Inventory.lua
 Services\Raid\LootMethod.lua
 Services\Raid\Counts.lua
-Services\Raid\Roster.lua
 Services\Raid\Attendance.lua
 Services\Raid\LootRecords.lua
 Services\Raid\Session.lua

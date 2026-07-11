@@ -242,11 +242,12 @@ local function loadRaidLootSources(raidLootSources)
 end
 
 local RawSources = LootSourcesData.Raw or {}
+-- Dataset files load chronologically (Vanilla, Burning Crusade, Wrath), so a
+-- later raid definition intentionally supersedes an earlier normalized name.
 for i = 1, #RawSources do
 	local raid = RawSources[i]
 	local raidKey = normalizeText(type(raid) == "table" and raid.name or nil)
 	if raidKey then
-		assert(rawByInstance[raidKey] == nil, "duplicate normalized loot-source raid name: " .. raidKey)
 		rawByInstance[raidKey] = raid
 	end
 end
