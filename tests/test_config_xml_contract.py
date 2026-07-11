@@ -53,6 +53,11 @@ class ConfigXmlContractTest(unittest.TestCase):
         xml = source()
         self.assertNotRegex(xml, r"<Scripts>|<On[A-Za-z]+>")
 
+    def test_repeated_geometry_is_reduced(self) -> None:
+        xml = source()
+        self.assertLessEqual(len(re.findall(r"<Anchor\b", xml)), 80)
+        self.assertLessEqual(len(re.findall(r"<Size\b", xml)), 40)
+
 
 class ConfigLayoutOwnershipTest(unittest.TestCase):
     def test_layout_supports_explicit_justification(self) -> None:
