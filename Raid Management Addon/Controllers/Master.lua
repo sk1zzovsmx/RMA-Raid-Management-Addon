@@ -3267,6 +3267,19 @@ do
 	-- ============================================================================
 	-- Assigns an item from the loot window to a player.
 	function assignItem(itemLink, playerName, rollType, rollValue, effect)
+		local rollSession = Rolls:GetRollSession()
+		effect = effect or createAwardTransaction({
+			rollSessionId = rollSession and rollSession.id or nil,
+			itemKey = Item.GetItemStringFromLink(itemLink) or itemLink,
+			itemLink = itemLink,
+			winner = playerName,
+			source = "master_loot",
+			executorContext = {
+				executor = "loot_window",
+				rollType = rollType,
+				raidNid = Database.GetCurrentRaid(),
+			},
+		})
 		local itemIndex = LootInventory.FindLootSlotIndex(itemLink)
 		if itemIndex == nil then
 			addon:error(L.ErrCannotFindItem:format(itemLink))

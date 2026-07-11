@@ -11,6 +11,7 @@ ADDON = ROOT / "Raid Management Addon"
 TOC = ADDON / "Raid Management Addon.toc"
 LOOT_SOURCE_DIR = ADDON / "Modules" / "Dataset" / "LootSources"
 LOOT_SOURCE_DATA = ADDON / "Modules" / "Dataset" / "LootSourcesData.lua"
+MASTER_CONTROLLER = ADDON / "Controllers" / "Master.lua"
 
 
 def toc_entries() -> list[str]:
@@ -45,6 +46,13 @@ class RuntimeBootstrapContractTest(unittest.TestCase):
         source = LOOT_SOURCE_DATA.read_text(encoding="utf-8")
         self.assertNotIn("duplicate normalized loot-source raid name", source)
         self.assertIn("rawByInstance[raidKey] = raid", source)
+
+    def test_master_loot_assignment_always_has_a_transaction_effect(self) -> None:
+        source = MASTER_CONTROLLER.read_text(encoding="utf-8")
+        assign_item = source[source.index("\tfunction assignItem(") :]
+        assign_item = assign_item[: assign_item.index("\n\tend\n", assign_item.index("GiveMasterLoot"))]
+
+        self.assertIn("effect = effect or createAwardTransaction({", assign_item)
 
 
 if __name__ == "__main__":
