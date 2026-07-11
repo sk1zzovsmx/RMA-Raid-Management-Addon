@@ -16,7 +16,6 @@ local tconcat = table.concat
 
 local LootSourcesData = addon.LootSourcesData or {}
 addon.LootSourcesData = LootSourcesData
-LootSourcesData.ByItemId = LootSourcesData.ByItemId or {}
 local LootSources = addon.LootSources or {}
 addon.LootSources = LootSources
 
@@ -28,6 +27,7 @@ local GET_CANDIDATES_CACHE_HIT = {}
 local FIND_SOURCE_CACHE_LIMIT = 512
 local FIND_SOURCE_CACHE = {}
 local FIND_SOURCE_CACHE_SIZE = 0
+local LAST_DATA_GENERATION = type(LootSourcesData.GetGeneration) == "function" and LootSourcesData.GetGeneration() or 0
 
 local VALID_SOURCE_KINDS = {
 	boss = true,
@@ -44,6 +44,22 @@ local VALID_MODE_KEYS = {
 }
 
 -- ----- Private helpers ----- --
+local function clearResolverCaches()
+	GET_CANDIDATES_CACHE = {}
+	GET_CANDIDATES_CACHE_HIT = {}
+	GET_CANDIDATES_CACHE_SIZE = 0
+	FIND_SOURCE_CACHE = {}
+	FIND_SOURCE_CACHE_SIZE = 0
+end
+
+local function refreshDataGeneration()
+	local currentGeneration = type(LootSourcesData.GetGeneration) == "function" and LootSourcesData.GetGeneration() or 0
+	if currentGeneration ~= LAST_DATA_GENERATION then
+		clearResolverCaches()
+		LAST_DATA_GENERATION = currentGeneration
+	end
+end
+
 local function trimText(value)
 	return TrimText(value)
 end
@@ -506,17 +522,18 @@ local function getCachedCandidates(itemId, sources)
 end
 
 local function setDataForTests(byItemId)
-	LootSourcesData.ByItemId = byItemId or {}
-	LootSourcesData.ByInstance = {}
-	GET_CANDIDATES_CACHE = {}
-	GET_CANDIDATES_CACHE_HIT = {}
-	GET_CANDIDATES_CACHE_SIZE = 0
-	FIND_SOURCE_CACHE = {}
-	FIND_SOURCE_CACHE_SIZE = 0
+	assert(
+		type(LootSourcesData._SetActiveIndexForTests) == "function",
+		"Loot source test data lifecycle is not initialized"
+	)
+	LootSourcesData._SetActiveIndexForTests(byItemId)
+	clearResolverCaches()
+	LAST_DATA_GENERATION = LootSourcesData.GetGeneration()
 end
 
 -- ----- Public methods ----- --
 function LootSources.GetCandidates(itemId, context, modeKey)
+	refreshDataGeneration()
 	local numericItemId = tonumber(itemId)
 	if not numericItemId then
 		return {}
@@ -533,7 +550,8 @@ function LootSources.GetCandidates(itemId, context, modeKey)
 		end
 	end
 
-	local sources = LootSourcesData.ByItemId[numericItemId]
+	local byItemId = LootSourcesData.ByItemId
+	local sources = type(byItemId) == "table" and byItemId[numericItemId] or nil
 	if type(sources) ~= "table" then
 		return {}
 	end
@@ -542,6 +560,7 @@ function LootSources.GetCandidates(itemId, context, modeKey)
 end
 
 function LootSources.FindSource(itemId, context)
+	refreshDataGeneration()
 	local numericItemId = tonumber(itemId)
 	if not numericItemId then
 		return { reason = "missing", candidates = {} }

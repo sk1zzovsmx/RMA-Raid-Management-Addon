@@ -1,7 +1,7 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
 -- shared: direct addon namespace bindings
--- exports: addon.LootSourcesData (static data tables; no public methods)
+-- exports: addon.LootSourcesData (active raid item source index and lifecycle)
 -- events: none
 -- notes: static raid item source data for Vanilla through Wrath of the Lich King
 
@@ -17,11 +17,14 @@ local LootSourceCandidates = addon.LootSourceCandidates
 -- ----- Internal state ----- --
 local LootSourcesData = addon.LootSourcesData or {}
 addon.LootSourcesData = LootSourcesData
-LootSourcesData.ByItemId = LootSourcesData.ByItemId or {}
-LootSourcesData.ByInstance = LootSourcesData.ByInstance or {}
+LootSourcesData.ByItemId = nil
+LootSourcesData.ByInstance = nil
 
-local ByItemId = LootSourcesData.ByItemId
-local ByInstance = LootSourcesData.ByInstance
+local ByItemId
+local ByInstance
+local rawByInstance = {}
+local activeInstanceKey
+local generation = 0
 local BOSS_SOURCE_KIND = "boss"
 local UNKNOWN_MODE_SIZE = 0
 local UNKNOWN_MODE_DIFFICULTY = "any"
@@ -52,7 +55,9 @@ local function copyModes(modes)
 	end
 	local copied = {}
 	for mode, enabled in pairs(modes) do
-		copied[mode] = enabled
+		if type(mode) == "string" and enabled == true and (mode:match("^normal%d+$") or mode:match("^heroic%d+$")) then
+			copied[mode] = true
+		end
 	end
 	return copied
 end
@@ -205,7 +210,6 @@ end
 
 local function buildInstanceIndex()
 	ByInstance = {}
-	LootSourcesData.ByInstance = ByInstance
 
 	for itemId, itemSources in pairs(ByItemId) do
 		for i = 1, #itemSources do
@@ -217,28 +221,106 @@ end
 local function loadRaidLootSources(raidLootSources)
 	for i = 1, #raidLootSources do
 		local raid = raidLootSources[i]
-		local raidName = raid.name
-		local sources = raid.sources or {}
+		local raidName = type(raid) == "table" and raid.name or nil
+		local sources = type(raid) == "table" and type(raid.sources) == "table" and raid.sources or {}
 		for j = 1, #sources do
 			local source = sources[j]
-			local items = source.items or {}
+			local items = type(source) == "table" and type(source.items) == "table" and source.items or {}
 			for k = 1, #items do
 				local item = items[k]
-				addItemSource(item[1], {
-					npcId = source.npcId,
-					name = source.name,
-					kind = source.kind,
-					modes = item[2],
-				}, raidName)
+				if type(item) == "table" then
+					addItemSource(item[1], {
+						npcId = source.npcId,
+						name = source.name,
+						kind = source.kind,
+						modes = item[2],
+					}, raidName)
+				end
 			end
 		end
 	end
 end
 
 local RawSources = LootSourcesData.Raw or {}
+for i = 1, #RawSources do
+	local raid = RawSources[i]
+	local raidKey = normalizeText(type(raid) == "table" and raid.name or nil)
+	if raidKey then
+		assert(rawByInstance[raidKey] == nil, "duplicate normalized loot-source raid name: " .. raidKey)
+		rawByInstance[raidKey] = raid
+	end
+end
 
-if #RawSources > 0 then
-	loadRaidLootSources(RawSources)
-	markSharedItemSources()
-	buildInstanceIndex()
+-- ----- Public methods ----- --
+function LootSourcesData.DeactivateInstance()
+	if activeInstanceKey == nil then
+		return false
+	end
+
+	ByItemId = nil
+	ByInstance = nil
+	LootSourcesData.ByItemId = nil
+	LootSourcesData.ByInstance = nil
+	activeInstanceKey = nil
+	generation = generation + 1
+	return true
+end
+
+function LootSourcesData.ActivateInstance(instanceName)
+	local instanceKey = normalizeText(instanceName)
+	if instanceKey ~= nil and instanceKey == activeInstanceKey then
+		return true
+	end
+
+	local wasActive = activeInstanceKey ~= nil
+	LootSourcesData.DeactivateInstance()
+	local raid = instanceKey and rawByInstance[instanceKey] or nil
+	if raid == nil then
+		return false, "unsupported-instance"
+	end
+
+	ByItemId = {}
+	ByInstance = {}
+	local function buildRequestedInstance()
+		loadRaidLootSources({ raid })
+		markSharedItemSources()
+		buildInstanceIndex()
+	end
+	local buildOk, buildError = pcall(buildRequestedInstance)
+	if not buildOk then
+		ByItemId = nil
+		ByInstance = nil
+		LootSourcesData.ByItemId = nil
+		LootSourcesData.ByInstance = nil
+		activeInstanceKey = nil
+		error(buildError, 0)
+	end
+	LootSourcesData.ByItemId = ByItemId
+	LootSourcesData.ByInstance = ByInstance
+	activeInstanceKey = instanceKey
+	if not wasActive then
+		generation = generation + 1
+	end
+	return true
+end
+
+function LootSourcesData.GetActiveInstanceKey()
+	return activeInstanceKey
+end
+
+function LootSourcesData.GetGeneration()
+	return generation
+end
+
+function LootSourcesData._SetActiveIndexForTests(byItemId)
+	ByItemId = byItemId or {}
+	ByInstance = {}
+	LootSourcesData.ByItemId = ByItemId
+	LootSourcesData.ByInstance = ByInstance
+	activeInstanceKey = "__test__"
+	generation = generation + 1
+end
+
+function LootSourcesData._HasGeneratedRootsForTests()
+	return ByItemId ~= nil or ByInstance ~= nil
 end

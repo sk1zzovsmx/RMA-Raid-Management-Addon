@@ -63,6 +63,7 @@ local Actions = Logger.Actions
 local Store = Logger.Store
 local Helpers = Logger.Helpers
 local LootSources = addon.LootSources
+local LootSourcesData = addon.LootSourcesData
 Timer.BindMixin(Actions, "Logger.Actions")
 
 local commitRaidSelections
@@ -577,6 +578,28 @@ local function cancelHistoryCleanup(state)
 	end
 end
 
+local function restoreLootSourceInstance(instanceKey)
+	if instanceKey then
+		LootSourcesData.ActivateInstance(instanceKey)
+	else
+		LootSourcesData.DeactivateInstance()
+	end
+end
+
+local function withHistoricalLootSourceInstance(instanceName, callback)
+	local entryInstanceKey = LootSourcesData.GetActiveInstanceKey()
+	local function runHistoricalCallback()
+		local activated = LootSourcesData.ActivateInstance(instanceName) == true
+		return callback(activated)
+	end
+	local ok, result = pcall(runHistoricalCallback)
+	restoreLootSourceInstance(entryInstanceKey)
+	if not ok then
+		error(result)
+	end
+	return result
+end
+
 local function cancelLootSourceRebuild(state)
 	if state and state.handle then
 		Actions:CancelTimer(state.handle)
@@ -646,14 +669,17 @@ local function applyLootSourceRebuildChange(raid)
 	Store._InvalidateIndexes(raid)
 end
 
-local function rebuildLootSourceRow(raid, raidIndex, loot, result)
+local function rebuildLootSourceRow(raid, raidIndex, loot, result, sourceResolutionAvailable)
 	if type(loot) ~= "table" then
 		return false
 	end
 
 	result.scanned = result.scanned + 1
 	if shouldRebuildLootSource(raid, loot) then
-		local source = resolveLootSource(raid, loot)
+		local source
+		if sourceResolutionAvailable ~= false then
+			source = resolveLootSource(raid, loot)
+		end
 		local bossNid, created = findOrCreateStaticSourceBoss(raid, raidIndex, source, loot.time)
 		if bossNid > 0 then
 			applyStaticLootSource(loot, source, bossNid)
@@ -1309,15 +1335,23 @@ function Actions:RebuildLootSources()
 		local raid = raids[raidIndex]
 		if type(raid) == "table" then
 			result.raids = result.raids + 1
-			local changed = false
-			local lootRows = raid.loot or {}
-			for lootIndex = 1, #lootRows do
-				local loot = lootRows[lootIndex]
-				changed = rebuildLootSourceRow(raid, raidIndex, loot, result) or changed
-			end
-			if changed then
-				applyLootSourceRebuildChange(raid)
-			end
+			withHistoricalLootSourceInstance(raid.zone, function(sourceResolutionAvailable)
+				local changed = false
+				local lootRows = raid.loot or {}
+				for lootIndex = 1, #lootRows do
+					local loot = lootRows[lootIndex]
+					changed = rebuildLootSourceRow(
+						raid,
+						raidIndex,
+						loot,
+						result,
+						sourceResolutionAvailable
+					) or changed
+				end
+				if changed then
+					applyLootSourceRebuildChange(raid)
+				end
+			end)
 		end
 	end
 	if result.repaired > 0 or result.bossesCreated > 0 then
@@ -1380,6 +1414,7 @@ function Actions:StartLootSourceRebuild(callback, opts)
 		if state.raidStarted and state.raidChanged then
 			applyLootSourceRebuildChange(raid)
 		end
+		state.temporaryInstanceKey = nil
 		state.raidStarted = false
 		state.raidChanged = false
 		state.lootIndex = 1
@@ -1387,13 +1422,7 @@ function Actions:StartLootSourceRebuild(callback, opts)
 	end
 
 	local runChunk
-
-	runChunk = function()
-		state.handle = nil
-		if state.cancelled then
-			return
-		end
-
+	local function processChunk()
 		local processed = 0
 		while processed < state.chunkSize and state.raidIndex <= #state.raids do
 			local raid = state.raids[state.raidIndex]
@@ -1407,6 +1436,8 @@ function Actions:StartLootSourceRebuild(callback, opts)
 					state.raidStarted = true
 					state.raidChanged = false
 					state.lootIndex = 1
+					local activated = LootSourcesData.ActivateInstance(raid.zone) == true
+					state.temporaryInstanceKey = activated and LootSourcesData.GetActiveInstanceKey() or nil
 				end
 
 				local lootRows = raid.loot or {}
@@ -1415,7 +1446,8 @@ function Actions:StartLootSourceRebuild(callback, opts)
 						raid,
 						state.raidIndex,
 						lootRows[state.lootIndex],
-						state.result
+						state.result,
+						state.temporaryInstanceKey ~= nil
 					) or state.raidChanged
 					state.lootIndex = state.lootIndex + 1
 					processed = processed + 1
@@ -1426,8 +1458,37 @@ function Actions:StartLootSourceRebuild(callback, opts)
 			end
 		end
 
-		if state.raidIndex > #state.raids then
-			completeRebuild()
+		return state.raidIndex > #state.raids
+	end
+
+	runChunk = function()
+		state.handle = nil
+		if state.cancelled then
+			return
+		end
+		local entryInstanceKey = LootSourcesData.GetActiveInstanceKey()
+		local function processHistoricalChunk()
+			local raid = state.raids[state.raidIndex]
+			if state.raidStarted and type(raid) == "table" then
+				local activated = LootSourcesData.ActivateInstance(raid.zone) == true
+				state.temporaryInstanceKey = activated and LootSourcesData.GetActiveInstanceKey() or nil
+			end
+			return processChunk()
+		end
+		local ok, completedOrError = pcall(processHistoricalChunk)
+		restoreLootSourceInstance(entryInstanceKey)
+		if not ok then
+			state.cancelled = true
+			cancelLootSourceRebuild(state)
+			error(completedOrError)
+		end
+		if completedOrError then
+			local completionOk, completionError = pcall(completeRebuild)
+			if not completionOk then
+				state.cancelled = true
+				cancelLootSourceRebuild(state)
+				error(completionError)
+			end
 			return
 		end
 		scheduleChunkedAction(state, runChunk)

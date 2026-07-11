@@ -550,6 +550,7 @@ do
 		CHAT_MSG_MONSTER_YELL = "CHAT_MSG_MONSTER_YELL",
 		RAID_ROSTER_UPDATE = "RAID_ROSTER_UPDATE",
 		PLAYER_ENTERING_WORLD = "PLAYER_ENTERING_WORLD",
+		ZONE_CHANGED_NEW_AREA = "ZONE_CHANGED_NEW_AREA",
 		COMBAT_LOG_EVENT_UNFILTERED = "COMBAT_LOG_EVENT_UNFILTERED",
 		RAID_INSTANCE_WELCOME = "RAID_INSTANCE_WELCOME",
 		PLAYER_DIFFICULTY_CHANGED = "PLAYER_DIFFICULTY_CHANGED",
@@ -655,6 +656,25 @@ do
 	end
 
 	local rosterUpdateDebounceSeconds = 0.2
+	local activeLootSourcesData
+	local activeIgnoredMobs
+
+	local function refreshActiveInstanceDatasets()
+		activeLootSourcesData = activeLootSourcesData or addon.LootSourcesData
+		activeIgnoredMobs = activeIgnoredMobs or addon.IgnoredMobs
+
+		local instanceName, instanceType, instanceDiff = GetInstanceInfo()
+		local isRecognizedRaid = instanceType == "raid" and L.RaidZones[instanceName] ~= nil
+		if isRecognizedRaid then
+			activeLootSourcesData.ActivateInstance(instanceName)
+			activeIgnoredMobs.ActivateInstance(instanceName)
+		else
+			activeLootSourcesData.DeactivateInstance()
+			activeIgnoredMobs.DeactivateInstance()
+		end
+
+		return instanceName, instanceType, instanceDiff
+	end
 
 	local function scheduleRaidInstanceChecksIfRecognized(instanceName, instanceType, instanceDiff, emitRecognizedLog)
 		local raidService = getService("Raid")
@@ -711,9 +731,15 @@ do
 		end, rosterUpdateDebounceSeconds)
 	end
 
+	local function handleRaidInstanceInfoChanged(emitRecognizedLog)
+		local instanceName, instanceType, instanceDiff = refreshActiveInstanceDatasets()
+		scheduleRaidInstanceChecksIfRecognized(instanceName, instanceType, instanceDiff, emitRecognizedLog)
+		return instanceName, instanceType, instanceDiff
+	end
+
 	-- RAID_INSTANCE_WELCOME: Triggered when entering a raid instance.
 	function addon:RAID_INSTANCE_WELCOME(...)
-		local instanceName, instanceType, instanceDiff = GetInstanceInfo()
+		local instanceName, instanceType, instanceDiff = handleRaidInstanceInfoChanged(true)
 		local _, nextReset = ...
 		local resolvedNextReset = Database.SetNextReset(nextReset)
 		if isTraceEnabled() then
@@ -732,12 +758,6 @@ do
 		if instanceType == "raid" then
 			RequestRaidInfo()
 		end
-		scheduleRaidInstanceChecksIfRecognized(instanceName, instanceType, instanceDiff, true)
-	end
-
-	local function handleRaidInstanceInfoChanged()
-		local instanceName, instanceType, instanceDiff = GetInstanceInfo()
-		scheduleRaidInstanceChecksIfRecognized(instanceName, instanceType, instanceDiff, false)
 	end
 
 	-- PLAYER_DIFFICULTY_CHANGED: Re-check raid session when raid difficulty changes.
@@ -750,9 +770,15 @@ do
 		handleRaidInstanceInfoChanged()
 	end
 
+	-- ZONE_CHANGED_NEW_AREA: Keep instance-scoped datasets synchronized with zone transitions.
+	function addon:ZONE_CHANGED_NEW_AREA()
+		handleRaidInstanceInfoChanged()
+	end
+
 	-- PLAYER_ENTERING_WORLD: Performs initial checks when the player logs in.
 	function addon:PLAYER_ENTERING_WORLD()
 		self:UnregisterEvent("PLAYER_ENTERING_WORLD")
+		handleRaidInstanceInfoChanged()
 		local module = getService("Raid")
 		if not module then
 			return
