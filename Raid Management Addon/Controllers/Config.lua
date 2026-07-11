@@ -514,7 +514,15 @@ do
 
 	local function layoutCleanupPopup()
 		applyOptionsLayout(cleanupPopupFrameName, {
-			{ type = "title", suffix = "Title", leftX = 20, width = 340, height = 20, gap = 10 },
+			{
+				type = "title",
+				suffix = "Title",
+				leftX = 20,
+				width = 340,
+				height = 20,
+				justifyH = "CENTER",
+				gap = 10,
+			},
 			{ type = "body", suffix = "Body", leftX = 30, width = 320, height = 34, gap = 12 },
 			Layout.CheckRow("EmptyRaids", {
 				check = "EmptyRaidsCheck",
@@ -555,6 +563,7 @@ do
 			rowGap = 6,
 			bottomPadding = 18,
 			minHeight = 320,
+			preserveFrameSize = true,
 		})
 	end
 

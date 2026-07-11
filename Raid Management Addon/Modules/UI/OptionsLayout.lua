@@ -104,13 +104,13 @@ local function place(parent, widget, x, y, width, height)
 	return widget
 end
 
-local function placeText(parent, widget, x, y, width, height)
+local function placeText(parent, widget, x, y, width, height, justifyH, justifyV)
 	if place(parent, widget, x, y, width, height) then
 		if widget.SetJustifyH then
-			widget:SetJustifyH("LEFT")
+			widget:SetJustifyH(justifyH or "LEFT")
 		end
 		if widget.SetJustifyV then
-			widget:SetJustifyV("TOP")
+			widget:SetJustifyV(justifyV or "TOP")
 		end
 	end
 end
@@ -313,7 +313,9 @@ local function applyRow(frame, row, cfg, cursorY)
 			row.leftX or getCfg(cfg, "leftX"),
 			cursorY,
 			row.width or getCfg(cfg, "contentWidth"),
-			height
+			height,
+			row.justifyH,
+			row.justifyV
 		)
 	elseif rowType == "section" then
 		height = height or sectionHeight
@@ -323,7 +325,9 @@ local function applyRow(frame, row, cfg, cursorY)
 			row.leftX or getCfg(cfg, "leftX"),
 			cursorY,
 			row.width or getCfg(cfg, "contentWidth"),
-			height
+			height,
+			row.justifyH,
+			row.justifyV
 		)
 	elseif rowType == "body" then
 		height = height or row.bodyHeight or getCfg(cfg, "bodyHeight")
@@ -333,7 +337,9 @@ local function applyRow(frame, row, cfg, cursorY)
 			row.leftX or getCfg(cfg, "leftX"),
 			cursorY,
 			row.width or getCfg(cfg, "contentWidth"),
-			height
+			height,
+			row.justifyH,
+			row.justifyV
 		)
 	elseif rowType == "text" then
 		computedHeight = applyTextRow(frame, row, cfg, cursorY, sectionHeight, bodyGap)
@@ -466,6 +472,8 @@ function Layout.ApplyRows(frameOrName, rows, cfg)
 	local minHeight = getCfg(cfg, "minHeight")
 	local bottomPadding = getCfg(cfg, "bottomPadding")
 	local height = max(minHeight, -minY + bottomPadding)
-	setSize(frame, getCfg(cfg, "scrollChildWidth"), height)
+	if not (cfg and cfg.preserveFrameSize) then
+		setSize(frame, getCfg(cfg, "scrollChildWidth"), height)
+	end
 	return height
 end

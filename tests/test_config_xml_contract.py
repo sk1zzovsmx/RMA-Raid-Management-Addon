@@ -9,6 +9,8 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_XML = ROOT / "Raid Management Addon" / "UI" / "Config.xml"
+LAYOUT_LUA = ROOT / "Raid Management Addon" / "Modules" / "UI" / "OptionsLayout.lua"
+CONTROLLER_LUA = ROOT / "Raid Management Addon" / "Controllers" / "Config.lua"
 EXPECTED_ORDERED_NAMES_SHA256 = (
     "53f86d9fa781ade75839a4d895840fd1013970add79c98a1bad9ef471fd8528d"
 )
@@ -50,6 +52,25 @@ class ConfigXmlContractTest(unittest.TestCase):
     def test_xml_remains_layout_only(self) -> None:
         xml = source()
         self.assertNotRegex(xml, r"<Scripts>|<On[A-Za-z]+>")
+
+
+class ConfigLayoutOwnershipTest(unittest.TestCase):
+    def test_layout_supports_explicit_justification(self) -> None:
+        lua = LAYOUT_LUA.read_text(encoding="utf-8")
+        self.assertIn('justifyH or "LEFT"', lua)
+        self.assertIn('justifyV or "TOP"', lua)
+
+    def test_layout_can_preserve_xml_owned_frame_size(self) -> None:
+        lua = LAYOUT_LUA.read_text(encoding="utf-8")
+        self.assertIn("if not (cfg and cfg.preserveFrameSize) then", lua)
+
+    def test_cleanup_popup_selects_preserved_size_and_centered_title(self) -> None:
+        lua = CONTROLLER_LUA.read_text(encoding="utf-8")
+        self.assertRegex(
+            lua,
+            r'type = "title"[\s\S]{0,200}?suffix = "Title"[\s\S]{0,200}?justifyH = "CENTER"',
+        )
+        self.assertIn("preserveFrameSize = true", lua)
 
 
 if __name__ == "__main__":
