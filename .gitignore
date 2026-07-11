@@ -3,6 +3,7 @@
 .vscode/
 .venv/
 .mcp.json
+.worktrees/
 
 # Local tooling, notes, and generated development state
 AGENTS.md
