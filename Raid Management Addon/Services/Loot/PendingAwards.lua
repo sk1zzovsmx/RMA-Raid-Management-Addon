@@ -1,7 +1,7 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
 -- shared: direct addon namespace bindings
--- exports: addon.Services.Loot._PendingAwards
+-- exports: addon.Services.Loot.PendingAwards
 -- events: no bus events; pending-award helpers only
 -- notes: pending-award helpers for loot service
 
@@ -12,15 +12,16 @@ local Database = addon.Database
 local Item = addon.Item
 local Options = addon.Options
 local Services = addon.Services
+local Strings = addon.Strings
 local _, lootState = Database.EnsureLootRuntimeState()
 
 -- ----- Internal state ----- --
 addon.Database.EnsureServiceNamespace("Loot")
 local Loot = Services.Loot
 local module = Loot
-module._PendingAwards = module._PendingAwards or {}
+module.PendingAwards = module.PendingAwards or {}
 
-local PendingAwards = module._PendingAwards
+local PendingAwards = module.PendingAwards
 
 local tremove = table.remove
 local strlower = string.lower
@@ -29,6 +30,8 @@ local tostring, tonumber = tostring, tonumber
 local type = type
 
 local PENDING_AWARD_TTL_SECONDS = tonumber(C.PENDING_AWARD_TTL_SECONDS) or 8
+local PROVISIONAL_RETENTION_SECONDS = 30
+local MAX_PROVISIONAL_AWARDS = 128
 local GROUP_LOOT_SESSION_PREFIX = "GL:"
 
 -- ----- Private helpers ----- --
@@ -44,7 +47,9 @@ end
 
 local function buildPendingAwardKey(itemLink, looter, useRawItemLink)
 	local itemKey = useRawItemLink and itemLink or normalizePendingAwardItemKey(itemLink)
-	return tostring(itemKey) .. "\001" .. tostring(looter)
+	local normalizedLooter = Strings and Strings.NormalizeName and Strings.NormalizeName(looter, true) or looter
+	local canonicalLooter = strlower(tostring(normalizedLooter or "")):match("^([^%-]+)") or ""
+	return tostring(itemKey) .. "\001" .. canonicalLooter
 end
 
 local function getPendingAwardList(itemLink, looter)
@@ -255,6 +260,7 @@ function PendingAwards.Add(itemLink, looter, rollType, rollValue, rollSessionId,
 	local resolvedSessionId = rollSessionId and tostring(rollSessionId) or nil
 	local resolvedExpiresAt = tonumber(expiresAt) or nil
 	local counterApplied = type(options) == "table" and options.counterApplied == true or false
+	local transactionId = type(options) == "table" and options.transactionId or nil
 
 	if
 		tryUpgradePendingAward(
@@ -278,8 +284,190 @@ function PendingAwards.Add(itemLink, looter, rollType, rollValue, rollSessionId,
 		rollSessionId = resolvedSessionId,
 		expiresAt = resolvedExpiresAt,
 		counterApplied = counterApplied,
+		transactionId = transactionId and tostring(transactionId) or nil,
 		ts = now,
 	}
+end
+
+local function canonicalWinner(looter)
+	local normalized = Strings and Strings.NormalizeName and Strings.NormalizeName(looter, true) or looter
+	return strlower(tostring(normalized or "")):match("^([^%-]+)") or ""
+end
+
+local function ensureProvisionalStore()
+	local store = lootState.provisionalAwards
+	if type(store) ~= "table" then
+		store = { entries = {} }
+		lootState.provisionalAwards = store
+	end
+	store.entries = type(store.entries) == "table" and store.entries or {}
+	return store
+end
+
+local function pruneProvisionalAwards(now)
+	local entries = ensureProvisionalStore().entries
+	for i = #entries, 1, -1 do
+		if now > (tonumber(entries[i] and entries[i].retainUntil) or 0) then
+			tremove(entries, i)
+		end
+	end
+	while #entries > MAX_PROVISIONAL_AWARDS do
+		tremove(entries, 1)
+	end
+	return entries
+end
+
+local function findPendingForConfirmation(itemLink, looter, rollSessionId, transactionId)
+	local resolvedTransactionId = transactionId and tostring(transactionId) or nil
+	if resolvedTransactionId and resolvedTransactionId ~= "" then
+		for _, list in pairs(lootState.pendingAwards) do
+			if type(list) == "table" then
+				for i = 1, #list do
+					local pending = list[i]
+					if pending and tostring(pending.transactionId or "") == resolvedTransactionId then
+						return pending
+					end
+				end
+			end
+		end
+	end
+
+	local _, list = getPendingAwardList(itemLink, looter)
+	if not list then
+		return nil
+	end
+	local resolvedSessionId = rollSessionId and tostring(rollSessionId) or nil
+	if not resolvedSessionId or resolvedSessionId == "" then
+		return nil
+	end
+	for i = 1, #list do
+		local pending = list[i]
+		if
+			pending
+			and pending.itemLink == itemLink
+			and canonicalWinner(pending.looter) == canonicalWinner(looter)
+			and tostring(pending.rollSessionId or "") == resolvedSessionId
+		then
+			return pending
+		end
+	end
+	return nil
+end
+
+local function findProvisional(itemLink, looter, rollSessionId, transactionId)
+	local entries = pruneProvisionalAwards(GetTime())
+	local resolvedTransactionId = transactionId and tostring(transactionId) or nil
+	if resolvedTransactionId and resolvedTransactionId ~= "" then
+		for i = 1, #entries do
+			if tostring(entries[i].transactionId or "") == resolvedTransactionId then
+				return entries[i]
+			end
+		end
+	end
+	local resolvedSessionId = rollSessionId and tostring(rollSessionId) or nil
+	if not resolvedSessionId or resolvedSessionId == "" then
+		return nil
+	end
+	local itemKey = normalizePendingAwardItemKey(itemLink)
+	local winnerKey = canonicalWinner(looter)
+	for i = 1, #entries do
+		local entry = entries[i]
+		if
+			entry.itemKey == itemKey
+			and entry.itemLink == itemLink
+			and entry.winnerKey == winnerKey
+			and tostring(entry.rollSessionId or "") == resolvedSessionId
+		then
+			return entry
+		end
+	end
+	return nil
+end
+
+function PendingAwards.ConfirmProvisional(
+	itemLink,
+	looter,
+	rollSessionId,
+	clearedSlot,
+	transactionId,
+	graceSeconds,
+	scheduleTimer,
+	cancelTimer,
+	onFinalize
+)
+	local pending = findPendingForConfirmation(itemLink, looter, rollSessionId, transactionId)
+	if not pending then
+		return nil
+	end
+	local existing = findProvisional(itemLink, looter, rollSessionId, transactionId)
+	if existing then
+		return existing
+	end
+	local now = GetTime()
+	local provisional = {
+		transactionId = transactionId and tostring(transactionId) or pending.transactionId,
+		rollSessionId = pending.rollSessionId,
+		itemKey = normalizePendingAwardItemKey(pending.itemLink),
+		itemLink = pending.itemLink,
+		looter = pending.looter,
+		winnerKey = canonicalWinner(pending.looter),
+		rollType = pending.rollType,
+		rollValue = pending.rollValue,
+		clearedSlot = tonumber(clearedSlot) or clearedSlot,
+		slotConfirmed = true,
+		finalized = false,
+		reconciled = false,
+		createdAt = now,
+		retainUntil = now + PROVISIONAL_RETENTION_SECONDS,
+		onFinalize = onFinalize,
+	}
+	local entries = pruneProvisionalAwards(now)
+	entries[#entries + 1] = provisional
+	pruneProvisionalAwards(now)
+	if type(scheduleTimer) ~= "function" then
+		return provisional
+	end
+	local delay = tonumber(graceSeconds) or 0
+	if delay < 0 then
+		delay = 0
+	end
+	provisional.graceHandle = scheduleTimer(function()
+		provisional.graceHandle = nil
+		if provisional.finalized then
+			return
+		end
+		provisional.finalized = true
+		provisional.finalizedSource = "LOOT_SLOT_CLEARED"
+		if type(provisional.onFinalize) == "function" then
+			provisional.recordIndex = provisional.onFinalize(provisional)
+		end
+	end, delay)
+	return provisional
+end
+
+function PendingAwards.ReconcileProvisional(itemLink, looter, rollSessionId, transactionId, cancelTimer, onReconcile)
+	local pending = findProvisional(itemLink, looter, rollSessionId, transactionId)
+	if not (pending and pending.slotConfirmed) then
+		return nil
+	end
+	if pending.graceHandle and type(cancelTimer) == "function" then
+		cancelTimer(pending.graceHandle)
+		pending.graceHandle = nil
+	end
+	if not pending.finalized then
+		pending.finalized = true
+		pending.finalizedSource = "CHAT_MSG_LOOT"
+		if type(pending.onFinalize) == "function" then
+			pending.recordIndex = pending.onFinalize(pending)
+		end
+	end
+	pending.reconciled = true
+	pending.finalizedSource = "CHAT_MSG_LOOT"
+	pending.retainUntil = GetTime() + PROVISIONAL_RETENTION_SECONDS
+	if type(onReconcile) == "function" then
+		onReconcile(pending)
+	end
+	return pending
 end
 
 function PendingAwards.Remove(itemLink, looter, maxAge, rollSessionId, preferResolvedValue, allowGroupLootPendingAwards)
@@ -378,4 +566,5 @@ function PendingAwards.Purge(maxAge)
 			end
 		end
 	end
+	pruneProvisionalAwards(now)
 end

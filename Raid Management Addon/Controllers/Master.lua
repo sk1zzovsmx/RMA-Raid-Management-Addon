@@ -44,6 +44,7 @@ local Loot = assert(Services.Loot, "Master loot service is not initialized")
 local LootDistribution = assert(Loot.DistributionSession, "Master loot distribution owner is not initialized")
 local LootInventory = assert(Loot.Inventory, "Loot inventory owner is not initialized")
 local LootAwardPlanner = assert(Loot.AwardPlanner, "Loot award planner owner is not initialized")
+local LootPendingAwards = assert(Loot.PendingAwards, "Loot pending-award owner is not initialized")
 local Raid = assert(Services.Raid, "Master raid service is not initialized")
 local Rolls = assert(Services.Rolls, "Master rolls service is not initialized")
 local Chat = assert(Services.Chat, "Master chat service is not initialized")
@@ -182,7 +183,7 @@ do
 	local module = addon.Controllers.Master
 	local uiState = UI.ModuleState.Ensure(module)
 
-	-- Timer ownership: all Master controller timers (module._PendingCounter, multi-award timeout/delay, loot close).
+	-- Timer ownership: pending award execution, multi-award timeout/delay, and loot close.
 	addon.Timer.BindMixin(module, "Master")
 
 	-- Namespace registrations owned by the Master controller. Stored on `module`
@@ -240,6 +241,58 @@ do
 	local assignItem, registerAwardedItem, clearMultiAwardState
 	local updateRollSessionExpectedWinners
 	local Private = {}
+	local nextAwardTransactionId = 1
+	local function createAwardTransaction(opts)
+		opts = opts or {}
+		local onConfirm = opts.onConfirm
+		local onFail = opts.onFail
+		local terminalEffects = {}
+		opts.transactionId = "AT:" .. tostring(nextAwardTransactionId)
+		nextAwardTransactionId = nextAwardTransactionId + 1
+		opts.onConfirm = function(state, context)
+			if type(onConfirm) == "function" and onConfirm(state, context) == false then
+				return false
+			end
+			if not terminalEffects.itemDone then
+				local ok, result =
+					pcall(LootDistribution.PublishItemDone, state.itemKey or state.itemLink, state.winner)
+				if not ok or result == false then
+					return false
+				end
+				terminalEffects.itemDone = true
+			end
+			if state.source == "master_loot" and not terminalEffects.raidCount then
+				local ok, result = pcall(
+					Raid.AddPlayerCountForRollType,
+					Raid,
+					state.winner,
+					state.executorContext and state.executorContext.rollType,
+					1,
+					state.executorContext and state.executorContext.raidNid
+				)
+				if not ok or result == false then
+					return false
+				end
+				terminalEffects.raidCount = true
+			end
+			return true
+		end
+		opts.onFail = function(reason, state, context)
+			if type(onFail) == "function" and onFail(reason, state, context) == false then
+				return false
+			end
+			if not terminalEffects.itemCancelled then
+				local ok, result =
+					pcall(LootDistribution.PublishItemCancelled, state.itemKey or state.itemLink, state.winner, reason)
+				if not ok or result == false then
+					return false
+				end
+				terminalEffects.itemCancelled = true
+			end
+			return true
+		end
+		return MasterService.AwardTransaction.CreateExecuting(opts)
+	end
 	module._awardFlow = module._awardFlow or {}
 	module._screenshotWarn = false
 
@@ -254,7 +307,66 @@ do
 			showRollsOnly = true,
 			model = nil,
 		}
-	module._PendingCounter = MasterService.AwardCounter.EnsureState(module._PendingCounter)
+	module._pendingAwardExecution = MasterService.PendingAwardExecution.Create({
+		timeoutSeconds = C.ML_AWARD_CONFIRM_TIMEOUT_SECONDS,
+		scheduleTimer = function(callback, delay)
+			return module:ScheduleTimer(callback, delay)
+		end,
+		cancelTimer = function(handle)
+			return module:CancelTimer(handle)
+		end,
+		requestRefresh = function()
+			module:RequestRefresh()
+		end,
+		confirmProvisional = function(pending, clearedSlot)
+			return LootPendingAwards.ConfirmProvisional(
+				pending.itemLink,
+				pending.playerName,
+				pending.rollSessionId,
+				clearedSlot,
+				pending.transactionId,
+				1,
+				function(callback, delay)
+					return Loot:ScheduleTimer(callback, delay)
+				end,
+				function(handle)
+					return Loot:CancelTimer(handle)
+				end,
+				function(award)
+					return Loot:LogTradeOnlyLoot(
+						award.itemLink,
+						award.looter,
+						award.rollType,
+						award.rollValue,
+						1,
+						"LOOT_SLOT_CLEARED",
+						nil,
+						nil,
+						award.rollSessionId
+					)
+				end
+			)
+		end,
+		warnFailure = function(pending, reason)
+			addon:warn(
+				Diag.W.LogMLPendingAwardExecutionFailed:format(
+					tostring(pending.itemLink),
+					tostring(pending.playerName),
+					tostring(reason or "unknown")
+				)
+			)
+		end,
+		warnTimeout = function(timeout, pending)
+			addon:warn(
+				Diag.W.LogMLPendingAwardExecutionTimeout:format(
+					timeout,
+					tostring(pending.itemLink),
+					tostring(pending.playerName),
+					tostring(pending.itemIndex or "?")
+				)
+			)
+		end,
+	})
 	module._FLOW_STATES = module._FLOW_STATES
 		or {
 			IDLE = "idle",
@@ -1359,17 +1471,27 @@ do
 	end
 
 	local function startCountdown()
-		stopCountdown()
-		local duration = GetOption("Rolls", "countdownDuration") or 0
+		local duration = tonumber(GetOption("Rolls", "countdownDuration")) or 0
+		if duration <= 0 then
+			return false
+		end
 		local blockAfterCountdown = GetOption("Rolls", "countdownRollsBlock") == true
 
-		Rolls:StartCountdown(duration, nil, function()
+		stopCountdown()
+		local started = Rolls:StartCountdown(duration, nil, function()
 			-- At zero: either block late rolls or keep intake open and tag late responses as OOT.
 			if blockAfterCountdown then
 				Rolls:SetRollRecordingEnabled(false)
 			end
 			refreshRollDisplay()
 		end)
+		if not started then
+			return false
+		end
+
+		Rolls:SetRollRecordingEnabled(true)
+		LootDistribution.PublishRollStart(Loot.GetItemLink(), lootState.currentRollType, duration)
+		return true
 	end
 
 	local function finalizeRollSession()
@@ -1553,123 +1675,6 @@ do
 		module._dropDownDirty = true
 		module._dirtyFlags.dropdowns = true
 		Private.PrepareDropDowns()
-	end
-
-	function module._PendingCounter:Remove(index)
-		return MasterService.AwardCounter.Remove(self, index, function(handle)
-			module:CancelTimer(handle)
-		end)
-	end
-
-	function module._PendingCounter:Clear(reason)
-		local removed = MasterService.AwardCounter.Clear(self, reason, function(handle)
-			module:CancelTimer(handle)
-		end)
-		for i = 1, #removed do
-			local pending = removed[i]
-			if pending and addon.hasDebug then
-				addon:debug(
-					Diag.W.LogMLAwardCounterFailed:format(
-						tostring(pending.itemLink),
-						tostring(pending.playerName),
-						tostring(reason or "clear")
-					)
-				)
-			end
-		end
-	end
-
-	function module._PendingCounter:FindBySlot(clearedSlot)
-		return MasterService.AwardCounter.FindBySlot(self, clearedSlot)
-	end
-
-	function module._PendingCounter:HasPending()
-		return MasterService.AwardCounter.HasPending(self)
-	end
-
-	function module._PendingCounter:IsFailureMessage(message)
-		return Loot:IsMasterLootAwardFailureMessage(message)
-	end
-
-	function module._PendingCounter:Fail(reason)
-		local failed = MasterService.AwardCounter.Fail(self, reason, function(handle)
-			module:CancelTimer(handle)
-		end)
-		for i = 1, #failed do
-			local pending = failed[i]
-			addon:warn(
-				Diag.W.LogMLAwardCounterFailed:format(
-					tostring(pending.itemLink),
-					tostring(pending.playerName),
-					tostring(reason or "unknown")
-				)
-			)
-		end
-		return failed[1] ~= nil
-	end
-
-	function module._PendingCounter:Confirm(clearedSlot, source)
-		local pending = MasterService.AwardCounter.Confirm(self, clearedSlot, function(handle)
-			module:CancelTimer(handle)
-		end)
-		if not pending then
-			return false
-		end
-
-		Raid:AddPlayerCountForRollType(
-			pending.playerName,
-			pending.rollType,
-			pending.itemCount or 1,
-			Database.GetCurrentRaid()
-		)
-		if addon.hasDebug then
-			addon:debug(
-				Diag.D.LogMLAwardCounterConfirmed:format(
-					tostring(pending.itemLink),
-					tostring(pending.playerName),
-					tonumber(pending.rollType) or -1,
-					tostring(source or "unknown")
-				)
-			)
-		end
-		LootDistribution.PublishItemDone(pending.itemLink, pending.playerName)
-		return true
-	end
-
-	function module._PendingCounter:Queue(itemLink, itemIndex, playerName, rollType, rollValue, sessionId)
-		local pending = MasterService.AwardCounter.Queue(self, {
-			itemLink = itemLink,
-			itemIndex = itemIndex,
-			playerName = playerName,
-			rollType = rollType,
-			rollValue = rollValue,
-			sessionId = sessionId,
-			itemCount = 1,
-		})
-
-		local timeout = tonumber(C.ML_AWARD_CONFIRM_TIMEOUT_SECONDS) or 4
-		if timeout > 0 then
-			local owner = self
-			pending.timeoutHandle = module:ScheduleTimer(function()
-				local awards = owner.Awards
-				for i = #awards, 1, -1 do
-					if awards[i] == pending then
-						owner:Remove(i)
-						addon:warn(
-							Diag.W.LogMLAwardCounterTimeout:format(
-								timeout,
-								tostring(pending.itemLink),
-								tostring(pending.playerName),
-								tostring(pending.itemIndex or "?")
-							)
-						)
-						module:RequestRefresh()
-						return
-					end
-				end
-			end, timeout)
-		end
-		return pending
 	end
 
 	-- ============================================================================
@@ -1861,13 +1866,14 @@ do
 	local function completeManualTradeCloseSettle()
 		manualTradeCloseSettleHandle = nil
 		MasterService.Trade.SettleClose()
+		tradeExecutionController:SettleAcceptedTrade()
 		Widgets.TradeMenu.HideDropdowns()
 		module:RequestRefresh()
 	end
 
 	local function scheduleManualTradeCloseSettle()
 		cancelManualTradeCloseSettle()
-		if not MasterService.Trade.HasClosePending() then
+		if not MasterService.Trade.HasClosePending() and not tradeExecutionController:HasPendingAcceptedTrade() then
 			MasterService.Trade.Reset(true, true)
 			Widgets.TradeMenu.HideDropdowns()
 			return false
@@ -1935,7 +1941,9 @@ do
 		end,
 		awardExecutor = {
 			Assign = function(_, itemLink, playerName, rollType, rollValue)
-				return assignItem(itemLink, playerName, rollType, rollValue)
+				local effect = _.effect
+				_.effect = nil
+				return assignItem(itemLink, playerName, rollType, rollValue, effect)
 			end,
 		},
 		itemCount = {
@@ -1951,6 +1959,17 @@ do
 		end,
 		multiAwardTimeoutSeconds = ML_MULTI_AWARD_TIMEOUT_SECONDS,
 		multiAwardDelaySeconds = C.ML_MULTI_AWARD_DELAY,
+		createTransaction = createAwardTransaction,
+		getRollSessionId = function()
+			local session = lootState.rollSession
+			return session and session.id or nil
+		end,
+		getItemKey = function(itemLink)
+			return Item.GetItemStringFromLink(itemLink) or itemLink
+		end,
+		getRaidNid = function()
+			return Database.GetCurrentRaid()
+		end,
 	})
 	tradeExecutionController = TradeExecutionService.CreateController({
 		trade = MasterService.Trade,
@@ -2004,6 +2023,10 @@ do
 		end,
 		error = function(message)
 			return addon:error(message)
+		end,
+		createTransaction = createAwardTransaction,
+		getItemKey = function(itemLink)
+			return Item.GetItemStringFromLink(itemLink) or itemLink
 		end,
 	})
 	itemSelectionController = ItemSelectionWidget.CreateController({
@@ -2441,14 +2464,11 @@ do
 		elseif button == "RightButton" then
 			finalizeRollSession()
 		else
-			local duration = tonumber(GetOption("Rolls", "countdownDuration")) or 0
-			if duration <= 0 then
+			if not startCountdown() then
 				finalizeRollSession()
 				return
 			end
-			Rolls:SetRollRecordingEnabled(true)
 			module._announced = false
-			startCountdown()
 			module:RequestRefresh()
 		end
 	end
@@ -2950,7 +2970,8 @@ do
 
 	local function completeLootClosedCleanup()
 		lootState.opened = false
-		Loot:PurgePendingAwards(PENDING_AWARD_TTL_SECONDS)
+		LootPendingAwards.Purge(PENDING_AWARD_TTL_SECONDS)
+		LootDistribution.RequestSessionEnd()
 		local frame = getFrame()
 		if frame then
 			frame:Hide()
@@ -3097,7 +3118,7 @@ do
 		local perfTotal = addon.hasPerf and addon:_PerfStart() or nil
 		Widgets.LootHints.ApplyLootFrameReserveHints()
 		if canHandleLootWindow() then
-			module._PendingCounter:Confirm(clearedSlot, "LOOT_SLOT_CLEARED")
+			module._pendingAwardExecution:Confirm(clearedSlot)
 			if canAutoManageLootFrame() then
 				local perfStep = addon.hasPerf and addon:_PerfStart() or nil
 				Loot:FetchLoot()
@@ -3142,10 +3163,16 @@ do
 
 	function module:UI_ERROR_MESSAGE(message)
 		local failed = false
-		if module._PendingCounter:HasPending() and module._PendingCounter:IsFailureMessage(message) then
-			failed = module._PendingCounter:Fail(message) or failed
+		if
+			module._pendingAwardExecution:HasPending()
+			and LootPendingAwards.IsMasterLootAwardFailureMessage(message)
+		then
+			failed = module._pendingAwardExecution:Fail(message) or failed
 		end
 		failed = failManualTrade(message) or failed
+		if MasterService.Trade.IsFailureMessage(message) then
+			failed = tradeExecutionController:FailAcceptedTrade(message) or failed
+		end
 		if failed then
 			module:RequestRefresh()
 		end
@@ -3153,7 +3180,11 @@ do
 
 	function module:UI_INFO_MESSAGE(arg1, arg2)
 		local message = arg2 or arg1
-		if failManualTrade(message) then
+		local failed = failManualTrade(message)
+		if MasterService.Trade.IsFailureMessage(message) then
+			failed = tradeExecutionController:FailAcceptedTrade(message) or failed
+		end
+		if failed then
 			module:RequestRefresh()
 		end
 	end
@@ -3189,6 +3220,7 @@ do
 
 	function module:TRADE_SHOW()
 		cancelManualTradeCloseSettle()
+		tradeExecutionController:FailAcceptedTrade("TRADE_SHOW")
 		MasterService.Trade.Reset(true, false)
 		Widgets.TradeMenu.RefreshCandidate("TRADE_SHOW")
 	end
@@ -3203,6 +3235,9 @@ do
 
 	-- TRADE_CLOSED: trade window closed (completed or canceled)
 	function module:TRADE_CLOSED()
+		if tradeExecutionController:HasInFlightAward() and not tradeExecutionController:HasPendingAcceptedTrade() then
+			tradeExecutionController:FailAcceptedTrade("TRADE_CLOSED")
+		end
 		scheduleManualTradeCloseSettle()
 		handleTradeClosedOrCancelled()
 	end
@@ -3210,6 +3245,7 @@ do
 	-- TRADE_REQUEST_CANCEL: trade request canceled before opening
 	function module:TRADE_REQUEST_CANCEL()
 		cancelManualTradeCloseSettle()
+		tradeExecutionController:FailAcceptedTrade("TRADE_REQUEST_CANCEL")
 		MasterService.Trade.Reset(true, false)
 		Widgets.TradeMenu.HideDropdowns()
 		handleTradeClosedOrCancelled()
@@ -3219,10 +3255,11 @@ do
 	-- Assignment / trade execution
 	-- ============================================================================
 	-- Assigns an item from the loot window to a player.
-	function assignItem(itemLink, playerName, rollType, rollValue)
+	function assignItem(itemLink, playerName, rollType, rollValue, effect)
 		local itemIndex = LootInventory.FindLootSlotIndex(itemLink)
 		if itemIndex == nil then
 			addon:error(L.ErrCannotFindItem:format(itemLink))
+			effect:Fail("item_not_found")
 			return false
 		end
 
@@ -3230,6 +3267,7 @@ do
 			addon:warn(L.WarnMLNoPermission)
 			refreshCandidateUiState()
 			module:RequestRefresh()
+			effect:Fail("not_master_looter")
 			return false
 		end
 
@@ -3238,6 +3276,7 @@ do
 			addon:warn((validation and validation.warnMessage) or L.ErrMLWinnerIneligible:format(tostring(playerName)))
 			refreshCandidateUiState()
 			module:RequestRefresh()
+			effect:Fail("winner_ineligible")
 			return false
 		end
 
@@ -3250,17 +3289,22 @@ do
 				lootState.fromInventory and "inventory" or "lootWindow",
 				buildLootRollSessionOptions()
 			)
+			local transactionState = effect and effect:GetState() or nil
+			local transactionId = transactionState and transactionState.transactionId or tostring(effect or {})
 			Loot:AddPendingAward(itemLink, playerName, rollType, rollValue, session and session.id or nil, nil, {
 				counterApplied = true,
+				transactionId = transactionId,
 			})
-			module._PendingCounter:Queue(
-				itemLink,
-				itemIndex,
-				playerName,
-				rollType,
-				rollValue,
-				session and session.id or nil
-			)
+			module._pendingAwardExecution:Queue({
+				itemLink = itemLink,
+				itemIndex = itemIndex,
+				playerName = playerName,
+				rollType = rollType,
+				rollValue = rollValue,
+				sessionId = session and session.id or nil,
+				effect = effect,
+				transactionId = transactionId,
+			})
 			GiveMasterLoot(itemIndex, candidateIndex)
 			LootDistribution.PublishRollEnd(itemLink, playerName, rollValue, "master_loot")
 			if addon.hasDebug then
@@ -3305,6 +3349,7 @@ do
 		end
 		refreshCandidateUiState()
 		module:RequestRefresh()
+		effect:Fail("candidate_unavailable")
 		return false
 	end
 

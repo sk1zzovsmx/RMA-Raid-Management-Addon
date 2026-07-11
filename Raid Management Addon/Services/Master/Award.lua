@@ -161,7 +161,34 @@ function Award.CreateController(opts)
 		getAnnounceOnWin = opts.getAnnounceOnWin,
 		multiAwardTimeoutSeconds = opts.multiAwardTimeoutSeconds,
 		multiAwardDelaySeconds = opts.multiAwardDelaySeconds,
+		createTransaction = assert(opts.createTransaction, "Master award transaction factory is not initialized"),
+		getRollSessionId = assert(opts.getRollSessionId, "Master award roll-session resolver is not initialized"),
+		getItemKey = assert(opts.getItemKey, "Master award item-key resolver is not initialized"),
+		getRaidNid = assert(opts.getRaidNid, "Master award raid resolver is not initialized"),
 	}
+
+	local function buildEffect(itemLink, winnerName, onConfirm, onFail)
+		local transaction
+		transaction = controller.createTransaction({
+			rollSessionId = controller.getRollSessionId(),
+			itemKey = controller.getItemKey(itemLink),
+			itemLink = itemLink,
+			winner = winnerName,
+			source = "master_loot",
+			executorContext = {
+				executor = "loot_window",
+				rollType = controller.lootState.currentRollType,
+				raidNid = controller.getRaidNid(),
+			},
+			onConfirm = function()
+				return onConfirm(transaction)
+			end,
+			onFail = function(reason)
+				return onFail(transaction, reason)
+			end,
+		})
+		return transaction
+	end
 
 	function controller:Clear(resetItemCount)
 		local ma = self.lootState.multiAward
@@ -223,6 +250,24 @@ function Award.CreateController(opts)
 			)
 		end
 
+		local effect = buildEffect(itemLink, winners[1].name, function()
+			self.registerAwardedItem(1)
+			local done = self:FinalizeIfDone()
+			if not done and self.lootState.multiAward and self.lootState.multiAward.active then
+				armProgressTimeout(self, self.lootState.multiAward)
+			end
+			if type(self.refresh) == "function" then
+				self.refresh()
+			end
+			return true
+		end, function(_, reason)
+			self:Clear(true)
+			if type(self.refresh) == "function" then
+				self.refresh()
+			end
+			return reason ~= nil
+		end)
+		self.awardExecutor.effect = effect
 		return self.awardExecutor:Assign(itemLink, winners[1].name, self.lootState.currentRollType, winners[1].roll)
 	end
 
@@ -269,14 +314,6 @@ function Award.CreateController(opts)
 
 		local result = self:Start(itemLink, available, winners)
 		if result then
-			self.registerAwardedItem(1)
-			local done = self:FinalizeIfDone()
-			if not done and self.lootState.multiAward and self.lootState.multiAward.active then
-				armProgressTimeout(self, self.lootState.multiAward)
-			end
-			if type(self.refresh) == "function" then
-				self.refresh()
-			end
 			return true
 		end
 
@@ -297,19 +334,27 @@ function Award.CreateController(opts)
 			return false
 		end
 
+		local effect = buildEffect(itemLink, selectedWinner, function()
+			self.registerAwardedItem(1)
+			self.itemCount:Reset()
+			if type(self.refresh) == "function" then
+				self.refresh()
+			end
+			return true
+		end, function(_, reason)
+			self.itemCount:Reset()
+			if type(self.refresh) == "function" then
+				self.refresh()
+			end
+			return reason ~= nil
+		end)
+		self.awardExecutor.effect = effect
 		local result = self.awardExecutor:Assign(
 			itemLink,
 			selectedWinner,
 			self.lootState.currentRollType,
 			findWinnerRoll(self, selectedWinner)
 		)
-		if result then
-			self.registerAwardedItem(1)
-		end
-		self.itemCount:Reset()
-		if type(self.refresh) == "function" then
-			self.refresh()
-		end
 		return result and true or false
 	end
 
@@ -380,8 +425,7 @@ function Award.CreateController(opts)
 				self.refresh()
 			end
 
-			local ok = self.awardExecutor:Assign(ma2.itemLink, e2.name, ma2.rollType, e2.roll)
-			if ok then
+			local effect = buildEffect(ma2.itemLink, e2.name, function()
 				self.registerAwardedItem(1)
 				ma2.pos = idx2 + 1
 				local done = self:FinalizeIfDone()
@@ -391,11 +435,18 @@ function Award.CreateController(opts)
 				if type(self.refresh) == "function" then
 					self.refresh()
 				end
-			else
+				return true
+			end, function(_, reason)
 				self:Clear(true)
 				if type(self.refresh) == "function" then
 					self.refresh()
 				end
+				return reason ~= nil
+			end)
+			self.awardExecutor.effect = effect
+			local ok = self.awardExecutor:Assign(ma2.itemLink, e2.name, ma2.rollType, e2.roll)
+			if not ok then
+				effect:Fail("execution_failed")
 			end
 		end, delay)
 

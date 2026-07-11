@@ -20,7 +20,7 @@ module._Tracking = module._Tracking or {}
 local Tracking = module._Tracking
 local ContextHelpers = assert(module._Context, "Loot context helpers are not initialized")
 local resolveRaidRecord = assert(ContextHelpers.ResolveRaidRecord, "Missing LootContext.ResolveRaidRecord")
-local PendingAwards = assert(module._PendingAwards, "Loot pending-award helpers are not initialized")
+local PendingAwards = assert(module.PendingAwards, "Loot pending-award helpers are not initialized")
 local PassiveGroupLoot = assert(module._PassiveGroupLoot, "Loot passive group-loot helpers are not initialized")
 local normalizePendingAwardItemKey =
 	assert(PendingAwards.NormalizePendingAwardItemKey, "Missing PendingAwards.NormalizePendingAwardItemKey")

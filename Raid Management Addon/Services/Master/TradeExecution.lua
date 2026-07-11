@@ -19,6 +19,18 @@ local tonumber = tonumber
 local tostring = tostring
 local type = type
 
+local function runCheckpoint(checkpoints, key, callback)
+	if checkpoints[key] then
+		return true, checkpoints[key].value
+	end
+	local ok, value = pcall(callback)
+	if not ok then
+		return false
+	end
+	checkpoints[key] = { value = value }
+	return true, value
+end
+
 local function finalizeTradeNotifications(controller, itemLink, playerName, rollType, rollValue, output, whisper)
 	if controller.isAnnounced() then
 		return true
@@ -57,53 +69,106 @@ local function applyRaidMarkerPlan(controller, markerPlan)
 	end
 end
 
-local function advanceInventoryWinnerSelection(controller, completedWinner)
+local function advanceInventoryWinnerSelection(controller, completedWinner, checkpoints)
 	if not controller.lootState.fromInventory then
-		return
+		return true
 	end
 	if (tonumber(controller.lootState.selectedItemCount) or 1) <= 1 then
-		return
+		return true
 	end
 
-	local selectedCount = controller.rollSelection:GetSelectedCount()
+	local countReady, selectedCount = runCheckpoint(checkpoints, "selectedWinnerCount", function()
+		return controller.rollSelection:GetSelectedCount()
+	end)
+	if not countReady then
+		return false
+	end
 	if selectedCount <= 0 then
-		controller.lootState.winner = nil
-		return
+		local cleared = runCheckpoint(checkpoints, "clearSelectedWinner", function()
+			controller.lootState.winner = nil
+		end)
+		return cleared == true
 	end
 
-	controller.rollSelection:DeselectWinner(completedWinner)
-	local rollModel = controller.buildRollSelectionModel()
-	controller.lootState.winner = rollModel and rollModel.winner or nil
+	local deselected = runCheckpoint(checkpoints, "deselectWinner", function()
+		controller.rollSelection:DeselectWinner(completedWinner)
+	end)
+	if not deselected then
+		return false
+	end
+	local modelReady, rollModel = runCheckpoint(checkpoints, "buildNextWinner", controller.buildRollSelectionModel)
+	if not modelReady then
+		return false
+	end
+	local assigned = runCheckpoint(checkpoints, "assignNextWinner", function()
+		controller.lootState.winner = rollModel and rollModel.winner or nil
+	end)
+	return assigned == true
 end
 
-local function completeInventoryAwardProgress(controller, completedWinner, rollType, awardedCount)
+local function completeInventoryAwardProgress(controller, completedWinner, rollType, awardedCount, raidNid, checkpoints)
+	checkpoints = checkpoints or {}
 	if completedWinner and completedWinner ~= "" then
-		controller.raid:AddPlayerCountForRollType(
-			completedWinner,
-			rollType,
-			awardedCount,
-			controller.database.GetCurrentRaid()
-		)
+		local counted = runCheckpoint(checkpoints, "raidCount", function()
+			controller.raid:AddPlayerCountForRollType(
+				completedWinner,
+				rollType,
+				awardedCount,
+				raidNid or controller.database.GetCurrentRaid()
+			)
+		end)
+		if not counted then
+			return nil, false
+		end
 	end
 
-	local done = controller.registerAwardedItem(awardedCount)
-	controller.resetTradeState()
+	local registered, done = runCheckpoint(checkpoints, "registerAward", function()
+		return controller.registerAwardedItem(awardedCount)
+	end)
+	if not registered then
+		return nil, false
+	end
+	local reset = runCheckpoint(checkpoints, "resetTradeState", controller.resetTradeState)
+	if not reset then
+		return nil, false
+	end
 	if not done then
-		advanceInventoryWinnerSelection(controller, completedWinner)
+		local advanced = advanceInventoryWinnerSelection(controller, completedWinner, checkpoints)
+		if not advanced then
+			return nil, false
+		end
 	end
 	if done then
-		controller.loot:ClearLoot()
-		controller.raid:ClearRaidIcons()
+		local clearedLoot = runCheckpoint(checkpoints, "clearLoot", function()
+			controller.loot:ClearLoot()
+		end)
+		if not clearedLoot then
+			return nil, false
+		end
+		local clearedIcons = runCheckpoint(checkpoints, "clearRaidIcons", function()
+			controller.raid:ClearRaidIcons()
+		end)
+		if not clearedIcons then
+			return nil, false
+		end
 	end
-	controller.setScreenshotWarn(false)
-	controller.requestRefresh()
-	return done
+	local screenshot = runCheckpoint(checkpoints, "clearScreenshotWarn", function()
+		controller.setScreenshotWarn(false)
+	end)
+	if not screenshot then
+		return nil, false
+	end
+	local refreshed = runCheckpoint(checkpoints, "requestRefresh", controller.requestRefresh)
+	if not refreshed then
+		return nil, false
+	end
+	return done, true
 end
 
 local function tryInitiateTrade(controller, itemLink, playerName, isAwardRoll)
 	local unit = controller.raid:GetUnitID(playerName)
 	if unit == "none" then
-		return true, nil
+		return true, nil, false
 	end
 
 	if controller.wow.CheckInteractDistance(unit, 2) ~= 1 then
@@ -115,11 +180,11 @@ local function tryInitiateTrade(controller, itemLink, playerName, isAwardRoll)
 		if isAwardRoll then
 			controller.wow.SetRaidTarget(playerName, 4)
 		end
-		return true, L.ChatTrade:format(playerName, itemLink)
+		return true, L.ChatTrade:format(playerName, itemLink), false
 	end
 
 	if not controller:PrepareTradeableItem(itemLink) then
-		return false, nil
+		return false, nil, false
 	end
 
 	local _, startCount = controller.wow.GetContainerItemInfo(controller.itemInfo.bagID, controller.itemInfo.slotID)
@@ -142,9 +207,10 @@ local function tryInitiateTrade(controller, itemLink, playerName, isAwardRoll)
 			end
 			controller.setScreenshotWarn(true)
 		end
+		return true, nil, true
 	end
 
-	return true, nil
+	return false, nil, false
 end
 
 function TradeExecution.CreateController(opts)
@@ -232,7 +298,38 @@ function TradeExecution.CreateController(opts)
 		debug = opts.debug,
 		warn = opts.warn,
 		error = assert(opts.error, "Master trade execution error reporter is not initialized"),
+		createTransaction = assert(opts.createTransaction, "Master trade transaction factory is not initialized"),
+		getItemKey = assert(opts.getItemKey, "Master trade item-key resolver is not initialized"),
 	}
+	local pendingAcceptedTrade
+
+	local function createExecutingTransaction(itemLink, winner, onConfirm, onFail)
+		local session = controller.lootState.rollSession
+		local transaction = controller.createTransaction({
+			rollSessionId = session and session.id or nil,
+			itemKey = controller.getItemKey(itemLink),
+			itemLink = itemLink,
+			winner = winner,
+			source = "inventory_trade",
+			executorContext = {
+				executor = "trade",
+				raidNid = controller.database.GetCurrentRaid(),
+				lootNid = controller.lootState.currentRollItem,
+			},
+			onConfirm = onConfirm,
+			onFail = onFail,
+		})
+		return transaction
+	end
+
+	local function releaseSessionOwnership(distribution, pending)
+		local token = pending and pending.sessionOwnershipToken
+		if not token then
+			return false
+		end
+		pending.sessionOwnershipToken = nil
+		return distribution.ReleaseSessionOwnership(token)
+	end
 
 	function controller:ResolveWinner(playerName, isAwardRoll)
 		if not isAwardRoll then
@@ -419,84 +516,69 @@ function TradeExecution.CreateController(opts)
 			end
 		end
 
-		finalizeTradeNotifications(self, itemLink, winnerName, rollType, rollValue, output, whisper)
-		self.distribution.PublishItemDone(itemLink, winnerName)
-		completeInventoryAwardProgress(self, winnerName, rollType, awardedCount)
-		return true
+		return createExecutingTransaction(itemLink, winnerName, function(transactionState)
+			finalizeTradeNotifications(self, itemLink, winnerName, rollType, rollValue, output, whisper)
+			completeInventoryAwardProgress(
+				self,
+				winnerName,
+				rollType,
+				awardedCount,
+				transactionState.executorContext.raidNid
+			)
+			return true
+		end, function(reason)
+			return true
+		end):Confirm()
 	end
 
 	function controller:HandleAcceptedAwardTrade(playerAccepted, targetAccepted)
-		local tradeWinner = self.lootState.tradeWinner
-		if not (self.lootState.trader and tradeWinner and self.lootState.trader ~= tradeWinner) then
+		local pending = pendingAcceptedTrade
+		if not pending then
 			return false
 		end
-		if playerAccepted ~= 1 or targetAccepted ~= 1 then
+		pending.playerAccepted = playerAccepted == 1
+		pending.targetAccepted = targetAccepted == 1
+		pending.accepted = pending.playerAccepted and pending.targetAccepted
+		if not pending.accepted then
 			return false
 		end
-
-		local itemLink = self.lootState.tradeItemLink or self.loot.GetItemLink()
-		local awardedCount = self.inventory.ResolveTradeAwardedCount()
-		local rollValue = self.rolls:GetHighestRoll(tradeWinner)
-		local lootNid, createdTradeOnly = self.ensureTradeLootContext(
-			itemLink,
-			tradeWinner,
-			self.lootState.currentRollType,
-			rollValue,
-			awardedCount,
-			"TRADE_ACCEPT_NO_CONTEXT"
-		)
-		if lootNid > 0 and createdTradeOnly and type(self.warn) == "function" then
-			self.warn(
-				Diag.W.LogTradeNoLootContextTradeOnly:format(
-					tostring(lootNid),
-					tostring(tradeWinner),
-					tostring(itemLink),
-					awardedCount
-				)
-			)
-		end
-
-		if type(self.debug) == "function" then
-			self.debug(
-				Diag.D.LogTradeCompleted:format(
-					tostring(self.lootState.currentRollItem),
-					tostring(tradeWinner),
-					tonumber(self.lootState.currentRollType) or -1,
-					rollValue
-				)
-			)
-		end
-		if lootNid > 0 then
-			local ok = self.requestLoggerLootLog(
-				lootNid,
-				tradeWinner,
-				self.lootState.currentRollType,
-				rollValue,
-				"TRADE_ACCEPT",
-				self.database.GetCurrentRaid()
-			)
-			if not ok then
-				self.error(
-					Diag.E.LogTradeLoggerLogFailed:format(
-						tostring(self.database.GetCurrentRaid()),
-						tostring(lootNid),
-						tostring(itemLink)
-					)
-				)
-			end
-		elseif type(self.warn) == "function" then
-			self.warn(
-				Diag.W.LogTradeCurrentRollItemMissingContext:format(
-					tostring(tradeWinner),
-					tostring(self.lootState.tradeItemId),
-					tostring(itemLink)
-				)
-			)
-		end
-
-		self.distribution.PublishItemDone(itemLink, tradeWinner)
-		completeInventoryAwardProgress(self, tradeWinner, self.lootState.currentRollType, awardedCount)
 		return true
+	end
+
+	function controller:HasInFlightAward()
+		return pendingAcceptedTrade ~= nil
+	end
+
+	function controller:HasPendingAcceptedTrade()
+		return pendingAcceptedTrade ~= nil and pendingAcceptedTrade.accepted == true
+	end
+
+	function controller:SettleAcceptedTrade()
+		local pending = pendingAcceptedTrade
+		if not pending or pending.accepted ~= true then
+			return false
+		end
+		local confirmed = pending.effect:Confirm()
+		if not confirmed then
+			return false
+		end
+		releaseSessionOwnership(self.distribution, pending)
+		pendingAcceptedTrade = nil
+		return confirmed
+	end
+
+	function controller:FailAcceptedTrade(reason)
+		local pending = pendingAcceptedTrade
+		if not pending then
+			return false
+		end
+		local failed = pending.effect:Fail(reason)
+		if not failed then
+			return false
+		end
+		releaseSessionOwnership(self.distribution, pending)
+		pendingAcceptedTrade = nil
+		return failed == true
 	end
 
 	function controller:TradeItem(itemLink, playerName, rollType, rollValue)
@@ -518,9 +600,126 @@ function TradeExecution.CreateController(opts)
 		end
 
 		if not keep then
-			ok, output = tryInitiateTrade(self, itemLink, winnerName, isAwardRoll)
+			local effect
+			local pendingContext
+			if isAwardRoll and winnerName and winnerName ~= "" then
+				effect = createExecutingTransaction(itemLink, winnerName, function(transactionState)
+					if pendingContext then
+						local checkpoints = pendingContext.effectCheckpoints
+						local contextReady, contextResult = runCheckpoint(checkpoints, "lootContext", function()
+							local lootNid, createdTradeOnly = self.ensureTradeLootContext(
+								pendingContext.itemLink,
+								pendingContext.winner,
+								pendingContext.rollType,
+								pendingContext.rollValue,
+								pendingContext.awardedCount,
+								"TRADE_ACCEPT_NO_CONTEXT"
+							)
+							return { lootNid = lootNid, createdTradeOnly = createdTradeOnly }
+						end)
+						if not contextReady then
+							return false
+						end
+						local lootNid = contextResult.lootNid
+						local createdTradeOnly = contextResult.createdTradeOnly
+						if lootNid <= 0 then
+							if type(self.warn) == "function" then
+								self.warn(
+									Diag.W.LogTradeCurrentRollItemMissingContext:format(
+										tostring(pendingContext.winner),
+										tostring(pendingContext.tradeItemId),
+										tostring(pendingContext.itemLink)
+									)
+								)
+							end
+							return false
+						end
+						if createdTradeOnly and type(self.warn) == "function" then
+							self.warn(
+								Diag.W.LogTradeNoLootContextTradeOnly:format(
+									tostring(lootNid),
+									tostring(pendingContext.winner),
+									tostring(pendingContext.itemLink),
+									pendingContext.awardedCount
+								)
+							)
+						end
+						local loggerRan, logged = runCheckpoint(checkpoints, "loggerWrite", function()
+							return self.requestLoggerLootLog(
+								lootNid,
+								pendingContext.winner,
+								pendingContext.rollType,
+								pendingContext.rollValue,
+								"TRADE_ACCEPT",
+								pendingContext.raidNid
+							)
+						end)
+						if not loggerRan or not logged then
+							if loggerRan then
+								checkpoints.loggerWrite = nil
+							end
+							self.error(
+								Diag.E.LogTradeLoggerLogFailed:format(
+									tostring(pendingContext.raidNid),
+									tostring(lootNid),
+									tostring(pendingContext.itemLink)
+								)
+							)
+							return false
+						end
+						if type(self.debug) == "function" then
+							self.debug(
+								Diag.D.LogTradeCompleted:format(
+									tostring(pendingContext.currentRollItem),
+									tostring(pendingContext.winner),
+									tonumber(pendingContext.rollType) or -1,
+									pendingContext.rollValue
+								)
+							)
+						end
+						local _, progressComplete = completeInventoryAwardProgress(
+							self,
+							pendingContext.winner,
+							pendingContext.rollType,
+							pendingContext.awardedCount,
+							transactionState.executorContext.raidNid,
+							checkpoints
+						)
+						if not progressComplete then
+							return false
+						end
+					end
+					return true
+				end, function(reason)
+					return true
+				end)
+			end
+			local initiated
+			ok, output, initiated = tryInitiateTrade(self, itemLink, winnerName, isAwardRoll)
 			if not ok then
+				if effect then
+					effect:Fail("trade_initiation_failed")
+				end
 				return false
+			end
+			if initiated and effect then
+				local awardedCount = self.inventory.ResolveTradeAwardedCount()
+				local sessionOwnershipToken = self.distribution.AcquireSessionOwnership("inventory-award")
+				pendingAcceptedTrade = {
+					winner = winnerName,
+					itemLink = itemLink,
+					rollType = rollType,
+					rollValue = rollValue,
+					awardedCount = awardedCount,
+					raidNid = self.database.GetCurrentRaid(),
+					currentRollItem = self.lootState.currentRollItem,
+					tradeItemId = self.lootState.tradeItemId,
+					accepted = false,
+					effectCheckpoints = {},
+					effect = effect,
+					sessionOwnershipToken = sessionOwnershipToken,
+				}
+				pendingContext = pendingAcceptedTrade
 			end
 		end
 

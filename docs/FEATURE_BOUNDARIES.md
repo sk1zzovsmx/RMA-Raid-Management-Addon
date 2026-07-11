@@ -48,7 +48,13 @@ Owns the composition of loot, rolls, award, trade, item-selection, and child-wid
 workflows. `Controllers/Master.lua` remains its UI and WoW-event composition root.
 Cross-owner calls bind directly to `Services.Loot.DistributionSession`,
 `Services.Loot.Inventory`, and `Services.Loot.AwardPlanner`; the remaining
-underscore-prefixed Loot helpers stay private to `Services/Loot/*`.
+underscore-prefixed Loot helpers stay private to `Services/Loot/*`. Opening a
+normal roll or tie reroll publishes a roll start without an active duration. The
+single validated countdown-start path publishes the configured duration only
+after the countdown starts. A roll start without duration clears prior countdown
+duration and remaining time; one with duration initializes both values to that
+duration. Legacy roll-tick messages remain receive-only compatibility input; the
+Master controller does not publish periodic ticks.
 
 ## Logger And Attendance
 

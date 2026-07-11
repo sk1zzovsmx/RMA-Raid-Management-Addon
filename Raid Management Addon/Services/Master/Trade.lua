@@ -280,6 +280,10 @@ function Trade.EnsureState()
 	return ensureState()
 end
 
+function Trade.IsFailureMessage(message)
+	return isManualTradeFailureMessage(message)
+end
+
 function Trade.Reset(hideDropdowns, keepAcceptProcessed)
 	local state = ensureState()
 	if keepAcceptProcessed == true and state.pendingConfirm == true then
@@ -494,7 +498,7 @@ end
 
 function Trade.MarkFailure(message)
 	local state = ensureState()
-	if not isManualTradeFailureMessage(message) then
+	if not Trade.IsFailureMessage(message) then
 		return false, state
 	end
 	if state.pendingConfirm ~= true and state.acceptProcessed ~= true and state.localAccepted ~= true then

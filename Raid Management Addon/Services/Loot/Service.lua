@@ -72,7 +72,7 @@ do
 	-- Timer ownership: cache-warm scheduling for loot items.
 	Timer.BindMixin(module, "Loot")
 
-	local PendingAwards = assert(module._PendingAwards, "Loot pending-award helpers are not initialized")
+	local PendingAwards = assert(module.PendingAwards, "Loot pending-award helpers are not initialized")
 	local PassiveGroupLoot = assert(module._PassiveGroupLoot, "Loot passive group-loot helpers are not initialized")
 	local Tracking = assert(module._Tracking, "Loot tracking helpers are not initialized")
 	local Workflow = assert(module._Workflow, "Loot workflow helpers are not initialized")
@@ -955,6 +955,17 @@ do
 		local rollOutcome
 		rollType, rollValue, rollSessionId, rollOutcome =
 			resolveLootRollOutcome(itemLink, itemString, itemId, player, rollType, rollValue, parsedGroupLoot)
+		if
+			module:ReconcileProvisionalAward(itemLink, player, rollSessionId, {
+				itemCount = itemCount,
+				itemName = itemName,
+				itemRarity = itemRarity,
+				itemTexture = itemTexture,
+				itemString = itemString,
+			})
+		then
+			return
+		end
 		local receipt = Recording.FromParsedLoot({
 			msg = msg,
 			playerName = player,
@@ -1218,6 +1229,33 @@ do
 		return PendingAwards.Add(itemLink, looter, rollType, rollValue, rollSessionId, expiresAt, options)
 	end
 
+	function module:ReconcileProvisionalAward(itemLink, looter, rollSessionId, authoritative)
+		local pending = PendingAwards.ReconcileProvisional(itemLink, looter, rollSessionId, nil, function(handle)
+			return module:CancelTimer(handle)
+		end, function(award)
+			local _, raid = resolveRaidRecord()
+			if not (raid and type(raid.loot) == "table") then
+				return
+			end
+			for i = 1, #raid.loot do
+				local row = raid.loot[i]
+				if row and tonumber(row.lootNid) == tonumber(award.recordIndex) then
+					row.source = "CHAT_MSG_LOOT"
+					if type(authoritative) == "table" then
+						row.itemCount = tonumber(authoritative.itemCount) or row.itemCount
+						row.itemName = authoritative.itemName or row.itemName
+						row.itemRarity = authoritative.itemRarity or row.itemRarity
+						row.itemTexture = authoritative.itemTexture or row.itemTexture
+						row.itemString = authoritative.itemString or row.itemString
+					end
+					notifyRaidLootUpdate(Database.GetCurrentRaid(), row)
+					return
+				end
+			end
+		end)
+		return pending ~= nil
+	end
+
 	function module:RemovePendingAward(
 		itemLink,
 		looter,
@@ -1234,14 +1272,6 @@ do
 			preferResolvedValue,
 			allowGroupLootPendingAwards
 		)
-	end
-
-	function module:PurgePendingAwards(maxAge)
-		return PendingAwards.Purge(maxAge)
-	end
-
-	function module:IsMasterLootAwardFailureMessage(message)
-		return PendingAwards.IsMasterLootAwardFailureMessage(message)
 	end
 
 	-- Fetches items from the currently open loot window.
@@ -1271,7 +1301,11 @@ do
 
 		lootState.currentItemIndex = findTrackedLootItemIndex(oldItem) or 1
 		self:PrepareItem()
-		DistributionSession.PublishWindowItems(buildDistributionWindowItems())
+		local distributionRevision = DistributionSession.BeginWindow()
+		DistributionSession.PublishWindowItems(buildDistributionWindowItems(), distributionRevision)
+		if distributionRevision then
+			DistributionSession.EndWindow(distributionRevision)
+		end
 		if addon.hasTrace then
 			addon:trace(Diag.D.LogLootFetchDone:format(lootState.lootCount or 0, lootState.currentItemIndex or 0))
 		end
