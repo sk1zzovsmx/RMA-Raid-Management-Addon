@@ -6,9 +6,8 @@ user explicitly asks for it.
 
 ## Static Gate
 
-This reset baseline does not track the later repo-local `tools/check-rma.ps1`
-gate. Run the local WotLK validator scripts that are available in the ignored
-agent skill folder:
+Run the local WotLK validator scripts available in the ignored agent skill
+folder:
 
 ```powershell
 py -3 .agents\skills\wow-addon-dev-wotlk-v335a\scripts\validate_toc.py "Raid Management Addon\Raid Management Addon.toc"
@@ -27,10 +26,6 @@ These static gates cover:
 - XML script blocks or XML event handlers under `UI/`.
 - Git whitespace errors.
 
-The later GREENFIELD_REWRITE checker surface is documented as a desired gate in
-`GREENFIELD_REWRITE_CONTRACT.md`, but the corresponding project-local scripts
-are not present in this reset baseline.
-
 For docs-only edits, also run:
 
 ```powershell
@@ -41,9 +36,8 @@ git status --short --branch
 ## Export Surface Review
 
 After changing exported `addon.*` module names, slash command routing,
-SavedVariables, or addon-message prefixes, review `ARCHITECTURE.md` and the
-GREENFIELD_REWRITE contract for drift. If a real API extractor is restored
-later, document its exact command here.
+SavedVariables, or addon-message prefixes, review `ARCHITECTURE.md` and
+`FEATURE_API_MAP.md` for drift.
 
 ## Manual In-Game Acceptance
 

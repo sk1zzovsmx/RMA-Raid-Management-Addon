@@ -53,17 +53,13 @@ rg --files
 
 ## Local Checks
 
-This reset baseline does not track `tools/check-rma.ps1`. Use the available
-WotLK validator scripts from the ignored local skill folder:
+Use the available WotLK validator scripts from the ignored local skill folder:
 
 ```powershell
 py -3 .agents\skills\wow-addon-dev-wotlk-v335a\scripts\validate_toc.py "Raid Management Addon\Raid Management Addon.toc"
 py -3 .agents\skills\wow-addon-dev-wotlk-v335a\scripts\lint_lua51.py "Raid Management Addon"
 py -3 .agents\skills\wow-addon-dev-wotlk-v335a\scripts\scan_xpcall.py "Raid Management Addon"
 ```
-
-If a repo-local checker or API extractor is reintroduced, document it here and
-keep `VALIDATION.md` aligned.
 
 For documentation-only changes, also run:
 

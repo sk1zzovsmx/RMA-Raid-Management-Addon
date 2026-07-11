@@ -4,6 +4,7 @@
 .venv/
 .mcp.json
 .worktrees/
+.superpowers/
 
 # Local tooling, notes, and generated development state
 AGENTS.md
