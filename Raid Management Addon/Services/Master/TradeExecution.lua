@@ -298,14 +298,14 @@ function TradeExecution.CreateController(opts)
 		debug = opts.debug,
 		warn = opts.warn,
 		error = assert(opts.error, "Master trade execution error reporter is not initialized"),
-		createTransaction = assert(opts.createTransaction, "Master trade transaction factory is not initialized"),
+		createAttempt = assert(opts.createAttempt, "Master trade award-attempt factory is not initialized"),
 		getItemKey = assert(opts.getItemKey, "Master trade item-key resolver is not initialized"),
 	}
 	local pendingAcceptedTrade
 
-	local function createExecutingTransaction(itemLink, winner, onConfirm, onFail)
+	local function createAwardAttempt(itemLink, winner, onConfirm, onFail)
 		local session = controller.lootState.rollSession
-		local transaction = controller.createTransaction({
+		local attempt = controller.createAttempt({
 			rollSessionId = session and session.id or nil,
 			itemKey = controller.getItemKey(itemLink),
 			itemLink = itemLink,
@@ -319,7 +319,7 @@ function TradeExecution.CreateController(opts)
 			onConfirm = onConfirm,
 			onFail = onFail,
 		})
-		return transaction
+		return attempt
 	end
 
 	local function releaseSessionOwnership(distribution, pending)
@@ -516,14 +516,14 @@ function TradeExecution.CreateController(opts)
 			end
 		end
 
-		return createExecutingTransaction(itemLink, winnerName, function(transactionState)
+		return createAwardAttempt(itemLink, winnerName, function(attemptState)
 			finalizeTradeNotifications(self, itemLink, winnerName, rollType, rollValue, output, whisper)
 			completeInventoryAwardProgress(
 				self,
 				winnerName,
 				rollType,
 				awardedCount,
-				transactionState.executorContext.raidNid
+				attemptState.executorContext.raidNid
 			)
 			return true
 		end, function(reason)
@@ -603,7 +603,7 @@ function TradeExecution.CreateController(opts)
 			local effect
 			local pendingContext
 			if isAwardRoll and winnerName and winnerName ~= "" then
-				effect = createExecutingTransaction(itemLink, winnerName, function(transactionState)
+				effect = createAwardAttempt(itemLink, winnerName, function(attemptState)
 					if pendingContext then
 						local checkpoints = pendingContext.effectCheckpoints
 						local contextReady, contextResult = runCheckpoint(checkpoints, "lootContext", function()
@@ -682,7 +682,7 @@ function TradeExecution.CreateController(opts)
 							pendingContext.winner,
 							pendingContext.rollType,
 							pendingContext.awardedCount,
-							transactionState.executorContext.raidNid,
+							attemptState.executorContext.raidNid,
 							checkpoints
 						)
 						if not progressComplete then

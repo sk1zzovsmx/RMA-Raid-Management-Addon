@@ -1,7 +1,7 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
 -- shared: direct addon namespace bindings
--- exports: addon.Services.Loot.PendingAwards
+-- exports: addon.Services.Loot.LootAttribution
 -- events: no bus events; pending-award helpers only
 -- notes: pending-award helpers for loot service
 
@@ -19,9 +19,9 @@ local _, lootState = Database.EnsureLootRuntimeState()
 addon.Services.EnsureNamespace("Loot")
 local Loot = Services.Loot
 local module = Loot
-module.PendingAwards = module.PendingAwards or {}
+module.LootAttribution = module.LootAttribution or {}
 
-local PendingAwards = module.PendingAwards
+local LootAttribution = module.LootAttribution
 
 local tremove = table.remove
 local strlower = string.lower
@@ -216,9 +216,9 @@ local function touchPendingAward(pending, now, rollSessionId, expiresAt)
 end
 
 -- ----- Public methods ----- --
-PendingAwards.NormalizePendingAwardItemKey = normalizePendingAwardItemKey
+LootAttribution.NormalizePendingAwardItemKey = normalizePendingAwardItemKey
 
-function PendingAwards.IsMasterLootAwardFailureMessage(message)
+function LootAttribution.IsMasterLootAwardFailureMessage(message)
 	local raw = tostring(message or "")
 	local text = strlower(raw)
 	if text == "" then
@@ -248,7 +248,7 @@ function PendingAwards.IsMasterLootAwardFailureMessage(message)
 		or text:find("player not found", 1, true) ~= nil
 end
 
-function PendingAwards.Add(itemLink, looter, rollType, rollValue, rollSessionId, expiresAt, options)
+function LootAttribution.Add(itemLink, looter, rollType, rollValue, rollSessionId, expiresAt, options)
 	if not itemLink or not looter then
 		return
 	end
@@ -384,7 +384,7 @@ local function findProvisional(itemLink, looter, rollSessionId, transactionId)
 	return nil
 end
 
-function PendingAwards.ConfirmProvisional(
+function LootAttribution.ConfirmProvisional(
 	itemLink,
 	looter,
 	rollSessionId,
@@ -445,7 +445,7 @@ function PendingAwards.ConfirmProvisional(
 	return provisional
 end
 
-function PendingAwards.ReconcileProvisional(itemLink, looter, rollSessionId, transactionId, cancelTimer, onReconcile)
+function LootAttribution.ReconcileProvisional(itemLink, looter, rollSessionId, transactionId, cancelTimer, onReconcile)
 	local pending = findProvisional(itemLink, looter, rollSessionId, transactionId)
 	if not (pending and pending.slotConfirmed) then
 		return nil
@@ -470,7 +470,14 @@ function PendingAwards.ReconcileProvisional(itemLink, looter, rollSessionId, tra
 	return pending
 end
 
-function PendingAwards.Remove(itemLink, looter, maxAge, rollSessionId, preferResolvedValue, allowGroupLootPendingAwards)
+function LootAttribution.Remove(
+	itemLink,
+	looter,
+	maxAge,
+	rollSessionId,
+	preferResolvedValue,
+	allowGroupLootPendingAwards
+)
 	local ttl = normalizePendingAwardTtl(maxAge)
 	local key, list = getPendingAwardList(itemLink, looter)
 	if not list then
@@ -513,7 +520,7 @@ function PendingAwards.Remove(itemLink, looter, maxAge, rollSessionId, preferRes
 	return nil
 end
 
-function PendingAwards.Refresh(itemLink, looter, maxAge, rollSessionId, expiresAt)
+function LootAttribution.Refresh(itemLink, looter, maxAge, rollSessionId, expiresAt)
 	local ttl = normalizePendingAwardTtl(maxAge)
 	local key, list = getPendingAwardList(itemLink, looter)
 	if not list then
@@ -553,7 +560,7 @@ function PendingAwards.Refresh(itemLink, looter, maxAge, rollSessionId, expiresA
 	return touchPendingAward(touched, now, resolvedSessionId, resolvedExpiresAt)
 end
 
-function PendingAwards.Purge(maxAge)
+function LootAttribution.Purge(maxAge)
 	local ttl = normalizePendingAwardTtl(maxAge)
 	local now = GetTime()
 	for key, list in pairs(lootState.pendingAwards) do

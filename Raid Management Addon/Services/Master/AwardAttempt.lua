@@ -1,14 +1,14 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
 -- shared: direct addon namespace bindings
--- exports: addon.Services.Master.AwardTransaction
+-- exports: addon.Services.Master.AwardAttempt
 -- events: none
 -- notes: owns runtime-only Master award transition and terminal policy
 local addon = select(2, ...)
 local Master = addon.Services.EnsureNamespace("Master")
 
-local AwardTransaction = Master.AwardTransaction or {}
-Master.AwardTransaction = AwardTransaction
+local AwardAttempt = Master.AwardAttempt or {}
+Master.AwardAttempt = AwardAttempt
 
 local type, pcall = type, pcall
 
@@ -35,7 +35,7 @@ local function normalizeWinner(winner)
 	return winner:match("^%s*(.-)%s*$")
 end
 
-function AwardTransaction.CreateExecuting(opts)
+function AwardAttempt.CreateExecuting(opts)
 	opts = opts or {}
 	local normalizedWinner = normalizeWinner(opts.winnerName or opts.winner)
 	local state = {
@@ -54,7 +54,7 @@ function AwardTransaction.CreateExecuting(opts)
 
 	local function finish(terminalState, reason, context, callback)
 		if state.state ~= "executing" then
-			return false, "invalid award transaction transition"
+			return false, "invalid award attempt transition"
 		end
 		local terminal = copy(state)
 		terminal.state = terminalState
@@ -90,4 +90,4 @@ function AwardTransaction.CreateExecuting(opts)
 	return instance
 end
 
-return AwardTransaction
+return AwardAttempt

@@ -72,7 +72,7 @@ do
 	-- Timer ownership: cache-warm scheduling for loot items.
 	Timer.BindMixin(module, "Loot")
 
-	local PendingAwards = assert(module.PendingAwards, "Loot pending-award helpers are not initialized")
+	local LootAttribution = assert(module.LootAttribution, "Loot attribution owner is not initialized")
 	local PassiveGroupLoot = assert(module._PassiveGroupLoot, "Loot passive group-loot helpers are not initialized")
 	local Tracking = assert(module._Tracking, "Loot tracking helpers are not initialized")
 	local Workflow = assert(module._Workflow, "Loot workflow helpers are not initialized")
@@ -1226,11 +1226,11 @@ do
 			rollValue = rollValue,
 			rollSessionId = rollSessionId,
 		})
-		return PendingAwards.Add(itemLink, looter, rollType, rollValue, rollSessionId, expiresAt, options)
+		return LootAttribution.Add(itemLink, looter, rollType, rollValue, rollSessionId, expiresAt, options)
 	end
 
 	function module:ReconcileProvisionalAward(itemLink, looter, rollSessionId, authoritative)
-		local pending = PendingAwards.ReconcileProvisional(itemLink, looter, rollSessionId, nil, function(handle)
+		local pending = LootAttribution.ReconcileProvisional(itemLink, looter, rollSessionId, nil, function(handle)
 			return module:CancelTimer(handle)
 		end, function(award)
 			local _, raid = resolveRaidRecord()
@@ -1264,7 +1264,7 @@ do
 		preferResolvedValue,
 		allowGroupLootPendingAwards
 	)
-		return PendingAwards.Remove(
+		return LootAttribution.Remove(
 			itemLink,
 			looter,
 			maxAge,

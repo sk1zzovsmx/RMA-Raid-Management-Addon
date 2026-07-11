@@ -45,14 +45,14 @@ local Loot = assert(Services.Loot, "Master loot service is not initialized")
 local LootDistribution = assert(Loot.DistributionSession, "Master loot distribution owner is not initialized")
 local LootInventory = assert(Loot.Inventory, "Loot inventory owner is not initialized")
 local LootAwardPlanner = assert(Loot.AwardPlanner, "Loot award planner owner is not initialized")
-local LootPendingAwards = assert(Loot.PendingAwards, "Loot pending-award owner is not initialized")
+local LootAttribution = assert(Loot.LootAttribution, "Loot attribution owner is not initialized")
 local Raid = assert(Services.Raid, "Master raid service is not initialized")
 local Rolls = assert(Services.Rolls, "Master rolls service is not initialized")
 local Chat = assert(Services.Chat, "Master chat service is not initialized")
 local LoggerActions = assert(Services.Logger.Actions, "Master logger actions service is not initialized")
 local MasterService = assert(Services.Master, "Master service namespace is not initialized")
 local RollSelectionService = assert(MasterService.RollSelection, "Master Roll Selection service is not initialized")
-local AwardService = assert(MasterService.Award, "Master award service is not initialized")
+local AwardSequenceService = assert(MasterService.AwardSequence, "Master award sequence service is not initialized")
 local AssignmentService = assert(MasterService.Assignment, "Master assignment service is not initialized")
 local RaidDebug = assert(Services.Raid.Debug, "Raid debug service is not initialized")
 local TradeExecutionService = assert(MasterService.TradeExecution, "Master trade execution service is not initialized")
@@ -243,14 +243,14 @@ do
 	local assignItem, registerAwardedItem, clearMultiAwardState
 	local updateRollSessionExpectedWinners
 	local Private = {}
-	local nextAwardTransactionId = 1
-	local function createAwardTransaction(opts)
+	local nextAwardAttemptId = 1
+	local function createAwardAttempt(opts)
 		opts = opts or {}
 		local onConfirm = opts.onConfirm
 		local onFail = opts.onFail
 		local terminalEffects = {}
-		opts.transactionId = "AT:" .. tostring(nextAwardTransactionId)
-		nextAwardTransactionId = nextAwardTransactionId + 1
+		opts.transactionId = "AT:" .. tostring(nextAwardAttemptId)
+		nextAwardAttemptId = nextAwardAttemptId + 1
 		opts.onConfirm = function(state, context)
 			if type(onConfirm) == "function" and onConfirm(state, context) == false then
 				return false
@@ -293,7 +293,7 @@ do
 			end
 			return true
 		end
-		return MasterService.AwardTransaction.CreateExecuting(opts)
+		return MasterService.AwardAttempt.CreateExecuting(opts)
 	end
 	module._awardFlow = module._awardFlow or {}
 	module._screenshotWarn = false
@@ -307,7 +307,7 @@ do
 			showRollsOnly = true,
 			model = nil,
 		}
-	module._pendingAwardExecution = MasterService.PendingAwardExecution.Create({
+	module._awardConfirmation = MasterService.AwardConfirmation.Create({
 		timeoutSeconds = C.ML_AWARD_CONFIRM_TIMEOUT_SECONDS,
 		scheduleTimer = function(callback, delay)
 			return module:ScheduleTimer(callback, delay)
@@ -319,7 +319,7 @@ do
 			module:RequestRefresh()
 		end,
 		confirmProvisional = function(pending, clearedSlot)
-			return LootPendingAwards.ConfirmProvisional(
+			return LootAttribution.ConfirmProvisional(
 				pending.itemLink,
 				pending.playerName,
 				pending.rollSessionId,
@@ -349,7 +349,7 @@ do
 		end,
 		warnFailure = function(pending, reason)
 			addon:warn(
-				Diag.W.LogMLPendingAwardExecutionFailed:format(
+				Diag.W.LogMLAwardConfirmationFailed:format(
 					tostring(pending.itemLink),
 					tostring(pending.playerName),
 					tostring(reason or "unknown")
@@ -358,7 +358,7 @@ do
 		end,
 		warnTimeout = function(timeout, pending)
 			addon:warn(
-				Diag.W.LogMLPendingAwardExecutionTimeout:format(
+				Diag.W.LogMLAwardConfirmationTimeout:format(
 					timeout,
 					tostring(pending.itemLink),
 					tostring(pending.playerName),
@@ -1912,7 +1912,7 @@ do
 		return false
 	end
 
-	awardController = AwardService.CreateController({
+	awardController = AwardSequenceService.CreateController({
 		awardPlanner = LootAwardPlanner,
 		inventory = LootInventory,
 		lootState = lootState,
@@ -1956,7 +1956,7 @@ do
 		end,
 		multiAwardTimeoutSeconds = ML_MULTI_AWARD_TIMEOUT_SECONDS,
 		multiAwardDelaySeconds = C.ML_MULTI_AWARD_DELAY,
-		createTransaction = createAwardTransaction,
+		createAttempt = createAwardAttempt,
 		getRollSessionId = function()
 			local session = lootState.rollSession
 			return session and session.id or nil
@@ -2021,7 +2021,7 @@ do
 		error = function(message)
 			return addon:error(message)
 		end,
-		createTransaction = createAwardTransaction,
+		createAttempt = createAwardAttempt,
 		getItemKey = function(itemLink)
 			return Item.GetItemStringFromLink(itemLink) or itemLink
 		end,
@@ -2967,7 +2967,7 @@ do
 
 	local function completeLootClosedCleanup()
 		lootState.opened = false
-		LootPendingAwards.Purge(PENDING_AWARD_TTL_SECONDS)
+		LootAttribution.Purge(PENDING_AWARD_TTL_SECONDS)
 		LootDistribution.RequestSessionEnd()
 		local frame = getFrame()
 		if frame then
@@ -3129,7 +3129,7 @@ do
 		local perfTotal = addon.hasPerf and addon:_PerfStart() or nil
 		Widgets.LootHints.ApplyLootFrameReserveHints()
 		if canHandleLootWindow() then
-			module._pendingAwardExecution:Confirm(clearedSlot)
+			module._awardConfirmation:Confirm(clearedSlot)
 			if canAutoManageLootFrame() then
 				local perfStep = addon.hasPerf and addon:_PerfStart() or nil
 				Loot:FetchLoot()
@@ -3174,11 +3174,8 @@ do
 
 	function module:UI_ERROR_MESSAGE(message)
 		local failed = false
-		if
-			module._pendingAwardExecution:HasPending()
-			and LootPendingAwards.IsMasterLootAwardFailureMessage(message)
-		then
-			failed = module._pendingAwardExecution:Fail(message) or failed
+		if module._awardConfirmation:HasPending() and LootAttribution.IsMasterLootAwardFailureMessage(message) then
+			failed = module._awardConfirmation:Fail(message) or failed
 		end
 		failed = failManualTrade(message) or failed
 		if MasterService.Trade.IsFailureMessage(message) then
@@ -3268,18 +3265,19 @@ do
 	-- Assigns an item from the loot window to a player.
 	function assignItem(itemLink, playerName, rollType, rollValue, effect)
 		local rollSession = Rolls:GetRollSession()
-		effect = effect or createAwardTransaction({
-			rollSessionId = rollSession and rollSession.id or nil,
-			itemKey = Item.GetItemStringFromLink(itemLink) or itemLink,
-			itemLink = itemLink,
-			winner = playerName,
-			source = "master_loot",
-			executorContext = {
-				executor = "loot_window",
-				rollType = rollType,
-				raidNid = Database.GetCurrentRaid(),
-			},
-		})
+		effect = effect
+			or createAwardAttempt({
+				rollSessionId = rollSession and rollSession.id or nil,
+				itemKey = Item.GetItemStringFromLink(itemLink) or itemLink,
+				itemLink = itemLink,
+				winner = playerName,
+				source = "master_loot",
+				executorContext = {
+					executor = "loot_window",
+					rollType = rollType,
+					raidNid = Database.GetCurrentRaid(),
+				},
+			})
 		local itemIndex = LootInventory.FindLootSlotIndex(itemLink)
 		if itemIndex == nil then
 			addon:error(L.ErrCannotFindItem:format(itemLink))
@@ -3313,13 +3311,13 @@ do
 				lootState.fromInventory and "inventory" or "lootWindow",
 				buildLootRollSessionOptions()
 			)
-			local transactionState = effect and effect:GetState() or nil
-			local transactionId = transactionState and transactionState.transactionId or tostring(effect or {})
+			local attemptState = effect and effect:GetState() or nil
+			local transactionId = attemptState and attemptState.transactionId or tostring(effect or {})
 			Loot:AddPendingAward(itemLink, playerName, rollType, rollValue, session and session.id or nil, nil, {
 				counterApplied = true,
 				transactionId = transactionId,
 			})
-			module._pendingAwardExecution:Queue({
+			module._awardConfirmation:Queue({
 				itemLink = itemLink,
 				itemIndex = itemIndex,
 				playerName = playerName,

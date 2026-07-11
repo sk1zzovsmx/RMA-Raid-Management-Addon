@@ -1,15 +1,15 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
 -- shared: direct addon namespace bindings
--- exports: addon.Services.Master.Award
+-- exports: addon.Services.Master.AwardSequence
 -- events: none
 -- notes: owns Master loot award orchestration, including single and multi-copy awards
 local addon = select(2, ...)
 local Master = addon.Services.EnsureNamespace("Master")
 local Services = addon.Services
 
-local Award = Master.Award or {}
-Master.Award = Award
+local AwardSequence = Master.AwardSequence or {}
+Master.AwardSequence = AwardSequence
 
 local Loot = assert(Services.Loot, "Master award loot service is not initialized")
 local L = addon.L
@@ -142,7 +142,7 @@ local function armProgressTimeout(controller, ma)
 	end, timeout)
 end
 
-function Award.CreateController(opts)
+function AwardSequence.CreateController(opts)
 	opts = opts or {}
 	local controller = {
 		awardPlanner = assert(opts.awardPlanner, "Master award planner is not initialized"),
@@ -161,15 +161,15 @@ function Award.CreateController(opts)
 		getAnnounceOnWin = opts.getAnnounceOnWin,
 		multiAwardTimeoutSeconds = opts.multiAwardTimeoutSeconds,
 		multiAwardDelaySeconds = opts.multiAwardDelaySeconds,
-		createTransaction = assert(opts.createTransaction, "Master award transaction factory is not initialized"),
+		createAttempt = assert(opts.createAttempt, "Master award attempt factory is not initialized"),
 		getRollSessionId = assert(opts.getRollSessionId, "Master award roll-session resolver is not initialized"),
 		getItemKey = assert(opts.getItemKey, "Master award item-key resolver is not initialized"),
 		getRaidNid = assert(opts.getRaidNid, "Master award raid resolver is not initialized"),
 	}
 
 	local function buildEffect(itemLink, winnerName, onConfirm, onFail)
-		local transaction
-		transaction = controller.createTransaction({
+		local attempt
+		attempt = controller.createAttempt({
 			rollSessionId = controller.getRollSessionId(),
 			itemKey = controller.getItemKey(itemLink),
 			itemLink = itemLink,
@@ -181,13 +181,13 @@ function Award.CreateController(opts)
 				raidNid = controller.getRaidNid(),
 			},
 			onConfirm = function()
-				return onConfirm(transaction)
+				return onConfirm(attempt)
 			end,
 			onFail = function(reason)
-				return onFail(transaction, reason)
+				return onFail(attempt, reason)
 			end,
 		})
-		return transaction
+		return attempt
 	end
 
 	function controller:Clear(resetItemCount)
@@ -456,4 +456,4 @@ function Award.CreateController(opts)
 	return controller
 end
 
-return Award
+return AwardSequence

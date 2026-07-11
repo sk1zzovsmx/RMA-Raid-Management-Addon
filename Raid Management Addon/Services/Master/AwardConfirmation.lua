@@ -1,14 +1,14 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: local addon = select(2, ...)
 -- shared: direct addon namespace bindings
--- exports: addon.Services.Master.PendingAwardExecution
+-- exports: addon.Services.Master.AwardConfirmation
 -- events: none
--- notes: owns pending master-loot award execution, timers, and terminal effects
+-- notes: owns Master-loot award confirmation, timers, and terminal effects
 local addon = select(2, ...)
 local Master = addon.Services.EnsureNamespace("Master")
 
-local PendingAwardExecution = Master.PendingAwardExecution or {}
-Master.PendingAwardExecution = PendingAwardExecution
+local AwardConfirmation = Master.AwardConfirmation or {}
+Master.AwardConfirmation = AwardConfirmation
 
 local tinsert = table.insert
 local tremove = table.remove
@@ -18,11 +18,11 @@ local type = type
 
 local function requireFunction(deps, name)
 	local value = deps[name]
-	assert(type(value) == "function", "Pending award execution requires " .. name)
+	assert(type(value) == "function", "Award confirmation requires " .. name)
 	return value
 end
 
-function PendingAwardExecution.Create(deps)
+function AwardConfirmation.Create(deps)
 	deps = deps or {}
 	local scheduleTimer = requireFunction(deps, "scheduleTimer")
 	local cancelTimer = requireFunction(deps, "cancelTimer")
@@ -31,11 +31,11 @@ function PendingAwardExecution.Create(deps)
 	local warnTimeout = requireFunction(deps, "warnTimeout")
 	local confirmProvisional = requireFunction(deps, "confirmProvisional")
 	local timeoutSeconds = tonumber(deps.timeoutSeconds) or 4
-	local awards = {}
+	local confirmations = {}
 	local owner = {}
 
 	local function remove(index)
-		local pending = awards[index]
+		local pending = confirmations[index]
 		if not pending then
 			return nil
 		end
@@ -43,14 +43,14 @@ function PendingAwardExecution.Create(deps)
 			cancelTimer(pending.timeoutHandle)
 			pending.timeoutHandle = nil
 		end
-		tremove(awards, index)
+		tremove(confirmations, index)
 		return pending
 	end
 
 	local function find(clearedSlot)
 		local slot = tonumber(clearedSlot)
-		for i = 1, #awards do
-			local pending = awards[i]
+		for i = 1, #confirmations do
+			local pending = confirmations[i]
 			if not slot or tonumber(pending.itemIndex) == slot then
 				return pending, i
 			end
@@ -68,32 +68,32 @@ function PendingAwardExecution.Create(deps)
 			rollValue = opts.rollValue,
 			rollSessionId = opts.sessionId and tostring(opts.sessionId) or nil,
 			transactionId = opts.transactionId and tostring(opts.transactionId) or nil,
-			effect = assert(opts.effect, "Pending award execution requires an effect"),
+			effect = assert(opts.effect, "Award confirmation requires an effect"),
 		}
-		tinsert(awards, pending)
+		tinsert(confirmations, pending)
 		if timeoutSeconds > 0 then
 			pending.timeoutHandle = scheduleTimer(function()
-				for i = #awards, 1, -1 do
-					if awards[i] == pending then
+				for i = #confirmations, 1, -1 do
+					if confirmations[i] == pending then
 						remove(i)
 						pending.effect:Fail("timeout")
 						warnTimeout(timeoutSeconds, pending)
 						requestRefresh()
 						return
 					end
-			end
-		end, timeoutSeconds)
+				end
+			end, timeoutSeconds)
 		end
 		return pending
 	end
 
 	function owner:HasPending()
-		return awards[1] ~= nil
+		return confirmations[1] ~= nil
 	end
 
 	function owner:Fail(reason)
 		local failed = false
-		for i = #awards, 1, -1 do
+		for i = #confirmations, 1, -1 do
 			local pending = remove(i)
 			if pending then
 				failed = true

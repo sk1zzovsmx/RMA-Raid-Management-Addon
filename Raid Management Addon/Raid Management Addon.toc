@@ -74,7 +74,7 @@ Database\DBSyncer.lua
 Services\Loot\Context.lua
 Services\Loot\State.lua
 Services\Loot\Snapshots.lua
-Services\Loot\PendingAwards.lua
+Services\Loot\LootAttribution.lua
 Services\Raid\State.lua
 Services\Raid\Roster.lua
 Services\Raid\Capabilities.lua
@@ -112,11 +112,11 @@ Services\Master\FlowState.lua
 Services\Master\ButtonState.lua
 Services\Master\RollRows.lua
 Services\Master\RollSelection.lua
-Services\Master\AwardTransaction.lua
-Services\Master\Award.lua
+Services\Master\AwardAttempt.lua
+Services\Master\AwardSequence.lua
 Services\Master\Assignment.lua
 Services\Master\Messages.lua
-Services\Master\PendingAwardExecution.lua
+Services\Master\AwardConfirmation.lua
 Services\Master\Trade.lua
 Services\Master\TradeExecution.lua
 Widgets\ItemSelection.lua
