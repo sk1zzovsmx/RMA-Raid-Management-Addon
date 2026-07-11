@@ -37,6 +37,16 @@ def read(path):
 
 
 class ControllerServiceBindingOwnershipTest(unittest.TestCase):
+    def test_attendance_raid_selection_invalidates_people_data(self):
+        attendance = read(ATTENDANCE)
+        start = attendance.index("local function touchAttendanceSelectionLists()")
+        end = attendance.index("\nend", start)
+        selection_refresh = attendance[start:end]
+
+        self.assertIn("attendanceRaidsController:Touch()", selection_refresh)
+        self.assertIn("attendancePlayersController:Dirty()", selection_refresh)
+        self.assertNotIn("attendancePlayersController:Touch()", selection_refresh)
+
     def test_logger_maintenance_names_describe_sync_and_chunked_work(self):
         actions = read(LOGGER_ACTIONS)
         config = read(CONFIG)

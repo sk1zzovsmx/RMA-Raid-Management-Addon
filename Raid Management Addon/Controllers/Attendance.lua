@@ -726,7 +726,7 @@ local function touchAttendanceSelectionLists()
 		attendanceRaidsController:Touch()
 	end
 	if attendancePlayersController then
-		attendancePlayersController:Touch()
+		attendancePlayersController:Dirty()
 	end
 end
 
