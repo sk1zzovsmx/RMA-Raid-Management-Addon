@@ -76,6 +76,15 @@ Attendance receives no new column. A currently banned player's name is gray,
 and hovering the name shows a tooltip containing `Loot Ban` and the optional
 note. Removing the ban restores the ordinary class-colored presentation.
 
+An active ban also displays `Interface\Buttons\UI-GroupLoot-Pass-Up` inside
+the existing Name cell, immediately to the left of the gray player name. This
+is an additional status icon and does not replace Attendance specialization
+icons. Lua creates and owns the icon and adjusts the name anchor only while the
+ban is active; XML remains layout-only. Hovering either the status icon or the
+name shows the same Loot Ban tooltip. Reused rows must hide the icon, restore
+the ordinary name anchor, and replace tooltip state when rendering an unbanned
+player.
+
 Attendance displays current administrative state, including when viewing a
 historical raid. It does not snapshot Loot Ban state into individual raid
 records; therefore, applying or removing a ban changes the presentation of the
@@ -153,6 +162,8 @@ Behavior tests must cover:
 - final rejection of manual, single, multi-award, and inventory-trade paths;
 - gray names and note tooltips in RaidGrid and Attendance;
 - Loot Ban icon overrides in RaidGrid without changing normal spec icons;
+- the additional Loot Ban icon in the Attendance Name cell without changing
+  Attendance spec icons or adding a column;
 - immediate refresh after changes;
 - current-state behavior in historical Attendance views;
 - unchanged wire formats and unaffected SavedVariables contracts.
