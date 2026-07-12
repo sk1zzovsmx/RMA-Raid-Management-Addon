@@ -15,6 +15,7 @@ RESPONSES = ADDON / "Services" / "Rolls" / "Responses.lua"
 ROLL_STRATEGIES = ADDON / "Services" / "Rolls" / "Strategies.lua"
 ROLL_RESOLUTION = ADDON / "Services" / "Rolls" / "Resolution.lua"
 ROLL_HISTORY = ADDON / "Services" / "Rolls" / "History.lua"
+ROLL_SERVICE = ADDON / "Services" / "Rolls" / "Service.lua"
 MASTER_ROLL_ROWS = ADDON / "Services" / "Master" / "RollRows.lua"
 AWARD_SEQUENCE = ADDON / "Services" / "Master" / "AwardSequence.lua"
 TRADE_EXECUTION = ADDON / "Services" / "Master" / "TradeExecution.lua"
@@ -376,6 +377,84 @@ local ctx = {{
         return History.AddRoll(historyCtx, name, roll, itemId, expectedTracker, expectedCount)
     end,
 }}
+{assertions}
+"""
+    completed = subprocess.run([lua, "-"], input=script, text=True, encoding="utf-8", capture_output=True)
+    if completed.returncode != 0:
+        raise AssertionError(completed.stderr or completed.stdout)
+
+
+def run_service_backed_banned_submission_lua(assertions: str) -> None:
+    lua = shutil.which("lua")
+    if lua is None:
+        raise AssertionError("Lua runtime is required for service-backed banned roll contracts")
+    paths = [ROLL_STRATEGIES.as_posix(), ROLL_HISTORY.as_posix(), RESPONSES.as_posix(), ROLL_SERVICE.as_posix()]
+    script = f"""
+table.wipe = table.wipe or function(value) for key in pairs(value) do value[key] = nil end end
+GetTime = function() return 1 end
+local events, lootState = {{}}, {{ lootCount = 1, rollsCount = 0, selectedItemCount = 1 }}
+local addon = {{
+    C = {{ rollTypes = {{ MAINSPEC = 1, OFFSPEC = 2, RESERVED = 3, FREE = 4 }} }},
+    L = {{}}, Diag = {{ D = {{}}, W = {{ LogRollsMissingItem = "missing" }} }}, Comms = {{}}, Item = {{}},
+    Events = {{ Internal = {{ AddRoll = "AddRoll" }} }},
+    Bus = {{ TriggerEvent = function(...) events[#events + 1] = {{...}} end }},
+    Database = {{
+        EnsureLootRuntimeState = function() return {{}}, lootState end,
+        GetItemIndex = function() return 1 end,
+        GetCurrentRaid = function() return 1 end,
+        GetPlayerName = function() return "Master" end,
+    }},
+    Deformat = function() end,
+    Options = {{
+        RegisterNamespace = function() end,
+        GetValue = function() return false end,
+        IsDebugEnabled = function() return false end,
+    }},
+    Strings = {{ NormalizeName = function(name) return name end }},
+    Services = {{ Raid = {{
+        LootBans = {{ IsActive = function(name) return name == "Alice" end }},
+        GetUnitID = function() return "raid1" end,
+    }} }},
+    warn = function() end,
+}}
+function addon.Services.EnsureNamespace(name)
+    addon.Services[name] = addon.Services[name] or {{}}
+    return addon.Services[name]
+end
+for _, path in ipairs({{ "{paths[0]}", "{paths[1]}", "{paths[2]}" }}) do
+    assert(loadfile(path))("Raid Management Addon", addon)
+end
+local Rolls = addon.Services.Rolls
+local session
+Rolls._Countdown = {{ Stop = function() end, Start = function() end, IsRunning = function() return false end }}
+Rolls._Display = {{
+    BuildModel = function(ctx) return {{ state = ctx.state }} end,
+    GetResolvedWinner = function() end,
+    ShouldUseTieReroll = function() return false end,
+}}
+Rolls._Sessions = {{
+    GetRollSession = function() return session end,
+    EnsureAdHocRollSession = function()
+        session = {{ id = "session", itemId = 1, itemLink = "item:1", rollType = 1, active = true }}
+        return session
+    end,
+    EnsureRollSession = function() return session end,
+    SyncSessionState = function() end,
+    UpdateSessionRollWindow = function() end,
+    CloseRollSession = function() session = nil end,
+    GetCurrentRollItemId = function() return 1 end,
+    GetActiveRollType = function() return 1 end,
+    GetCurrentItemLink = function() return "item:1" end,
+    GetCurrentRollContext = function() return {{ itemId = 1, itemLink = "item:1", rollType = 1 }} end,
+    GetManualExclusionEntry = function() return nil end,
+    IsTieRerollRestricted = function() return false end,
+    GetExpectedWinnerCount = function() return 1 end,
+    NormalizeExpectedWinners = function(_, count) return count end,
+    ClearTieRerollFilter = function() end,
+}}
+assert(loadfile("{paths[3]}"))("Raid Management Addon", addon)
+local History = Rolls._History
+local originalAcquire = History.AcquireItemTracker
 {assertions}
 """
     completed = subprocess.run([lua, "-"], input=script, text=True, encoding="utf-8", capture_output=True)
@@ -842,6 +921,42 @@ assert(response.bestRoll == 87 and response.status == Responses.STATUS.INELIGIBL
 
 assert(History.AddRoll(historyCtx, "Bob", 55, 1) == true)
 assert(state.count == 2 and state.rolls[2].name == "Bob" and state.rolls[2].roll == 55)
+assert(lootState.rollsCount == 2 and canonicalTracker.Bob == 1 and #events == 2)
+""")
+
+    def test_service_wrapper_forwards_history_transaction_preconditions(self) -> None:
+        run_service_backed_banned_submission_lua("""
+Rolls:SetRollRecordingEnabled(true)
+local detachedTracker = {}
+local acquireCalls = 0
+local canonicalTracker
+local historyContext
+History.AcquireItemTracker = function(ctx, itemId)
+    acquireCalls = acquireCalls + 1
+    if acquireCalls <= 2 then return detachedTracker end
+    historyContext = ctx
+    canonicalTracker = originalAcquire(ctx, itemId)
+    return canonicalTracker
+end
+
+local ok, reason = Rolls:SubmitDebugRoll("Alice", 87)
+assert(ok == false and reason == Rolls._Responses.REASONS.UNINITIALIZED)
+local failedState = Rolls:GetDisplayModel().state
+assert(failedState.count == 0 and failedState.rolls[1] == nil and lootState.rollsCount == 0)
+assert(detachedTracker.Alice == nil and canonicalTracker.Alice == nil and #events == 0)
+assert(failedState.responsesByPlayer.Alice == nil)
+
+History.AcquireItemTracker = originalAcquire
+ok, reason = Rolls:SubmitDebugRoll("Alice", 87)
+assert(ok == true and reason == nil)
+local committedState = Rolls:GetDisplayModel().state
+assert(committedState.count == 1 and committedState.rolls[1].name == "Alice")
+assert(lootState.rollsCount == 1 and canonicalTracker.Alice == 1 and #events == 1)
+assert(committedState.responsesByPlayer.Alice.bestRoll == 87)
+
+ok, reason = Rolls:SubmitDebugRoll("Bob", 55)
+assert(ok == true and reason == nil)
+assert(committedState.count == 2 and committedState.rolls[2].name == "Bob")
 assert(lootState.rollsCount == 2 and canonicalTracker.Bob == 1 and #events == 2)
 """)
 

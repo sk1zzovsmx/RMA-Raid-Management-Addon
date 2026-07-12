@@ -377,8 +377,8 @@ do
 			getLootCount = function()
 				return tonumber(lootState.lootCount) or 0
 			end,
-			addRoll = function(name, roll, itemId)
-				return History.AddRoll(getHistoryContext(), name, roll, itemId)
+			addRoll = function(name, roll, itemId, expectedTracker, expectedCount)
+				return History.AddRoll(getHistoryContext(), name, roll, itemId, expectedTracker, expectedCount)
 			end,
 		}
 		return responseContext
