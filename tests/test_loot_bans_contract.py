@@ -649,6 +649,8 @@ assert(type(button.OnEnter) == "function")
         source = ATTENDANCE.read_text(encoding="utf-8")
         self.assertIn("hotspot._RMALootBanActive = lootBanned", source)
         self.assertIn("hotspot._RMALootBanNote = lootBanNote", source)
+        self.assertIn("lootBanIcon._RMALootBanActive = lootBanned", source)
+        self.assertIn("lootBanIcon._RMALootBanNote = lootBanNote", source)
         self.assertIn("if self._RMALootBanActive then", source)
         self.assertIn("self._RMALootBanNote", source)
 
@@ -670,6 +672,13 @@ assert(type(button.OnEnter) == "function")
         self.assertIn("hotspot._RMARow = row", source)
         self.assertIn('self._RMARow:GetScript("OnClick")', source)
         self.assertIn("rowOnClick(self._RMARow, button)", source)
+        self.assertIn('SetScriptSafely(icon, "OnEnter", showAttendanceLootBanTooltip)', source)
+        self.assertIn('SetScriptSafely(icon, "OnLeave", HideTooltip)', source)
+        self.assertIn('SetScriptSafely(icon, "OnClick"', source)
+        self.assertRegex(
+            source,
+            r"icon\._RMALootBanTooltipBound\s*=\s*enterBound\s+and\s+leaveBound\s+and\s+clickBound",
+        )
 
     def test_attendance_creates_pass_icon_inside_name_cell(self) -> None:
         source = ATTENDANCE.read_text(encoding="utf-8")
@@ -682,6 +691,22 @@ assert(type(button.OnEnter) == "function")
         self.assertRegex(source, r"if lootBanned then[\s\S]+_RMALootBanIcon[\s\S]+:Show\(\)")
         self.assertRegex(source, r"else[\s\S]+_RMALootBanIcon[\s\S]+:Hide\(\)")
         self.assertIn('ui.Name:SetPoint("TOPLEFT", row, "TOPLEFT", 3, -1)', source)
+
+    def test_attendance_loot_ban_inset_preserves_dynamic_name_right_edge(self) -> None:
+        source = ATTENDANCE.read_text(encoding="utf-8")
+        draw = source.index("local lootBanIcon = getAttendanceLootBanIcon(row)")
+        applied = source.index("applyAttendanceRowColumnWidths", draw)
+        captured = source.find("local calculatedNameWidth = ui.Name:GetWidth()", applied)
+        self.assertGreater(captured, applied)
+        self.assertIn("ui.Name:SetWidth(calculatedNameWidth - lootBanNameInset)", source)
+        self.assertIn("ui.Name:SetWidth(calculatedNameWidth)", source)
+        self.assertNotIn("ui.Name:SetWidth(63)", source)
+        self.assertNotIn("ui.Name:SetWidth(80)", source)
+
+        for calculated_width in (68, 113):
+            original_right_edge = 3 + calculated_width
+            banned_right_edge = 20 + (calculated_width - 17)
+            self.assertEqual(original_right_edge, banned_right_edge)
 
 
 if __name__ == "__main__":

@@ -1048,6 +1048,8 @@ attendancePlayersController = makeAttendanceList({
 		local hotspot = getAttendanceLootBanHotspot(row, ui)
 		local lootBanIcon = getAttendanceLootBanIcon(row)
 		applyAttendanceRowColumnWidths(ui, ATTENDANCE_PLAYERS_FRAME)
+		local calculatedNameWidth = ui.Name:GetWidth()
+		local lootBanNameInset = 17
 		local rowId = it.id or it.playerNid
 		if rowId then
 			row:SetID(tonumber(rowId) or rowId)
@@ -1063,12 +1065,12 @@ attendancePlayersController = makeAttendanceList({
 		if lootBanned then
 			row._RMALootBanIcon:Show()
 			ui.Name:SetPoint("TOPLEFT", row, "TOPLEFT", 20, -1)
-			ui.Name:SetWidth(63)
+			ui.Name:SetWidth(calculatedNameWidth - lootBanNameInset)
 			ui.Name:SetVertexColor(0.5, 0.5, 0.5)
 		else
 			row._RMALootBanIcon:Hide()
 			ui.Name:SetPoint("TOPLEFT", row, "TOPLEFT", 3, -1)
-			ui.Name:SetWidth(80)
+			ui.Name:SetWidth(calculatedNameWidth)
 			local r, g, b = Colors.GetClassColor(it.class)
 			ui.Name:SetVertexColor(r, g, b)
 		end
