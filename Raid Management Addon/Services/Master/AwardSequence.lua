@@ -339,7 +339,7 @@ function AwardSequence.CreateController(opts)
 			return false
 		end
 
-		local result = self:Start(itemLink, available, winners)
+		local result, reason = self:Start(itemLink, available, winners)
 		if result then
 			return true
 		end
@@ -348,7 +348,7 @@ function AwardSequence.CreateController(opts)
 		if type(self.refresh) == "function" then
 			self.refresh()
 		end
-		return false
+		return result, reason
 	end
 
 	function controller:TrySingleCopy(itemLink, winnerName)
@@ -360,7 +360,7 @@ function AwardSequence.CreateController(opts)
 			end
 			return false
 		end
-		if LootBans.IsActive(selectedWinner) and not validateLootBan(self, selectedWinner) then
+		if not validateLootBan(self, selectedWinner) then
 			return nil, "loot_ban"
 		end
 

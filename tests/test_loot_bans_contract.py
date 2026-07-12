@@ -62,6 +62,129 @@ local LootBans = chunk("Raid Management Addon", addon)
         raise AssertionError(completed.stderr or completed.stdout)
 
 
+def run_award_sequence_lua(assertions: str) -> None:
+    lua = shutil.which("lua")
+    if lua is None:
+        raise AssertionError("Lua runtime is required for award enforcement contracts")
+    award_path = AWARD_SEQUENCE.as_posix()
+    script = f"""
+local bans = {{}}
+local getCalls = {{}}
+local isActiveCalls = 0
+local warnings = {{}}
+local effects = 0
+local assigns = 0
+local scheduled = nil
+local lootCount = 1
+local testWinners = {{}}
+local lootBans = {{}}
+function lootBans.Get(name)
+    getCalls[#getCalls + 1] = name
+    local ban = bans[name]
+    if ban == true then return true, nil end
+    return ban ~= nil, ban
+end
+function lootBans.IsActive(name)
+    isActiveCalls = isActiveCalls + 1
+    return bans[name] ~= nil
+end
+local loot = {{}}
+function loot:GetLootWindowItemCountByKey() return lootCount end
+local addon = {{
+    Services = {{
+        Master = {{}},
+        Loot = loot,
+        Raid = {{ LootBans = lootBans }},
+    }},
+    L = {{
+        ErrMLWinnerLootBanned = "Cannot award: %s has an active Loot Ban.",
+        ErrMLWinnerLootBannedWithNote = "Cannot award: %s has an active Loot Ban. Reason: %s",
+        ErrNoWinnerSelected = "none",
+        ChatAward = "%s %s",
+        ChatAwardMutiple = "%s %s",
+    }},
+    Diag = {{
+        D = {{ LogMLMultiAwardStarted = "%s %s %s %s %s" }},
+        W = {{
+            ErrMLMultiSelectNotEnough = "%s %s",
+            ErrMLMultiAwardInterruptedTimeout = "%s %s %s %s %s",
+        }},
+    }},
+}}
+function addon.Services.EnsureNamespace(name)
+    addon.Services[name] = addon.Services[name] or {{}}
+    return addon.Services[name]
+end
+local AwardSequence = assert(loadfile("{award_path}"))("Raid Management Addon", addon)
+local lootState = {{ currentRollType = 1, fromInventory = false }}
+local awardExecutor = {{ effect = nil }}
+function awardExecutor:Assign()
+    assigns = assigns + 1
+    return true
+end
+local awardPlanner = {{}}
+function awardPlanner.BuildMultiAwardWinnersPlan()
+    return {{ winners = testWinners }}
+end
+function awardPlanner.BuildMultiAwardState(args)
+    return {{ state = {{
+        active = true,
+        itemLink = args.itemLink,
+        itemKey = args.itemLink,
+        lastCount = args.available,
+        rollType = args.rollType,
+        winners = args.winners,
+        currentWinner = args.winners[1] and args.winners[1].name,
+        pos = 2,
+        total = #args.winners,
+    }} }}
+end
+local rollSelection = {{}}
+function rollSelection:GetSelectedCount() return #testWinners end
+function rollSelection:BuildModel() return {{ rows = testWinners }} end
+function rollSelection:GetSelectedWinnersOrdered() return testWinners end
+function rollSelection:ClearAnchor() end
+local itemCount = {{}}
+function itemCount:Set() end
+function itemCount:Reset() end
+local controller = AwardSequence.CreateController({{
+    awardPlanner = awardPlanner,
+    inventory = {{ BuildMultiAwardSlotCandidates = function() return {{}}, {{}} end }},
+    lootState = lootState,
+    rollSelection = rollSelection,
+    scheduleTimer = function(callback) scheduled = callback return callback end,
+    cancelTimer = function() scheduled = nil end,
+    warn = function(message) warnings[#warnings + 1] = message end,
+    registerAwardedItem = function() end,
+    awardExecutor = awardExecutor,
+    itemCount = itemCount,
+    multiAwardTimeoutSeconds = 0,
+    multiAwardDelaySeconds = 0,
+    createAttempt = function(args)
+        effects = effects + 1
+        return {{
+            Confirm = function() return args.onConfirm() end,
+            Fail = function(_, reason) return args.onFail(reason) end,
+        }}
+    end,
+    getRollSessionId = function() return "session" end,
+    getItemKey = function(itemLink) return itemLink end,
+    getRaidNid = function() return 1 end,
+}})
+{assertions}
+"""
+    completed = subprocess.run(
+        [lua, "-"],
+        input=script,
+        text=True,
+        encoding="utf-8",
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(completed.stderr or completed.stdout)
+
+
 def toc_entries() -> list[str]:
     return [
         line.strip()
@@ -146,11 +269,65 @@ class LootBansEnforcementContractTest(unittest.TestCase):
         self.assertRegex(source, r"LootBans\.IsActive\([^)]*name[^)]*\)")
         self.assertIn("reasonCodes.LOOT_BAN", source)
 
-    def test_award_sequence_has_final_ban_guard(self) -> None:
-        source = AWARD_SEQUENCE.read_text(encoding="utf-8")
-        assign = source[source.index("function controller:TrySingleCopy") :]
-        self.assertRegex(assign, r"LootBans\.IsActive\(selectedWinner\)")
-        self.assertLess(assign.index("LootBans.IsActive"), assign.index("awardExecutor:Assign"))
+    def test_banned_single_has_no_effect_or_assignment_and_propagates_reason(self) -> None:
+        run_award_sequence_lua("""
+bans.Alice = true
+local ok, reason = controller:TrySingleCopy("item:1", "Alice")
+assert(ok == nil and reason == "loot_ban")
+assert(effects == 0 and assigns == 0)
+assert(#getCalls == 1 and getCalls[1] == "Alice")
+assert(isActiveCalls == 0)
+assert(warnings[1] == "Cannot award: Alice has an active Loot Ban.")
+""")
+
+    def test_banned_single_warning_includes_note(self) -> None:
+        run_award_sequence_lua("""
+bans.Alice = "attendance"
+local ok, reason = controller:TrySingleCopy("item:1", "Alice")
+assert(ok == nil and reason == "loot_ban")
+assert(warnings[1] == "Cannot award: Alice has an active Loot Ban. Reason: attendance")
+""")
+
+    def test_initial_multi_checks_all_winners_and_rechecks_first_before_effect(self) -> None:
+        run_award_sequence_lua("""
+local calls = 0
+function lootBans.Get(name)
+    calls = calls + 1
+    getCalls[#getCalls + 1] = name
+    if name == "Alice" and calls == 4 then return true, "late" end
+    return false, nil
+end
+local winners = { { name = "Alice" }, { name = "Bob" }, { name = "Cara" } }
+local ok, reason = controller:Start("item:1", 3, winners)
+assert(ok == nil and reason == "loot_ban")
+assert(#getCalls == 4)
+assert(getCalls[1] == "Alice" and getCalls[2] == "Bob" and getCalls[3] == "Cara" and getCalls[4] == "Alice")
+assert(effects == 0 and assigns == 0)
+""")
+
+    def test_multi_public_entry_propagates_loot_ban_reason(self) -> None:
+        run_award_sequence_lua("""
+testWinners = { { name = "Alice" }, { name = "Bob" } }
+bans.Bob = true
+local ok, reason = controller:TryMultipleCopies("item:1", 2, 2)
+assert(ok == nil and reason == "loot_ban")
+assert(effects == 0 and assigns == 0)
+""")
+
+    def test_winner_banned_during_delay_is_blocked_before_next_effect(self) -> None:
+        run_award_sequence_lua("""
+local winners = { { name = "Alice" }, { name = "Bob" } }
+local ok = controller:Start("item:1", 2, winners)
+assert(ok == true and effects == 1 and assigns == 1)
+bans.Bob = "late ban"
+lootCount = 1
+assert(controller:ContinueOnLootSlotCleared(1) == true)
+assert(type(scheduled) == "function")
+scheduled()
+assert(effects == 1 and assigns == 1)
+assert(lootState.multiAward == nil)
+assert(warnings[#warnings] == "Cannot award: Bob has an active Loot Ban. Reason: late ban")
+""")
 
 
 if __name__ == "__main__":
