@@ -98,6 +98,14 @@ status with a new specific reason code, `LOOT_BAN`. The roll value remains
 visible in the Master roll list, while the Info column renders the localized
 tag `BAN`. Other `INELIGIBLE` reasons continue to use the generic `BLK` tag.
 
+When the player is already banned before rolling, the first otherwise-valid
+roll submitted during an open session is still recorded through the canonical
+roll tracker and materialized immediately as `INELIGIBLE / LOOT_BAN`. It is not
+treated as a denied out-of-flow attempt and produces no denial whisper.
+Subsequent rolls retain the normal duplicate/roll-limit behavior and do not
+replace the visible blocked roll. The record operation must never expose an
+intermediate eligible winner to resolution or UI consumers.
+
 Loot-banned responses do not participate in automatic winner selection,
 cutoff ties, or multi-award winner construction. The reason remains distinct
 from late rolls, manual per-session exclusions, passes, cancellations, and
@@ -160,6 +168,8 @@ Behavior tests must cover:
 - realm and player separation;
 - visible roll values whose `LOOT_BAN` reason renders `BAN` in the Info column,
   while unrelated ineligible reasons continue to render `BLK`;
+- a player banned before submission records one visible roll without a denial
+  whisper, while duplicate attempts retain the ordinary roll-limit behavior;
 - exclusion from automatic, tie, and multi-award winner resolution;
 - final rejection of manual, single, multi-award, and inventory-trade paths;
 - gray names and note tooltips in RaidGrid and Attendance;
