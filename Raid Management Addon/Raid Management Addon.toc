@@ -77,6 +77,7 @@ Services\Loot\Snapshots.lua
 Services\Loot\LootAttribution.lua
 Services\Raid\State.lua
 Services\Raid\Roster.lua
+Services\Raid\LootBans.lua
 Services\Raid\Capabilities.lua
 Services\Loot\PassiveGroupLoot.lua
 Services\Loot\Tracking.lua
