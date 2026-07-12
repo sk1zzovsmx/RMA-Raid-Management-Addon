@@ -262,6 +262,7 @@ table.wipe = table.wipe or function(value) for key in pairs(value) do value[key]
 GetTime = function() return 1 end
 local whispers, observedStatuses = {{}}, {{}}
 local tracker = {{}}
+local trackerAcquisitions, addRollCalls = 0, 0
 local addon = {{
     C = {{ rollTypes = {{ MAINSPEC = 1, OFFSPEC = 2, RESERVED = 3, FREE = 4 }} }},
     L = {{ StrRollBlockedTag = "BLK", StrRollLootBanTag = "BAN", StrRollDuplicateTag = "DUP",
@@ -305,9 +306,12 @@ local ctx = {{
     getCurrentRollContext = function() return {{ itemId = 1, itemLink = "item:1", rollType = 1 }} end,
     getLootCount = function() return 1 end,
     getRollTypeBucket = function() return "MS" end,
-    acquireItemTracker = function() return tracker end,
+    acquireItemTracker = function() trackerAcquisitions = trackerAcquisitions + 1 return tracker end,
     getRaidService = function() return addon.Services.Raid end,
-    addRoll = function(name, roll, itemId) tracker[name] = (tracker[name] or 0) + 1 end,
+    addRoll = function(name, roll, itemId)
+        addRollCalls = addRollCalls + 1
+        tracker[name] = (tracker[name] or 0) + 1
+    end,
     getExpectedWinnerCount = function() return 1 end,
     isSelectableRollResponse = Responses.IsSelectableRollResponse,
 }}
@@ -596,6 +600,83 @@ assert(visible[1].roll == 87 and visible[1].infoText == "BAN" and visible[1].can
 local duplicateOk, duplicateReason = Responses.SubmitIncomingRoll(ctx, "Alice", 99, "CHAT_MSG_SYSTEM")
 assert(duplicateOk == false and duplicateReason == Responses.REASONS.ROLL_LIMIT)
 assert(response.bestRoll == 87 and tracker.Alice == 1)
+assert(response.outOfFlowReason == Responses.REASONS.ROLL_LIMIT)
+assert(response.outOfFlowCount == 1 and response.outOfFlowLastRoll == 99)
+assert(response.outOfFlowLastReason == Responses.REASONS.ROLL_LIMIT)
+assert(response.outOfFlowLastSource == "CHAT_MSG_SYSTEM")
+""")
+
+    def test_structural_denials_take_precedence_over_loot_ban(self) -> None:
+        run_banned_roll_submission_lua("""
+local function reset()
+    response.bestRoll = nil
+    response.lastRoll = nil
+    tracker.Alice = nil
+    state.canRoll = true
+    state.countdownExpired = false
+    addon.Services.Raid.GetUnitID = function() return "raid1" end
+    ctx.getManualExclusionEntry = nil
+    ctx.getReserveCountForItem = nil
+    ctx.isTieRerollRestricted = nil
+    ctx.getCurrentRollContext = function() return { itemId = 1, itemLink = "item:1", rollType = 1 } end
+end
+
+state.canRoll = false
+state.countdownExpired = true
+local ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
+assert(ok == false and reason == Responses.REASONS.SESSION_INACTIVE)
+assert(tracker.Alice == nil and response.bestRoll == nil)
+
+reset()
+addon.Services.Raid.GetUnitID = function() return "none" end
+ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
+assert(ok == false and reason == Responses.REASONS.NOT_IN_RAID)
+assert(tracker.Alice == nil and response.bestRoll == nil)
+
+reset()
+ctx.getManualExclusionEntry = function() return { reason = "manual" } end
+ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
+assert(ok == false and reason == Responses.REASONS.MANUAL_EXCLUSION)
+assert(tracker.Alice == nil and response.bestRoll == nil)
+
+reset()
+ctx.getCurrentRollContext = function() return { itemId = 1, itemLink = "item:1", rollType = 3 } end
+ctx.getReserveCountForItem = function() return 0 end
+ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
+assert(ok == false and reason == Responses.REASONS.INELIGIBLE)
+assert(tracker.Alice == nil and response.bestRoll == nil)
+
+reset()
+ctx.isTieRerollRestricted = function() return true end
+ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
+assert(ok == false and reason == Responses.REASONS.REROLL_FILTERED)
+assert(tracker.Alice == nil and response.bestRoll == nil)
+""")
+
+    def test_invalid_and_untracked_banned_rolls_do_not_materialize(self) -> None:
+        run_banned_roll_submission_lua("""
+local ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", "not-a-roll", "CHAT_MSG_SYSTEM")
+assert(ok == false and reason == Responses.REASONS.INVALID_ROLL)
+assert(trackerAcquisitions == 0 and addRollCalls == 0)
+assert(tracker.Alice == nil and response.bestRoll == nil and #observedStatuses == 0)
+
+local acquireItemTracker = ctx.acquireItemTracker
+ctx.acquireItemTracker = nil
+ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
+assert(ok == false and reason == Responses.REASONS.UNINITIALIZED)
+assert(addRollCalls == 0 and response.bestRoll == nil and #observedStatuses == 0)
+ctx.acquireItemTracker = acquireItemTracker
+
+ctx.addRoll = nil
+ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
+assert(ok == false and reason == Responses.REASONS.UNINITIALIZED)
+assert(tracker.Alice == nil and response.bestRoll == nil and #observedStatuses == 0)
+
+ctx.addRoll = function() addRollCalls = addRollCalls + 1 end
+ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
+assert(ok == false and reason == Responses.REASONS.UNINITIALIZED)
+assert(addRollCalls == 1 and tracker.Alice == nil)
+assert(response.bestRoll == nil and #observedStatuses == 0)
 """)
 
     def test_existing_roll_reprojects_out_of_resolution_and_back(self) -> None:

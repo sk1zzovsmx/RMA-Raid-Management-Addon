@@ -573,21 +573,6 @@ function Responses.BuildCandidateEligibility(ctx, name, itemId, itemLink, rollTy
 		end
 	end
 
-	if LootBans.IsActive(name) then
-		return buildEligibilityResult(
-			opts,
-			false,
-			"INELIGIBLE",
-			reasonCodes.LOOT_BAN,
-			0,
-			usedRolls,
-			currentItemId,
-			currentItemLink,
-			false,
-			reasonCodes.LOOT_BAN
-		)
-	end
-
 	if currentRollType == addon.C.rollTypes.RESERVED then
 		isReservedRoll = true
 		local reserveCount = ctx.getReserveCountForItem and ctx.getReserveCountForItem(currentItemId, name) or 0
@@ -679,6 +664,21 @@ function Responses.BuildCandidateEligibility(ctx, name, itemId, itemLink, rollTy
 			currentItemLink,
 			false,
 			reasonCodes.REROLL_FILTERED
+		)
+	end
+
+	if LootBans.IsActive(name) then
+		return buildEligibilityResult(
+			opts,
+			false,
+			"INELIGIBLE",
+			reasonCodes.LOOT_BAN,
+			0,
+			usedRolls,
+			currentItemId,
+			currentItemLink,
+			false,
+			reasonCodes.LOOT_BAN
 		)
 	end
 
@@ -829,6 +829,7 @@ function Responses.SubmitIncomingRoll(ctx, player, roll, source)
 	local _, state = assertContext(ctx)
 	local context
 	local eligibility
+	local numericRoll
 	local denyMessage
 	local denyKey
 	local isOutOfTime
@@ -843,6 +844,10 @@ function Responses.SubmitIncomingRoll(ctx, player, roll, source)
 		addon:warn(Diag.W.LogRollsMissingItem)
 		return false, reasonCodes.MISSING_ITEM
 	end
+	numericRoll = tonumber(roll)
+	if not numericRoll then
+		return false, reasonCodes.INVALID_ROLL
+	end
 
 	Responses.PrepareResponseState(ctx, context)
 
@@ -852,14 +857,26 @@ function Responses.SubmitIncomingRoll(ctx, player, roll, source)
 	})
 	traceEligibility(player, eligibility)
 	if eligibility.reason == reasonCodes.LOOT_BAN then
+		local tracker
+		local trackerBefore
+
 		if (tonumber(eligibility.usedRolls) or 0) >= 1 then
-			recordOutOfFlowAttempt(state, player, reasonCodes.ROLL_LIMIT, roll, source)
+			recordOutOfFlowAttempt(state, player, reasonCodes.ROLL_LIMIT, numericRoll, source)
 			return false, reasonCodes.ROLL_LIMIT
 		end
-		if ctx.addRoll then
-			ctx.addRoll(player, roll, context.itemId)
+		if not ctx.addRoll or not ctx.acquireItemTracker then
+			return false, reasonCodes.UNINITIALIZED
 		end
-		applyBlockedRollResponse(ctx, player, roll, eligibility, source)
+		tracker = ctx.acquireItemTracker(context.itemId)
+		if type(tracker) ~= "table" then
+			return false, reasonCodes.UNINITIALIZED
+		end
+		trackerBefore = tonumber(tracker[player]) or 0
+		ctx.addRoll(player, numericRoll, context.itemId)
+		if (tonumber(tracker[player]) or 0) ~= trackerBefore + 1 then
+			return false, reasonCodes.UNINITIALIZED
+		end
+		applyBlockedRollResponse(ctx, player, numericRoll, eligibility, source)
 		return true, nil
 	end
 	if not eligibility.ok then
@@ -912,9 +929,9 @@ function Responses.SubmitIncomingRoll(ctx, player, roll, source)
 
 	isOutOfTime = state.countdownExpired == true
 	if ctx.addRoll then
-		ctx.addRoll(player, roll, context.itemId)
+		ctx.addRoll(player, numericRoll, context.itemId)
 	end
-	applyAcceptedRollResponse(ctx, player, tonumber(roll), eligibility, source or "system_roll", isOutOfTime)
+	applyAcceptedRollResponse(ctx, player, numericRoll, eligibility, source or "system_roll", isOutOfTime)
 	return true, nil
 end
 
