@@ -94,8 +94,9 @@ same player in historical Attendance views.
 
 A banned player may still submit a roll. The response remains visible for
 auditability but is classified through the existing `INELIGIBLE` response
-status with a new specific reason code, `LOOT_BAN`. Existing roll-row
-presentation renders the response as `BLK`.
+status with a new specific reason code, `LOOT_BAN`. The roll value remains
+visible in the Master roll list, while the Info column renders the localized
+tag `BAN`. Other `INELIGIBLE` reasons continue to use the generic `BLK` tag.
 
 Loot-banned responses do not participate in automatic winner selection,
 cutoff ties, or multi-award winner construction. The reason remains distinct
@@ -157,7 +158,8 @@ Behavior tests must cover:
 - applying, editing, and removing a ban;
 - note trimming, empty notes, and maximum length;
 - realm and player separation;
-- visible `BLK` responses with reason `LOOT_BAN`;
+- visible roll values whose `LOOT_BAN` reason renders `BAN` in the Info column,
+  while unrelated ineligible reasons continue to render `BLK`;
 - exclusion from automatic, tie, and multi-award winner resolution;
 - final rejection of manual, single, multi-award, and inventory-trade paths;
 - gray names and note tooltips in RaidGrid and Attendance;
