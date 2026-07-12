@@ -386,6 +386,25 @@ local function applyAcceptedRollResponse(ctx, name, roll, eligibility, source, i
 	end
 end
 
+local function applyBlockedRollResponse(ctx, name, roll, eligibility, source)
+	local _, state = assertContext(ctx)
+	local response = getOrCreateResponse(state, name)
+
+	response.bestRoll = tonumber(roll)
+	response.lastRoll = tonumber(roll)
+	response.status = RESPONSE_STATUS.INELIGIBLE
+	response.explicitStatus = nil
+	response.bucket = "INELIGIBLE"
+	response.reason = reasonCodes.LOOT_BAN
+	response.allowedRolls = 1
+	response.usedRolls = 1
+	response.source = source or "system_roll"
+	response.updatedAt = GetTime()
+	response.isEligible = false
+	response.isOutOfTime = false
+	return response
+end
+
 local function applyExplicitResponse(ctx, name, status, eligibility, reason, source)
 	local _, state = assertContext(ctx)
 	local response = getOrCreateResponse(state, name)
@@ -832,6 +851,17 @@ function Responses.SubmitIncomingRoll(ctx, player, roll, source)
 		requireOpenSession = true,
 	})
 	traceEligibility(player, eligibility)
+	if eligibility.reason == reasonCodes.LOOT_BAN then
+		if (tonumber(eligibility.usedRolls) or 0) >= 1 then
+			recordOutOfFlowAttempt(state, player, reasonCodes.ROLL_LIMIT, roll, source)
+			return false, reasonCodes.ROLL_LIMIT
+		end
+		if ctx.addRoll then
+			ctx.addRoll(player, roll, context.itemId)
+		end
+		applyBlockedRollResponse(ctx, player, roll, eligibility, source)
+		return true, nil
+	end
 	if not eligibility.ok then
 		recordOutOfFlowAttempt(state, player, eligibility.reason, roll, source)
 		if eligibility.reason == reasonCodes.SESSION_INACTIVE and not state.warned and not isDebugSource then

@@ -247,6 +247,77 @@ end
         raise AssertionError(completed.stderr or completed.stdout)
 
 
+def run_banned_roll_submission_lua(assertions: str) -> None:
+    lua = shutil.which("lua")
+    if lua is None:
+        raise AssertionError("Lua runtime is required for banned roll submission contracts")
+    paths = [
+        ROLL_STRATEGIES.as_posix(),
+        RESPONSES.as_posix(),
+        ROLL_RESOLUTION.as_posix(),
+        MASTER_ROLL_ROWS.as_posix(),
+    ]
+    script = f"""
+table.wipe = table.wipe or function(value) for key in pairs(value) do value[key] = nil end end
+GetTime = function() return 1 end
+local whispers, observedStatuses = {{}}, {{}}
+local tracker = {{}}
+local addon = {{
+    C = {{ rollTypes = {{ MAINSPEC = 1, OFFSPEC = 2, RESERVED = 3, FREE = 4 }} }},
+    L = {{ StrRollBlockedTag = "BLK", StrRollLootBanTag = "BAN", StrRollDuplicateTag = "DUP",
+        StrRollTimedOutTag = "OOT", StrRollTieTag = "TIE", StrRollPassTag = "PASS",
+        StrRollCancelledTag = "CANCEL" }},
+    Diag = {{ D = {{}}, W = {{ LogRollsMissingItem = "missing" }} }},
+    Comms = {{ SendWhisper = function(name, message) whispers[#whispers + 1] = {{ name, message }} end }},
+    Item = {{}},
+    Database = {{ GetCurrentRaid = function() return 1 end }},
+    Options = {{ GetValue = function() return false end, IsDebugEnabled = function() return false end }},
+    Strings = {{ NormalizeName = function(name) return name end }},
+    Services = {{ Chat = {{ Announce = function() end }}, Raid = {{
+        LootBans = {{ IsActive = function(name) return name == "Alice" end }},
+        GetUnitID = function() return "raid1" end,
+    }} }},
+    warn = function() end,
+}}
+function addon.Services.EnsureNamespace(name)
+    addon.Services[name] = addon.Services[name] or {{}}
+    return addon.Services[name]
+end
+for _, path in ipairs({{ "{paths[0]}", "{paths[1]}", "{paths[2]}", "{paths[3]}" }}) do
+    assert(loadfile(path))("Raid Management Addon", addon)
+end
+local Responses = addon.Services.Rolls._Responses
+local Resolution = addon.Services.Rolls._Resolution
+local RollRows = addon.Services.Master.RollRows
+local response = setmetatable({{ name = "Alice" }}, {{
+    __newindex = function(target, key, value)
+        rawset(target, key, value)
+        if key == "status" then observedStatuses[#observedStatuses + 1] = value end
+    end,
+}})
+local state = {{ record = true, canRoll = true, sessionId = "session", responsesByPlayer = {{ Alice = response }},
+    manualExclusions = {{}}, deniedReasons = {{}} }}
+local ctx = {{
+    state = state,
+    responseStatus = Responses.STATUS,
+    reasonCodes = Responses.REASONS,
+    getRollSession = function() return {{ id = "session" }} end,
+    getCurrentRollContext = function() return {{ itemId = 1, itemLink = "item:1", rollType = 1 }} end,
+    getLootCount = function() return 1 end,
+    getRollTypeBucket = function() return "MS" end,
+    acquireItemTracker = function() return tracker end,
+    getRaidService = function() return addon.Services.Raid end,
+    addRoll = function(name, roll, itemId) tracker[name] = (tracker[name] or 0) + 1 end,
+    getExpectedWinnerCount = function() return 1 end,
+    isSelectableRollResponse = Responses.IsSelectableRollResponse,
+}}
+{assertions}
+"""
+    completed = subprocess.run([lua, "-"], input=script, text=True, encoding="utf-8", capture_output=True)
+    if completed.returncode != 0:
+        raise AssertionError(completed.stderr or completed.stdout)
+
+
 def run_roll_rows_lua(assertions: str) -> None:
     lua = shutil.which("lua")
     if lua is None:
@@ -491,6 +562,41 @@ class LootBansEnforcementContractTest(unittest.TestCase):
         self.assertIn('LOOT_BAN = "loot_ban"', source)
         self.assertRegex(source, r"LootBans\.IsActive\([^)]*name[^)]*\)")
         self.assertIn("reasonCodes.LOOT_BAN", source)
+
+    def test_first_banned_roll_is_recorded_visible_and_ineligible(self) -> None:
+        run_banned_roll_submission_lua("""
+local ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
+assert(ok == true and reason == nil)
+assert(response.bestRoll == 87 and response.lastRoll == 87)
+assert(response.status == Responses.STATUS.INELIGIBLE)
+assert(response.reason == Responses.REASONS.LOOT_BAN)
+assert(response.isEligible == false)
+assert(tracker.Alice == 1)
+assert(#whispers == 0)
+assert(#observedStatuses == 1 and observedStatuses[1] == Responses.STATUS.INELIGIBLE)
+
+local entries, strategy = Resolution.BuildResolvedEntries(ctx, 1, 1)
+local resolution = Resolution.BuildResolution(ctx, entries, strategy)
+assert(#resolution.autoWinners == 0 and #resolution.tiedNames == 0)
+local row = {
+    name = response.name,
+    roll = response.bestRoll,
+    infoText = Resolution.BuildRowInfoText(ctx, response, false),
+    selectionAllowed = Responses.IsSelectableRollResponse(response),
+}
+local _, visible = RollRows.BuildModel({
+    rows = { row },
+    resolution = resolution,
+    selectionState = { selectionAllowed = true, selectedNames = {} },
+    showRollsOnly = true,
+})
+assert(#visible == 1)
+assert(visible[1].roll == 87 and visible[1].infoText == "BAN" and visible[1].canClick == false)
+
+local duplicateOk, duplicateReason = Responses.SubmitIncomingRoll(ctx, "Alice", 99, "CHAT_MSG_SYSTEM")
+assert(duplicateOk == false and duplicateReason == Responses.REASONS.ROLL_LIMIT)
+assert(response.bestRoll == 87 and tracker.Alice == 1)
+""")
 
     def test_existing_roll_reprojects_out_of_resolution_and_back(self) -> None:
         run_roll_reprojection_lua("""
