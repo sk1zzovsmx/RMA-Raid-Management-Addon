@@ -28,6 +28,7 @@ local SetFrameTitle = assert(Frames.SetFrameTitle, "Attendance frame title binde
 local BindModuleFrame = assert(Frames.BindModuleFrame, "Attendance module frame binder is not initialized")
 local MakeFrameGetter = assert(Frames.MakeFrameGetter, "Attendance frame getter factory is not initialized")
 local ShowItemTooltip = assert(Tooltips.ShowItem, "Attendance item tooltip renderer is not initialized")
+local ShowTooltipLines = assert(Tooltips.ShowLines, "Attendance tooltip line renderer is not initialized")
 local HideTooltip = assert(Tooltips.Hide, "Attendance tooltip hide service is not initialized")
 local BindTooltipModel = assert(Tooltips.BindModel, "Attendance tooltip model binder is not initialized")
 
@@ -52,6 +53,7 @@ local AttendanceEvents = {
 		InternalEvents.LoggerClearPlayerSelections,
 		"Attendance controller logger selection-clear event is not initialized"
 	),
+	LootBansChanged = assert(InternalEvents.LootBansChanged, "Attendance Loot Ban event is not initialized"),
 }
 
 local AttendanceSvc = assert(Services.Attendance, "Attendance service namespace is not initialized")
@@ -63,6 +65,7 @@ local EquipInspect = assert(Services.EquipInspect, "Attendance equip-inspect ser
 local ForceInspectPlayer = assert(EquipInspect.ForcePlayer, "Attendance force-inspect method is not initialized")
 local Raid = assert(Services.Raid, "Attendance raid service is not initialized")
 local RaidProjections = assert(Raid.Projections, "Attendance raid projections service is not initialized")
+local LootBans = assert(Raid.LootBans, "Attendance Loot Ban owner is not initialized")
 
 local _G = _G
 local type, tostring, tonumber = type, tostring, tonumber
@@ -975,6 +978,22 @@ attendancePlayersController = makeAttendanceList({
 			row._RMAAttendanceBound = true
 		end
 		local ui = row._p
+		if not row._RMALootBanTooltipBound then
+			SetScriptSafely(ui.Name, "OnEnter", function(self)
+				if row._RMALootBanActive then
+					local lines = {}
+					if row._RMALootBanNote then
+						lines[#lines + 1] = { text = row._RMALootBanNote }
+					end
+					ShowTooltipLines(self, {
+						title = L.StrLootBanTooltipTitle,
+						lines = lines,
+					})
+				end
+			end)
+			SetScriptSafely(ui.Name, "OnLeave", HideTooltip)
+			row._RMALootBanTooltipBound = true
+		end
 		applyAttendanceRowColumnWidths(ui, ATTENDANCE_PLAYERS_FRAME)
 		local rowId = it.id or it.playerNid
 		if rowId then
@@ -982,8 +1001,15 @@ attendancePlayersController = makeAttendanceList({
 		end
 		row._RMAPlayerNid = rowId
 		ui.Name:SetText(it.name)
-		local r, g, b = Colors.GetClassColor(it.class)
-		ui.Name:SetVertexColor(r, g, b)
+		local lootBanned, lootBanNote = LootBans.Get(it.name)
+		row._RMALootBanActive = lootBanned
+		row._RMALootBanNote = lootBanNote
+		if lootBanned then
+			ui.Name:SetVertexColor(0.5, 0.5, 0.5)
+		else
+			local r, g, b = Colors.GetClassColor(it.class)
+			ui.Name:SetVertexColor(r, g, b)
+		end
 		ui.Join:SetText(it.joinFmt)
 		ui.Leave:SetText(it.leaveFmt)
 		ui.Ilvl:SetText(it.avgIlvlFmt or "")
@@ -1140,5 +1166,9 @@ RegisterCallback(AttendanceEvents.RaidAttendanceChanged, function(_, raidId)
 	if not (module.attendanceSelectedRaid and tonumber(module.attendanceSelectedRaid) == tonumber(raidId)) then
 		return
 	end
+	markAttendanceListsDirty()
+end)
+
+RegisterCallback(AttendanceEvents.LootBansChanged, function()
 	markAttendanceListsDirty()
 end)

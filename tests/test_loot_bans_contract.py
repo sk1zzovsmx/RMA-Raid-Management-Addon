@@ -15,6 +15,7 @@ RESPONSES = ADDON / "Services" / "Rolls" / "Responses.lua"
 AWARD_SEQUENCE = ADDON / "Services" / "Master" / "AwardSequence.lua"
 RAID_GRID = ADDON / "Widgets" / "RaidGrid.lua"
 MASTER = ADDON / "Controllers" / "Master.lua"
+ATTENDANCE = ADDON / "Controllers" / "Attendance.lua"
 MASTER_XML = ADDON / "UI" / "Master.xml"
 
 
@@ -351,6 +352,22 @@ class LootBansUiContractTest(unittest.TestCase):
         self.assertIn('"RMA_LOOT_BAN_EDITOR"', source)
         self.assertIn("LootBans.Set", source)
         self.assertIn("LootBans.Remove", source)
+
+
+class LootBansAttendanceContractTest(unittest.TestCase):
+    def test_attendance_uses_current_ban_projection(self) -> None:
+        source = ATTENDANCE.read_text(encoding="utf-8")
+        self.assertIn("LootBans.Get(it.name)", source)
+        self.assertIn("AttendanceEvents.LootBansChanged", source)
+        self.assertRegex(source, r"SetVertexColor\(0\.5,\s*0\.5,\s*0\.5\)")
+        self.assertIn("StrLootBanTooltipTitle", source)
+
+    def test_reused_attendance_rows_replace_loot_ban_tooltip_state(self) -> None:
+        source = ATTENDANCE.read_text(encoding="utf-8")
+        self.assertIn("row._RMALootBanActive = lootBanned", source)
+        self.assertIn("row._RMALootBanNote = lootBanNote", source)
+        self.assertIn("if row._RMALootBanActive then", source)
+        self.assertIn("row._RMALootBanNote", source)
 
 
 if __name__ == "__main__":
