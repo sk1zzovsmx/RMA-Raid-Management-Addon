@@ -671,6 +671,18 @@ assert(type(button.OnEnter) == "function")
         self.assertIn('self._RMARow:GetScript("OnClick")', source)
         self.assertIn("rowOnClick(self._RMARow, button)", source)
 
+    def test_attendance_creates_pass_icon_inside_name_cell(self) -> None:
+        source = ATTENDANCE.read_text(encoding="utf-8")
+        self.assertIn('SetNormalTexture("Interface\\\\Buttons\\\\UI-GroupLoot-Pass-Up")', source)
+        self.assertIn("row._RMALootBanIcon", source)
+        self.assertIn('SetPoint("LEFT", row, "LEFT", 3, 0)', source)
+
+    def test_attendance_restores_name_layout_for_unbanned_reused_rows(self) -> None:
+        source = ATTENDANCE.read_text(encoding="utf-8")
+        self.assertRegex(source, r"if lootBanned then[\s\S]+_RMALootBanIcon[\s\S]+:Show\(\)")
+        self.assertRegex(source, r"else[\s\S]+_RMALootBanIcon[\s\S]+:Hide\(\)")
+        self.assertIn('ui.Name:SetPoint("TOPLEFT", row, "TOPLEFT", 3, -1)', source)
+
 
 if __name__ == "__main__":
     unittest.main()

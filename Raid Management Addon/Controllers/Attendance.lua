@@ -760,6 +760,19 @@ local function selectAttendancePlayer(btn, button)
 	end
 end
 
+local function showAttendanceLootBanTooltip(self)
+	if self._RMALootBanActive then
+		local lines = {}
+		if self._RMALootBanNote and self._RMALootBanNote ~= "" then
+			lines[#lines + 1] = { text = self._RMALootBanNote }
+		end
+		ShowTooltipLines(self, {
+			title = L.StrLootBanTooltipTitle,
+			lines = lines,
+		})
+	end
+end
+
 local function getAttendanceLootBanHotspot(row, ui)
 	local hotspot = row._RMALootBanHotspot
 	if not hotspot then
@@ -772,18 +785,7 @@ local function getAttendanceLootBanHotspot(row, ui)
 
 	hotspot._RMARow = row
 	if not hotspot._RMALootBanTooltipBound then
-		local enterBound = SetScriptSafely(hotspot, "OnEnter", function(self)
-			if self._RMALootBanActive then
-				local lines = {}
-				if self._RMALootBanNote then
-					lines[#lines + 1] = { text = self._RMALootBanNote }
-				end
-				ShowTooltipLines(self, {
-					title = L.StrLootBanTooltipTitle,
-					lines = lines,
-				})
-			end
-		end)
+		local enterBound = SetScriptSafely(hotspot, "OnEnter", showAttendanceLootBanTooltip)
 		local leaveBound = SetScriptSafely(hotspot, "OnLeave", HideTooltip)
 		local clickBound = SetScriptSafely(hotspot, "OnClick", function(self, button)
 			local rowOnClick = self._RMARow and self._RMARow:GetScript("OnClick") or nil
@@ -794,6 +796,34 @@ local function getAttendanceLootBanHotspot(row, ui)
 		hotspot._RMALootBanTooltipBound = enterBound and leaveBound and clickBound
 	end
 	return hotspot
+end
+
+local function getAttendanceLootBanIcon(row)
+	local icon = row._RMALootBanIcon
+	if not icon then
+		icon = CreateFrame("Button", nil, row)
+		icon:SetSize(14, 14)
+		icon:SetPoint("LEFT", row, "LEFT", 3, 0)
+		icon:SetNormalTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Up")
+		icon:EnableMouse(true)
+		icon:RegisterForClicks("AnyUp")
+		icon:Hide()
+		row._RMALootBanIcon = icon
+	end
+
+	icon._RMARow = row
+	if not icon._RMALootBanTooltipBound then
+		local enterBound = SetScriptSafely(icon, "OnEnter", showAttendanceLootBanTooltip)
+		local leaveBound = SetScriptSafely(icon, "OnLeave", HideTooltip)
+		local clickBound = SetScriptSafely(icon, "OnClick", function(self, button)
+			local rowOnClick = self._RMARow and self._RMARow:GetScript("OnClick") or nil
+			if rowOnClick then
+				rowOnClick(self._RMARow, button)
+			end
+		end)
+		icon._RMALootBanTooltipBound = enterBound and leaveBound and clickBound
+	end
+	return icon
 end
 
 local function refreshRaidAttendanceLayout()
@@ -1016,6 +1046,7 @@ attendancePlayersController = makeAttendanceList({
 		end
 		local ui = row._p
 		local hotspot = getAttendanceLootBanHotspot(row, ui)
+		local lootBanIcon = getAttendanceLootBanIcon(row)
 		applyAttendanceRowColumnWidths(ui, ATTENDANCE_PLAYERS_FRAME)
 		local rowId = it.id or it.playerNid
 		if rowId then
@@ -1026,9 +1057,18 @@ attendancePlayersController = makeAttendanceList({
 		local lootBanned, lootBanNote = LootBans.Get(it.name)
 		hotspot._RMALootBanActive = lootBanned
 		hotspot._RMALootBanNote = lootBanNote
+		lootBanIcon._RMALootBanActive = lootBanned
+		lootBanIcon._RMALootBanNote = lootBanNote
+		ui.Name:ClearAllPoints()
 		if lootBanned then
+			row._RMALootBanIcon:Show()
+			ui.Name:SetPoint("TOPLEFT", row, "TOPLEFT", 20, -1)
+			ui.Name:SetWidth(63)
 			ui.Name:SetVertexColor(0.5, 0.5, 0.5)
 		else
+			row._RMALootBanIcon:Hide()
+			ui.Name:SetPoint("TOPLEFT", row, "TOPLEFT", 3, -1)
+			ui.Name:SetWidth(80)
 			local r, g, b = Colors.GetClassColor(it.class)
 			ui.Name:SetVertexColor(r, g, b)
 		end
