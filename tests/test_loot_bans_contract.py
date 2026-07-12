@@ -260,14 +260,14 @@ def run_banned_roll_submission_lua(assertions: str) -> None:
     script = f"""
 table.wipe = table.wipe or function(value) for key in pairs(value) do value[key] = nil end end
 GetTime = function() return 1 end
-local whispers, observedStatuses = {{}}, {{}}
+local whispers, observedStatuses, observedEligibility = {{}}, {{}}, {{}}
 local tracker = {{}}
 local trackerAcquisitions, addRollCalls = 0, 0
 local addon = {{
     C = {{ rollTypes = {{ MAINSPEC = 1, OFFSPEC = 2, RESERVED = 3, FREE = 4 }} }},
     L = {{ StrRollBlockedTag = "BLK", StrRollLootBanTag = "BAN", StrRollDuplicateTag = "DUP",
         StrRollTimedOutTag = "OOT", StrRollTieTag = "TIE", StrRollPassTag = "PASS",
-        StrRollCancelledTag = "CANCEL" }},
+        StrRollCancelledTag = "CANCEL", ErrMLWinnerIneligible = "%s ineligible" }},
     Diag = {{ D = {{}}, W = {{ LogRollsMissingItem = "missing" }} }},
     Comms = {{ SendWhisper = function(name, message) whispers[#whispers + 1] = {{ name, message }} end }},
     Item = {{}},
@@ -294,6 +294,7 @@ local response = setmetatable({{ name = "Alice" }}, {{
     __newindex = function(target, key, value)
         rawset(target, key, value)
         if key == "status" then observedStatuses[#observedStatuses + 1] = value end
+        if key == "isEligible" then observedEligibility[#observedEligibility + 1] = value end
     end,
 }})
 local state = {{ record = true, canRoll = true, sessionId = "session", responsesByPlayer = {{ Alice = response }},
@@ -578,6 +579,7 @@ assert(response.isEligible == false)
 assert(tracker.Alice == 1)
 assert(#whispers == 0)
 assert(#observedStatuses == 1 and observedStatuses[1] == Responses.STATUS.INELIGIBLE)
+assert(#observedEligibility == 1 and observedEligibility[1] == false)
 
 local entries, strategy = Resolution.BuildResolvedEntries(ctx, 1, 1)
 local resolution = Resolution.BuildResolution(ctx, entries, strategy)
@@ -651,6 +653,47 @@ ctx.isTieRerollRestricted = function() return true end
 ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
 assert(ok == false and reason == Responses.REASONS.REROLL_FILTERED)
 assert(tracker.Alice == nil and response.bestRoll == nil)
+""")
+
+    def test_non_submission_consumers_keep_loot_ban_precedence(self) -> None:
+        run_banned_roll_submission_lua("""
+local cases = {
+    function()
+        addon.Services.Raid.GetUnitID = function() return "none" end
+    end,
+    function()
+        ctx.getManualExclusionEntry = function() return { reason = "manual" } end
+    end,
+    function()
+        ctx.getCurrentRollContext = function() return { itemId = 1, itemLink = "item:1", rollType = 3 } end
+        ctx.getReserveCountForItem = function() return 0 end
+    end,
+    function()
+        ctx.isTieRerollRestricted = function() return true end
+    end,
+}
+for i = 1, #cases do
+    addon.Services.Raid.GetUnitID = function() return "raid1" end
+    ctx.getManualExclusionEntry = nil
+    ctx.getReserveCountForItem = nil
+    ctx.isTieRerollRestricted = nil
+    ctx.getCurrentRollContext = function() return { itemId = 1, itemLink = "item:1", rollType = 1 } end
+    response.status = nil
+    response.reason = nil
+    response.isEligible = nil
+    cases[i]()
+
+    local context = ctx.getCurrentRollContext()
+    local synced, eligibility = Responses.SyncResponseEligibility(
+        ctx, "Alice", context.itemId, context.itemLink, context.rollType, "test"
+    )
+    assert(eligibility.reason == Responses.REASONS.LOOT_BAN)
+    assert(synced.status == Responses.STATUS.INELIGIBLE and synced.reason == Responses.REASONS.LOOT_BAN)
+
+    local validation = Responses.ValidateWinner(ctx, "Alice", context.itemLink, context.rollType)
+    assert(validation.ok == false and validation.reason == Responses.REASONS.LOOT_BAN)
+    assert(validation.eligibility.reason == Responses.REASONS.LOOT_BAN)
+end
 """)
 
     def test_invalid_and_untracked_banned_rolls_do_not_materialize(self) -> None:

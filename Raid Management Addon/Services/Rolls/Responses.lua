@@ -205,6 +205,21 @@ local function getEligibilityBaseReason(currentRollType, bucket)
 	return reasonCodes.ELIGIBLE
 end
 
+local function buildLootBanEligibility(opts, usedRolls, itemId, itemLink)
+	return buildEligibilityResult(
+		opts,
+		false,
+		"INELIGIBLE",
+		reasonCodes.LOOT_BAN,
+		0,
+		usedRolls,
+		itemId,
+		itemLink,
+		false,
+		reasonCodes.LOOT_BAN
+	)
+end
+
 local function isAwardRollType(rollType)
 	local rollTypes = addon.C.rollTypes
 	return rollType == rollTypes.MAINSPEC
@@ -512,6 +527,7 @@ function Responses.BuildCandidateEligibility(ctx, name, itemId, itemLink, rollTy
 	local bucket = ctx.getRollTypeBucket and ctx.getRollTypeBucket(currentRollType) or "FREE"
 	local isReservedRoll = false
 	local hasItemReserve = false
+	local deferLootBan = opts and opts.mode == "submission"
 
 	if not currentItemId and currentItemLink then
 		currentItemId = addon.Item.GetItemIdFromLink(currentItemLink)
@@ -559,6 +575,7 @@ function Responses.BuildCandidateEligibility(ctx, name, itemId, itemLink, rollTy
 	local unitId
 	local isSyntheticPlayer
 	local manualExclusion
+	local isLootBanned
 
 	usedRolls = tracker[name] or 0
 	currentResponse = state.responsesByPlayer[name]
@@ -571,6 +588,10 @@ function Responses.BuildCandidateEligibility(ctx, name, itemId, itemLink, rollTy
 		if usedRolls < 0 then
 			usedRolls = 0
 		end
+	end
+	isLootBanned = LootBans.IsActive(name)
+	if not deferLootBan and isLootBanned then
+		return buildLootBanEligibility(opts, usedRolls, currentItemId, currentItemLink)
 	end
 
 	if currentRollType == addon.C.rollTypes.RESERVED then
@@ -667,19 +688,8 @@ function Responses.BuildCandidateEligibility(ctx, name, itemId, itemLink, rollTy
 		)
 	end
 
-	if LootBans.IsActive(name) then
-		return buildEligibilityResult(
-			opts,
-			false,
-			"INELIGIBLE",
-			reasonCodes.LOOT_BAN,
-			0,
-			usedRolls,
-			currentItemId,
-			currentItemLink,
-			false,
-			reasonCodes.LOOT_BAN
-		)
+	if isLootBanned then
+		return buildLootBanEligibility(opts, usedRolls, currentItemId, currentItemLink)
 	end
 
 	local candidateReason = getEligibilityBaseReason(currentRollType, bucket)
