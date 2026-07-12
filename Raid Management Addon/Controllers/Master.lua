@@ -2086,6 +2086,7 @@ do
 		end,
 	})
 	tradeExecutionController = TradeExecutionService.CreateController({
+		lootBans = Raid.LootBans,
 		trade = MasterService.Trade,
 		inventory = LootInventory,
 		awardPlanner = LootAwardPlanner,
@@ -3609,6 +3610,7 @@ do
 		if Widgets.RaidGrid.IsShown() and Widgets.RaidGrid.GetMode() == "lootBan" then
 			Widgets.RaidGrid.Refresh(Private.BuildLootBanRows())
 		end
+		requestCoalescedUiRefresh("loot-bans")
 	end)
 
 	RegisterCallback(MasterEvents.AddRoll, function(_, name, roll)

@@ -12,7 +12,10 @@ TOC = ADDON / "Raid Management Addon.toc"
 SERVICE = ADDON / "Services" / "Raid" / "LootBans.lua"
 EVENTS = ADDON / "Modules" / "Events.lua"
 RESPONSES = ADDON / "Services" / "Rolls" / "Responses.lua"
+ROLL_STRATEGIES = ADDON / "Services" / "Rolls" / "Strategies.lua"
+ROLL_RESOLUTION = ADDON / "Services" / "Rolls" / "Resolution.lua"
 AWARD_SEQUENCE = ADDON / "Services" / "Master" / "AwardSequence.lua"
+TRADE_EXECUTION = ADDON / "Services" / "Master" / "TradeExecution.lua"
 RAID_GRID = ADDON / "Widgets" / "RaidGrid.lua"
 MASTER = ADDON / "Controllers" / "Master.lua"
 ATTENDANCE = ADDON / "Controllers" / "Attendance.lua"
@@ -190,6 +193,155 @@ local controller = AwardSequence.CreateController({{
         raise AssertionError(completed.stderr or completed.stdout)
 
 
+def run_roll_reprojection_lua(assertions: str) -> None:
+    lua = shutil.which("lua")
+    if lua is None:
+        raise AssertionError("Lua runtime is required for roll reprojection contracts")
+    paths = [ROLL_STRATEGIES.as_posix(), RESPONSES.as_posix(), ROLL_RESOLUTION.as_posix()]
+    script = f"""
+table.wipe = table.wipe or function(value) for key in pairs(value) do value[key] = nil end end
+GetTime = function() return 1 end
+local banned = false
+local addon = {{
+    C = {{ rollTypes = {{ MAINSPEC = 1, OFFSPEC = 2, RESERVED = 3, FREE = 4 }} }},
+    L = {{ StrRollBlockedTag = "BLK", StrRollDuplicateTag = "DUP", StrRollTimedOutTag = "OOT",
+        StrRollTieTag = "TIE", StrRollPassTag = "PASS", StrRollCancelledTag = "CANCEL" }},
+    Diag = {{ D = {{}} }}, Comms = {{}}, Item = {{}},
+    Database = {{ GetCurrentRaid = function() return 1 end }},
+    Options = {{ GetValue = function() return false end, IsDebugEnabled = function() return false end }},
+    Strings = {{ NormalizeName = function(name) return name end }},
+    Services = {{ Chat = {{}}, Raid = {{
+        LootBans = {{ IsActive = function(name) return banned and name == "Alice" end }},
+        GetUnitID = function() return "raid1" end,
+    }} }},
+}}
+function addon.Services.EnsureNamespace(name)
+    addon.Services[name] = addon.Services[name] or {{}}
+    return addon.Services[name]
+end
+for _, path in ipairs({{ "{paths[0]}", "{paths[1]}", "{paths[2]}" }}) do
+    assert(loadfile(path))("Raid Management Addon", addon)
+end
+local Responses = addon.Services.Rolls._Responses
+local Resolution = addon.Services.Rolls._Resolution
+local state = {{ responsesByPlayer = {{
+    Alice = {{ name = "Alice", status = Responses.STATUS.ROLL, bucket = "MS", reason = Responses.REASONS.ELIGIBLE,
+        bestRoll = 100, usedRolls = 1, allowedRolls = 1, isEligible = true }},
+    Bob = {{ name = "Bob", status = Responses.STATUS.ROLL, bucket = "MS", reason = Responses.REASONS.ELIGIBLE,
+        bestRoll = 90, usedRolls = 1, allowedRolls = 1, isEligible = true }},
+}}, manualExclusions = {{}}, deniedReasons = {{}} }}
+local ctx = {{ state = state, responseStatus = Responses.STATUS, reasonCodes = Responses.REASONS,
+    getRollTypeBucket = function() return "MS" end, acquireItemTracker = function() return {{ Alice = 1, Bob = 1 }} end,
+    getRaidService = function() return addon.Services.Raid end, getExpectedWinnerCount = function() return 1 end,
+    isSelectableRollResponse = Responses.IsSelectableRollResponse,
+}}
+local function resolve()
+    local entries, strategy = Resolution.BuildResolvedEntries(ctx, 1, 1)
+    return Resolution.BuildResolution(ctx, entries, strategy)
+end
+{assertions}
+"""
+    completed = subprocess.run([lua, "-"], input=script, text=True, encoding="utf-8", capture_output=True)
+    if completed.returncode != 0:
+        raise AssertionError(completed.stderr or completed.stdout)
+
+
+def run_trade_execution_lua(assertions: str) -> None:
+    lua = shutil.which("lua")
+    if lua is None:
+        raise AssertionError("Lua runtime is required for trade enforcement contracts")
+    trade_path = TRADE_EXECUTION.as_posix()
+    script = f"""
+local bans, warnings = {{}}, {{}}
+local effects, trades = 0, 0
+local lootBans = {{}}
+function lootBans.Get(name)
+    local note = bans[name]
+    if note == true then return true, nil end
+    return note ~= nil, note
+end
+local addon = {{
+    Services = {{ Raid = {{ LootBans = lootBans }} }},
+    C = {{ RAID_TARGET_MARKERS = {{}}, rollTypes = {{ MAINSPEC = 1, OFFSPEC = 2, RESERVED = 3, FREE = 4 }} }},
+    L = {{
+        ErrMLWinnerLootBanned = "Cannot award: %s has an active Loot Ban.",
+        ErrMLWinnerLootBannedWithNote = "Cannot award: %s has an active Loot Ban. Reason: %s",
+        ErrNoWinnerSelected = "none", ErrMLWinnerIneligible = "%s ineligible",
+        ErrMLInventoryItemMissing = "%s missing", ErrItemStack = "%s stack",
+        ChatTrade = "%s %s", ErrScreenReminder = "screen",
+    }},
+    Diag = {{ D = {{}}, W = {{}}, E = {{}} }},
+}}
+function addon.Services.EnsureNamespace(name)
+    addon.Services[name] = addon.Services[name] or {{}}
+    return addon.Services[name]
+end
+local TradeExecution = assert(loadfile("{trade_path}"))("Raid Management Addon", addon)
+local lootState = {{ fromInventory = true, selectedItemCount = 2, currentRollItem = 1 }}
+local itemInfo = {{}}
+local controller = TradeExecution.CreateController({{
+    lootBans = lootBans,
+    trade = {{ Reset = function() end }},
+    inventory = {{
+        ResolveTradeableInventoryItem = function() return {{ bag = 0, slot = 1, slotCount = 1, totalCount = 2 }} end,
+        ResolveTradeAwardedCount = function() return 1 end,
+        ResolveInventoryAwardedCount = function() return 1 end,
+    }},
+    awardPlanner = {{ BuildTradeNotificationPlan = function() return {{ keep = false }} end }},
+    rollSelection = {{
+        GetSelectedCount = function() return 1 end,
+        GetSelectedWinnersOrdered = function() return {{ {{ name = "Alice", roll = 100 }} }} end,
+        DeselectWinner = function() end,
+    }},
+    raid = {{
+        GetUnitID = function() return "raid1" end, ClearRaidIcons = function() end,
+        AddPlayerCountForRollType = function() end,
+    }},
+    loot = {{ GetItemLink = function() return "item:1" end, ClearLoot = function() end }},
+    distribution = {{
+        PublishRollEnd = function() end, AcquireSessionOwnership = function() return "token" end,
+        ReleaseSessionOwnership = function() return true end,
+    }},
+    rolls = {{
+        EnsureLootRollSession = function() end,
+        ValidateWinner = function() return {{ ok = true }} end,
+        GetRolls = function() return {{}} end,
+    }},
+    comms = {{ SendWhisper = function() end }},
+    database = {{ GetPlayerName = function() return "Master" end, GetCurrentRaid = function() return 1 end }},
+    item = {{ GetItemIdFromLink = function() return 1 end }},
+    lootState = lootState, itemInfo = itemInfo,
+    wow = {{
+        ClearCursor = function() end, CursorHasItem = function() return true end,
+        GetContainerItemInfo = function() return nil, 1 end,
+        GetContainerItemLink = function() return "item:1" end,
+        InitiateTrade = function() trades = trades + 1 end, PickupContainerItem = function() end,
+        SetRaidTarget = function() end, CheckInteractDistance = function() return 1 end,
+    }},
+    getOption = function() return false end,
+    buildRollSelectionModel = function() return {{ winner = "Alice", rows = {{ {{ name = "Alice", roll = 100 }} }} }} end,
+    buildLootRollSessionOptions = function() return {{}} end,
+    resetTradeState = function() end, hideTradeDropdowns = function() end,
+    clearLootAndResetRecordedRolls = function() end, ensureTradeLootContext = function() return 1, false end,
+    requestLoggerLootLog = function() return true end, registerAwardedItem = function() return false end,
+    requestRefresh = function() end, announce = function() end,
+    isAnnounced = function() return false end, setAnnounced = function() end,
+    isScreenshotWarn = function() return false end, setScreenshotWarn = function() end,
+    warn = function(message) warnings[#warnings + 1] = message end, error = function() end,
+    createAttempt = function(args)
+        effects = effects + 1
+        return {{ Confirm = function() return args.onConfirm({{ executorContext = args.executorContext }}) end,
+            Fail = function(_, reason) return args.onFail(reason) end }}
+    end,
+    getItemKey = function(link) return link end,
+}})
+{assertions}
+"""
+    completed = subprocess.run([lua, "-"], input=script, text=True, encoding="utf-8", capture_output=True)
+    if completed.returncode != 0:
+        raise AssertionError(completed.stderr or completed.stdout)
+
+
 def run_frames_lua(assertions: str) -> None:
     lua = shutil.which("lua")
     if lua is None:
@@ -295,6 +447,23 @@ assert(LootBans.Remove("Alice") == false)
 assert(#published == 2)
 """)
 
+    def test_invalid_persisted_records_are_inactive_without_mutation(self) -> None:
+        run_lua(r"""
+players.TestRealm = { Alice = {} }
+local invalid = {
+    { active = true, note = string.rep("x", 241) },
+    { active = true, note = "caf\195\169" },
+    { active = true, note = 42 },
+    { active = "true", note = "reason" },
+}
+for i = 1, #invalid do
+    players.TestRealm.Alice.lootBan = invalid[i]
+    local active, note = LootBans.Get("Alice")
+    assert(active == false and note == nil)
+    assert(players.TestRealm.Alice.lootBan == invalid[i])
+end
+""")
+
 
 class LootBansEnforcementContractTest(unittest.TestCase):
     def test_rolls_use_specific_loot_ban_reason(self) -> None:
@@ -302,6 +471,27 @@ class LootBansEnforcementContractTest(unittest.TestCase):
         self.assertIn('LOOT_BAN = "loot_ban"', source)
         self.assertRegex(source, r"LootBans\.IsActive\([^)]*name[^)]*\)")
         self.assertIn("reasonCodes.LOOT_BAN", source)
+
+    def test_existing_roll_reprojects_out_of_resolution_and_back(self) -> None:
+        run_roll_reprojection_lua("""
+local ordinary = resolve()
+assert(ordinary.autoWinners[1].name == "Alice")
+banned = true
+local response = Responses.SyncResponseEligibility(ctx, "Alice", 1, "item:1", 1, "loot-ban-change")
+assert(response.status == Responses.STATUS.INELIGIBLE)
+assert(response.reason == Responses.REASONS.LOOT_BAN)
+assert(response.bestRoll == 100)
+assert(Resolution.BuildRowInfoText(ctx, response, false) == "BLK")
+local blocked = resolve()
+assert(blocked.autoWinners[1].name == "Bob")
+assert(blocked.requiresManualResolution == false and #blocked.tiedNames == 0)
+banned = false
+response = Responses.SyncResponseEligibility(ctx, "Alice", 1, "item:1", 1, "loot-ban-change")
+assert(response.status == Responses.STATUS.ROLL)
+assert(response.reason == Responses.REASONS.ELIGIBLE)
+local restored = resolve()
+assert(restored.autoWinners[1].name == "Alice")
+""")
 
     def test_banned_single_has_no_effect_or_assignment_and_propagates_reason(self) -> None:
         run_award_sequence_lua("""
@@ -363,6 +553,24 @@ assert(lootState.multiAward == nil)
 assert(warnings[#warnings] == "Cannot award: Bob has an active Loot Ban. Reason: late ban")
 """)
 
+    def test_inventory_trade_rechecks_ban_before_effect_and_trade(self) -> None:
+        run_trade_execution_lua("""
+bans.Alice = "late ban"
+assert(controller:TradeItem("item:1", "Alice", 1, 100) == false)
+assert(effects == 0 and trades == 0)
+assert(warnings[1] == "Cannot award: Alice has an active Loot Ban. Reason: late ban")
+""")
+
+    def test_successive_inventory_attempt_rechecks_new_ban(self) -> None:
+        run_trade_execution_lua("""
+assert(controller:TradeItem("item:1", "Alice", 1, 100) == true, "first trade result")
+assert(effects == 1 and trades == 1, "first counts " .. effects .. "/" .. trades)
+bans.Alice = true
+assert(controller:TradeItem("item:1", "Alice", 1, 100) == false, "second trade result")
+assert(effects == 1 and trades == 1, "second counts " .. effects .. "/" .. trades)
+assert(warnings[#warnings] == "Cannot award: Alice has an active Loot Ban.", tostring(warnings[#warnings]))
+""")
+
 
 class LootBansUiContractTest(unittest.TestCase):
     def test_master_xml_remains_layout_only(self) -> None:
@@ -382,6 +590,16 @@ class LootBansUiContractTest(unittest.TestCase):
         self.assertIn('"RMA_LOOT_BAN_EDITOR"', source)
         self.assertIn("LootBans.Set", source)
         self.assertIn("LootBans.Remove", source)
+
+    def test_loot_ban_change_requests_master_model_refresh(self) -> None:
+        source = MASTER.read_text(encoding="utf-8")
+        handler = re.search(
+            r"RegisterCallback\(MasterEvents\.LootBansChanged, function\(\)(.*?)\n\s*end\)",
+            source,
+            re.S,
+        )
+        self.assertIsNotNone(handler)
+        self.assertIn('requestCoalescedUiRefresh("loot-bans")', handler.group(1))
 
 
 class LootBansAttendanceContractTest(unittest.TestCase):

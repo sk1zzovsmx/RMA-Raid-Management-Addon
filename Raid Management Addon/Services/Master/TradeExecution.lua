@@ -213,11 +213,26 @@ local function tryInitiateTrade(controller, itemLink, playerName, isAwardRoll)
 	return false, nil, false
 end
 
+local function validateLootBan(controller, playerName)
+	local active, note = controller.lootBans.Get(playerName)
+	if not active then
+		return true
+	end
+	if type(controller.warn) == "function" then
+		controller.warn(
+			note and L.ErrMLWinnerLootBannedWithNote:format(playerName, note)
+				or L.ErrMLWinnerLootBanned:format(playerName)
+		)
+	end
+	return false
+end
+
 function TradeExecution.CreateController(opts)
 	opts = opts or {}
 
 	local wow = assert(opts.wow, "Master trade execution WoW API table is not initialized")
 	local controller = {
+		lootBans = assert(opts.lootBans, "Master trade execution Loot Bans owner is not initialized"),
 		trade = assert(opts.trade, "Master trade execution trade owner is not initialized"),
 		inventory = assert(opts.inventory, "Master trade execution inventory owner is not initialized"),
 		awardPlanner = assert(opts.awardPlanner, "Master trade execution award planner is not initialized"),
@@ -594,6 +609,10 @@ function TradeExecution.CreateController(opts)
 
 		local keep, output, whisper =
 			self:BuildNotificationPlan(itemLink, playerName, winnerName, rollType, isAwardRoll)
+		local tradeTarget = winnerName or playerName
+		if not validateLootBan(self, tradeTarget) then
+			return false
+		end
 
 		if not keep and self.lootState.trader == winnerName then
 			return self:CompleteTraderKeepAward(itemLink, winnerName, rollType, rollValue, output, whisper)

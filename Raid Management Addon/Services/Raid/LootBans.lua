@@ -49,7 +49,16 @@ function LootBans.Get(playerName)
 	if type(ban) ~= "table" or ban.active ~= true then
 		return false, nil
 	end
-	local note = type(ban.note) == "string" and ban.note or nil
+	local note = ban.note
+	if note ~= nil then
+		if type(note) ~= "string" then
+			return false, nil
+		end
+		local cleanNote, err = LootBans.ValidateNote(note)
+		if err or cleanNote ~= note then
+			return false, nil
+		end
+	end
 	return true, note
 end
 
