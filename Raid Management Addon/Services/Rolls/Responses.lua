@@ -14,6 +14,8 @@ local Options = addon.Options
 local Services = addon.Services
 local Strings = addon.Strings
 local Chat = Services.Chat
+local Raid = assert(Services.Raid, "Roll response raid service is not initialized")
+local LootBans = assert(Raid.LootBans, "Roll response loot bans owner is not initialized")
 local NormalizeName = assert(Strings.NormalizeName, "Roll response name normalizer is not initialized")
 
 local twipe = table.wipe
@@ -43,6 +45,7 @@ Responses.REASONS = Responses.REASONS
 		RESERVED = "reserved",
 		FALLBACK = "fallback",
 		INELIGIBLE = "ineligible",
+		LOOT_BAN = "loot_ban",
 		UNINITIALIZED = "uninitialized",
 		NAME_UNRESOLVED = "name_unresolved",
 		MISSING_ITEM = "missing_item",
@@ -501,19 +504,6 @@ function Responses.BuildCandidateEligibility(ctx, name, itemId, itemLink, rollTy
 		currentItemId = tonumber(currentItemId)
 	end
 
-	if currentRollType == addon.C.rollTypes.RESERVED and currentItemId then
-		isReservedRoll = true
-		local reserveCount = ctx.getReserveCountForItem and ctx.getReserveCountForItem(currentItemId, name) or 0
-		if reserveCount and reserveCount > 0 then
-			bucket = "SR"
-			allowedRolls = reserveCount
-			hasItemReserve = true
-		else
-			bucket = "INELIGIBLE"
-			allowedRolls = 0
-		end
-	end
-
 	if not name or name == "" then
 		return buildEligibilityResult(
 			opts,
@@ -561,6 +551,34 @@ function Responses.BuildCandidateEligibility(ctx, name, itemId, itemLink, rollTy
 		usedRolls = usedRolls - 1
 		if usedRolls < 0 then
 			usedRolls = 0
+		end
+	end
+
+	if LootBans.IsActive(name) then
+		return buildEligibilityResult(
+			opts,
+			false,
+			"INELIGIBLE",
+			reasonCodes.LOOT_BAN,
+			0,
+			usedRolls,
+			currentItemId,
+			currentItemLink,
+			false,
+			reasonCodes.LOOT_BAN
+		)
+	end
+
+	if currentRollType == addon.C.rollTypes.RESERVED then
+		isReservedRoll = true
+		local reserveCount = ctx.getReserveCountForItem and ctx.getReserveCountForItem(currentItemId, name) or 0
+		if reserveCount and reserveCount > 0 then
+			bucket = "SR"
+			allowedRolls = reserveCount
+			hasItemReserve = true
+		else
+			bucket = "INELIGIBLE"
+			allowedRolls = 0
 		end
 	end
 

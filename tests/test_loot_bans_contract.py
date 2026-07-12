@@ -11,6 +11,8 @@ ADDON = ROOT / "Raid Management Addon"
 TOC = ADDON / "Raid Management Addon.toc"
 SERVICE = ADDON / "Services" / "Raid" / "LootBans.lua"
 EVENTS = ADDON / "Modules" / "Events.lua"
+RESPONSES = ADDON / "Services" / "Rolls" / "Responses.lua"
+AWARD_SEQUENCE = ADDON / "Services" / "Master" / "AwardSequence.lua"
 
 
 def run_lua(assertions: str) -> None:
@@ -135,6 +137,20 @@ assert(published[2][4] == nil)
 assert(LootBans.Remove("Alice") == false)
 assert(#published == 2)
 """)
+
+
+class LootBansEnforcementContractTest(unittest.TestCase):
+    def test_rolls_use_specific_loot_ban_reason(self) -> None:
+        source = RESPONSES.read_text(encoding="utf-8")
+        self.assertIn('LOOT_BAN = "loot_ban"', source)
+        self.assertRegex(source, r"LootBans\.IsActive\([^)]*name[^)]*\)")
+        self.assertIn("reasonCodes.LOOT_BAN", source)
+
+    def test_award_sequence_has_final_ban_guard(self) -> None:
+        source = AWARD_SEQUENCE.read_text(encoding="utf-8")
+        assign = source[source.index("function controller:TrySingleCopy") :]
+        self.assertRegex(assign, r"LootBans\.IsActive\(selectedWinner\)")
+        self.assertLess(assign.index("LootBans.IsActive"), assign.index("awardExecutor:Assign"))
 
 
 if __name__ == "__main__":

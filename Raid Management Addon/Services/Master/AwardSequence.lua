@@ -12,6 +12,8 @@ local AwardSequence = Master.AwardSequence or {}
 Master.AwardSequence = AwardSequence
 
 local Loot = assert(Services.Loot, "Master award loot service is not initialized")
+local Raid = assert(Services.Raid, "Master award raid service is not initialized")
+local LootBans = assert(Raid.LootBans, "Master award loot bans owner is not initialized")
 local L = addon.L
 local Diag = addon.Diag
 
@@ -165,7 +167,22 @@ function AwardSequence.CreateController(opts)
 		getRollSessionId = assert(opts.getRollSessionId, "Master award roll-session resolver is not initialized"),
 		getItemKey = assert(opts.getItemKey, "Master award item-key resolver is not initialized"),
 		getRaidNid = assert(opts.getRaidNid, "Master award raid resolver is not initialized"),
+		lootBans = LootBans,
 	}
+
+	local function validateLootBan(self, playerName)
+		local active, note = self.lootBans.Get(playerName)
+		if active then
+			if type(self.warn) == "function" then
+				self.warn(
+					note and L.ErrMLWinnerLootBannedWithNote:format(playerName, note)
+						or L.ErrMLWinnerLootBanned:format(playerName)
+				)
+			end
+			return false
+		end
+		return true
+	end
 
 	local function buildEffect(itemLink, winnerName, onConfirm, onFail)
 		local attempt
@@ -223,6 +240,11 @@ function AwardSequence.CreateController(opts)
 		if type(winners) ~= "table" or #winners <= 0 then
 			return false
 		end
+		for i = 1, #winners do
+			if not validateLootBan(self, winners[i].name) then
+				return nil, "loot_ban"
+			end
+		end
 
 		self.itemCount:Set(#winners, false)
 		local candidateSlots, candidateSlotMap = self.inventory.BuildMultiAwardSlotCandidates(itemLink)
@@ -248,6 +270,11 @@ function AwardSequence.CreateController(opts)
 					timeout
 				)
 			)
+		end
+
+		if not validateLootBan(self, winners[1].name) then
+			self:Clear(true)
+			return nil, "loot_ban"
 		end
 
 		local effect = buildEffect(itemLink, winners[1].name, function()
@@ -333,6 +360,9 @@ function AwardSequence.CreateController(opts)
 			end
 			return false
 		end
+		if LootBans.IsActive(selectedWinner) and not validateLootBan(self, selectedWinner) then
+			return nil, "loot_ban"
+		end
 
 		local effect = buildEffect(itemLink, selectedWinner, function()
 			self.registerAwardedItem(1)
@@ -417,6 +447,13 @@ function AwardSequence.CreateController(opts)
 					self.refresh()
 				end
 				return
+			end
+			if not validateLootBan(self, e2.name) then
+				self:Clear(true)
+				if type(self.refresh) == "function" then
+					self.refresh()
+				end
+				return nil, "loot_ban"
 			end
 
 			ma2.currentWinner = e2.name
