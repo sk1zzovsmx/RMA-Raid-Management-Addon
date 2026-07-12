@@ -14,6 +14,7 @@ EVENTS = ADDON / "Modules" / "Events.lua"
 RESPONSES = ADDON / "Services" / "Rolls" / "Responses.lua"
 ROLL_STRATEGIES = ADDON / "Services" / "Rolls" / "Strategies.lua"
 ROLL_RESOLUTION = ADDON / "Services" / "Rolls" / "Resolution.lua"
+MASTER_ROLL_ROWS = ADDON / "Services" / "Master" / "RollRows.lua"
 AWARD_SEQUENCE = ADDON / "Services" / "Master" / "AwardSequence.lua"
 TRADE_EXECUTION = ADDON / "Services" / "Master" / "TradeExecution.lua"
 RAID_GRID = ADDON / "Widgets" / "RaidGrid.lua"
@@ -204,7 +205,7 @@ GetTime = function() return 1 end
 local banned = false
 local addon = {{
     C = {{ rollTypes = {{ MAINSPEC = 1, OFFSPEC = 2, RESERVED = 3, FREE = 4 }} }},
-    L = {{ StrRollBlockedTag = "BLK", StrRollDuplicateTag = "DUP", StrRollTimedOutTag = "OOT",
+    L = {{ StrRollBlockedTag = "BLK", StrRollLootBanTag = "BAN", StrRollDuplicateTag = "DUP", StrRollTimedOutTag = "OOT",
         StrRollTieTag = "TIE", StrRollPassTag = "PASS", StrRollCancelledTag = "CANCEL" }},
     Diag = {{ D = {{}} }}, Comms = {{}}, Item = {{}},
     Database = {{ GetCurrentRaid = function() return 1 end }},
@@ -239,6 +240,25 @@ local function resolve()
     local entries, strategy = Resolution.BuildResolvedEntries(ctx, 1, 1)
     return Resolution.BuildResolution(ctx, entries, strategy)
 end
+{assertions}
+"""
+    completed = subprocess.run([lua, "-"], input=script, text=True, encoding="utf-8", capture_output=True)
+    if completed.returncode != 0:
+        raise AssertionError(completed.stderr or completed.stdout)
+
+
+def run_roll_rows_lua(assertions: str) -> None:
+    lua = shutil.which("lua")
+    if lua is None:
+        raise AssertionError("Lua runtime is required for roll-row contracts")
+    script = f"""
+local addon = {{ Services = {{}} }}
+function addon.Services.EnsureNamespace(name)
+    addon.Services[name] = addon.Services[name] or {{}}
+    return addon.Services[name]
+end
+assert(loadfile("{MASTER_ROLL_ROWS.as_posix()}"))("Raid Management Addon", addon)
+local RollRows = addon.Services.Master.RollRows
 {assertions}
 """
     completed = subprocess.run([lua, "-"], input=script, text=True, encoding="utf-8", capture_output=True)
@@ -481,7 +501,14 @@ local response = Responses.SyncResponseEligibility(ctx, "Alice", 1, "item:1", 1,
 assert(response.status == Responses.STATUS.INELIGIBLE)
 assert(response.reason == Responses.REASONS.LOOT_BAN)
 assert(response.bestRoll == 100)
-assert(Resolution.BuildRowInfoText(ctx, response, false) == "BLK")
+assert(Resolution.BuildRowInfoText(ctx, response, false) == "BAN")
+local otherBlocked = {
+    status = Responses.STATUS.INELIGIBLE,
+    reason = Responses.REASONS.INELIGIBLE,
+    bestRoll = 42,
+    isEligible = false,
+}
+assert(Resolution.BuildRowInfoText(ctx, otherBlocked, false) == "BLK")
 local blocked = resolve()
 assert(blocked.autoWinners[1].name == "Bob")
 assert(blocked.requiresManualResolution == false and #blocked.tiedNames == 0)
@@ -491,6 +518,22 @@ assert(response.status == Responses.STATUS.ROLL)
 assert(response.reason == Responses.REASONS.ELIGIBLE)
 local restored = resolve()
 assert(restored.autoWinners[1].name == "Alice")
+""")
+
+    def test_banned_roll_row_remains_visible_with_ban_info(self) -> None:
+        run_roll_rows_lua("""
+local banned = { name = "Alice", roll = 87, infoText = "BAN", selectionAllowed = false }
+local _, visible = RollRows.BuildModel({
+    rows = { banned },
+    resolution = {},
+    selectionState = { selectionAllowed = false, selectedNames = {} },
+    showRollsOnly = true,
+})
+assert(#visible == 1)
+assert(visible[1].name == "Alice")
+assert(visible[1].roll == 87)
+assert(visible[1].infoText == "BAN")
+assert(visible[1].canClick == false)
 """)
 
     def test_banned_single_has_no_effect_or_assignment_and_propagates_reason(self) -> None:

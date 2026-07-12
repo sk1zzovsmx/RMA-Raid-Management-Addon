@@ -276,6 +276,7 @@ L.StrRollCancelledTag = "CXL"
 L.StrRollTimedOutTag = "OOT"
 L.StrRollOutTag = "OUT"
 L.StrRollBlockedTag = "BLK"
+L.StrRollLootBanTag = "BAN"
 
 -- ==================== Configuration Frame ==================== --
 L.StrConfigPanelTitle = "RMA"

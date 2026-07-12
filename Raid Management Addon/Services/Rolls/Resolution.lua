@@ -288,6 +288,9 @@ function Resolution.BuildRowInfoText(ctx, response, isTied)
 		if response.reason == reasonCodes.REROLL_FILTERED then
 			return L.StrRollRerollOnlyTag
 		end
+		if response.reason == reasonCodes.LOOT_BAN then
+			return L.StrRollLootBanTag
+		end
 		return L.StrRollBlockedTag
 	end
 
