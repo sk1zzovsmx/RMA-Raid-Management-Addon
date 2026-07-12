@@ -70,6 +70,7 @@ local LootBans = assert(Raid.LootBans, "Attendance Loot Ban owner is not initial
 local _G = _G
 local type, tostring, tonumber = type, tostring, tonumber
 local floor, max = math.floor, math.max
+local CreateFrame = assert(_G.CreateFrame, "Attendance frame creation API is not initialized")
 local CompareNumbers = Sort.CompareNumbers
 local CompareValues = Sort.CompareValues
 
@@ -759,6 +760,42 @@ local function selectAttendancePlayer(btn, button)
 	end
 end
 
+local function getAttendanceLootBanHotspot(row, ui)
+	local hotspot = row._RMALootBanHotspot
+	if not hotspot then
+		hotspot = CreateFrame("Button", nil, row)
+		hotspot:EnableMouse(true)
+		hotspot:RegisterForClicks("AnyUp")
+		hotspot:SetAllPoints(ui.Name)
+		row._RMALootBanHotspot = hotspot
+	end
+
+	hotspot._RMARow = row
+	if not hotspot._RMALootBanTooltipBound then
+		local enterBound = SetScriptSafely(hotspot, "OnEnter", function(self)
+			if self._RMALootBanActive then
+				local lines = {}
+				if self._RMALootBanNote then
+					lines[#lines + 1] = { text = self._RMALootBanNote }
+				end
+				ShowTooltipLines(self, {
+					title = L.StrLootBanTooltipTitle,
+					lines = lines,
+				})
+			end
+		end)
+		local leaveBound = SetScriptSafely(hotspot, "OnLeave", HideTooltip)
+		local clickBound = SetScriptSafely(hotspot, "OnClick", function(self, button)
+			local rowOnClick = self._RMARow and self._RMARow:GetScript("OnClick") or nil
+			if rowOnClick then
+				rowOnClick(self._RMARow, button)
+			end
+		end)
+		hotspot._RMALootBanTooltipBound = enterBound and leaveBound and clickBound
+	end
+	return hotspot
+end
+
 local function refreshRaidAttendanceLayout()
 	local refs = attendanceUi.refs or {}
 	local history = refs.history
@@ -978,22 +1015,7 @@ attendancePlayersController = makeAttendanceList({
 			row._RMAAttendanceBound = true
 		end
 		local ui = row._p
-		if not row._RMALootBanTooltipBound then
-			SetScriptSafely(ui.Name, "OnEnter", function(self)
-				if row._RMALootBanActive then
-					local lines = {}
-					if row._RMALootBanNote then
-						lines[#lines + 1] = { text = row._RMALootBanNote }
-					end
-					ShowTooltipLines(self, {
-						title = L.StrLootBanTooltipTitle,
-						lines = lines,
-					})
-				end
-			end)
-			SetScriptSafely(ui.Name, "OnLeave", HideTooltip)
-			row._RMALootBanTooltipBound = true
-		end
+		local hotspot = getAttendanceLootBanHotspot(row, ui)
 		applyAttendanceRowColumnWidths(ui, ATTENDANCE_PLAYERS_FRAME)
 		local rowId = it.id or it.playerNid
 		if rowId then
@@ -1002,8 +1024,8 @@ attendancePlayersController = makeAttendanceList({
 		row._RMAPlayerNid = rowId
 		ui.Name:SetText(it.name)
 		local lootBanned, lootBanNote = LootBans.Get(it.name)
-		row._RMALootBanActive = lootBanned
-		row._RMALootBanNote = lootBanNote
+		hotspot._RMALootBanActive = lootBanned
+		hotspot._RMALootBanNote = lootBanNote
 		if lootBanned then
 			ui.Name:SetVertexColor(0.5, 0.5, 0.5)
 		else

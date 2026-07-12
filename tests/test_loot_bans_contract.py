@@ -16,6 +16,7 @@ AWARD_SEQUENCE = ADDON / "Services" / "Master" / "AwardSequence.lua"
 RAID_GRID = ADDON / "Widgets" / "RaidGrid.lua"
 MASTER = ADDON / "Controllers" / "Master.lua"
 ATTENDANCE = ADDON / "Controllers" / "Attendance.lua"
+FRAMES = ADDON / "Modules" / "UI" / "Frames.lua"
 MASTER_XML = ADDON / "UI" / "Master.xml"
 
 
@@ -175,6 +176,35 @@ local controller = AwardSequence.CreateController({{
     getItemKey = function(itemLink) return itemLink end,
     getRaidNid = function() return 1 end,
 }})
+{assertions}
+"""
+    completed = subprocess.run(
+        [lua, "-"],
+        input=script,
+        text=True,
+        encoding="utf-8",
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(completed.stderr or completed.stdout)
+
+
+def run_frames_lua(assertions: str) -> None:
+    lua = shutil.which("lua")
+    if lua is None:
+        raise AssertionError("Lua runtime is required for frame helper contracts")
+    frames_path = FRAMES.as_posix()
+    script = f"""
+CreateFrame = function() return {{}} end
+InCombatLockdown = function() return false end
+local addon = {{
+    C = {{}},
+    State = {{}},
+    Strings = {{ TrimText = function(value) return value end }},
+    UI = {{}},
+}}
+assert(loadfile("{frames_path}"))("Raid Management Addon", addon)
 {assertions}
 """
     completed = subprocess.run(
@@ -355,6 +385,17 @@ class LootBansUiContractTest(unittest.TestCase):
 
 
 class LootBansAttendanceContractTest(unittest.TestCase):
+    def test_script_binding_rejects_a_font_string_like_owner(self) -> None:
+        run_frames_lua(
+            """
+local fontString = {}
+assert(addon.UI.Frames.SetScriptSafely(fontString, "OnEnter", function() end) == false)
+local button = { SetScript = function(self, scriptType, handler) self[scriptType] = handler end }
+assert(addon.UI.Frames.SetScriptSafely(button, "OnEnter", function() end) == true)
+assert(type(button.OnEnter) == "function")
+"""
+        )
+
     def test_attendance_uses_current_ban_projection(self) -> None:
         source = ATTENDANCE.read_text(encoding="utf-8")
         self.assertIn("LootBans.Get(it.name)", source)
@@ -364,10 +405,29 @@ class LootBansAttendanceContractTest(unittest.TestCase):
 
     def test_reused_attendance_rows_replace_loot_ban_tooltip_state(self) -> None:
         source = ATTENDANCE.read_text(encoding="utf-8")
-        self.assertIn("row._RMALootBanActive = lootBanned", source)
-        self.assertIn("row._RMALootBanNote = lootBanNote", source)
-        self.assertIn("if row._RMALootBanActive then", source)
-        self.assertIn("row._RMALootBanNote", source)
+        self.assertIn("hotspot._RMALootBanActive = lootBanned", source)
+        self.assertIn("hotspot._RMALootBanNote = lootBanNote", source)
+        self.assertIn("if self._RMALootBanActive then", source)
+        self.assertIn("self._RMALootBanNote", source)
+
+    def test_attendance_uses_a_script_bearing_name_hotspot(self) -> None:
+        source = ATTENDANCE.read_text(encoding="utf-8")
+        self.assertIn('CreateFrame("Button", nil, row)', source)
+        self.assertIn("hotspot:SetAllPoints(ui.Name)", source)
+        self.assertIn('SetScriptSafely(hotspot, "OnEnter"', source)
+        self.assertIn('SetScriptSafely(hotspot, "OnLeave"', source)
+        self.assertIn('SetScriptSafely(hotspot, "OnClick"', source)
+        self.assertNotIn('SetScriptSafely(ui.Name, "OnEnter"', source)
+
+    def test_attendance_hotspot_binding_and_click_forwarding_are_row_safe(self) -> None:
+        source = ATTENDANCE.read_text(encoding="utf-8")
+        self.assertRegex(
+            source,
+            r"hotspot\._RMALootBanTooltipBound\s*=\s*enterBound\s+and\s+leaveBound\s+and\s+clickBound",
+        )
+        self.assertIn("hotspot._RMARow = row", source)
+        self.assertIn('self._RMARow:GetScript("OnClick")', source)
+        self.assertIn("rowOnClick(self._RMARow, button)", source)
 
 
 if __name__ == "__main__":
