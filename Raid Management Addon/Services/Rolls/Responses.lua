@@ -854,11 +854,6 @@ function Responses.SubmitIncomingRoll(ctx, player, roll, source)
 		addon:warn(Diag.W.LogRollsMissingItem)
 		return false, reasonCodes.MISSING_ITEM
 	end
-	numericRoll = tonumber(roll)
-	if not numericRoll then
-		return false, reasonCodes.INVALID_ROLL
-	end
-
 	Responses.PrepareResponseState(ctx, context)
 
 	eligibility = Responses.BuildCandidateEligibility(ctx, player, context.itemId, context.itemLink, context.rollType, {
@@ -871,8 +866,12 @@ function Responses.SubmitIncomingRoll(ctx, player, roll, source)
 		local trackerBefore
 
 		if (tonumber(eligibility.usedRolls) or 0) >= 1 then
-			recordOutOfFlowAttempt(state, player, reasonCodes.ROLL_LIMIT, numericRoll, source)
+			recordOutOfFlowAttempt(state, player, reasonCodes.ROLL_LIMIT, tonumber(roll), source)
 			return false, reasonCodes.ROLL_LIMIT
+		end
+		numericRoll = tonumber(roll)
+		if not numericRoll then
+			return false, reasonCodes.INVALID_ROLL
 		end
 		if not ctx.addRoll or not ctx.acquireItemTracker then
 			return false, reasonCodes.UNINITIALIZED
@@ -882,8 +881,7 @@ function Responses.SubmitIncomingRoll(ctx, player, roll, source)
 			return false, reasonCodes.UNINITIALIZED
 		end
 		trackerBefore = tonumber(tracker[player]) or 0
-		ctx.addRoll(player, numericRoll, context.itemId)
-		if (tonumber(tracker[player]) or 0) ~= trackerBefore + 1 then
+		if ctx.addRoll(player, numericRoll, context.itemId, tracker, trackerBefore) ~= true then
 			return false, reasonCodes.UNINITIALIZED
 		end
 		applyBlockedRollResponse(ctx, player, numericRoll, eligibility, source)
@@ -917,6 +915,11 @@ function Responses.SubmitIncomingRoll(ctx, player, roll, source)
 			)
 		end
 		return false, eligibility.reason
+	end
+
+	numericRoll = tonumber(roll)
+	if not numericRoll then
+		return false, reasonCodes.INVALID_ROLL
 	end
 
 	if IsDebugEnabled() then

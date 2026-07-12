@@ -14,6 +14,7 @@ EVENTS = ADDON / "Modules" / "Events.lua"
 RESPONSES = ADDON / "Services" / "Rolls" / "Responses.lua"
 ROLL_STRATEGIES = ADDON / "Services" / "Rolls" / "Strategies.lua"
 ROLL_RESOLUTION = ADDON / "Services" / "Rolls" / "Resolution.lua"
+ROLL_HISTORY = ADDON / "Services" / "Rolls" / "History.lua"
 MASTER_ROLL_ROWS = ADDON / "Services" / "Master" / "RollRows.lua"
 AWARD_SEQUENCE = ADDON / "Services" / "Master" / "AwardSequence.lua"
 TRADE_EXECUTION = ADDON / "Services" / "Master" / "TradeExecution.lua"
@@ -312,9 +313,68 @@ local ctx = {{
     addRoll = function(name, roll, itemId)
         addRollCalls = addRollCalls + 1
         tracker[name] = (tracker[name] or 0) + 1
+        return true
     end,
     getExpectedWinnerCount = function() return 1 end,
     isSelectableRollResponse = Responses.IsSelectableRollResponse,
+}}
+{assertions}
+"""
+    completed = subprocess.run([lua, "-"], input=script, text=True, encoding="utf-8", capture_output=True)
+    if completed.returncode != 0:
+        raise AssertionError(completed.stderr or completed.stdout)
+
+
+def run_history_backed_banned_submission_lua(assertions: str) -> None:
+    lua = shutil.which("lua")
+    if lua is None:
+        raise AssertionError("Lua runtime is required for history-backed banned roll contracts")
+    paths = [ROLL_STRATEGIES.as_posix(), ROLL_HISTORY.as_posix(), RESPONSES.as_posix()]
+    script = f"""
+table.wipe = table.wipe or function(value) for key in pairs(value) do value[key] = nil end end
+GetTime = function() return 1 end
+local events = {{}}
+local addon = {{
+    C = {{ rollTypes = {{ MAINSPEC = 1, OFFSPEC = 2, RESERVED = 3, FREE = 4 }} }},
+    L = {{}}, Diag = {{ D = {{}}, W = {{ LogRollsMissingItem = "missing" }} }}, Comms = {{}}, Item = {{}},
+    Events = {{ Internal = {{ AddRoll = "AddRoll" }} }},
+    Bus = {{ TriggerEvent = function(...) events[#events + 1] = {{...}} end }},
+    Database = {{ GetCurrentRaid = function() return 1 end }},
+    Options = {{ GetValue = function() return false end, IsDebugEnabled = function() return false end }},
+    Strings = {{ NormalizeName = function(name) return name end }},
+    Services = {{ Chat = {{}}, Raid = {{
+        LootBans = {{ IsActive = function(name) return name == "Alice" end }},
+        GetUnitID = function() return "raid1" end,
+    }} }},
+    warn = function() end,
+}}
+function addon.Services.EnsureNamespace(name)
+    addon.Services[name] = addon.Services[name] or {{}}
+    return addon.Services[name]
+end
+for _, path in ipairs({{ "{paths[0]}", "{paths[1]}", "{paths[2]}" }}) do
+    assert(loadfile(path))("Raid Management Addon", addon)
+end
+local History = addon.Services.Rolls._History
+local Responses = addon.Services.Rolls._Responses
+local state = {{
+    record = true, canRoll = true, sessionId = "session", responsesByPlayer = {{}}, manualExclusions = {{}},
+    deniedReasons = {{}}, rolls = {{}}, playerCounts = {{}}, itemCounts = {{}}, count = 0,
+}}
+local lootState = {{ rollsCount = 0 }}
+local historyCtx = {{ state = state, lootState = lootState, newItemCounts = function() return {{}} end }}
+local canonicalTracker = History.AcquireItemTracker(historyCtx, 1)
+local ctx = {{
+    state = state,
+    getRollSession = function() return {{ id = "session" }} end,
+    getCurrentRollContext = function() return {{ itemId = 1, itemLink = "item:1", rollType = 1 }} end,
+    getLootCount = function() return 1 end,
+    getRollTypeBucket = function() return "MS" end,
+    getRaidService = function() return addon.Services.Raid end,
+    acquireItemTracker = function() return canonicalTracker end,
+    addRoll = function(name, roll, itemId, expectedTracker, expectedCount)
+        return History.AddRoll(historyCtx, name, roll, itemId, expectedTracker, expectedCount)
+    end,
 }}
 {assertions}
 """
@@ -700,7 +760,7 @@ end
         run_banned_roll_submission_lua("""
 local ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", "not-a-roll", "CHAT_MSG_SYSTEM")
 assert(ok == false and reason == Responses.REASONS.INVALID_ROLL)
-assert(trackerAcquisitions == 0 and addRollCalls == 0)
+assert(trackerAcquisitions > 0 and addRollCalls == 0)
 assert(tracker.Alice == nil and response.bestRoll == nil and #observedStatuses == 0)
 
 local acquireItemTracker = ctx.acquireItemTracker
@@ -720,6 +780,69 @@ ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
 assert(ok == false and reason == Responses.REASONS.UNINITIALIZED)
 assert(addRollCalls == 1 and tracker.Alice == nil)
 assert(response.bestRoll == nil and #observedStatuses == 0)
+""")
+
+    def test_structural_denials_precede_invalid_roll_payload(self) -> None:
+        run_banned_roll_submission_lua("""
+local cases = {
+    { reason = Responses.REASONS.SESSION_INACTIVE, setup = function() state.canRoll = false end },
+    { reason = Responses.REASONS.NOT_IN_RAID, setup = function()
+        addon.Services.Raid.GetUnitID = function() return "none" end
+    end },
+    { reason = Responses.REASONS.MANUAL_EXCLUSION, setup = function()
+        ctx.getManualExclusionEntry = function() return { reason = "manual" } end
+    end },
+    { reason = Responses.REASONS.INELIGIBLE, setup = function()
+        ctx.getCurrentRollContext = function() return { itemId = 1, itemLink = "item:1", rollType = 3 } end
+        ctx.getReserveCountForItem = function() return 0 end
+    end },
+    { reason = Responses.REASONS.REROLL_FILTERED, setup = function()
+        ctx.isTieRerollRestricted = function() return true end
+    end },
+}
+for i = 1, #cases do
+    state.canRoll = true
+    addon.Services.Raid.GetUnitID = function() return "raid1" end
+    ctx.getManualExclusionEntry = nil
+    ctx.getReserveCountForItem = nil
+    ctx.isTieRerollRestricted = nil
+    ctx.getCurrentRollContext = function() return { itemId = 1, itemLink = "item:1", rollType = 1 } end
+    cases[i].setup()
+    local ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", "invalid", "CHAT_MSG_SYSTEM")
+    assert(ok == false and reason == cases[i].reason)
+    assert(tracker.Alice == nil and response.bestRoll == nil and addRollCalls == 0)
+end
+
+state.canRoll = true
+addon.Services.Raid.GetUnitID = function() return "raid1" end
+ctx.isTieRerollRestricted = nil
+local ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", "invalid", "CHAT_MSG_SYSTEM")
+assert(ok == false and reason == Responses.REASONS.INVALID_ROLL)
+assert(tracker.Alice == nil and response.bestRoll == nil and addRollCalls == 0)
+""")
+
+    def test_history_commit_is_atomic_for_banned_rolls(self) -> None:
+        run_history_backed_banned_submission_lua("""
+local detachedTracker = {}
+ctx.acquireItemTracker = function() return detachedTracker end
+local ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
+assert(ok == false and reason == Responses.REASONS.UNINITIALIZED)
+assert(state.count == 0 and state.rolls[1] == nil and lootState.rollsCount == 0)
+assert(canonicalTracker.Alice == nil and detachedTracker.Alice == nil)
+assert(#events == 0 and state.responsesByPlayer.Alice == nil)
+
+ctx.acquireItemTracker = function() return canonicalTracker end
+ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
+assert(ok == true and reason == nil)
+assert(state.count == 1 and #state.rolls == 1 and state.rolls[1].roll == 87)
+assert(lootState.rollsCount == 1 and canonicalTracker.Alice == 1)
+assert(#events == 1 and events[1][1] == "AddRoll")
+local response = state.responsesByPlayer.Alice
+assert(response.bestRoll == 87 and response.status == Responses.STATUS.INELIGIBLE)
+
+assert(History.AddRoll(historyCtx, "Bob", 55, 1) == true)
+assert(state.count == 2 and state.rolls[2].name == "Bob" and state.rolls[2].roll == 55)
+assert(lootState.rollsCount == 2 and canonicalTracker.Bob == 1 and #events == 2)
 """)
 
     def test_existing_roll_reprojects_out_of_resolution_and_back(self) -> None:

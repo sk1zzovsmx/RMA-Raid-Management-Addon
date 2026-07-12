@@ -123,11 +123,19 @@ function History.ClearRollEntries(ctx)
 	state.count = 0
 end
 
-function History.AddRoll(ctx, name, roll, itemId)
+function History.AddRoll(ctx, name, roll, itemId, expectedTracker, expectedCount)
 	local _, state, lootState = assertContext(ctx)
 	local tracker = History.AcquireItemTracker(ctx, itemId)
 
 	roll = tonumber(roll)
+	if not roll then
+		return false
+	end
+	if expectedTracker ~= nil then
+		if tracker ~= expectedTracker or (tonumber(tracker[name]) or 0) ~= (tonumber(expectedCount) or 0) then
+			return false
+		end
+	end
 	state.count = state.count + 1
 	lootState.rollsCount = (tonumber(lootState.rollsCount) or 0) + 1
 
@@ -144,6 +152,7 @@ function History.AddRoll(ctx, name, roll, itemId)
 		tracker[name] = (tracker[name] or 0) + 1
 	end
 	TriggerEvent(AddRollEvent, name, roll)
+	return true
 end
 
 function History.GetRolls(ctx)
