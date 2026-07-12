@@ -13,6 +13,9 @@ SERVICE = ADDON / "Services" / "Raid" / "LootBans.lua"
 EVENTS = ADDON / "Modules" / "Events.lua"
 RESPONSES = ADDON / "Services" / "Rolls" / "Responses.lua"
 AWARD_SEQUENCE = ADDON / "Services" / "Master" / "AwardSequence.lua"
+RAID_GRID = ADDON / "Widgets" / "RaidGrid.lua"
+MASTER = ADDON / "Controllers" / "Master.lua"
+MASTER_XML = ADDON / "UI" / "Master.xml"
 
 
 def run_lua(assertions: str) -> None:
@@ -328,6 +331,26 @@ assert(effects == 1 and assigns == 1)
 assert(lootState.multiAward == nil)
 assert(warnings[#warnings] == "Cannot award: Bob has an active Loot Ban. Reason: late ban")
 """)
+
+
+class LootBansUiContractTest(unittest.TestCase):
+    def test_master_xml_remains_layout_only(self) -> None:
+        xml = MASTER_XML.read_text(encoding="utf-8")
+        self.assertNotRegex(xml, r"<Scripts>|<On[A-Za-z]+>")
+        self.assertIn('name="$parentLootBansBtn"', xml)
+
+    def test_raid_grid_accepts_projection_without_ban_policy(self) -> None:
+        source = RAID_GRID.read_text(encoding="utf-8")
+        self.assertIn("entry.textColor", source)
+        self.assertIn("entry.tooltipLines", source)
+        self.assertNotIn("LootBans", source)
+
+    def test_master_owns_loot_ban_mode_and_editor(self) -> None:
+        source = MASTER.read_text(encoding="utf-8")
+        self.assertIn('mode = "lootBan"', source)
+        self.assertIn('"RMA_LOOT_BAN_EDITOR"', source)
+        self.assertIn("LootBans.Set", source)
+        self.assertIn("LootBans.Remove", source)
 
 
 if __name__ == "__main__":

@@ -82,7 +82,7 @@
 	<!-- The Frame: Loot Manager -->
 	<Frame name="RMAMaster" inherits="RMAWindowTemplate">
 		<Size>
-			<AbsDimension x="250" y="480" />
+			<AbsDimension x="350" y="480" />
 		</Size>
 		<Layers>
 			<Layer level="ARTWORK">
@@ -414,6 +414,18 @@
 				</Size>
 				<Anchors>
 					<Anchor point="LEFT" relativeTo="$parentReserveListBtn" relativePoint="RIGHT">
+						<Offset>
+							<AbsDimension x="4" y="0" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+			<Button name="$parentLootBansBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="96" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="LEFT" relativeTo="$parentLootCounterBtn" relativePoint="RIGHT">
 						<Offset>
 							<AbsDimension x="4" y="0" />
 						</Offset>

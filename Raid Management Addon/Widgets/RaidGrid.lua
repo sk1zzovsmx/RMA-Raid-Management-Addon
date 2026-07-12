@@ -227,15 +227,19 @@ do
 
 		safeCall(button, "SetScript", "OnEnter", function(self)
 			updateButtonColor(self, true)
-			ShowTooltipLines(self, {
-				anchor = "ANCHOR_RIGHT",
-				title = self.fullName or "Unknown",
+			local lines = self.entry and self.entry.tooltipLines
+			if type(lines) ~= "table" then
 				lines = {
 					{
 						text = getTooltipLine(),
 						color = { 0.75, 0.75, 0.75 },
 					},
-				},
+				}
+			end
+			ShowTooltipLines(self, {
+				anchor = "ANCHOR_RIGHT",
+				title = self.fullName or "Unknown",
+				lines = lines,
 			})
 		end)
 		safeCall(button, "SetScript", "OnLeave", function(self)
@@ -415,7 +419,13 @@ do
 			local row = ceil(i / cols) - 1
 			local x = CFG.padding + (col * (CFG.buttonWidth + CFG.gapX))
 			local y = -(CFG.headerHeight + (row * (CFG.buttonHeight + CFG.gapY)))
-			local r, g, b = getClassColor(entry)
+			local textColor = entry and entry.textColor
+			local r, g, b
+			if type(textColor) == "table" then
+				r, g, b = textColor.r or 0.5, textColor.g or 0.5, textColor.b or 0.5
+			else
+				r, g, b = getClassColor(entry)
+			end
 			local fullName = getEntryName(entry)
 			local specIcon
 

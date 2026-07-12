@@ -47,6 +47,7 @@ local LootInventory = assert(Loot.Inventory, "Loot inventory owner is not initia
 local LootAwardPlanner = assert(Loot.AwardPlanner, "Loot award planner owner is not initialized")
 local LootAttribution = assert(Loot.LootAttribution, "Loot attribution owner is not initialized")
 local Raid = assert(Services.Raid, "Master raid service is not initialized")
+assert(Raid.LootBans, "Master loot bans service is not initialized")
 local Rolls = assert(Services.Rolls, "Master rolls service is not initialized")
 local Chat = assert(Services.Chat, "Master chat service is not initialized")
 local LoggerActions = assert(Services.Logger.Actions, "Master logger actions service is not initialized")
@@ -89,6 +90,10 @@ local MasterEvents = {
 	SpecInspectUpdated = assert(
 		InternalEvents.SpecInspectUpdated,
 		"Master controller spec inspect update event is not initialized"
+	),
+	LootBansChanged = assert(
+		InternalEvents.LootBansChanged,
+		"Master controller loot bans changed event is not initialized"
 	),
 }
 local rollTypes = addon.C.rollTypes
@@ -405,6 +410,7 @@ do
 		"HoldBtn",
 		"ItemBtn",
 		"LootCounterBtn",
+		"LootBansBtn",
 		"MSBtn",
 		"OSBtn",
 		"ReserveListBtn",
@@ -609,6 +615,113 @@ do
 		end
 
 		return result
+	end
+
+	Private.BuildLootBanRows = function()
+		local rows = collectRaidGridRosterRows()
+		for i = 1, #rows do
+			local row = rows[i]
+			local active, note = Raid.LootBans.Get(row.name)
+			if active then
+				row.textColor = { r = 0.5, g = 0.5, b = 0.5 }
+				row.tooltipLines = { { text = L.StrLootBanTooltipTitle } }
+				if note then
+					row.tooltipLines[#row.tooltipLines + 1] = { text = note }
+				end
+			end
+		end
+		return rows
+	end
+
+	Private.EnsureLootBanEditorPopup = function()
+		if IsPopupDefined("RMA_LOOT_BAN_EDITOR") then
+			return true
+		end
+
+		return DefinePopup("RMA_LOOT_BAN_EDITOR", {
+			text = L.PopupLootBanApply,
+			button1 = L.BtnApplyBan,
+			button2 = _G.CANCEL or L.BtnCancel,
+			button3 = L.BtnRemoveBan,
+			timeout = 0,
+			whileDead = 1,
+			hideOnEscape = 1,
+			hasEditBox = 1,
+			OnShow = function(self, data)
+				if type(data) ~= "table" then
+					return
+				end
+				local active, note = Raid.LootBans.Get(data.name)
+				data.active = active
+				if self.text and self.text.SetText then
+					local template = active and L.PopupLootBanUpdate or L.PopupLootBanApply
+					self.text:SetText(template:format(data.name))
+				end
+				if self.button1 and self.button1.SetText then
+					self.button1:SetText(active and L.BtnUpdateBan or L.BtnApplyBan)
+				end
+				if self.button3 then
+					if self.button3.SetText then
+						self.button3:SetText(L.BtnRemoveBan)
+					end
+					if active and self.button3.Show then
+						self.button3:Show()
+					elseif self.button3.Hide then
+						self.button3:Hide()
+					end
+				end
+				if self.editBox then
+					self.editBox:SetMaxLetters(240)
+					self.editBox:SetText(note or "")
+					self.editBox:SetFocus()
+					self.editBox:HighlightText()
+				end
+			end,
+			OnHide = function(self)
+				if self.editBox then
+					self.editBox:SetText("")
+					self.editBox:ClearFocus()
+				end
+			end,
+			OnAccept = function(self, data)
+				if type(data) ~= "table" or not data.name then
+					return
+				end
+				local note = self.editBox and self.editBox:GetText() or nil
+				local ok, err = Raid.LootBans.Set(data.name, note)
+				if ok then
+					return
+				end
+				if self.text and self.text.SetText then
+					self.text:SetText(err == "note_non_ascii" and L.ErrLootBanNoteAscii or L.ErrLootBanNoteTooLong)
+				end
+				return true
+			end,
+			OnAlt = function(_, data)
+				if type(data) == "table" and data.active then
+					Raid.LootBans.Remove(data.name)
+				end
+			end,
+		})
+	end
+
+	Private.OpenLootBanEditor = function(entry)
+		if type(entry) ~= "table" or not entry.name or not Private.EnsureLootBanEditorPopup() then
+			return false
+		end
+		return ShowPopup("RMA_LOOT_BAN_EDITOR", nil, nil, { name = entry.name })
+	end
+
+	function module:OpenLootBansGrid()
+		return Widgets.RaidGrid.ShowPicker({
+			mode = "lootBan",
+			title = L.StrLootBansTitle,
+			emptyText = L.StrLootBansEmpty,
+			entries = Private.BuildLootBanRows(),
+			closeOnSelect = false,
+			anchor = Private.GetRaidGridFrameAnchor(),
+			onSelect = Private.OpenLootBanEditor,
+		})
 	end
 
 	Private.HideBlizzardDropDownLists = function()
@@ -1056,6 +1169,7 @@ do
 			disenchantBtn = GetFrameRef(frame, "DisenchantBtn"),
 			reserveListBtn = GetFrameRef(frame, "ReserveListBtn"),
 			lootCounterBtn = GetFrameRef(frame, "LootCounterBtn"),
+			lootBansBtn = GetFrameRef(frame, "LootBansBtn"),
 		}
 	end
 
@@ -1196,6 +1310,9 @@ do
 		)
 		SetScriptSafely(refs.lootCounterBtn, "OnClick", function(self, button)
 			Private.BtnLootCounter(self, button)
+		end)
+		SetScriptSafely(refs.lootBansBtn, "OnClick", function()
+			module:OpenLootBansGrid()
 		end)
 
 		frame._RMABound = true
@@ -2550,6 +2667,7 @@ do
 		setPartText("RollsHeaderRoll", L.StrRolls)
 		setPartText("ReserveListBtn", L.BtnInsertList)
 		setPartText("LootCounterBtn", L.BtnLootCounter)
+		setPartText("LootBansBtn", L.BtnLootBans)
 		SetFrameTitle(frameName, L.StrLootMaster)
 
 		local function requestItemCountRefresh()
@@ -3485,6 +3603,12 @@ do
 	RegisterCallback(MasterEvents.ReservesDataChanged, function()
 		Widgets.LootHints.ApplyLootFrameReserveHints()
 		requestCoalescedUiRefresh("reserves")
+	end)
+
+	RegisterCallback(MasterEvents.LootBansChanged, function()
+		if Widgets.RaidGrid.IsShown() and Widgets.RaidGrid.GetMode() == "lootBan" then
+			Widgets.RaidGrid.Refresh(Private.BuildLootBanRows())
+		end
 	end)
 
 	RegisterCallback(MasterEvents.AddRoll, function(_, name, roll)
