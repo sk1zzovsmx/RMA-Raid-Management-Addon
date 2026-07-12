@@ -61,7 +61,7 @@ class UiFramesReferenceContractTest(unittest.TestCase):
         exact_fallback = "return _G[childName]"
         self.assertIn(owned_lookup, body)
         self.assertIn("if owned then", body)
-        self.assertLess(body.index(owned_lookup), body.index(exact_fallback))
+        self.assertLess(body.index(owned_lookup), body.rindex(exact_fallback))
 
     def test_absolute_owned_name_remains_supported(self) -> None:
         body = get_ref_body()
@@ -88,14 +88,11 @@ py -3 -m unittest tests.test_ui_frames_contract -v
 
 Expected: FAIL because `Frames.GetRef` does not yet define `local owned = _G[frameName .. childName]` and still checks the exact global first.
 
-- [ ] **Step 3: Commit the failing characterization test**
+- [ ] **Step 3: Preserve the failing-test evidence without committing red state**
 
-```powershell
-git add -- tests/test_ui_frames_contract.py
-git commit -m "test(ui): Cover owned reference precedence"
-```
-
-Expected: one test-only commit whose new focused test fails for the intended reason while the pre-existing suite remains unchanged.
+Record the focused command and its expected owned-lookup assertion failure in
+the execution notes, then continue directly to Task 2. Do not commit while the
+new test is failing.
 
 ---
 
@@ -159,14 +156,15 @@ rg -n "Frames\.GetRef\(" "Raid Management Addon" -g "*.lua" -g "!Libs/**"
 
 Expected: callers pass an owner frame or frame name plus either a short owned suffix or an already-absolute owned name. Record any exception before proceeding; do not add caller-specific workarounds.
 
-- [ ] **Step 5: Commit the resolver fix**
+- [ ] **Step 5: Commit the resolver test and fix atomically**
 
 ```powershell
-git add -- "Raid Management Addon/Modules/UI/Frames.lua"
+git add -- tests/test_ui_frames_contract.py "Raid Management Addon/Modules/UI/Frames.lua"
 git commit -m "fix(ui): Prefer frame-owned references"
 ```
 
-Expected: one runtime commit containing only the precedence change.
+Expected: one green commit containing the regression contract and minimal
+precedence change.
 
 ---
 
@@ -186,9 +184,9 @@ Expected: one runtime commit containing only the precedence change.
 Run:
 
 ```powershell
-py -3 .agents/skills/wow-addon-dev-wotlk-v335a/scripts/validate_toc.py "Raid Management Addon/Raid Management Addon.toc"
-py -3 .agents/skills/wow-addon-dev-wotlk-v335a/scripts/lint_lua51.py "Raid Management Addon"
-py -3 .agents/skills/wow-addon-dev-wotlk-v335a/scripts/scan_xpcall.py "Raid Management Addon"
+py -3 "..\..\.agents\skills\wow-addon-dev-wotlk-v335a\scripts\validate_toc.py" "Raid Management Addon/Raid Management Addon.toc"
+py -3 "..\..\.agents\skills\wow-addon-dev-wotlk-v335a\scripts\lint_lua51.py" "Raid Management Addon"
+py -3 "..\..\.agents\skills\wow-addon-dev-wotlk-v335a\scripts\scan_xpcall.py" "Raid Management Addon"
 rg -n "<Scripts>|<On[A-Za-z]+>" "Raid Management Addon/UI" -g "*.xml"
 rg -n "C_Timer|C_AddOns|Settings\.|MenuUtil|SetAtlas|SetColorTexture|table\.pack|table\.unpack|goto|_ENV" "Raid Management Addon" -g "*.lua" -g "!Libs/**"
 git diff --check
