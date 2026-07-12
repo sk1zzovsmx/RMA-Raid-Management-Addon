@@ -591,6 +591,17 @@ class LootBansUiContractTest(unittest.TestCase):
         self.assertIn("LootBans.Set", source)
         self.assertIn("LootBans.Remove", source)
 
+    def test_loot_ban_editor_supplies_popup_format_argument(self) -> None:
+        source = MASTER.read_text(encoding="utf-8")
+        self.assertIn(
+            'ShowPopup("RMA_LOOT_BAN_EDITOR", entry.name, nil, { name = entry.name })',
+            source,
+        )
+        self.assertNotIn(
+            'ShowPopup("RMA_LOOT_BAN_EDITOR", nil, nil, { name = entry.name })',
+            source,
+        )
+
     def test_loot_ban_change_requests_master_model_refresh(self) -> None:
         source = MASTER.read_text(encoding="utf-8")
         handler = re.search(

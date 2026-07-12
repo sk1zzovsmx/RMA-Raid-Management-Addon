@@ -709,7 +709,7 @@ do
 		if type(entry) ~= "table" or not entry.name or not Private.EnsureLootBanEditorPopup() then
 			return false
 		end
-		return ShowPopup("RMA_LOOT_BAN_EDITOR", nil, nil, { name = entry.name })
+		return ShowPopup("RMA_LOOT_BAN_EDITOR", entry.name, nil, { name = entry.name })
 	end
 
 	function module:OpenLootBansGrid()
