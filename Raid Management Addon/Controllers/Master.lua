@@ -623,6 +623,7 @@ do
 			local row = rows[i]
 			local active, note = Raid.LootBans.Get(row.name)
 			if active then
+				row.iconOverride = "Interface\\Buttons\\UI-GroupLoot-Pass-Up"
 				row.textColor = { r = 0.5, g = 0.5, b = 0.5 }
 				row.tooltipLines = { { text = L.StrLootBanTooltipTitle } }
 				if note then

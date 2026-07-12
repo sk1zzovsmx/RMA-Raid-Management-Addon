@@ -584,6 +584,19 @@ class LootBansUiContractTest(unittest.TestCase):
         self.assertIn("entry.tooltipLines", source)
         self.assertNotIn("LootBans", source)
 
+    def test_loot_ban_rows_project_pass_icon_override(self) -> None:
+        source = MASTER.read_text(encoding="utf-8")
+        self.assertIn(
+            'row.iconOverride = "Interface\\\\Buttons\\\\UI-GroupLoot-Pass-Up"',
+            source,
+        )
+
+    def test_raid_grid_icon_override_precedes_spec_without_ban_policy(self) -> None:
+        source = RAID_GRID.read_text(encoding="utf-8")
+        self.assertIn("entry.iconOverride", source)
+        self.assertRegex(source, r"specIcon\s*=\s*entry\s+and\s+entry\.iconOverride")
+        self.assertNotIn("LootBans", source)
+
     def test_master_owns_loot_ban_mode_and_editor(self) -> None:
         source = MASTER.read_text(encoding="utf-8")
         self.assertIn('mode = "lootBan"', source)

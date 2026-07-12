@@ -427,9 +427,9 @@ do
 				r, g, b = getClassColor(entry)
 			end
 			local fullName = getEntryName(entry)
-			local specIcon
+			local specIcon = entry and entry.iconOverride
 
-			if fullName then
+			if (not specIcon or specIcon == "") and fullName then
 				local spec = GetPlayerSpecSnapshot(SpecInspect, fullName)
 				specIcon = spec and spec.icon or nil
 			end
