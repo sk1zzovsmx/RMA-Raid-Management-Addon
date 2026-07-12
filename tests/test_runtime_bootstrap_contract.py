@@ -12,6 +12,7 @@ TOC = ADDON / "Raid Management Addon.toc"
 LOOT_SOURCE_DIR = ADDON / "Modules" / "Dataset" / "LootSources"
 LOOT_SOURCE_DATA = ADDON / "Modules" / "Dataset" / "LootSourcesData.lua"
 MASTER_CONTROLLER = ADDON / "Controllers" / "Master.lua"
+DB_SYNCER = ADDON / "Database" / "DBSyncer.lua"
 APPROVED_AWARD_SERVICE_FILES = {
     r"Services\Loot\LootAttribution.lua",
     r"Services\Master\AwardAttempt.lua",
@@ -58,6 +59,15 @@ def duplicate_raid_names() -> set[str]:
 
 
 class RuntimeBootstrapContractTest(unittest.TestCase):
+    def test_persistent_sync_is_enabled_by_default(self) -> None:
+        source = DB_SYNCER.read_text(encoding="utf-8")
+        namespace_start = source.index('Options.RegisterNamespace("Logger", {')
+        logger_defaults = source[
+            namespace_start : source.index("\n\t})", namespace_start)
+        ]
+
+        self.assertIn("persistentSync = true,", logger_defaults)
+
     def test_award_services_use_approved_domain_names(self) -> None:
         entries = set(toc_entries())
         self.assertTrue(APPROVED_AWARD_SERVICE_FILES <= entries)

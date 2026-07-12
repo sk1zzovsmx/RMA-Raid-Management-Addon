@@ -84,7 +84,7 @@ do
 	local PERSISTENT_SYNC_INTERVAL_SECONDS = 120
 
 	local loggerOptions = Options.RegisterNamespace("Logger", {
-		persistentSync = false,
+		persistentSync = true,
 		ignoreGroupLoot = false,
 		ignoreSelectionThreshold = true,
 		loggerLootQualityThreshold = 4,
