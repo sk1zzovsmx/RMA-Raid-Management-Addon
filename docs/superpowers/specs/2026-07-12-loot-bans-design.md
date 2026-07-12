@@ -49,7 +49,17 @@ Roster presentation is:
 
 - normal players use their class color;
 - banned players use gray name text;
+- normal players retain their inspected specialization icon;
+- banned players replace the specialization icon with
+  `Interface\Buttons\UI-GroupLoot-Pass-Up`;
 - a banned player's tooltip shows `Loot Ban` and the note when one exists.
+
+RaidGrid exposes this as a generic caller projection named
+`entry.iconOverride`. When present, the override takes precedence over the
+inspected specialization icon. RaidGrid does not inspect Loot Ban state or
+special-case its `lootBan` mode; the Master controller supplies the override
+only for active Loot Ban rows. Reused buttons must restore the ordinary spec
+icon when the next entry has no override.
 
 Selecting a player without a ban opens a popup with an optional note field and
 `Apply Ban` and `Cancel` actions. Selecting a banned player opens the same
@@ -142,6 +152,7 @@ Behavior tests must cover:
 - exclusion from automatic, tie, and multi-award winner resolution;
 - final rejection of manual, single, multi-award, and inventory-trade paths;
 - gray names and note tooltips in RaidGrid and Attendance;
+- Loot Ban icon overrides in RaidGrid without changing normal spec icons;
 - immediate refresh after changes;
 - current-state behavior in historical Attendance views;
 - unchanged wire formats and unaffected SavedVariables contracts.
