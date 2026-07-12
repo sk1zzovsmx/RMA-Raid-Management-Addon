@@ -5,6 +5,7 @@ local Strings = addon.Strings
 local Bus = addon.Bus
 local InternalEvents = addon.Events.Internal
 local type = type
+local byte = string.byte
 local strlen = string.len
 
 local Raid = assert(Services.Raid, "Raid service namespace is not initialized")
@@ -28,8 +29,13 @@ end
 
 function LootBans.ValidateNote(note)
 	local clean = Strings.TrimText(note, true)
-	if clean == "" then
+	if clean == nil or clean == "" then
 		return nil
+	end
+	for i = 1, strlen(clean) do
+		if byte(clean, i) > 127 then
+			return nil, "note_non_ascii"
+		end
 	end
 	if strlen(clean) > NOTE_MAX_LENGTH then
 		return nil, "note_too_long"
