@@ -85,6 +85,7 @@ local function seedBootstrapEvents()
 	Wow.InspectTalentReady = Wow.InspectTalentReady or "wow.INSPECT_TALENT_READY"
 	Wow.GetItemInfoReceived = Wow.GetItemInfoReceived or "wow.GET_ITEM_INFO_RECEIVED"
 	Wow.PlayerRegenEnabled = Wow.PlayerRegenEnabled or "wow.PLAYER_REGEN_ENABLED"
+	Wow.ZoneChangedNewArea = Wow.ZoneChangedNewArea or "wow.ZONE_CHANGED_NEW_AREA"
 	Wow.PlayerTargetChanged = Wow.PlayerTargetChanged or "wow.PLAYER_TARGET_CHANGED"
 	Wow.UiErrorMessage = Wow.UiErrorMessage or "wow.UI_ERROR_MESSAGE"
 	Wow.UiInfoMessage = Wow.UiInfoMessage or "wow.UI_INFO_MESSAGE"
@@ -857,6 +858,7 @@ do
 	-- ZONE_CHANGED_NEW_AREA: Keep instance-scoped datasets synchronized with zone transitions.
 	function addon:ZONE_CHANGED_NEW_AREA()
 		handleRaidInstanceInfoChanged()
+		Bus.TriggerEvent(WowEvents.ZoneChangedNewArea)
 	end
 
 	-- PLAYER_ENTERING_WORLD: Performs initial checks when the player logs in.

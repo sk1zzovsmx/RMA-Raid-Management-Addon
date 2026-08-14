@@ -26,6 +26,7 @@ Wow.ReadyCheck = Wow.ReadyCheck or "wow.READY_CHECK"
 Wow.InspectTalentReady = Wow.InspectTalentReady or "wow.INSPECT_TALENT_READY"
 Wow.GetItemInfoReceived = Wow.GetItemInfoReceived or "wow.GET_ITEM_INFO_RECEIVED"
 Wow.PlayerRegenEnabled = Wow.PlayerRegenEnabled or "wow.PLAYER_REGEN_ENABLED"
+Wow.ZoneChangedNewArea = Wow.ZoneChangedNewArea or "wow.ZONE_CHANGED_NEW_AREA"
 
 Internal.AddRoll = "AddRoll"
 Internal.SpecInspectUpdated = "SpecInspectUpdated"

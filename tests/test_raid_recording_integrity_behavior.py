@@ -31,6 +31,13 @@ class RaidRecordingIntegrityBehaviorTests(unittest.TestCase):
         result = run_lua_case("raid_recording_fixture_smoke")
         self.assertIn("PASS raid_recording_fixture_smoke", result.stdout)
 
+    def test_loot_canonical_mutations_advance_revision_before_notification(self) -> None:
+        result = run_lua_case("loot_canonical_mutations_advance_revision_before_notification")
+        self.assertIn(
+            "PASS loot_canonical_mutations_advance_revision_before_notification",
+            result.stdout,
+        )
+
     def test_real_roster_session_end_publishes_final_delta(self) -> None:
         result = run_lua_case("real_roster_session_end_publishes_final_delta")
         self.assertIn("PASS real_roster_session_end_publishes_final_delta", result.stdout)

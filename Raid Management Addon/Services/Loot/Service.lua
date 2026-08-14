@@ -900,17 +900,25 @@ do
 			return false
 		end
 
-		if hasRollType then
+		local changed = false
+		if hasRollType and loot.rollType ~= resolvedRollType then
 			loot.rollType = resolvedRollType
+			changed = true
 		end
-		if hasRollValue or (tonumber(loot.rollValue) or 0) <= 0 then
+		if (hasRollValue or (tonumber(loot.rollValue) or 0) <= 0) and loot.rollValue ~= resolvedRollValue then
 			loot.rollValue = resolvedRollValue
+			changed = true
 		end
 		if rollSessionId and (not loot.rollSessionId or loot.rollSessionId == "") then
 			loot.rollSessionId = tostring(rollSessionId)
+			changed = true
+		end
+		if not changed then
+			return false
 		end
 
 		bindLootNidToRollSession(loot.lootNid, loot.rollSessionId, loot.itemId, loot.itemString, loot.itemLink)
+		Recording.MarkUpdated(raid, loot, "passive_roll")
 		notifyRaidLootUpdate(currentRaidId, loot)
 		return true
 	end
@@ -923,15 +931,30 @@ do
 		for i = 1, #raid.loot do
 			local row = raid.loot[i]
 			if row and tonumber(row.lootNid) == tonumber(award.recordIndex) then
+				local changed = row.source ~= "CHAT_MSG_LOOT"
 				row.source = "CHAT_MSG_LOOT"
 				if type(authoritative) == "table" then
-					row.itemCount = tonumber(authoritative.itemCount) or row.itemCount
-					row.itemName = authoritative.itemName or row.itemName
-					row.itemRarity = authoritative.itemRarity or row.itemRarity
-					row.itemTexture = authoritative.itemTexture or row.itemTexture
-					row.itemString = authoritative.itemString or row.itemString
+					local itemCount = tonumber(authoritative.itemCount) or row.itemCount
+					local itemName = authoritative.itemName or row.itemName
+					local itemRarity = authoritative.itemRarity or row.itemRarity
+					local itemTexture = authoritative.itemTexture or row.itemTexture
+					local itemString = authoritative.itemString or row.itemString
+					changed = changed
+						or row.itemCount ~= itemCount
+						or row.itemName ~= itemName
+						or row.itemRarity ~= itemRarity
+						or row.itemTexture ~= itemTexture
+						or row.itemString ~= itemString
+					row.itemCount = itemCount
+					row.itemName = itemName
+					row.itemRarity = itemRarity
+					row.itemTexture = itemTexture
+					row.itemString = itemString
 				end
-				notifyRaidLootUpdate(Database.GetCurrentRaid(), row)
+				if changed then
+					Recording.MarkUpdated(raid, row, "authoritative_loot")
+					notifyRaidLootUpdate(Database.GetCurrentRaid(), row)
+				end
 				return
 			end
 		end
@@ -1195,8 +1218,11 @@ do
 
 		local existing, existingIndex = Recording.FindTradeOnlyFallback(raid, lootInfo)
 		if existing then
-			Recording.MergeTradeOnlyFallback(existing, lootInfo)
+			local _, changed = Recording.MergeTradeOnlyFallback(existing, lootInfo)
 			local existingLootNid = tonumber(existing.lootNid) or 0
+			if not changed then
+				return existingLootNid
+			end
 			indexAppendedLootRuntime(raid, existing, existingIndex)
 			bindLootNidToRollSession(
 				existingLootNid,
@@ -1205,6 +1231,7 @@ do
 				existing.itemString,
 				existing.itemLink
 			)
+			Recording.MarkUpdated(raid, existing, "trade_reconcile")
 			notifyRaidLootUpdate(raidNum, existing)
 			return existingLootNid
 		end

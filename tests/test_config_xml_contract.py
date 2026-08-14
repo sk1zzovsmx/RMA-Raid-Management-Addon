@@ -61,6 +61,13 @@ class ConfigXmlContractTest(unittest.TestCase):
 
 class ConfigLayoutOwnershipTest(unittest.TestCase):
 
+    def test_logger_sync_panel_actions_emit_debug_gated_results(self) -> None:
+        source = CONTROLLER_LUA.read_text(encoding="utf-8")
+        self.assertIn("Diag.D.LogSyncConfigAction", source)
+        self.assertIn('traceConfigSyncAction("CONFIG_REQ", "dispatch"', source)
+        self.assertIn('traceConfigSyncAction("CONFIG_PUSH", "dispatch"', source)
+        self.assertIn('traceConfigSyncAction(eventName, "result"', source)
+
     def test_cleanup_success_ui_is_gated_by_completed_callback(self) -> None:
         source = CONTROLLER_LUA.read_text(encoding="utf-8")
         callback = source[source.index("return actions:StartRaidHistoryCleanup(function(cleanupResult") :]

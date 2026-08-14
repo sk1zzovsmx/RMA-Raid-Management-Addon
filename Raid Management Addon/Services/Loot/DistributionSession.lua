@@ -188,8 +188,8 @@ local function canPublish()
 	return CanUseCapability(raid, "loot") == true
 end
 
-local function triggerChanged(reason, row, mutationSender)
-	TriggerEvent(DistributionChangedEvent, reason, row, state.sessionId, mutationSender)
+local function triggerChanged(reason, row)
+	TriggerEvent(DistributionChangedEvent, reason, row, state.sessionId)
 end
 
 local function getOrCreateRow(itemKey, ownerState)
@@ -278,8 +278,7 @@ local function upsertRow(data, reason, ownerState, suppressNotification)
 	row.quality = normalizeNumber(data.quality or data.itemRarity or data.rarity) or row.quality
 	row.count = normalizeNumber(data.count or data.itemCount) or row.count or 1
 	row.slot = normalizeNumber(data.slot or data.index) or row.slot
-	local mutationSender = normalizeText(data.sender, true)
-	row.sender = mutationSender or row.sender
+	row.sender = normalizeText(data.sender, true) or row.sender
 	row.protocolVersion = normalizeNumber(data.protocolVersion) or row.protocolVersion or PROTOCOL_VERSION
 
 	if data.rollType ~= nil then
@@ -324,7 +323,7 @@ local function upsertRow(data, reason, ownerState, suppressNotification)
 
 	if not suppressNotification then
 		local snapshot = copyRow(row)
-		triggerChanged(reason, snapshot, mutationSender)
+		triggerChanged(reason, snapshot)
 	end
 	return row
 end

@@ -167,6 +167,13 @@ function Recording.Build(raid, args)
 	return row, lootNid
 end
 
+function Recording.MarkUpdated(raid, row, reason)
+	if type(raid) ~= "table" or type(row) ~= "table" then
+		return 0
+	end
+	return Database.GetRaidStore():MarkLootSyncRevision(raid, row, reason or "loot_row")
+end
+
 function Recording.Append(raid, args)
 	if type(raid) ~= "table" then
 		return nil, 0
@@ -177,7 +184,7 @@ function Recording.Append(raid, args)
 		return nil, 0
 	end
 	tinsert(raid.loot, row)
-	Database.GetRaidStore():MarkLootSyncRevision(raid, row, "loot_row")
+	Recording.MarkUpdated(raid, row)
 	return row, lootNid, #raid.loot
 end
 
@@ -226,17 +233,28 @@ function Recording.MergeTradeOnlyFallback(row, args)
 	if type(row) ~= "table" or type(args) ~= "table" then
 		return nil
 	end
+	local changed = false
 	if args.rollType ~= nil then
-		row.rollType = tonumber(args.rollType) or args.rollType
+		local rollType = tonumber(args.rollType) or args.rollType
+		if row.rollType ~= rollType then
+			row.rollType = rollType
+			changed = true
+		end
 	end
-	row.rollValue = strongerRollValue(row.rollValue, args.rollValue)
+	local rollValue = strongerRollValue(row.rollValue, args.rollValue)
+	if row.rollValue ~= rollValue then
+		row.rollValue = rollValue
+		changed = true
+	end
 	if args.rollSessionId and (not row.rollSessionId or row.rollSessionId == "") then
 		row.rollSessionId = tostring(args.rollSessionId)
+		changed = true
 	end
 	if args.itemCount and (tonumber(args.itemCount) or 0) > (tonumber(row.itemCount) or 0) then
 		row.itemCount = tonumber(args.itemCount) or row.itemCount
+		changed = true
 	end
-	return row
+	return row, changed
 end
 
 function Recording.ShouldSkipPassiveDuplicate(args)

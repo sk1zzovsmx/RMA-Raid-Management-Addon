@@ -42,9 +42,9 @@ Comms._addonQueueHead = tonumber(Comms._addonQueueHead) or 1
 Comms._addonQueueTail = tonumber(Comms._addonQueueTail) or #Comms._addonQueue
 Comms._addonQueueTimer = Comms._addonQueueTimer
 
-local COMMS_ADDON_QUEUE_BURST = 4
+local COMMS_ADDON_QUEUE_BURST = 1
 local COMMS_ADDON_QUEUE_MAX = 256
-local COMMS_ADDON_QUEUE_DELAY_SECONDS = 0.08
+local COMMS_ADDON_QUEUE_DELAY_SECONDS = 0.10
 local packFieldsBuffer = {}
 
 BindTimerMixin(Comms, "Modules/Comms")

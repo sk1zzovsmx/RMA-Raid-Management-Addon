@@ -15,6 +15,7 @@ local type = type
 
 local GetLootMethod = assert(_G.GetLootMethod, "Raid capability loot-method API is not initialized")
 local UnitIsUnit = assert(_G.UnitIsUnit, "Raid capability unit comparison API is not initialized")
+local UnitName = assert(_G.UnitName, "Raid capability unit-name API is not initialized")
 local GetUnitRank = assert(Database.GetUnitRank, "Raid capability group-rank resolver is not initialized")
 
 local function readLootMethodName()
@@ -44,6 +45,17 @@ do
 
 	local IsPlayerInRaid = assert(module.IsPlayerInRaid, "Raid capability raid-membership resolver is not initialized")
 	local GetUnitID = assert(module.GetUnitID, "Raid capability unit resolver is not initialized")
+	local function getMasterLooterUnit()
+		local method, partyMaster, raidMaster = GetLootMethod()
+		if method ~= "master" then return nil end
+		if raidMaster ~= nil then
+			return raidMaster == 0 and "player" or "raid" .. tostring(raidMaster)
+		end
+		if partyMaster ~= nil then
+			return partyMaster == 0 and "player" or "party" .. tostring(partyMaster)
+		end
+		return nil
+	end
 
 	-- ----- Public methods ----- --
 
@@ -51,26 +63,19 @@ do
 		return readLootMethodName()
 	end
 
+	function module:GetMasterLooterName()
+		local unit = getMasterLooterUnit()
+		local name = unit and UnitName(unit)
+		return name and name ~= "" and name or nil
+	end
+
 	function module:IsPassiveGroupLootMethod(method)
 		return isPassiveGroupLootMethod(method)
 	end
 
 	function module:IsMasterLooter()
-		local method, partyMaster, raidMaster = GetLootMethod()
-		if method ~= "master" then
-			return false
-		end
-		if partyMaster then
-			if partyMaster == 0 or UnitIsUnit("party" .. tostring(partyMaster), "player") then
-				return true
-			end
-		end
-		if raidMaster then
-			if raidMaster == 0 or UnitIsUnit("raid" .. tostring(raidMaster), "player") then
-				return true
-			end
-		end
-		return false
+		local masterUnit = getMasterLooterUnit()
+		return masterUnit ~= nil and not not UnitIsUnit(masterUnit, "player")
 	end
 
 	function module:IsGroupMember(name)
@@ -84,17 +89,7 @@ do
 			return false
 		end
 
-		local method, partyMaster, raidMaster = GetLootMethod()
-		if method ~= "master" then
-			return false
-		end
-
-		local masterUnit
-		if partyMaster ~= nil then
-			masterUnit = partyMaster == 0 and "player" or "party" .. tostring(partyMaster)
-		elseif raidMaster ~= nil then
-			masterUnit = raidMaster == 0 and "player" or "raid" .. tostring(raidMaster)
-		end
+		local masterUnit = getMasterLooterUnit()
 		return masterUnit ~= nil and not not UnitIsUnit(unit, masterUnit)
 	end
 

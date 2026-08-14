@@ -9,6 +9,7 @@ local DebugEntryPoint = assert(addon.EntryPoints.Debug, "Config debug entrypoint
 
 local Database = addon.Database
 local Options = addon.Options
+local Diag = addon.Diag
 local UI = addon.UI
 local Frames = UI.Frames
 local Scaffold = UI.Scaffold
@@ -139,6 +140,20 @@ do
 	end
 
 	local GetOptionByKey = Options.GetByKey
+
+	local function traceConfigSyncAction(eventName, phase, raidRef, target, result, reason)
+		if not (Options.IsDebugEnabled() and addon.debug) then return end
+		addon:debug(
+			(Diag.D.LogSyncConfigAction):format(
+				tostring(eventName),
+				tostring(phase),
+				tostring(raidRef or 0),
+				tostring(target or ""),
+				tostring(result),
+				tostring(reason or "none")
+			)
+		)
+	end
 
 	-- ----- Public methods ----- --
 
@@ -1131,9 +1146,19 @@ do
 
 		local currentRaid = Database.GetCurrentRaid()
 		if actionName == "require" and syncer.RequestLoggerReq then
-			return syncer:RequestLoggerReq(currentRaid, GetOptionByKey("syncRequirePlayer"))
+			local eventName = "CONFIG_REQ"
+			local target = GetOptionByKey("syncRequirePlayer")
+			traceConfigSyncAction("CONFIG_REQ", "dispatch", currentRaid, target, "pending", "none")
+			local result, reason = syncer:RequestLoggerReq(currentRaid, target)
+			traceConfigSyncAction(eventName, "result", currentRaid, target, result, reason)
+			return result, reason
 		elseif actionName == "push" and syncer.BroadcastLoggerPush then
-			return syncer:BroadcastLoggerPush(currentRaid, GetOptionByKey("syncPushPlayer"))
+			local eventName = "CONFIG_PUSH"
+			local target = GetOptionByKey("syncPushPlayer")
+			traceConfigSyncAction("CONFIG_PUSH", "dispatch", currentRaid, target, "pending", "none")
+			local result, reason = syncer:BroadcastLoggerPush(currentRaid, target)
+			traceConfigSyncAction(eventName, "result", currentRaid, target, result, reason)
+			return result, reason
 		elseif actionName == "sync" and syncer.RequestLoggerSync then
 			return syncer:RequestLoggerSync()
 		end
