@@ -293,7 +293,7 @@ local function loadMinimapFrame(frame)
 	Frames.SetScriptSafely(frame, "OnEnter", function(self)
 		ShowTooltipLines(self, {
 			defaultAnchor = true,
-			title = addon.WrapTextInColorCode("Raid Management Addon", Colors.NormalizeHexColor(R_COLOR)),
+			title = Colors.WrapText("Raid Management Addon", Colors.NormalizeHexColor(R_COLOR)),
 			lines = {
 				L.StrMinimapLClick,
 				L.StrMinimapRClick,

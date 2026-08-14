@@ -16,7 +16,6 @@ local GetItemStringFromLink =
 	assert(Item.GetItemStringFromLink, "Loot recording item-string resolver is not initialized")
 local NormalizeName = assert(Strings.NormalizeName, "Loot recording name normalizer is not initialized")
 
-local tinsert = table.insert
 local tonumber = tonumber
 local tostring = tostring
 local type = type
@@ -55,14 +54,19 @@ end
 local function allocateLootNid(raid, preferredLootNid)
 	local preferred = tonumber(preferredLootNid)
 	if preferred and preferred > 0 then
-		if (tonumber(raid.nextLootNid) or 1) <= preferred then
-			raid.nextLootNid = preferred + 1
-		end
 		return preferred
 	end
 	local lootNid = tonumber(raid.nextLootNid) or 1
-	raid.nextLootNid = lootNid + 1
 	return lootNid
+end
+
+local function commitLootEvent(raid, eventType, payload)
+	local raidStore = Database.GetRaidStore()
+	local raidUid = raidStore:GetRaidUid(raid)
+	if not raidUid then
+		return nil, "RAID_NOT_ACTIVE"
+	end
+	return raidStore:CommitAuthoritativeEvent(raidUid, eventType, payload)
 end
 
 local function resolveRecordTime(value)
@@ -93,6 +97,17 @@ local function strongerRollValue(current, incoming)
 		return incoming
 	end
 	return current
+end
+
+local function sameLooter(row, args)
+	local rowLooterNid = tonumber(row and row.looterNid) or 0
+	local targetLooterNid = tonumber(args and args.looterNid) or 0
+	if rowLooterNid > 0 and targetLooterNid > 0 then
+		return rowLooterNid == targetLooterNid
+	end
+	local rowLooter = normalizeName(row and row.looter)
+	local targetLooter = normalizeName(args and args.looter)
+	return rowLooter ~= nil and targetLooter ~= nil and rowLooter == targetLooter
 end
 
 -- ----- Receipt methods ----- --
@@ -171,24 +186,89 @@ function Recording.MarkUpdated(raid, row, reason)
 	if type(raid) ~= "table" or type(row) ~= "table" then
 		return 0
 	end
-	return Database.GetRaidStore():MarkLootSyncRevision(raid, row, reason or "loot_row")
+	local event, state = commitLootEvent(raid, "LOOT_UPDATED", { loot = row })
+	if not event or not state then
+		return 0
+	end
+	local lootNid = tonumber(row.lootNid)
+	for i = 1, #(state.loot or {}) do
+		if tonumber(state.loot[i] and state.loot[i].lootNid) == lootNid then
+			return event.sequence, state.loot[i], state, i
+		end
+	end
+	return event.sequence, nil, state
+end
+
+function Recording.Copy(row)
+	if type(row) ~= "table" then
+		return nil
+	end
+	local copy = {}
+	for key, value in pairs(row) do
+		copy[key] = value
+	end
+	return copy
 end
 
 function Recording.Append(raid, args)
 	if type(raid) ~= "table" then
 		return nil, 0
 	end
-	raid.loot = raid.loot or {}
 	local row, lootNid = Recording.Build(raid, args)
 	if not row then
 		return nil, 0
 	end
-	tinsert(raid.loot, row)
-	Recording.MarkUpdated(raid, row)
-	return row, lootNid, #raid.loot
+	local event, state = commitLootEvent(raid, "LOOT_ADDED", { loot = row })
+	if type(state) == "string" then
+		return nil, 0, nil, state
+	end
+	if type(event) ~= "table" or type(state) ~= "table" or type(state.loot) ~= "table" then
+		return nil, 0
+	end
+	for i = 1, #state.loot do
+		if tonumber(state.loot[i] and state.loot[i].lootNid) == lootNid then
+			return state.loot[i], lootNid, i
+		end
+	end
+	return nil, 0
 end
 
 -- ----- Reconciliation methods ----- --
+
+function Recording.FindRecentAuthorityFallback(raid, args, ttlSeconds)
+	if type(raid) ~= "table" or type(args) ~= "table" then
+		return nil
+	end
+	local targetTime = tonumber(args.time) or 0
+	local targetCount = tonumber(args.itemCount) or 1
+	local targetItemKey = itemKey(args.itemLink, args.itemString)
+	if not targetItemKey then
+		return nil
+	end
+	local ttl = tonumber(ttlSeconds) or 0
+	local lootList = raid.loot or {}
+	-- Bound reconciliation to the newest 20 rows; older awards remain distinct.
+	local firstIndex = #lootList - 19
+	if firstIndex < 1 then
+		firstIndex = 1
+	end
+	for i = #lootList, firstIndex, -1 do
+		local row = lootList[i]
+		local age = targetTime - (tonumber(row and row.time) or 0)
+		if
+			row
+			and row.source == "DISTRIBUTION_AWARD"
+			and age >= 0
+			and age <= ttl
+			and itemKey(row.itemLink, row.itemString) == targetItemKey
+			and sameLooter(row, args)
+			and (tonumber(row.itemCount) or 1) == targetCount
+		then
+			return row, i
+		end
+	end
+	return nil
+end
 
 function Recording.FindTradeOnlyFallback(raid, args)
 	if type(raid) ~= "table" or type(args) ~= "table" then

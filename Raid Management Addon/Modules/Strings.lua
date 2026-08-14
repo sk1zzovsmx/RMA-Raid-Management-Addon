@@ -175,7 +175,7 @@ function Strings.FormatChatMessage(text, prefix, outputFormat, prefixHex)
 	local msgPrefix = prefix or ""
 	if prefixHex then
 		local normalized = Colors.NormalizeHexColor and Colors.NormalizeHexColor(prefixHex) or "ffffffff"
-		msgPrefix = addon.WrapTextInColorCode(msgPrefix, normalized)
+		msgPrefix = Colors.WrapText(msgPrefix, normalized)
 	end
 	return format(outputFormat or "%s%s", msgPrefix, tostring(text))
 end

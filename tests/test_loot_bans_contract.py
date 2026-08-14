@@ -573,6 +573,7 @@ local controller = TradeExecution.CreateController({{
             Fail = function(_, reason) return args.onFail(reason) end }}
     end,
     getItemKey = function(link) return link end,
+    canCommitRaidHistory = function() return true end,
 }})
 {assertions}
 """

@@ -365,7 +365,7 @@ do
 		end
 		resetPendingUnitRetry()
 		resetLiveUnitCaches()
-		module:End()
+		module:End(true)
 		rosterVersion = rosterVersion + 1
 		return true, finalizeRosterDelta(delta) or delta, raidNum
 	end
@@ -414,7 +414,11 @@ do
 	end
 
 	local function refreshActiveRosterPlayer(ctx, name, rank, subgroup, class, online)
-		local player = ctx.playersByName[name]
+		local currentPlayer = ctx.playersByName[name]
+		local player = {}
+		for key, value in pairs(currentPlayer) do
+			player[key] = value
+		end
 		local oldUnitID = ctx.prevUnitsByName[name]
 		local oldRank = player.rank or 0
 		local oldSubgroup = player.subgroup or 1
@@ -492,8 +496,11 @@ do
 				if isSyntheticRosterPlayer(pname, ctx.currentRaidId) then
 					ctx.seen[pname] = true
 				else
-					p.leave = ctx.now
-					changed = true
+					local committed = Database.GetRaidStore():CommitAuthoritativeEvent(ctx.raidUid, "PLAYER_DEPARTED", {
+						playerNid = tonumber(p.playerNid),
+						leave = ctx.now,
+					})
+					changed = committed ~= nil or changed
 					tinsert(ctx.delta.left, {
 						name = pname,
 						unitID = ctx.prevUnitsByName[pname],
@@ -574,6 +581,7 @@ do
 			seen = {},
 			delta = delta,
 			now = Time.GetCurrentTime(),
+			raidUid = Database.GetRaidStore():GetRaidUid(raid),
 		}
 		delta.timestamp = ctx.now
 		delta.raidNum = currentRaidId
@@ -625,7 +633,7 @@ do
 	-- Returns the published delta, or nil when the refresh did not mutate roster state.
 	function module:RefreshAndPublish()
 		local changed, delta, raidNum = module:UpdateRaidRoster()
-		if not changed then
+		if not changed or type(delta) ~= "table" then
 			return nil
 		end
 
@@ -759,7 +767,7 @@ do
 			end
 		end
 
-		for unit in addon.UnitIterator(true) do
+		for unit in addon.Group.IterateUnits(true) do
 			local unitName = UnitName(unit)
 			if unitName then
 				unitName = Strings.NormalizeName(unitName)

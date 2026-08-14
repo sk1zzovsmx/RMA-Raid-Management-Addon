@@ -89,10 +89,6 @@ local activeLootSourceRebuild
 
 -- ----- Private helpers ----- --
 
-local function touchRaidSyncRevision(raid, reason)
-	Database.GetRaidStore():TouchRaidSyncRevision(raid, reason or "loot")
-end
-
 trimText = function(value)
 	if Strings.TrimText then
 		return Strings.TrimText(value or "")
@@ -635,37 +631,49 @@ end
 local function getHistoryCleanupContext()
 	local raidStore = Database.GetRaidStore()
 	local raids = raidStore:GetRawRaids()
-	return raidStore, raids
+	local archive = raidStore:EnsureArchive()
+	return raidStore, raids, archive and archive.activeRaidUid or nil
 end
 
-local function newHistoryCleanupPlan(protectedRaidNid)
-	return { raidNids = {}, raidCandidates = {}, lootNidsByRaidNid = {}, lootCandidates = {}, emptyRaids = 0, noBossEncounter = 0,
-		protectedRaidNid = tonumber(protectedRaidNid) }
+local function newHistoryCleanupPlan(protectedRaidNid, protectedArchiveKey)
+	return {
+		raidNids = {},
+		raidCandidates = {},
+		lootNidsByRaidNid = {},
+		lootCandidates = {},
+		emptyRaids = 0,
+		noBossEncounter = 0,
+		protectedRaidNid = tonumber(protectedRaidNid),
+		protectedArchiveKey = protectedArchiveKey,
+	}
 end
 
-local function getHistoryCleanupBaseRevision(raid)
-	local runtime = type(raid) == "table" and raid._runtime or nil
-	return tonumber(type(runtime) == "table" and runtime.syncRevision) or 0
+local function getHistoryCleanupBaseDigest(raid)
+	return Database.GetRaidStore():GetStateDigest(raid)
 end
 
-local function stageRaidForHistoryCleanup(raid, plan, key)
+local function stageRaidForHistoryCleanup(raid, plan, key, archiveKey)
 	local raidNid = tonumber(raid and raid.raidNid)
 	if not raidNid then
 		return
 	end
-	if raidNid == tonumber(plan.protectedRaidNid) then
+	if archiveKey and archiveKey == plan.protectedArchiveKey then
+		return
+	end
+	if not archiveKey and raidNid == tonumber(plan.protectedRaidNid) then
 		return
 	end
 	plan.raidNids[#plan.raidNids + 1] = raidNid
 	plan.raidCandidates[#plan.raidCandidates + 1] = {
 		raidNid = raidNid,
-		baseRevision = getHistoryCleanupBaseRevision(raid),
+		archiveKey = archiveKey,
+		baseDigest = getHistoryCleanupBaseDigest(raid),
 		predicate = key,
 	}
 	plan[key] = plan[key] + 1
 end
 
-local function stageNonEpicLootAt(raid, lootRows, index, plan)
+local function stageNonEpicLootAt(raid, lootRows, index, plan, archiveKey)
 	local loot = lootRows and lootRows[index] or nil
 	if isNonEpicLoot(loot) then
 		local raidNid = tonumber(raid and raid.raidNid)
@@ -681,9 +689,9 @@ local function stageNonEpicLootAt(raid, lootRows, index, plan)
 		lootNids[#lootNids + 1] = lootNid
 		plan.lootCandidates[#plan.lootCandidates + 1] = {
 			raidNid = raidNid,
-			baseRevision = getHistoryCleanupBaseRevision(raid),
+			archiveKey = archiveKey,
+			baseDigest = getHistoryCleanupBaseDigest(raid),
 			lootNid = lootNid,
-			lootRevision = tonumber(loot.syncRevision) or 0,
 			itemId = tonumber(loot.itemId),
 			itemLink = loot.itemLink,
 			bossNid = tonumber(loot.bossNid),
@@ -694,7 +702,8 @@ local function stageNonEpicLootAt(raid, lootRows, index, plan)
 end
 
 local function executeHistoryCleanupPlan(raidStore, plan, result)
-	local committed, failure = raidStore:CommitRaidHistoryCleanup(plan, getCurrentRaidNid())
+	local currentIdentity = plan.protectedArchiveKey or getCurrentRaidNid()
+	local committed, failure = raidStore:CommitRaidHistoryCleanup(plan, currentIdentity)
 	if not committed then
 		return false, failure
 	end
@@ -730,7 +739,17 @@ local function newLootSourceRebuildResult()
 end
 
 local function getLootSourceRebuildRaids()
-	return Database.GetRaidStore():GetAllRaids()
+	local raidStore = Database.GetRaidStore()
+	local allRaids = raidStore:GetAllRaids()
+	local activeRecord = raidStore:GetActiveRecord()
+	local activeRaid = type(activeRecord) == "table" and activeRecord.state or nil
+	local completed = {}
+	for i = 1, #(allRaids or {}) do
+		if allRaids[i] ~= activeRaid then
+			completed[#completed + 1] = allRaids[i]
+		end
+	end
+	return completed
 end
 
 local function applyLootSourceRebuildChange(raid, stagedRaid)
@@ -1039,16 +1058,21 @@ local function setLootEntry(raidID, lootNid, looter, rollType, rollValue, source
 		return false
 	end
 	local raidStore = Database.GetRaidStore()
-	local stagedRaid = raidStore:StageRaidHistoryMutation(raid)
-	local stagedLoot
-	for i = 1, #(stagedRaid and stagedRaid.loot or {}) do
-		if tonumber(stagedRaid.loot[i].lootNid) == tonumber(lootNid) then
-			stagedLoot = stagedRaid.loot[i]
-			break
+	local raidUid = raidStore:GetRaidUid(raid)
+	local stagedLoot = {}
+	local stagedRaid
+	if raidUid then
+		for key, value in pairs(it) do
+			stagedLoot[key] = value
 		end
-	end
-	if not stagedLoot then
-		return false
+	else
+		stagedRaid = raidStore:StageRaidHistoryMutation(raid)
+		for i = 1, #(stagedRaid and stagedRaid.loot or {}) do
+			if tonumber(stagedRaid.loot[i].lootNid) == tonumber(lootNid) then
+				stagedLoot = stagedRaid.loot[i]
+				break
+			end
+		end
 	end
 	it = stagedLoot
 
@@ -1073,11 +1097,8 @@ local function setLootEntry(raidID, lootNid, looter, rollType, rollValue, source
 		)
 	end
 
-	local committed = raidStore:CommitRaidHistoryMutation(raid, stagedRaid, {
-		reason = "loot_row",
-		lootNid = lootNid,
-	}, function()
-		return verifyLoggerLootMutation(
+	if
+		not verifyLoggerLootMutation(
 			raidID,
 			lootNid,
 			it,
@@ -1086,8 +1107,13 @@ local function setLootEntry(raidID, lootNid, looter, rollType, rollValue, source
 			expectedRollType,
 			expectedRollValue
 		)
-	end)
-	return committed == true
+	then
+		return false
+	end
+	if raidUid then
+		return raidStore:CommitAuthoritativeEvent(raidUid, "LOOT_UPDATED", { loot = it }) ~= nil
+	end
+	return raidStore:CommitRaidHistoryMutation(raid, stagedRaid, { lootNid = lootNid }) == true
 end
 
 function Actions:RecordLoot(request)
@@ -1149,7 +1175,10 @@ function Actions:DeleteLootMany(rID, lootNids, opts)
 	if not (raid and lootNids and raid.loot) then
 		return 0
 	end
-	local removed = Database.GetRaidStore():DeleteLootByNid(raid.raidNid, lootNids, "loot_delete")
+	local raidStore = Database.GetRaidStore()
+	local archiveKey = raidStore:GetArchiveKeyByIndex(rID)
+	local removed = archiveKey and raidStore:DeleteLootByArchiveKey(archiveKey, lootNids)
+		or raidStore:DeleteLootByNid(raid.raidNid, lootNids, "loot_delete")
 
 	if removed > 0 then
 		commitRaidSelections(raid, opts)
@@ -1171,7 +1200,13 @@ function Actions:DeleteRaid(rID)
 
 	local raidStore = Database.GetRaidStore()
 	local removedIdx = sel
-	local deleted, idx = raidStore:DeleteRaid(raid.raidNid)
+	local archiveKey = raidStore:GetArchiveKeyByIndex(sel)
+	local deleted, idx
+	if archiveKey then
+		deleted, idx = raidStore:DeleteRaidByArchiveKey(archiveKey)
+	else
+		deleted, idx = raidStore:DeleteRaid(raid.raidNid)
+	end
 	if not deleted then
 		return false
 	end
@@ -1182,6 +1217,37 @@ function Actions:DeleteRaid(rID)
 	end
 
 	return true
+end
+
+function Actions:DeleteRaidsByIndex(raidIndexes)
+	local result = { removed = 0, affectedRaidNids = {}, changed = false, complete = true }
+	if type(raidIndexes) ~= "table" then
+		return result
+	end
+	local raidStore = Database.GetRaidStore()
+	local archive = raidStore:EnsureArchive()
+	local protectedArchiveKey = archive and archive.activeRaidUid or nil
+	local archiveKeys, seen = {}, {}
+	for i = 1, #raidIndexes do
+		local archiveKey = raidStore:GetArchiveKeyByIndex(raidIndexes[i])
+		if archiveKey and archiveKey ~= protectedArchiveKey and not seen[archiveKey] then
+			seen[archiveKey] = true
+			archiveKeys[#archiveKeys + 1] = archiveKey
+		end
+	end
+	local removedKeys
+	result.removed, removedKeys = raidStore:DeleteRaidsByArchiveKey(archiveKeys, protectedArchiveKey)
+	if result.removed > 0 then
+		result.changed = true
+		for i = 1, #removedKeys do
+			result.affectedRaidNids[#result.affectedRaidNids + 1] = removedKeys[i]
+		end
+		if protectedArchiveKey then
+			Database.SetCurrentRaid(raidStore:GetIndexByArchiveKey(protectedArchiveKey))
+		end
+		notifyLoggerDataChanged("raid_delete", result)
+	end
+	return result
 end
 
 function Actions:DeleteRaidByNid(raidNid)
@@ -1250,13 +1316,27 @@ function Actions:PurgeRaidHistory()
 	local currentRaidNid = getCurrentRaidNid()
 	local raids = raidStore:GetAllRaids()
 	local removed = type(raids) == "table" and #raids or 0
-	local raidNids = {}
+	local archive = raidStore:EnsureArchive()
+	local isArchive = type(archive) == "table" and archive.formatVersion == 1
+	local protectedArchiveKey = archive and archive.activeRaidUid or nil
+	local archiveKeys = {}
 	for i = 1, #raids do
-		if raids[i] and raids[i].raidNid then
-			raidNids[#raidNids + 1] = raids[i].raidNid
+		local archiveKey = raidStore:GetArchiveKeyByIndex(i)
+		if archiveKey and archiveKey ~= protectedArchiveKey then
+			archiveKeys[#archiveKeys + 1] = archiveKey
 		end
 	end
-	removed = raidStore:DeleteRaidsByNid(raidNids, { protectedRaidNid = currentRaidNid })
+	if isArchive then
+		removed = raidStore:DeleteRaidsByArchiveKey(archiveKeys, protectedArchiveKey)
+	else
+		local raidNids = {}
+		for i = 1, #raids do
+			if raids[i] and raids[i].raidNid then
+				raidNids[#raidNids + 1] = raids[i].raidNid
+			end
+		end
+		removed = raidStore:DeleteRaidsByNid(raidNids, { protectedRaidNid = currentRaidNid })
+	end
 
 	if currentRaidNid then
 		restoreCurrentRaidIndex(currentRaidNid)
@@ -1274,7 +1354,7 @@ end
 
 function Actions:CleanupRaidHistory(options)
 	options = (type(options) == "table") and options or {}
-	local raidStore, raids = getHistoryCleanupContext()
+	local raidStore, raids, protectedArchiveKey = getHistoryCleanupContext()
 	local result = newHistoryCleanupResult()
 	if type(raids) ~= "table" then
 		result.complete = true
@@ -1282,20 +1362,21 @@ function Actions:CleanupRaidHistory(options)
 	end
 
 	local currentRaidNid = getCurrentRaidNid()
-	local plan = newHistoryCleanupPlan(currentRaidNid)
+	local plan = newHistoryCleanupPlan(currentRaidNid, protectedArchiveKey)
 	local cleanEmptyRaids = options.emptyRaids == true
 	local cleanNonEpicLoot = options.nonEpicLoot == true
 	local cleanNoBossEncounter = options.noBossEncounter == true
 	for i = #raids, 1, -1 do
 		local raid = raids[i]
+		local archiveKey = raidStore:GetArchiveKeyByIndex(i)
 		if cleanEmptyRaids and not hasRaidData(raid) then
-			stageRaidForHistoryCleanup(raid, plan, "emptyRaids")
+			stageRaidForHistoryCleanup(raid, plan, "emptyRaids", archiveKey)
 		elseif cleanNoBossEncounter and isRaidWithoutBossEncounter(raid) then
-			stageRaidForHistoryCleanup(raid, plan, "noBossEncounter")
+			stageRaidForHistoryCleanup(raid, plan, "noBossEncounter", archiveKey)
 		elseif cleanNonEpicLoot then
 			local lootRows = raid and raid.loot or {}
 			for lootIndex = #lootRows, 1, -1 do
-				stageNonEpicLootAt(raid, lootRows, lootIndex, plan)
+				stageNonEpicLootAt(raid, lootRows, lootIndex, plan, archiveKey)
 			end
 		end
 	end
@@ -1322,7 +1403,7 @@ function Actions:StartRaidHistoryCleanup(callback, opts)
 		cancelHistoryCleanup(activeHistoryCleanup)
 	end
 
-	local raidStore, raids = getHistoryCleanupContext()
+	local raidStore, raids, protectedArchiveKey = getHistoryCleanupContext()
 	local result = newHistoryCleanupResult()
 	if type(raids) ~= "table" then
 		result.complete = true
@@ -1343,7 +1424,7 @@ function Actions:StartRaidHistoryCleanup(callback, opts)
 		raidStore = raidStore,
 		raids = raids,
 		result = result,
-		plan = newHistoryCleanupPlan(getCurrentRaidNid()),
+		plan = newHistoryCleanupPlan(getCurrentRaidNid(), protectedArchiveKey),
 		callback = callback,
 		currentRaidNid = getCurrentRaidNid(),
 		cleanEmptyRaids = opts.emptyRaids == true,
@@ -1402,17 +1483,18 @@ function Actions:StartRaidHistoryCleanup(callback, opts)
 		local processed = 0
 		while processed < state.chunkSize and state.raidIndex >= 1 do
 			local raid = state.raids[state.raidIndex]
+			local archiveKey = state.raidStore:GetArchiveKeyByIndex(state.raidIndex)
 			if type(raid) ~= "table" then
 				state.raidIndex = state.raidIndex - 1
 				state.lootIndex = nil
 				processed = processed + 1
 			elseif state.cleanEmptyRaids and not hasRaidData(raid) then
-				stageRaidForHistoryCleanup(raid, state.plan, "emptyRaids")
+				stageRaidForHistoryCleanup(raid, state.plan, "emptyRaids", archiveKey)
 				state.raidIndex = state.raidIndex - 1
 				state.lootIndex = nil
 				processed = processed + 1
 			elseif state.cleanNoBossEncounter and isRaidWithoutBossEncounter(raid) then
-				stageRaidForHistoryCleanup(raid, state.plan, "noBossEncounter")
+				stageRaidForHistoryCleanup(raid, state.plan, "noBossEncounter", archiveKey)
 				state.raidIndex = state.raidIndex - 1
 				state.lootIndex = nil
 				processed = processed + 1
@@ -1422,7 +1504,7 @@ function Actions:StartRaidHistoryCleanup(callback, opts)
 					state.lootIndex = #lootRows
 				end
 				if state.lootIndex >= 1 then
-					stageNonEpicLootAt(raid, lootRows, state.lootIndex, state.plan)
+					stageNonEpicLootAt(raid, lootRows, state.lootIndex, state.plan, archiveKey)
 					state.lootIndex = state.lootIndex - 1
 					processed = processed + 1
 				else

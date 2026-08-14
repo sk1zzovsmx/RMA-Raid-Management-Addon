@@ -379,7 +379,7 @@ end
 function Options.SetDebugEnabled(enabled)
 	coreState.debugEnabled = enabled and true or false
 
-	local levels = addon and addon.Debugger and addon.Debugger.logLevels
+	local levels = addon and addon.logLevels
 	local level = enabled and (levels and levels.DEBUG) or (levels and levels.INFO)
 	if level and addon and addon.SetLogLevel then
 		addon:SetLogLevel(level)

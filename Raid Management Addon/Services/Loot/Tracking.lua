@@ -9,6 +9,7 @@ local addon = select(2, ...)
 local Database = addon.Database
 local Item = addon.Item
 local Services = addon.Services
+local Group = assert(addon.Group, "Loot tracking group helper owner is not initialized")
 local _, lootState, _, raidState = Database.EnsureLootRuntimeState()
 
 -- ----- Internal state ----- --
@@ -32,7 +33,7 @@ local _G = _G
 local GetMasterLootCandidate =
 	assert(_G.GetMasterLootCandidate, "Loot tracking master-loot candidate API is not initialized")
 local GetLootMethod = assert(_G.GetLootMethod, "Loot tracking loot-method API is not initialized")
-local GetNumGroupMembers = assert(addon.GetNumGroupMembers, "Loot tracking group-count helper is not initialized")
+local GetNumGroupMembers = assert(Group.GetNumMembers, "Loot tracking group-count helper is not initialized")
 
 -- ----- Private helpers ----- --
 local function copyRollSessionSnapshot(session)

@@ -10,6 +10,7 @@ local Database = addon.Database
 local Events = addon.Events
 local Options = addon.Options
 local Services = addon.Services
+local Raid = assert(Services.Raid, "Raid loot method service owner is not initialized")
 
 local tostring, tonumber, type = tostring, tonumber, type
 
@@ -21,7 +22,7 @@ local UnitGUID = assert(_G.UnitGUID, "Raid loot method unit GUID API is not init
 local UnitInRaid = assert(_G.UnitInRaid, "Raid loot method unit raid-membership API is not initialized")
 local UnitIsDead = assert(_G.UnitIsDead, "Raid loot method unit death-state API is not initialized")
 local UnitName = assert(_G.UnitName, "Raid loot method unit name API is not initialized")
-local GetCreatureId = assert(addon.GetCreatureId, "Raid loot method creature-id helper is not initialized")
+local GetCreatureId = assert(Raid.GetCreatureId, "Raid loot method creature-id helper is not initialized")
 local InternalEvents = assert(Events.Internal, "Raid loot method event registry is not initialized")
 local ScreenNoticeEvent = assert(InternalEvents.ScreenNotice, "Raid loot method screen notice event is not initialized")
 local GroupLootRestoreNeededEvent =
@@ -35,7 +36,6 @@ local MAX_AUTO_MASTER_LOOT_NOTICE_SECONDS = 5
 
 -- ----- Internal state ----- --
 addon.Services.EnsureNamespace("Raid")
-local Raid = Services.Raid
 local module = Raid
 
 Options.RegisterNamespace("Master", {

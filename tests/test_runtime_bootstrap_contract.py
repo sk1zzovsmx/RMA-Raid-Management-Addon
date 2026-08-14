@@ -14,6 +14,7 @@ TOC = ADDON / "Raid Management Addon.toc"
 LOOT_SOURCE_DIR = ADDON / "Modules" / "Dataset" / "LootSources"
 LOOT_SOURCE_DATA = ADDON / "Modules" / "Dataset" / "LootSourcesData.lua"
 DB_SYNCER = ADDON / "Database" / "DBSyncer.lua"
+LOCALIZATION = ADDON / "Localization" / "localization.en.lua"
 APPROVED_AWARD_SERVICE_FILES = {
     r"Services\Loot\LootAttribution.lua",
     r"Services\Master\AwardAttempt.lua",
@@ -60,14 +61,69 @@ def duplicate_raid_names() -> set[str]:
 
 
 class RuntimeBootstrapContractTest(unittest.TestCase):
-    def test_persistent_sync_is_enabled_by_default(self) -> None:
-        source = DB_SYNCER.read_text(encoding="utf-8")
-        namespace_start = source.index('Options.RegisterNamespace("Logger", {')
-        logger_defaults = source[
-            namespace_start : source.index("\n\t})", namespace_start)
-        ]
+    def test_runtime_has_no_libcompat_dependency_or_accidental_mixin_api(self) -> None:
+        entries = toc_entries()
+        self.assertNotIn(r"Libs\LibCompat-1.0\lib.xml", entries)
+        self.assertFalse((ADDON / "Libs" / "LibCompat-1.0").exists())
 
-        self.assertIn("persistentSync = true,", logger_defaults)
+        runtime = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted(ADDON.rglob("*.lua"))
+            if "Libs" not in path.parts
+        )
+        self.assertNotIn("LibCompat-1.0", runtime)
+        for retired_api in (
+            "addon.tLength",
+            "addon.TablePool",
+            "addon.WithinRange",
+            "addon.WrapTextInColorCode",
+            "addon.UnitIterator",
+            "addon.GetNumGroupMembers",
+            "addon.GetGroupTypeAndCount",
+            "addon.GetCreatureId",
+            "addon.UnitFullName",
+        ):
+            self.assertNotIn(retired_api, runtime)
+
+    def test_runtime_has_no_liblogger_dependency(self) -> None:
+        entries = toc_entries()
+        self.assertNotIn(r"Libs\LibLogger-1.0\lib.xml", entries)
+        self.assertFalse((ADDON / "Libs" / "LibLogger-1.0").exists())
+
+        runtime = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted(ADDON.rglob("*.lua"))
+            if "Libs" not in path.parts
+        )
+        self.assertNotIn("LibLogger-1.0", runtime)
+        self.assertNotIn("addon.Debugger", runtime)
+
+    def test_user_facing_help_has_no_beta_database_commands(self) -> None:
+        source = LOCALIZATION.read_text(encoding="utf-8")
+        self.assertNotIn("/rma history ", source)
+        self.assertNotIn("/rma perf " + "sync", source)
+
+    def test_beta_database_sync_architecture_is_absent(self) -> None:
+        combined_runtime_source = TOC.read_text(encoding="utf-8") + "\n" + "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted(ADDON.rglob("*.lua"))
+            if "Libs" not in path.parts
+        )
+        retired = (
+            "DBRaid" + "Migrations.lua",
+            "DBSync" + "Metrics.lua",
+            "DBSync" + "Payload.lua",
+            "DBSync" + "Import.lua",
+            "MODE_" + "PUSH",
+            "MODE_" + "REQ",
+            "MODE_" + "SYNC",
+            "persistent" + "Sync",
+            "RequestLogger" + "Req",
+            "BroadcastLogger" + "Push",
+            "RequestLogger" + "Sync",
+        )
+        for symbol in retired:
+            self.assertNotIn(symbol, combined_runtime_source)
 
     def test_award_services_use_approved_domain_names(self) -> None:
         entries = set(toc_entries())
@@ -89,6 +145,13 @@ class RuntimeBootstrapContractTest(unittest.TestCase):
         self.assertLess(
             entries.index(r"Services\Raid\Roster.lua"),
             entries.index(r"Services\Raid\Capabilities.lua"),
+        )
+
+    def test_raid_event_reducer_loads_before_atomic_store(self) -> None:
+        entries = toc_entries()
+        self.assertLess(
+            entries.index(r"Database\DBRaidEvents.lua"),
+            entries.index(r"Database\DBRaidStore.lua"),
         )
 
     def test_cross_expansion_duplicates_use_later_dataset_precedence(self) -> None:

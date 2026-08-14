@@ -6,9 +6,8 @@
 
 local addon = select(2, ...)
 local _G = _G
-local tostring, type = tostring, type
-
-local GetClassColor = addon.GetClassColor
+local tostring, tonumber, type = tostring, tonumber, type
+local strsub = string.sub
 local Colors = addon.Colors or {}
 local C = addon.C or {}
 addon.Colors = Colors
@@ -56,8 +55,20 @@ function Colors.NormalizeHexColor(color)
 end
 
 function Colors.GetClassColor(className)
-	local r, g, b = GetClassColor(className)
-	return (r or 1), (g or 1), (b or 1)
+	local token = Colors.NormalizeClassToken(className) or "UNKNOWN"
+	local hex = C.CLASS_COLORS and C.CLASS_COLORS[token]
+	if hex then
+		local normalized = Colors.NormalizeHexColor(hex)
+		return (tonumber(strsub(normalized, 3, 4), 16) or 255) / 255,
+			(tonumber(strsub(normalized, 5, 6), 16) or 255) / 255,
+			(tonumber(strsub(normalized, 7, 8), 16) or 255) / 255,
+			normalized
+	end
+	local color = _G.RAID_CLASS_COLORS and _G.RAID_CLASS_COLORS[token]
+	if color then
+		return color.r or 1, color.g or 1, color.b or 1, color.colorStr or "ffffffff"
+	end
+	return 1, 1, 1, "ffffffff"
 end
 
 function Colors.GetClassColorHex(className)
@@ -66,4 +77,8 @@ function Colors.GetClassColorHex(className)
 		return token, C.CLASS_COLORS[token]
 	end
 	return token, "ffffffff"
+end
+
+function Colors.WrapText(text, colorHex)
+	return "|c" .. Colors.NormalizeHexColor(colorHex) .. tostring(text or "") .. "|r"
 end

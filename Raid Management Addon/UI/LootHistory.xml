@@ -249,7 +249,19 @@
 						<Anchors>
 							<Anchor point="BOTTOM" relativePoint="BOTTOM">
 								<Offset>
-									<AbsDimension x="-34" y="-31" />
+									<AbsDimension x="-68" y="-31" />
+								</Offset>
+							</Anchor>
+						</Anchors>
+					</Button>
+					<Button name="$parentShareBtn" inherits="RMAActionButtonTemplate">
+						<Size>
+							<AbsDimension x="65" y="25" />
+						</Size>
+						<Anchors>
+							<Anchor point="LEFT" relativeTo="$parentCurrentBtn" relativePoint="RIGHT">
+								<Offset>
+									<AbsDimension x="3" y="0" />
 								</Offset>
 							</Anchor>
 						</Anchors>
@@ -259,7 +271,7 @@
 							<AbsDimension x="65" y="25" />
 						</Size>
 						<Anchors>
-							<Anchor point="LEFT" relativeTo="$parentCurrentBtn" relativePoint="RIGHT">
+							<Anchor point="LEFT" relativeTo="$parentShareBtn" relativePoint="RIGHT">
 								<Offset>
 									<AbsDimension x="3" y="0" />
 								</Offset>
@@ -615,6 +627,59 @@
 						<Offset>
 							<AbsDimension x="0" y="20" />
 						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
+		</Frames>
+	</Frame>
+
+	<Frame name="RMALootHistoryShareFrame" inherits="RMAWindowTemplate" parent="UIParent" frameStrata="DIALOG" hidden="true">
+		<Size>
+			<AbsDimension x="360" y="230" />
+		</Size>
+		<Anchors>
+			<Anchor point="CENTER" />
+		</Anchors>
+		<Layers>
+			<Layer level="ARTWORK">
+				<FontString name="$parentSummary" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP">
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset><AbsDimension x="24" y="-46" /></Offset>
+						</Anchor>
+						<Anchor point="TOPRIGHT">
+							<Offset><AbsDimension x="-24" y="-46" /></Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentRecipientLabel" inherits="GameFontNormalSmall" justifyH="LEFT">
+					<Anchors>
+						<Anchor point="TOPLEFT">
+							<Offset><AbsDimension x="24" y="-112" /></Offset>
+						</Anchor>
+					</Anchors>
+				</FontString>
+				<FontString name="$parentStatus" inherits="GameFontHighlightSmall" justifyH="LEFT">
+					<Anchors>
+						<Anchor point="BOTTOMLEFT"><Offset><AbsDimension x="24" y="58" /></Offset></Anchor>
+						<Anchor point="BOTTOMRIGHT"><Offset><AbsDimension x="-24" y="58" /></Offset></Anchor>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+		<Frames>
+			<Frame name="$parentRecipientDropDown" inherits="UIDropDownMenuTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT">
+						<Offset><AbsDimension x="8" y="-126" /></Offset>
+					</Anchor>
+				</Anchors>
+			</Frame>
+			<Button name="$parentSendBtn" inherits="RMAActionButtonTemplate">
+				<Size><AbsDimension x="135" y="25" /></Size>
+				<Anchors>
+					<Anchor point="BOTTOMLEFT">
+						<Offset><AbsDimension x="24" y="24" /></Offset>
 					</Anchor>
 				</Anchors>
 			</Button>

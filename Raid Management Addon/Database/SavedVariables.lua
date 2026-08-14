@@ -17,6 +17,8 @@ addon.Database.SavedVariables = SavedVariables
 
 -- ----- Internal state -----
 local warningsFresh = false
+local RAID_ARCHIVE_FORMAT_VERSION = 1
+local raidArchiveError
 
 -- ----- Private helpers -----
 local function ensureTable(key)
@@ -26,6 +28,27 @@ local function ensureTable(key)
 	return _G[key]
 end
 
+local function newRaidArchive()
+	return {
+		formatVersion = RAID_ARCHIVE_FORMAT_VERSION,
+		activeRaidUid = nil,
+		order = {},
+		raids = {},
+	}
+end
+
+local function ensureRaidArchive()
+	local current = _G.RMA_Raids
+	if
+		type(current) ~= "table"
+		or current.formatVersion ~= RAID_ARCHIVE_FORMAT_VERSION
+	then
+		current = newRaidArchive()
+		_G.RMA_Raids = current
+	end
+	return current
+end
+
 local function getReservesSave()
 	local reservesService = assert(Services.Reserves, "SavedVariables reserves service is not initialized")
 	return assert(reservesService.Save, "SavedVariables reserves save handler is not initialized"), reservesService
@@ -33,7 +56,7 @@ end
 
 -- ----- Public methods -----
 function SavedVariables.EnsureAll()
-	ensureTable("RMA_Raids")
+	ensureRaidArchive()
 	ensureTable("RMA_Players")
 	ensureTable("RMA_Reserves")
 	warningsFresh = type(_G.RMA_Warnings) ~= "table"
@@ -45,7 +68,20 @@ function SavedVariables.EnsureAll()
 end
 
 function SavedVariables.GetRaids()
-	return ensureTable("RMA_Raids")
+	return ensureRaidArchive()
+end
+
+function SavedVariables.ReplaceRaids(archive)
+	local validator = Database.GetRaidValidator and Database.GetRaidValidator() or nil
+	local valid, reason
+	if validator then
+		valid, reason = validator:ValidateArchive(archive)
+	end
+	if validator and not valid then
+		return nil, reason or "INVALID_RAID_ARCHIVE"
+	end
+	_G.RMA_Raids = archive
+	return archive
 end
 
 function SavedVariables.GetPlayers()
@@ -79,12 +115,35 @@ function SavedVariables.GetOptions()
 end
 
 function SavedVariables.NormalizeAfterLoad()
+	local archive = ensureRaidArchive()
 	local raidStore = GetRaidStore()
+	local validator = Database.GetRaidValidator and Database.GetRaidValidator() or nil
+	local valid, reason
+	if validator then
+		valid, reason = validator:ValidateArchive(archive)
+	end
+	if validator and not valid then
+		raidArchiveError = reason or "INVALID_RAID_ARCHIVE"
+		return nil, raidArchiveError
+	end
+	raidArchiveError = nil
 	raidStore:NormalizeAllRaids("load")
+	return archive
 end
 
 function SavedVariables.PrepareForSave(contextTag)
 	local raidStore = GetRaidStore()
+	local archive = _G.RMA_Raids
+	local validator = Database.GetRaidValidator and Database.GetRaidValidator() or nil
+	local valid, reason
+	if validator then
+		valid, reason = validator:ValidateArchive(archive)
+	end
+	if validator and not valid then
+		raidArchiveError = reason or "INVALID_RAID_ARCHIVE"
+		return nil, raidArchiveError
+	end
+	raidArchiveError = nil
 	local prepared, prepareError, raidIndex = raidStore:PrepareAllRaidsForSave()
 	if not prepared then
 		return nil, prepareError, raidIndex
@@ -93,6 +152,10 @@ function SavedVariables.PrepareForSave(contextTag)
 	local saveReserves, reservesService = getReservesSave()
 	saveReserves(reservesService, contextTag or "save")
 	return prepared
+end
+
+function SavedVariables.GetRaidArchiveError()
+	return raidArchiveError
 end
 
 SavedVariables.EnsureAll()

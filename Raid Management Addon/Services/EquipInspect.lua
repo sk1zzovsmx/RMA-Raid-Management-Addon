@@ -43,6 +43,7 @@ local GetItemInfo = assert(_G.GetItemInfo, "EquipInspect item info API is not in
 
 local type, tonumber, tostring = type, tonumber, tostring
 local pairs, ipairs = pairs, ipairs
+local floor = math.floor
 local tinsert = table.insert
 local tremove = table.remove
 
@@ -104,19 +105,6 @@ local function normalizeReason(value)
 		return value
 	end
 	return nil
-end
-
-local function ensureInspectRoot(raid)
-	if type(raid) ~= "table" then
-		return nil
-	end
-	if type(raid.inspect) ~= "table" then
-		raid.inspect = {}
-	end
-	if type(raid.inspect.players) ~= "table" then
-		raid.inspect.players = {}
-	end
-	return raid.inspect
 end
 
 local function ensureRuntime(raidNid)
@@ -214,6 +202,11 @@ local function compactPersistedInspectSnapshot(snapshot)
 		return nil
 	end
 
+	local avgIlvl = tonumber(snapshot.avgIlvl)
+	if avgIlvl then
+		avgIlvl = floor(avgIlvl)
+	end
+
 	local compact = {
 		playerNid = tonumber(snapshot.playerNid) or nil,
 		name = copyIfString(snapshot.name),
@@ -222,7 +215,7 @@ local function compactPersistedInspectSnapshot(snapshot)
 		status = copyIfString(snapshot.status),
 		reason = copyIfString(snapshot.reason),
 		inspectedAt = tonumber(snapshot.inspectedAt) or nil,
-		avgIlvl = tonumber(snapshot.avgIlvl) or nil,
+		avgIlvl = avgIlvl,
 		specName = copyIfString(snapshot.specName),
 		specIcon = copyIfString(snapshot.specIcon),
 		mainTalentTree = tonumber(snapshot.mainTalentTree) or nil,
@@ -892,12 +885,8 @@ function module:GetPersistedSnapshot(raidOrId, playerNid)
 	if not raid or nid <= 0 then
 		return nil
 	end
-	local inspect = raid.inspect
-	if type(inspect) ~= "table" then
-		return nil
-	end
-	local persisted = inspect.players and (inspect.players[nid] or inspect.players[tostring(nid)])
-	return compactPersistedInspectSnapshot(persisted)
+	local player = getPlayerByNid(raid, nid)
+	return compactPersistedInspectSnapshot(player and player.inspect)
 end
 
 local function clearEquipInspectQueue(raidNid)

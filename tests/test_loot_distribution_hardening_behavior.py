@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import unittest
 
 from tests.lua_test_runner import run_lua_case
@@ -46,6 +47,15 @@ class LootDistributionHardeningTests(unittest.TestCase):
 
     def test_distribution_done_retries_wire_without_duplicate_state(self) -> None:
         self.assert_case("loot_distribution_done_retries_wire_without_duplicate_state")
+
+    def test_remote_final_award_carries_complete_facts_and_is_idempotent(self) -> None:
+        self.assert_case("loot_distribution_remote_final_award_is_complete_and_idempotent")
+
+    def test_split_master_looter_publishes_final_facts_without_local_writes(self) -> None:
+        self.assert_case("loot_master_split_authority_publishes_final_facts_without_local_writes")
+
+    def test_split_master_looter_cancels_local_delayed_attribution(self) -> None:
+        self.assert_case("loot_master_split_authority_cancels_local_delayed_attribution")
 
     def test_award_confirmation_expiry_survives_presentation_failures(self) -> None:
         self.assert_case("loot_award_confirmation_expiry_survives_presentation_failures")
@@ -122,6 +132,9 @@ class LootDistributionHardeningTests(unittest.TestCase):
     def test_trader_keep_uses_award_callback_contract(self) -> None:
         self.assert_case("loot_trader_keep_uses_award_callback_contract")
 
+    def test_split_master_looter_trade_finalizes_without_local_canonical_writes(self) -> None:
+        self.assert_case("loot_split_master_trade_finalizes_without_local_canonical_writes")
+
     def test_trade_rejects_second_in_flight(self) -> None:
         self.assert_case("loot_trade_rejects_second_in_flight")
 
@@ -161,6 +174,35 @@ class LootDistributionHardeningTests(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             for identifier in forbidden:
                 self.assertNotIn(identifier, source, f"{identifier} leaked into {path}")
+
+    def test_loot_chat_has_one_canonical_entrypoint_without_pass_through_wrappers(self) -> None:
+        addon = ROOT / "Raid Management Addon"
+        init_source = (addon / "Init.lua").read_text(encoding="utf-8")
+        service_source = (addon / "Services" / "Loot" / "Service.lua").read_text(encoding="utf-8")
+        runtime_source = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in addon.rglob("*.lua")
+            if "Libs" not in path.parts
+        )
+
+        self.assertIn("lootService:HandleLootChatMessage(msg, winnerOnly)", init_source)
+        self.assertIsNotNone(
+            re.search(
+                r"assert\(\s*lootService and lootService\.HandleLootChatMessage",
+                init_source,
+            )
+        )
+        self.assertNotIn("type(PassiveGroupLoot.ParseGroupLootMessage)", service_source)
+        self.assertNotIn("type(PassiveGroupLoot.ApplyGroupLootObservation)", service_source)
+
+        retired_entrypoints = (
+            "ObservePassiveLootMessage",
+            "AddGroupLootMessage",
+            "ObserveGroupLootMessage",
+            "ObserveGroupLootWinnerMessage",
+        )
+        for entrypoint in retired_entrypoints:
+            self.assertNotIn(entrypoint, runtime_source)
 
     def test_manual_hold_trade_requires_inventory_evidence(self) -> None:
         self.assert_case("loot_manual_hold_trade_requires_inventory_evidence")

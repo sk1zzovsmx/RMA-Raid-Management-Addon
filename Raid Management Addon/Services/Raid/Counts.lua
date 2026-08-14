@@ -16,6 +16,7 @@ local PlayerCountChangedEvent =
 
 local tostring = tostring
 local tonumber = tonumber
+local pairs = pairs
 
 local twipe = table.wipe
 
@@ -132,7 +133,7 @@ do
 	function module:SetPlayerLootCountByNid(playerNid, lootType, value, raidNum)
 		local player, resolvedRaidNum = resolveRaidPlayerByNid(playerNid, raidNum)
 		if not player then
-			return
+			return false
 		end
 
 		local field = LOOT_FIELD[lootType] or "countMS"
@@ -142,22 +143,31 @@ do
 		end
 
 		local old = tonumber(player[field]) or 0
-		player[field] = value
-
-		if old ~= value then
-			TriggerEvent(PlayerCountChangedEvent, player.name, value, old, resolvedRaidNum)
+		if old == value then
+			return true
 		end
+
+		local updated = {}
+		for key, child in pairs(player) do
+			updated[key] = child
+		end
+		updated[field] = value
+		if type(module.AddPlayer) ~= "function" or not module:AddPlayer(updated, resolvedRaidNum) then
+			return false
+		end
+		TriggerEvent(PlayerCountChangedEvent, updated.name, value, old, resolvedRaidNum)
+		return true
 	end
 
 	function module:AddPlayerLootCountByNid(playerNid, lootType, delta, raidNum)
 		raidNum = raidNum or Database.GetCurrentRaid()
 		if not raidNum then
-			return
+			return false
 		end
 
 		delta = tonumber(delta) or 0
 		if delta == 0 then
-			return
+			return true
 		end
 
 		local current = module:GetPlayerLootCountByNid(playerNid, lootType, raidNum) or 0
@@ -166,18 +176,18 @@ do
 			nextVal = 0
 		end
 
-		module:SetPlayerLootCountByNid(playerNid, lootType, nextVal, raidNum)
+		return module:SetPlayerLootCountByNid(playerNid, lootType, nextVal, raidNum)
 	end
 
 	local function addPlayerLootCount(name, lootType, delta, raidNum)
 		raidNum = raidNum or Database.GetCurrentRaid()
 		if not raidNum or not name then
-			return
+			return false
 		end
 
 		delta = tonumber(delta) or 0
 		if delta == 0 then
-			return
+			return true
 		end
 
 		if type(module.CheckPlayer) == "function" then
@@ -189,7 +199,7 @@ do
 
 		name = addon.Strings.NormalizeName(name, true)
 		if not name then
-			return
+			return false
 		end
 
 		local playerNid = module:GetPlayerID(name, raidNum)
@@ -198,13 +208,13 @@ do
 				module:AddPlayer({ name = name }, raidNum)
 				playerNid = module:GetPlayerID(name, raidNum)
 				if playerNid <= 0 then
-					return
+					return false
 				end
 			else
-				return
+				return false
 			end
 		end
-		module:AddPlayerLootCountByNid(playerNid, lootType, delta, raidNum)
+		return module:AddPlayerLootCountByNid(playerNid, lootType, delta, raidNum)
 	end
 
 	-- Increments the correct counter based on the C.rollTypes value.
@@ -212,9 +222,9 @@ do
 	function module:AddPlayerCountForRollType(name, rollType, delta, raidNum)
 		local lootType = ROLL_TYPE_TO_LOOT_TYPE[tonumber(rollType)]
 		if not lootType then
-			return
+			return true
 		end
-		addPlayerLootCount(name, lootType, delta, raidNum)
+		return addPlayerLootCount(name, lootType, delta, raidNum)
 	end
 
 	function module:GetPlayerCount(name, raidNum)

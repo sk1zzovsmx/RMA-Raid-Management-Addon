@@ -7,16 +7,21 @@ local addon = select(2, ...)
 local Database = addon.Database
 local L = addon.L
 local Services = addon.Services
+local Strings = addon.Strings
 
 local select = select
 local tonumber = tonumber
 local tostring = tostring
 local type = type
+local strmatch = string.match
 
 local GetLootMethod = assert(_G.GetLootMethod, "Raid capability loot-method API is not initialized")
+local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "Raid capability roster count API is not initialized")
+local GetRaidRosterInfo = assert(_G.GetRaidRosterInfo, "Raid capability roster API is not initialized")
 local UnitIsUnit = assert(_G.UnitIsUnit, "Raid capability unit comparison API is not initialized")
 local UnitName = assert(_G.UnitName, "Raid capability unit-name API is not initialized")
 local GetUnitRank = assert(Database.GetUnitRank, "Raid capability group-rank resolver is not initialized")
+local NormalizeLower = assert(Strings.NormalizeLower, "Raid capability name normalizer is not initialized")
 
 local function readLootMethodName()
 	local method = select(1, GetLootMethod())
@@ -29,6 +34,13 @@ end
 local function isPassiveGroupLootMethod(method)
 	local resolvedMethod = method or readLootMethodName()
 	return resolvedMethod == "group" or resolvedMethod == "needbeforegreed"
+end
+
+local function normalizeAuthorityName(value)
+	if type(value) ~= "string" or value == "" then
+		return nil
+	end
+	return NormalizeLower(strmatch(value, "^([^%-]+)") or value, true)
 end
 
 do
@@ -47,7 +59,9 @@ do
 	local GetUnitID = assert(module.GetUnitID, "Raid capability unit resolver is not initialized")
 	local function getMasterLooterUnit()
 		local method, partyMaster, raidMaster = GetLootMethod()
-		if method ~= "master" then return nil end
+		if method ~= "master" then
+			return nil
+		end
 		if raidMaster ~= nil then
 			return raidMaster == 0 and "player" or "raid" .. tostring(raidMaster)
 		end
@@ -76,6 +90,34 @@ do
 	function module:IsMasterLooter()
 		local masterUnit = getMasterLooterUnit()
 		return masterUnit ~= nil and not not UnitIsUnit(masterUnit, "player")
+	end
+
+	function module:GetRaidLeaderName()
+		local count = tonumber(GetNumRaidMembers()) or 0
+		for i = 1, count do
+			local name, rank = GetRaidRosterInfo(i)
+			if name and tonumber(rank) == 2 then
+				return name
+			end
+		end
+		return nil
+	end
+
+	function module:IsRaidLeader()
+		return IsPlayerInRaid(module) and (tonumber(GetUnitRank("player", 0)) or 0) >= 2
+	end
+
+	function module:CanCommitRaidHistory()
+		local syncer = addon.DB and addon.DB.Syncer
+		if syncer and type(syncer.IsAuthorityRecovering) == "function" and syncer:IsAuthorityRecovering() then
+			return false
+		end
+		if module:IsRaidLeader() ~= true then
+			return false
+		end
+		local leaderName = normalizeAuthorityName(module:GetRaidLeaderName())
+		local playerName = normalizeAuthorityName(Database.GetPlayerName())
+		return leaderName ~= nil and playerName ~= nil and leaderName == playerName
 	end
 
 	function module:IsGroupMember(name)
@@ -194,9 +236,15 @@ do
 
 	function module:CanObservePassiveLoot()
 		local method = readLootMethodName()
-		if method == "master" then
-			return module:CanUseCapability("loot")
+		if Database.GetCurrentRaid() == nil then
+			if method == "master" then
+				return module:CanUseCapability("loot")
+			end
+			return isPassiveGroupLootMethod(method)
 		end
-		return isPassiveGroupLootMethod(method)
+		if method == "master" then
+			return module:CanCommitRaidHistory() and module:IsMasterLooter()
+		end
+		return isPassiveGroupLootMethod(method) and module:CanCommitRaidHistory()
 	end
 end

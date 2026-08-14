@@ -76,10 +76,8 @@ do
 			return
 		end
 		canonicalTables[value] = true
-		for key, item in pairs(value) do
-			if key ~= "_runtime" then
-				collectCanonicalTables(item, canonicalTables)
-			end
+		for _, item in pairs(value) do
+			collectCanonicalTables(item, canonicalTables)
 		end
 	end
 

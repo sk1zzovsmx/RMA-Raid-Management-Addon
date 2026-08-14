@@ -120,6 +120,10 @@ loot distribution.
 RMA stores raid logs locally and provides a history view for review and cleanup.
 
 - Open with `/rma history`.
+- Use **Share** in Loot History to offer the selected raid to one current group
+  member. The recipient must accept before RMA requests and imports that raid.
+- Use **Recover current raid** from the same dialog to request the active raid
+  from the current Master Looter.
 - Creates raid sessions from raid and instance state.
 - Records raid zone, size, difficulty, roster snapshots, boss kills, trash
   entries, and loot entries.
@@ -218,8 +222,9 @@ The configuration panel includes:
   SoftRes summaries when loot opens.
 - Raid Warning template preview and maintenance.
 - LFM Spam preview and start/stop shortcuts.
-- Loot History sync targets, persistent sync, passive Group Loot filtering,
-  quality-threshold override, maintenance, cleanup, and data-health actions.
+- Loot History synchronization and history sharing, passive Group Loot
+  filtering, quality-threshold override, maintenance, cleanup, and data-health
+  actions.
 - Built-in command, permission, and diagnostic help.
 
 Use `/rma config reset` to restore default options.

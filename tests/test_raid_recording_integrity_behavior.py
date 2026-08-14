@@ -15,17 +15,17 @@ class RaidRecordingIntegrityBehaviorTests(unittest.TestCase):
         result = run_lua_case("raid_session_create_failure_is_atomic")
         self.assertIn("PASS raid_session_create_failure_is_atomic", result.stdout)
 
-    def test_raid_session_replacement_preserves_event_order(self) -> None:
-        result = run_lua_case("raid_session_replacement_preserves_event_order")
-        self.assertIn("PASS raid_session_replacement_preserves_event_order", result.stdout)
+    def test_raid_create_preserves_store_rejection_reason(self) -> None:
+        result = run_lua_case("raid_create_preserves_store_rejection_reason")
+        self.assertIn("PASS raid_create_preserves_store_rejection_reason", result.stdout)
+
+    def test_raid_end_rejection_preserves_active_runtime(self) -> None:
+        result = run_lua_case("raid_end_rejection_preserves_active_runtime")
+        self.assertIn("PASS raid_end_rejection_preserves_active_runtime", result.stdout)
 
     def test_raid_state_resolves_roster_timers_after_toc_order_load(self) -> None:
         result = run_lua_case("raid_state_resolves_roster_timers_after_toc_order_load")
         self.assertIn("PASS raid_state_resolves_roster_timers_after_toc_order_load", result.stdout)
-
-    def test_raid_session_switch_failure_rolls_back_candidate(self) -> None:
-        result = run_lua_case("raid_session_switch_failure_rolls_back_candidate")
-        self.assertIn("PASS raid_session_switch_failure_rolls_back_candidate", result.stdout)
 
     def test_raid_recording_fixture_smoke(self) -> None:
         result = run_lua_case("raid_recording_fixture_smoke")
@@ -38,9 +38,17 @@ class RaidRecordingIntegrityBehaviorTests(unittest.TestCase):
             result.stdout,
         )
 
+    def test_loot_semantic_store_failure_is_atomic(self) -> None:
+        result = run_lua_case("loot_semantic_store_failure_is_atomic")
+        self.assertIn("PASS loot_semantic_store_failure_is_atomic", result.stdout)
+
     def test_real_roster_session_end_publishes_final_delta(self) -> None:
         result = run_lua_case("real_roster_session_end_publishes_final_delta")
         self.assertIn("PASS real_roster_session_end_publishes_final_delta", result.stdout)
+
+    def test_runtime_only_roster_settlement_does_not_publish_nil_delta(self) -> None:
+        result = run_lua_case("real_roster_runtime_only_change_does_not_publish_nil_delta")
+        self.assertIn("PASS real_roster_runtime_only_change_does_not_publish_nil_delta", result.stdout)
 
     def test_real_attendance_manual_refresh_calls_roster_owner(self) -> None:
         result = run_lua_case("real_attendance_manual_refresh_calls_roster_owner")
@@ -62,6 +70,10 @@ class RaidRecordingIntegrityBehaviorTests(unittest.TestCase):
         result = run_lua_case("attendance_unknown_and_duplicate_leave_are_deep_noops")
         self.assertIn("PASS attendance_unknown_and_duplicate_leave_are_deep_noops", result.stdout)
 
+    def test_attendance_semantic_store_failure_is_atomic(self) -> None:
+        result = run_lua_case("attendance_semantic_store_failure_is_atomic")
+        self.assertIn("PASS attendance_semantic_store_failure_is_atomic", result.stdout)
+
     def test_attendance_delayed_transition_remains_monotonic(self) -> None:
         result = run_lua_case("attendance_delayed_transition_remains_monotonic")
         self.assertIn("PASS attendance_delayed_transition_remains_monotonic", result.stdout)
@@ -82,17 +94,24 @@ class RaidRecordingIntegrityBehaviorTests(unittest.TestCase):
         result = run_lua_case("equip_inspect_ready_snapshot_survives_reload_with_epoch_timestamp")
         self.assertIn("PASS equip_inspect_ready_snapshot_survives_reload_with_epoch_timestamp", result.stdout)
 
+    def test_equip_inspect_persists_truncated_item_level_with_reload_stable_digest(self) -> None:
+        result = run_lua_case("equip_inspect_persists_truncated_item_level_with_reload_stable_digest")
+        self.assertIn(
+            "PASS equip_inspect_persists_truncated_item_level_with_reload_stable_digest",
+            result.stdout,
+        )
+
     def test_raid_inspect_persistence_compacts_only_on_explicit_save(self) -> None:
         result = run_lua_case("raid_inspect_persistence_compacts_only_on_explicit_save")
         self.assertIn("PASS raid_inspect_persistence_compacts_only_on_explicit_save", result.stdout)
 
-    def test_raid_store_inspect_commit_restores_partial_revision_failures(self) -> None:
-        result = run_lua_case("raid_store_inspect_commit_restores_partial_revision_failures")
-        self.assertIn("PASS raid_store_inspect_commit_restores_partial_revision_failures", result.stdout)
-
     def test_equip_inspect_ready_persistence_is_atomic_revisioned_full_sync(self) -> None:
         result = run_lua_case("equip_inspect_ready_persistence_is_atomic_revisioned_full_sync")
         self.assertIn("PASS equip_inspect_ready_persistence_is_atomic_revisioned_full_sync", result.stdout)
+
+    def test_equip_inspect_semantic_store_failure_is_atomic(self) -> None:
+        result = run_lua_case("equip_inspect_semantic_store_failure_is_atomic")
+        self.assertIn("PASS equip_inspect_semantic_store_failure_is_atomic", result.stdout)
 
     def test_equip_inspect_orphaned_work_is_cancelled(self) -> None:
         result = run_lua_case("equip_inspect_orphaned_work_is_cancelled")
@@ -174,6 +193,10 @@ class RaidRecordingIntegrityBehaviorTests(unittest.TestCase):
         result = run_lua_case("raid_store_cleanup_conflict_is_atomic")
         self.assertIn("PASS raid_store_cleanup_conflict_is_atomic", result.stdout)
 
+    def test_archive_cleanup_uses_exact_row_identity_and_is_atomic(self) -> None:
+        result = run_lua_case("raid_archive_cleanup_exact_identity")
+        self.assertIn("PASS raid_archive_cleanup_exact_identity", result.stdout)
+
     def test_logger_refresh_requests_coalesce_behaviorally(self) -> None:
         result = run_lua_case("logger_refresh_requests_coalesce_behaviorally")
         self.assertIn("PASS logger_refresh_requests_coalesce_behaviorally", result.stdout)
@@ -191,6 +214,10 @@ class RaidRecordingIntegrityBehaviorTests(unittest.TestCase):
     def test_logger_source_rebuild_is_atomic_and_revisioned(self) -> None:
         result = run_lua_case("logger_source_rebuild_is_atomic_and_revisioned")
         self.assertIn("PASS logger_source_rebuild_is_atomic_and_revisioned", result.stdout)
+
+    def test_logger_source_rebuild_skips_active_record(self) -> None:
+        result = run_lua_case("logger_source_rebuild_skips_active_record")
+        self.assertIn("PASS logger_source_rebuild_skips_active_record", result.stdout)
 
     def test_logger_record_loot_verification_failure_is_atomic(self) -> None:
         result = run_lua_case("logger_record_loot_verification_failure_is_atomic")

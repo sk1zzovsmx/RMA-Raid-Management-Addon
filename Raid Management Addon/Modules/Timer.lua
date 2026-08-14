@@ -1,5 +1,5 @@
 -- ----- RMA Lua Contract ----- --
--- deps: local addon = select(2, ...); LibStub("LibCompat-1.0")
+-- deps: local addon = select(2, ...); WotLK CreateFrame/GetTime APIs
 -- shared: direct addon namespace bindings
 -- exports: addon.Timer (mixin: ScheduleTimer/CancelTimer; static: RefreshStats/ShowStats)
 -- events: none (purely a timer mixin; does not emit Bus events)
@@ -11,15 +11,10 @@ local type, pairs, select, rawget, rawset, tostring, tonumber = type, pairs, sel
 local pcall, error = pcall, error
 local format = string.format
 local tsort = table.sort
+local tinsert, tremove = table.insert, table.remove
+local max = math.max
 local GetTime = assert(_G.GetTime, "RMA Timer: GetTime API is not initialized")
-
-local LibStub = assert(_G.LibStub, "RMA Timer: LibStub API is not initialized")
-local libcompat = LibStub("LibCompat-1.0", true)
-assert(libcompat, "RMA Timer: LibCompat-1.0 missing")
-
-local lcNewTimer = libcompat.NewTimer
-local lcNewTicker = libcompat.NewTicker
-local lcCancelTimer = libcompat.CancelTimer
+local CreateFrame = assert(_G.CreateFrame, "RMA Timer: CreateFrame API is not initialized")
 
 local Timer = addon.Timer or {}
 addon.Timer = Timer
@@ -36,6 +31,9 @@ Timer._stats = stats
 Timer._targets = Timer._targets or {}
 
 local mixin = {}
+local scheduled = {}
+local schedulerFrame = CreateFrame("Frame", "RMA_TimerFrame", _G.UIParent)
+schedulerFrame:Hide()
 
 -- ----- Private helpers ----- --
 local function now()
@@ -101,6 +99,69 @@ local function invokeCallback(callback, args, n, targetName)
 	end
 end
 
+local function removeScheduled(index)
+	local handle = tremove(scheduled, index)
+	if handle then
+		handle.cancelled = true
+	end
+	return handle
+end
+
+local function schedule(callback, delay, repeating)
+	local duration = max(0.01, delay)
+	local handle = {
+		callback = callback,
+		remaining = duration,
+		interval = duration,
+		repeating = repeating == true,
+		cancelled = false,
+	}
+	tinsert(scheduled, handle)
+	schedulerFrame:Show()
+	return handle
+end
+
+local function cancelScheduled(handle)
+	if type(handle) ~= "table" or handle.cancelled then
+		return false
+	end
+	handle.cancelled = true
+	return true
+end
+
+local function updateScheduled(self, elapsed)
+	local limit = #scheduled
+	local index = 1
+	while index <= limit do
+		local handle = scheduled[index]
+		if handle.cancelled then
+			removeScheduled(index)
+			limit = limit - 1
+		elseif handle.remaining > elapsed then
+			handle.remaining = handle.remaining - elapsed
+			index = index + 1
+		else
+			if handle.repeating then
+				handle.remaining = handle.interval
+			else
+				handle.cancelled = true
+			end
+			handle.callback(handle)
+			if handle.cancelled then
+				removeScheduled(index)
+				limit = limit - 1
+			else
+				index = index + 1
+			end
+		end
+	end
+	if #scheduled == 0 then
+		self:Hide()
+	end
+end
+
+schedulerFrame:SetScript("OnUpdate", updateScheduled)
+
 -- ----- Mixin methods ----- --
 function mixin:ScheduleTimer(callback, delay, ...)
 	if type(callback) ~= "function" then
@@ -123,7 +184,7 @@ function mixin:ScheduleTimer(callback, delay, ...)
 		invokeCallback(callback, args, n, state.name)
 	end
 
-	handle = lcNewTimer(delay, oneShotCallback)
+	handle = schedule(oneShotCallback, delay, false)
 	if handle then
 		registerHandle(state, handle, "timer", delay)
 	end
@@ -146,15 +207,11 @@ function mixin:ScheduleRepeatingTimer(callback, interval, ...)
 	end
 
 	local handle
-	local repeatingCallback = function(t)
+	local repeatingCallback = function()
 		invokeCallback(callback, args, n, state.name)
-		-- LibCompat decrements _iterations after the callback; 1 means last tick.
-		if t and t._iterations == 1 then
-			unregisterHandle(state, handle, "done")
-		end
 	end
 
-	handle = lcNewTicker(interval, repeatingCallback)
+	handle = schedule(repeatingCallback, interval, true)
 	if handle then
 		registerHandle(state, handle, "ticker", interval)
 	end
@@ -168,7 +225,7 @@ function mixin:CancelTimer(handle)
 	local state = getState(self)
 	if state.active[handle] then
 		unregisterHandle(state, handle, "cancel")
-		lcCancelTimer(handle, true)
+		cancelScheduled(handle)
 		return true
 	end
 	return false

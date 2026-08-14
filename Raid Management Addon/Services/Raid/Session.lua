@@ -73,6 +73,15 @@ do
 		cancelRaidInstanceChecks()
 	end
 
+	function module:ResolveRaidInstanceContext(instanceName, instanceDiff)
+		local difficulty = module._ResolveRaidDifficultyInternal(instanceDiff)
+		local size = module._GetRaidSizeFromDifficultyInternal(difficulty)
+		if type(instanceName) ~= "string" or instanceName == "" or not size then
+			return nil, "INVALID_RAID_CONTEXT"
+		end
+		return { zone = instanceName, size = size, difficulty = difficulty }
+	end
+
 	function module:ScheduleInstanceChecks()
 		cancelRaidInstanceChecks()
 
@@ -91,8 +100,16 @@ do
 
 	-- Checks the current raid status and creates a new session if needed.
 	function module:Check(instanceName, instanceDiff)
-		instanceDiff = module._ResolveRaidDifficultyInternal(instanceDiff)
-		local newSize = module._GetRaidSizeFromDifficultyInternal(instanceDiff)
+		local syncer = addon.DB and addon.DB.Syncer
+		if syncer and type(syncer.IsAuthorityRecovering) == "function" and syncer:IsAuthorityRecovering() then
+			return false, "AUTHORITY_RECOVERING"
+		end
+		local context, contextReason = module:ResolveRaidInstanceContext(instanceName, instanceDiff)
+		if not context then
+			return nil, contextReason
+		end
+		instanceDiff = context.difficulty
+		local newSize = context.size
 		if isDebugEnabled() then
 			addon:debug(
 				Diag.D.LogRaidCheck:format(
@@ -102,18 +119,14 @@ do
 				)
 			)
 		end
-		if not newSize then
-			return
-		end
-
 		if not Database.GetCurrentRaid() then
-			module:Create(instanceName, newSize, instanceDiff)
+			module:Create(context.zone, newSize, instanceDiff)
 			return
 		end
 
 		local current = Database.EnsureRaidByIndex(Database.GetCurrentRaid())
 		if not current then
-			createRaidSessionWithReason(instanceName, newSize, instanceDiff, true)
+			createRaidSessionWithReason(context.zone, newSize, instanceDiff, true)
 			return
 		end
 
@@ -122,7 +135,7 @@ do
 			or tonumber(current.difficulty) ~= instanceDiff
 
 		if shouldCreate then
-			createRaidSessionWithReason(instanceName, newSize, instanceDiff, false)
+			createRaidSessionWithReason(context.zone, newSize, instanceDiff, false)
 		end
 	end
 

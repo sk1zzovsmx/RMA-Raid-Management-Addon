@@ -610,37 +610,18 @@ local function queuePendingPassiveAward(owner, itemLink, looter, rollType, rollV
 	return upgraded
 end
 
-local function observeGroupLootWinnerMessage(owner, msg)
-	if type(msg) ~= "string" or msg == "" or not PassiveGroupLoot.IsPassiveGroupLootMethod() then
-		return nil
-	end
-
-	local playerName, itemLink, winnerRollType, winnerRollValue, winnerRollId = parseGroupLootWinnerCached(msg)
-	if not (playerName and itemLink) then
-		return nil
-	end
-
-	local canQueuePendingAward = owner and type(owner.AddPendingAward) == "function"
-	local rule = getGroupLootRule(winnerRollType)
-	local winnerTypeLabel = (rule and rule.label) or "msg-generic"
-	local winnerRollLabel = (winnerRollValue ~= nil) and tostring(winnerRollValue) or "msg-none"
-	if canQueuePendingAward and (winnerRollType ~= nil or winnerRollValue ~= nil) then
-		queuePendingPassiveAward(owner, itemLink, playerName, winnerRollType, winnerRollValue, winnerRollId, true)
-	end
-	if isDebugEnabled() then
-		addon:debug(
-			Diag.D.LogLootGroupWinnerDetected:format(
-				tostring(playerName),
-				winnerTypeLabel,
-				winnerRollLabel,
-				tostring(itemLink)
-			)
-		)
-	end
-	local parsed =
-		buildParsedGroupLootResult("winner", msg, playerName, itemLink, winnerRollType, winnerRollValue, winnerRollId)
-	rememberParsedGroupLootResult(parsed)
-	return "winner", parsed
+local function buildParsedGroupLootShape(kind, msg, playerName, itemLink, rollType, rollValue, rollId)
+	return {
+		kind = kind,
+		msg = msg,
+		playerName = playerName,
+		itemLink = itemLink,
+		rollType = rollType,
+		rollValue = rollValue,
+		rollId = rollId,
+		itemCount = 1,
+		isPassiveWinner = kind == "winner",
+	}
 end
 
 local function getLootRollItemInfo(rollId)
@@ -905,59 +886,101 @@ function PassiveGroupLoot.AddPassiveLootRoll(owner, rollId, rollTime)
 	return entry
 end
 
-function PassiveGroupLoot.ObserveGroupLootMessage(owner, msg)
+function PassiveGroupLoot.ParseGroupLootMessage(msg, winnerOnly)
 	if type(msg) ~= "string" or msg == "" or not PassiveGroupLoot.IsPassiveGroupLootMethod() then
 		return nil
 	end
 
-	local canQueuePendingAward = owner and type(owner.AddPendingAward) == "function"
-	if canQueuePendingAward then
+	if not winnerOnly then
 		for i = 1, #GROUP_LOOT_RULES do
 			local rule = GROUP_LOOT_RULES[i]
 			local playerName, itemLink, rollId = parseGroupLootSelection(msg, rule)
 			if playerName and itemLink then
-				local rollSessionId, expiresAt = PassiveGroupLoot.ResolvePassivePendingAwardContext(itemLink, rollId)
-				owner:AddPendingAward(itemLink, playerName, rule.rollType, 0, rollSessionId, expiresAt)
-				if isDebugEnabled() then
-					addon:debug(
-						Diag.D.LogLootGroupSelectionQueued:format(rule.label, tostring(playerName), tostring(itemLink))
-					)
-				end
-				local parsed =
-					buildParsedGroupLootResult("selection", msg, playerName, itemLink, rule.rollType, 0, rollId)
-				rememberParsedGroupLootResult(parsed)
-				return "selection", parsed
+				return "selection",
+					buildParsedGroupLootShape("selection", msg, playerName, itemLink, rule.rollType, 0, rollId)
 			end
 		end
 
 		local rollPlayer, rollItemLink, rollType, rollValue, rollId = parseGroupLootRoll(msg)
 		if rollPlayer and rollItemLink and rollType then
-			local rule = getGroupLootRule(rollType)
-			queuePendingPassiveAward(owner, rollItemLink, rollPlayer, rollType, rollValue, rollId, false)
-			if isDebugEnabled() then
-				addon:debug(
-					Diag.D.LogLootGroupSelectionQueued:format(
-						(rule and rule.label) or "?",
-						tostring(rollPlayer),
-						tostring(rollItemLink)
-					)
-				)
-			end
-			local parsed =
-				buildParsedGroupLootResult("roll", msg, rollPlayer, rollItemLink, rollType, rollValue, rollId)
-			rememberParsedGroupLootResult(parsed)
-			return "selection", parsed
+			return "selection",
+				buildParsedGroupLootShape("roll", msg, rollPlayer, rollItemLink, rollType, rollValue, rollId)
 		end
 	end
 
-	return observeGroupLootWinnerMessage(owner, msg)
+	local playerName, itemLink, winnerRollType, winnerRollValue, winnerRollId = parseGroupLootWinner(msg)
+	if not (playerName and itemLink) then
+		return nil
+	end
+	return "winner",
+		buildParsedGroupLootShape("winner", msg, playerName, itemLink, winnerRollType, winnerRollValue, winnerRollId)
 end
 
-function PassiveGroupLoot.ObserveGroupLootWinnerMessage(owner, msg)
-	return observeGroupLootWinnerMessage(owner, msg)
-end
+function PassiveGroupLoot.ApplyGroupLootObservation(owner, observedType, parsed, skipPendingAward)
+	if type(parsed) ~= "table" or not observedType then
+		return observedType, parsed
+	end
 
-function PassiveGroupLoot.AddGroupLootMessage(owner, msg)
-	local observedType = PassiveGroupLoot.ObserveGroupLootMessage(owner, msg)
-	return observedType
+	local canQueuePendingAward = owner and type(owner.AddPendingAward) == "function"
+	if parsed.kind == "selection" and canQueuePendingAward then
+		local rollSessionId, expiresAt =
+			PassiveGroupLoot.ResolvePassivePendingAwardContext(parsed.itemLink, parsed.rollId)
+		owner:AddPendingAward(parsed.itemLink, parsed.playerName, parsed.rollType, 0, rollSessionId, expiresAt)
+	elseif parsed.kind == "roll" and canQueuePendingAward then
+		queuePendingPassiveAward(
+			owner,
+			parsed.itemLink,
+			parsed.playerName,
+			parsed.rollType,
+			parsed.rollValue,
+			parsed.rollId,
+			false
+		)
+	elseif parsed.kind == "winner" and not skipPendingAward then
+		if canQueuePendingAward and (parsed.rollType ~= nil or parsed.rollValue ~= nil) then
+			queuePendingPassiveAward(
+				owner,
+				parsed.itemLink,
+				parsed.playerName,
+				parsed.rollType,
+				parsed.rollValue,
+				parsed.rollId,
+				true
+			)
+		end
+	end
+
+	if isDebugEnabled() then
+		local rule = getGroupLootRule(parsed.rollType)
+		if parsed.kind == "winner" then
+			addon:debug(
+				Diag.D.LogLootGroupWinnerDetected:format(
+					tostring(parsed.playerName),
+					(rule and rule.label) or "msg-generic",
+					(parsed.rollValue ~= nil) and tostring(parsed.rollValue) or "msg-none",
+					tostring(parsed.itemLink)
+				)
+			)
+		else
+			addon:debug(
+				Diag.D.LogLootGroupSelectionQueued:format(
+					(rule and rule.label) or "?",
+					tostring(parsed.playerName),
+					tostring(parsed.itemLink)
+				)
+			)
+		end
+	end
+
+	local applied = buildParsedGroupLootResult(
+		parsed.kind,
+		parsed.msg,
+		parsed.playerName,
+		parsed.itemLink,
+		parsed.rollType,
+		parsed.rollValue,
+		parsed.rollId
+	)
+	rememberParsedGroupLootResult(applied)
+	return observedType, applied
 end

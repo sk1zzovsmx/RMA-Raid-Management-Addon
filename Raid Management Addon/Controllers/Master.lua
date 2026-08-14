@@ -177,6 +177,8 @@ local RaidApi = {
 	FindMasterLootCandidateIndex = requireServiceMethod("Raid", Raid, "FindMasterLootCandidateIndex"),
 	CanResolveMasterLootCandidates = requireServiceMethod("Raid", Raid, "CanResolveMasterLootCandidates"),
 	CanUseCapability = requireServiceMethod("Raid", Raid, "CanUseCapability"),
+	IsRaidLeader = requireServiceMethod("Raid", Raid, "IsRaidLeader"),
+	CanCommitRaidHistory = requireServiceMethod("Raid", Raid, "CanCommitRaidHistory"),
 	EnsureMasterOnlyAccess = requireServiceMethod("Raid", Raid, "EnsureMasterOnlyAccess"),
 }
 local GetRollSession = requireServiceMethod("Rolls", Rolls, "GetRollSession")
@@ -259,12 +261,42 @@ do
 		opts.transactionId = "AT:" .. tostring(nextAwardAttemptId)
 		nextAwardAttemptId = nextAwardAttemptId + 1
 		opts.onConfirm = function(state, context)
+			local itemPublished, itemPublishReason = attempt:RunCheckpoint("confirmed_item", function()
+				local executorContext = state.executorContext or {}
+				local result = LootDistribution.PublishItem({
+					itemKey = state.itemKey or state.itemLink,
+					itemLink = state.itemLink,
+					count = tonumber(executorContext.awardedCount) or 1,
+				})
+				if result == false then
+					return nil, "item_notification_rejected"
+				end
+				return true
+			end)
+			if not itemPublished then
+				return nil, itemPublishReason
+			end
+
+			local rollStarted, rollStartReason = attempt:RunCheckpoint("confirmed_roll_start", function()
+				local executorContext = state.executorContext or {}
+				local result =
+					LootDistribution.PublishRollStart(state.itemKey or state.itemLink, executorContext.rollType)
+				if result == false then
+					return nil, "roll_start_notification_rejected"
+				end
+				return true
+			end)
+			if not rollStarted then
+				return nil, rollStartReason
+			end
+
 			local rollEnded, rollEndReason = attempt:RunCheckpoint("confirmed_roll_end", function()
+				local executorContext = state.executorContext or {}
 				local result = LootDistribution.PublishRollEnd(
 					state.itemKey or state.itemLink,
 					state.winner,
-					confirmedOutput.rollValue,
-					"master_loot"
+					confirmedOutput.rollValue or executorContext.rollValue,
+					"master_loot:" .. tostring(state.transactionId)
 				)
 				if result == false then
 					return nil, "roll_end_notification_rejected"
@@ -287,7 +319,7 @@ do
 				return nil, publishReason
 			end
 
-			if state.source == "master_loot" then
+			if state.source == "master_loot" and RaidApi.CanCommitRaidHistory(Raid) then
 				local counted, countReason = attempt:RunCheckpoint("player_counter", function()
 					local result = Raid:AddPlayerCountForRollType(
 						state.winner,
@@ -397,6 +429,14 @@ do
 			module:RequestRefresh()
 		end,
 		confirmProvisional = function(pending, clearedSlot)
+			if
+				Database.GetCurrentRaid() ~= nil
+				and RaidApi.IsRaidLeader(Raid) ~= true
+				and RaidApi.CanCommitRaidHistory(Raid) ~= true
+			then
+				Loot:CancelPendingAward(pending.transactionId)
+				return true
+			end
 			local provisional = LootAttribution.ConfirmProvisional(
 				pending.itemLink,
 				pending.playerName,
@@ -424,7 +464,8 @@ do
 					)
 				end,
 				function(reason)
-					if reason == "timer_schedule_failed"
+					if
+						reason == "timer_schedule_failed"
 						or reason == "record_finalize_failed"
 						or reason == "record_reconcile_failed"
 					then
@@ -477,10 +518,7 @@ do
 		end,
 		warnUnresolved = function(pending)
 			addon:warn(
-				L.WarnMLAwardConfirmationUnresolved:format(
-					tostring(pending.itemLink),
-					tostring(pending.playerName)
-				)
+				L.WarnMLAwardConfirmationUnresolved:format(tostring(pending.itemLink), tostring(pending.playerName))
 			)
 		end,
 		onUnresolved = function()
@@ -734,7 +772,7 @@ do
 		local result = {}
 		local seen = {}
 
-		for unit in addon.UnitIterator(true) do
+		for unit in addon.Group.IterateUnits(true) do
 			local name = UnitName(unit)
 			if name and name ~= "" and not seen[name] then
 				local className = getRaidGridPlayerClass(name)
@@ -1121,7 +1159,7 @@ do
 		module._dropDownGroupData = module._dropDownGroupData or {}
 		twipe(module._dropDownGroupData)
 
-		for unit in addon.UnitIterator(true) do
+		for unit in addon.Group.IterateUnits(true) do
 			local name = UnitName(unit)
 			if name and name ~= "" then
 				local subgroup = 1
@@ -1679,7 +1717,7 @@ do
 
 		local createdTradeOnly = false
 		if lootNid <= 0 and Loot and Loot.LogTradeOnlyLoot then
-			local created = Loot:LogTradeOnlyLoot(
+			local created, wasCreated = Loot:LogTradeOnlyLoot(
 				itemLink,
 				playerName,
 				rollType,
@@ -1689,11 +1727,11 @@ do
 				Database.GetCurrentRaid(),
 				session and session.bossNid or nil,
 				session and session.id or nil
-			) or 0
+			)
 			created = tonumber(created) or 0
 			if created > 0 then
 				lootNid = created
-				createdTradeOnly = true
+				createdTradeOnly = wasCreated == true
 			end
 		end
 
@@ -2322,6 +2360,9 @@ do
 		getItemKey = function(itemLink)
 			return Item.GetItemStringFromLink(itemLink) or itemLink
 		end,
+		canCommitRaidHistory = function()
+			return RaidApi.CanCommitRaidHistory(Raid)
+		end,
 	})
 	itemSelectionController = ItemSelectionWidget.CreateController({
 		state = module._itemSelectionState,
@@ -2412,7 +2453,7 @@ do
 			return false
 		end
 
-		currentItemLink:SetText(addon.WrapTextInColorCode(itemName, Colors.NormalizeHexColor(itemColor)))
+		currentItemLink:SetText(Colors.WrapText(itemName, Colors.NormalizeHexColor(itemColor)))
 		currentItemBtn:SetNormalTexture(itemTexture)
 
 		if GetOption("UI", "showTooltips") then

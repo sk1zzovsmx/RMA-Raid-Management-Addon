@@ -9,7 +9,6 @@ local DebugEntryPoint = assert(addon.EntryPoints.Debug, "Config debug entrypoint
 
 local Database = addon.Database
 local Options = addon.Options
-local Diag = addon.Diag
 local UI = addon.UI
 local Frames = UI.Frames
 local Scaffold = UI.Scaffold
@@ -140,20 +139,6 @@ do
 	end
 
 	local GetOptionByKey = Options.GetByKey
-
-	local function traceConfigSyncAction(eventName, phase, raidRef, target, result, reason)
-		if not (Options.IsDebugEnabled() and addon.debug) then return end
-		addon:debug(
-			(Diag.D.LogSyncConfigAction):format(
-				tostring(eventName),
-				tostring(phase),
-				tostring(raidRef or 0),
-				tostring(target or ""),
-				tostring(result),
-				tostring(reason or "none")
-			)
-		)
-	end
 
 	-- ----- Public methods ----- --
 
@@ -406,12 +391,6 @@ do
 		applyOptionsLayout(lootHistoryContentFrameName, {
 			{ type = "title", suffix = "Title", gap = 16 },
 			Layout.TextRow("ReportTitle", "ReportSummary", { bodyHeight = 116, gap = 16 }),
-			{ type = "section", suffix = "SyncTitle", gap = 10 },
-			Layout.CheckRow("PersistentSync", {
-				check = "PersistentSyncCheck",
-				height = 42,
-				gap = 6,
-			}),
 			Layout.CheckRow("IgnoreGroupLoot", {
 				check = "IgnoreGroupLootCheck",
 				height = 42,
@@ -426,21 +405,6 @@ do
 				descHeight = 34,
 				height = 56,
 				gap = 8,
-			}),
-			Layout.EditCommandRow("RequireDatabase", "RequireDatabaseEditBox", "RequireDatabaseBtn", {
-				descHeight = 34,
-				height = 60,
-				gap = 8,
-			}),
-			Layout.EditCommandRow("PushDatabase", "PushDatabaseEditBox", "PushDatabaseBtn", {
-				descHeight = 34,
-				height = 60,
-				gap = 8,
-			}),
-			Layout.CommandRow("SyncNow", "SyncNowBtn", {
-				descHeight = 34,
-				height = 54,
-				gap = 14,
 			}),
 			{ type = "section", suffix = "DataHealthTitle", gap = 10 },
 			Layout.CommandRow("ScanHistory", "ScanHistoryBtn", {
@@ -797,9 +761,6 @@ do
 	local function localizeLootHistoryPanel()
 		setText(lootHistoryContentFrameName, "Title", L.StrLootHistory)
 		setText(lootHistoryContentFrameName, "ReportTitle", L.StrConfigLootHistoryReportTitle)
-		setText(lootHistoryContentFrameName, "SyncTitle", L.StrConfigLootHistorySyncTitle)
-		setText(lootHistoryContentFrameName, "PersistentSyncStr", L.StrConfigLootHistoryPersistentSync)
-		setText(lootHistoryContentFrameName, "PersistentSyncDesc", L.StrConfigLootHistoryPersistentSyncDesc)
 		setText(lootHistoryContentFrameName, "IgnoreGroupLootStr", L.StrConfigLootHistoryIgnoreGroupLoot)
 		setText(lootHistoryContentFrameName, "IgnoreGroupLootDesc", L.StrConfigLootHistoryIgnoreGroupLootDesc)
 		setText(
@@ -814,15 +775,6 @@ do
 		)
 		setText(lootHistoryContentFrameName, "LoggerLootQualityTitle", L.StrConfigLootHistoryLoggerLootQuality)
 		setText(lootHistoryContentFrameName, "LoggerLootQualityDesc", L.StrConfigLootHistoryLoggerLootQualityDesc)
-		setText(lootHistoryContentFrameName, "RequireDatabaseTitle", L.StrConfigLootHistoryRequireDatabaseTitle)
-		setText(lootHistoryContentFrameName, "RequireDatabaseDesc", L.StrConfigLootHistoryRequireDatabaseDesc)
-		setText(lootHistoryContentFrameName, "PushDatabaseTitle", L.StrConfigLootHistoryPushDatabaseTitle)
-		setText(lootHistoryContentFrameName, "PushDatabaseDesc", L.StrConfigLootHistoryPushDatabaseDesc)
-		setText(lootHistoryContentFrameName, "SyncNowTitle", L.StrConfigLootHistorySyncNowTitle)
-		setText(lootHistoryContentFrameName, "SyncNowDesc", L.StrConfigLootHistorySyncNowDesc)
-		setText(lootHistoryContentFrameName, "RequireDatabaseBtn", L.BtnLoggerRequireDatabase)
-		setText(lootHistoryContentFrameName, "PushDatabaseBtn", L.BtnLoggerPushDatabase)
-		setText(lootHistoryContentFrameName, "SyncNowBtn", L.BtnLoggerSyncNow)
 		setText(lootHistoryContentFrameName, "DataHealthTitle", L.StrConfigLootHistoryDataHealthTitle)
 		setText(lootHistoryContentFrameName, "ScanHistoryTitle", L.StrConfigLootHistoryScanHistoryTitle)
 		setText(lootHistoryContentFrameName, "ScanHistoryDesc", L.StrConfigLootHistoryScanHistoryDesc)
@@ -1110,11 +1062,8 @@ do
 
 	local function refreshLootHistorySyncControls()
 		local thresholdOverride = GetOptionByKey("ignoreSelectionThreshold") == true
-		setChecked(lootHistoryContentFrameName, "PersistentSyncCheck", GetOptionByKey("persistentSync") == true)
 		setChecked(lootHistoryContentFrameName, "IgnoreGroupLootCheck", GetOptionByKey("ignoreGroupLoot") == true)
 		setChecked(lootHistoryContentFrameName, "IgnoreSelectionThresholdCheck", thresholdOverride)
-		setEditBoxText(lootHistoryContentFrameName, "RequireDatabaseEditBox", GetOptionByKey("syncRequirePlayer") or "")
-		setEditBoxText(lootHistoryContentFrameName, "PushDatabaseEditBox", GetOptionByKey("syncPushPlayer") or "")
 		setLoggerLootQualityDropDown(
 			Frames.GetRef(lootHistoryContentFrameName, "LoggerLootQualityDropDown"),
 			GetOptionByKey("loggerLootQualityThreshold"),
@@ -1126,45 +1075,6 @@ do
 		local result = refreshLootHistoryReport()
 		refreshLootHistorySyncControls()
 		return result
-	end
-
-	local function saveLootHistorySyncTargets()
-		setOptions({
-			syncRequirePlayer = getEditBoxText(lootHistoryContentFrameName, "RequireDatabaseEditBox"),
-			syncPushPlayer = getEditBoxText(lootHistoryContentFrameName, "PushDatabaseEditBox"),
-		})
-	end
-
-	function module:RequestLoggerSyncPanelAction(actionName)
-		saveLootHistorySyncTargets()
-
-		local syncer = Database.GetSyncer()
-		if not syncer then
-			addon:warn(L.MsgLoggerMaintenanceUnavailable)
-			return nil
-		end
-
-		local currentRaid = Database.GetCurrentRaid()
-		if actionName == "require" and syncer.RequestLoggerReq then
-			local eventName = "CONFIG_REQ"
-			local target = GetOptionByKey("syncRequirePlayer")
-			traceConfigSyncAction("CONFIG_REQ", "dispatch", currentRaid, target, "pending", "none")
-			local result, reason = syncer:RequestLoggerReq(currentRaid, target)
-			traceConfigSyncAction(eventName, "result", currentRaid, target, result, reason)
-			return result, reason
-		elseif actionName == "push" and syncer.BroadcastLoggerPush then
-			local eventName = "CONFIG_PUSH"
-			local target = GetOptionByKey("syncPushPlayer")
-			traceConfigSyncAction("CONFIG_PUSH", "dispatch", currentRaid, target, "pending", "none")
-			local result, reason = syncer:BroadcastLoggerPush(currentRaid, target)
-			traceConfigSyncAction(eventName, "result", currentRaid, target, result, reason)
-			return result, reason
-		elseif actionName == "sync" and syncer.RequestLoggerSync then
-			return syncer:RequestLoggerSync()
-		end
-
-		addon:warn(L.MsgLoggerMaintenanceUnavailable)
-		return nil
 	end
 
 	function module:RequestLoggerMaintenance(actionName, options)
@@ -1382,28 +1292,6 @@ do
 		end
 	end
 
-	local function bindLootHistorySyncEditBox(editBox, optionKey)
-		if not editBox then
-			return
-		end
-		Frames.SetScriptSafely(editBox, "OnEnterPressed", function(self)
-			local value = Strings.TrimText(self:GetText() or "") or ""
-			setOptions({
-				[optionKey] = value,
-			})
-			self:ClearFocus()
-		end)
-		Frames.SetScriptSafely(editBox, "OnEditFocusLost", function(self)
-			setOptions({
-				[optionKey] = Strings.TrimText(self:GetText() or "") or "",
-			})
-		end)
-		Frames.SetScriptSafely(editBox, "OnEscapePressed", function(self)
-			self:SetText(GetOptionByKey(optionKey) or "")
-			self:ClearFocus()
-		end)
-	end
-
 	local function bindLootHistoryPanel()
 		if lootHistoryPanelBound then
 			return
@@ -1417,15 +1305,9 @@ do
 		local purgeBtn = Frames.GetRef(content, "PurgeHistoryBtn")
 		local rebuildSourcesBtn = Frames.GetRef(content, "RebuildSourcesBtn")
 		local cleanUpBtn = Frames.GetRef(content, "CleanUpBtn")
-		local persistentSyncCheck = Frames.GetRef(content, "PersistentSyncCheck")
 		local ignoreGroupLootCheck = Frames.GetRef(content, "IgnoreGroupLootCheck")
 		local ignoreSelectionThresholdCheck = Frames.GetRef(content, "IgnoreSelectionThresholdCheck")
 		local loggerLootQualityDropDown = Frames.GetRef(content, "LoggerLootQualityDropDown")
-		local requireDatabaseEditBox = Frames.GetRef(content, "RequireDatabaseEditBox")
-		local pushDatabaseEditBox = Frames.GetRef(content, "PushDatabaseEditBox")
-		local requireDatabaseBtn = Frames.GetRef(content, "RequireDatabaseBtn")
-		local pushDatabaseBtn = Frames.GetRef(content, "PushDatabaseBtn")
-		local syncNowBtn = Frames.GetRef(content, "SyncNowBtn")
 
 		Frames.SetScriptSafely(scanBtn, "OnClick", function()
 			module:RequestLoggerMaintenance("scan")
@@ -1438,10 +1320,6 @@ do
 		end)
 		Frames.SetScriptSafely(cleanUpBtn, "OnClick", function()
 			showCleanupPopup()
-		end)
-		Frames.SetScriptSafely(persistentSyncCheck, "OnClick", function(self)
-			local checked = self:GetChecked()
-			saveLootHistoryOption("persistentSync", checked == true or checked == 1)
 		end)
 		Frames.SetScriptSafely(ignoreGroupLootCheck, "OnClick", function(self)
 			local checked = self:GetChecked()
@@ -1463,17 +1341,6 @@ do
 				UIDropDownMenu_JustifyText(loggerLootQualityDropDown, "LEFT")
 			end
 		end
-		bindLootHistorySyncEditBox(requireDatabaseEditBox, "syncRequirePlayer")
-		bindLootHistorySyncEditBox(pushDatabaseEditBox, "syncPushPlayer")
-		Frames.SetScriptSafely(requireDatabaseBtn, "OnClick", function()
-			module:RequestLoggerSyncPanelAction("require")
-		end)
-		Frames.SetScriptSafely(pushDatabaseBtn, "OnClick", function()
-			module:RequestLoggerSyncPanelAction("push")
-		end)
-		Frames.SetScriptSafely(syncNowBtn, "OnClick", function()
-			module:RequestLoggerSyncPanelAction("sync")
-		end)
 		lootHistoryPanelBound = true
 	end
 

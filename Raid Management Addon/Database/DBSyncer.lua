@@ -1,2418 +1,1959 @@
 -- ----- RMA Lua Contract ----- --
--- deps: local addon = select(2, ...)
--- shared: direct addon namespace bindings
--- exports: publish module APIs on addon.*
--- events: handles RMALogSync; listens OptionsLoaded, ConfigpersistentSync, RaidCreate, RaidLootUpdate
+-- deps: addon.DB.RaidStore, addon.DB.SyncProtocol, addon.DB.SyncSession, addon.Comms, addon.Services.Raid, addon.Timer
+-- shared: addon.DB.Syncer
+-- exports: event-driven version-3 active-raid replication and recovery
+-- events: handles RMARaidSync; listens raid commits, load, raid creation, roster, and zone changes
+
 local addon = select(2, ...)
-local L = addon.L
-local Diag = addon.Diag
-
 local DB = addon.DB
-local Events = addon.Events
 local Database = addon.Database
-local Options = addon.Options
+local Events = addon.Events
 local Bus = addon.Bus
-local Strings = addon.Strings
-local Timer = addon.Timer
 local Comms = addon.Comms
+local Options = addon.Options
 local Services = addon.Services
-local coreState = addon.State
+local Diag = addon.Diagnose or addon.Diag
+local L = addon.L
 
-local _G = _G
-local tconcat = table.concat
-local pairs, type, select = pairs, type, select
-local strsub = string.sub
-local tonumber, tostring = tonumber, tostring
-local floor = math.floor
-local format = string.format
+local Protocol = assert(DB.SyncProtocol, "Sync protocol dependency is not initialized")
+local Session = assert(DB.SyncSession, "Sync session dependency is not initialized")
+local RaidStore = assert(DB.RaidStore, "Raid store dependency is not initialized")
+local Raid = assert(Services.Raid, "Raid service dependency is not initialized")
+local Timer = assert(addon.Timer, "Sync timer dependency is not initialized")
+local RegisterCallback = assert(Bus.RegisterCallback, "Sync event bus is not initialized")
+local TriggerEvent = assert(Bus.TriggerEvent, "Sync event publisher is not initialized")
 
-local GetTime = assert(_G.GetTime, "DBSyncer time API is not initialized")
-local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "DBSyncer raid member count API is not initialized")
-local GetRaidRosterInfo = assert(_G.GetRaidRosterInfo, "DBSyncer raid roster API is not initialized")
+local type, tostring, tonumber = type, tostring, tonumber
+local pairs = pairs
+local UnitName = assert(_G.UnitName, "Sync player identity API is not initialized")
+local GetTime = assert(_G.GetTime, "Sync clock API is not initialized")
 
-local NormalizeName = Strings.NormalizeName
-local NormalizeLower = Strings.NormalizeLower
-local TrimText = Strings.TrimText
+DB.Syncer = DB.Syncer or {}
+local module = DB.Syncer
 
-local InternalEvents = assert(Events.Internal, "DBSyncer internal events are not initialized")
-local WowEvents = assert(Events.Wow, "DBSyncer forwarded WoW events are not initialized")
-local Payload = assert(Comms.Payload, "Comms payload helpers are not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "DBSyncer event publisher is not initialized")
-local RegisterCallback = assert(Bus.RegisterCallback, "DBSyncer event bus listener is not initialized")
-local BuildConfigOptionChangedName =
-	assert(Events.BuildConfigOptionChangedName, "DBSyncer config event resolver is not initialized")
-local OptionsLoadedEvent = assert(InternalEvents.OptionsLoaded, "DBSyncer options-loaded event is not initialized")
-local LoggerSelectRaidEvent =
-	assert(InternalEvents.LoggerSelectRaid, "DBSyncer logger-select-raid event is not initialized")
-local RaidCreateEvent = assert(InternalEvents.RaidCreate, "DBSyncer raid-create event is not initialized")
-local RaidRosterDeltaEvent =
-	assert(InternalEvents.RaidRosterDelta, "DBSyncer raid-roster delta event is not initialized")
-local RaidLootUpdateEvent =
-	assert(InternalEvents.RaidLootUpdate, "DBSyncer raid-loot update event is not initialized")
-local ZoneChangedNewAreaEvent =
-	assert(WowEvents.ZoneChangedNewArea, "DBSyncer zone-change event is not initialized")
-local BindTimerMixin = assert(Timer.BindMixin, "DBSyncer timer mixin is not initialized")
+local COMM_PREFIX = "RMARaidSync"
+local MAX_WIRE_BYTES = 255
+local MAX_RANGE_EVENTS = 512
+local RECENT_CONCLUSION_TTL_SECONDS = 45
+local DISCOVERY_RETRY_SECONDS = 3
+local MAX_REENTRY_TRANSITION_EVENTS = 2
+local STATUS_SYNCHRONIZED = "synchronized"
+local STATUS_RECOVERING = "recovering"
+local STATUS_HANDOVER = "handover"
+local STATUS_TRANSFERRING_HISTORY = "transferring_history"
+local STATUS_SUSPENDED = "suspended"
+local STATUS_FAILED = "failed"
+local HISTORY_OFFER_TTL_SECONDS = 30
+local HISTORY_RESULT_TTL_SECONDS = 30
+local HISTORY_OUTGOING_OFFER_RETENTION_SECONDS = 65
+local HISTORY_ACCEPTED_TTL_SECONDS = 65
+local HISTORY_TRANSFER_TTL_SECONDS = 65
+local MAX_HISTORY_OFFERS = 32
+local MAX_HISTORY_RESULTS = 32
 
--- Logger synchronization module.
-do
-	DB.Syncer = DB.Syncer or {}
-	local module = DB.Syncer
-
-	-- ----- Internal state ----- --
-	local COMM_PREFIX = "RMALogSync"
-	Comms.RegisterPrefixIfAvailable(COMM_PREFIX)
-	local LEGACY_PROTOCOL_VERSION = 1
-	local PROTOCOL_VERSION = 2
-
-	local FIELD_SEP = "\t"
-	local splitFields = Payload.SplitFields
-	local packFields = Payload.PackFields
-
-	local MSG_REQUEST = "RQ"
-	local MSG_SNAPSHOT = "SN"
-	local MSG_DELTA = "DL"
-	local MSG_REVISION = "RV"
-
-	local MODE_REQ = "REQ"
-	local MODE_PUSH = "PUSH"
-	local MODE_SYNC = "SYNC"
-
-	local MAX_ADDON_MESSAGE_BYTES = 255
-	local MAX_CHUNK_SIZE = 220
-	local MAX_CHUNKS = 256
-	local MAX_ENCODED_BYTES = MAX_CHUNK_SIZE * MAX_CHUNKS
-	local MAX_INCOMING_STATES = 64
-	local MAX_INCOMING_STATES_PER_SENDER = 8
-	local MAX_REQUEST_ID_BYTES = 64
-	local MAX_DELTA_ROWS = 50
-	local REQUEST_TTL_SECONDS = 30
-	local INCOMING_TTL_SECONDS = 45
-	local REQUEST_RATE_WINDOW_SECONDS = 30
-	local REQUEST_RATE_MAX_PER_SENDER = 6
-	local REQUEST_RATE_PRUNE_SECONDS = REQUEST_RATE_WINDOW_SECONDS * 2
-	local OUTGOING_RATE_WINDOW_SECONDS = 30
-	local OUTGOING_RATE_MAX_PER_TARGET = 4
-	local OUTGOING_RATE_PRUNE_SECONDS = OUTGOING_RATE_WINDOW_SECONDS * 2
-	local PASSIVE_CLEANUP_INTERVAL_SECONDS = 5
-	local PERSISTENT_SYNC_INTERVAL_SECONDS = 120
-	local NOTICE_PULL_DELAY_SECONDS = 0.25
-	local MAX_PUSH_CONSENTS = 128
-	local MAX_TERMINAL_REQUESTS = 128
-
-	local loggerOptions = Options.RegisterNamespace("Logger", {
-		persistentSync = true,
+if Options and Options.RegisterNamespace then
+	Options.RegisterNamespace("Logger", {
 		ignoreGroupLoot = false,
 		ignoreSelectionThreshold = true,
 		loggerLootQualityThreshold = 4,
-		syncRequirePlayer = "",
-		syncPushPlayer = "",
 	})
+end
 
-	module._incoming = module._incoming or {}
-	module._pendingRequests = module._pendingRequests or {}
-	module._terminalRequests = module._terminalRequests or {}
-	module._requestRate = module._requestRate or {}
-	module._outgoingRate = module._outgoingRate or {}
-	module._pushConsents = module._pushConsents or {}
-	module._outboundPushes = module._outboundPushes or {}
-	module._syncLineage = module._syncLineage or {}
-	module._nextRequestId = tonumber(module._nextRequestId) or 0
-	module._nextPassiveCleanupAt = tonumber(module._nextPassiveCleanupAt) or 0
-	module._persistentSyncHandle = module._persistentSyncHandle or nil
-	module._noticePullHandle = module._noticePullHandle or nil
-	module._pendingNotice = module._pendingNotice or nil
-	module._lastRecoveryContext = module._lastRecoveryContext or nil
-	module._persistentSyncCallbacksBound = module._persistentSyncCallbacksBound or false
-	module._lastAnnouncedRevisionByRaid = module._lastAnnouncedRevisionByRaid or {}
-	local chunkMessageBuffer = {}
-	BindTimerMixin(module, "Database/DBSyncer")
-	local ScheduleTimer = assert(module.ScheduleTimer, "DBSyncer persistent-sync scheduler is not initialized")
-	local CancelTimer = assert(module.CancelTimer, "DBSyncer persistent-sync canceler is not initialized")
+local InternalEvents = assert(Events.Internal, "Sync internal events are not initialized")
+local WowEvents = assert(Events.Wow, "Sync WoW events are not initialized")
+local OptionsLoadedEvent = assert(InternalEvents.OptionsLoaded, "Options-loaded event is not initialized")
+local RaidCreateEvent = assert(InternalEvents.RaidCreate, "Raid-create event is not initialized")
+local RaidRosterDeltaEvent = assert(InternalEvents.RaidRosterDelta, "Raid-roster event is not initialized")
+local RaidInstanceRecognizedEvent =
+	assert(InternalEvents.RaidInstanceRecognized, "Raid instance event is not initialized")
+local RaidReplicationCommittedEvent =
+	assert(InternalEvents.RaidReplicationCommitted, "Raid replication commit event is not initialized")
+local RaidAuthorityRecoveryFinishedEvent =
+	assert(InternalEvents.RaidAuthorityRecoveryFinished, "Raid authority recovery event is not initialized")
+local RaidReentryRecoveryReadyEvent = InternalEvents.RaidReentryRecoveryReady or "RaidReentryRecoveryReady"
+local RaidReentryDecisionResolvedEvent = InternalEvents.RaidReentryDecisionResolved or "RaidReentryDecisionResolved"
+local LoggerSelectRaidEvent = assert(InternalEvents.LoggerSelectRaid, "Logger raid selection event is not initialized")
+local LoggerDataChangedEvent = InternalEvents.LoggerDataChanged or "LoggerDataChanged"
+local LoggerRaidOfferReceivedEvent =
+	assert(InternalEvents.LoggerRaidOfferReceived, "Logger raid-offer event is not initialized")
+local ZoneChangedNewAreaEvent = assert(WowEvents.ZoneChangedNewArea, "Zone-change event is not initialized")
+local PartyLootMethodChangedEvent =
+	assert(WowEvents.PartyLootMethodChanged, "Loot-method-change event is not initialized")
 
-	-- ----- Private helpers ----- --
-	local function clearChunkMessageBuffer()
-		for key in pairs(chunkMessageBuffer) do
-			chunkMessageBuffer[key] = nil
-		end
-	end
+module._status = module._status or STATUS_SYNCHRONIZED
+module._statusReason = module._statusReason or "UP_TO_DATE"
+module._recentConclusion = nil
+module._recovery = nil
+module._handover = nil
+module._reentry = nil
+module._deferReentryAdvertise = false
+module._discovery = nil
+module._lastWarnedAuthorityPair = nil
+module._incomingOffers = {}
+module._outgoingOffers = {}
+module._historyResults = {}
+module._historyTransfer = nil
+module._nextOfferId = tonumber(module._nextOfferId) or 0
 
-	local function nowSec()
-		return GetTime()
-	end
+Timer.BindMixin(module, "Database/DBSyncer")
 
-	local function parseNumber(value, fallback)
-		local n = tonumber(value)
-		if n == nil then
-			return fallback
-		end
-		return n
-	end
-
-	local normalizeSender = assert(Comms.NormalizeSender, "DBSync sender normalizer is not initialized")
-
-	local function isSelfSender(sender)
-		local selfName = Database.GetPlayerName()
-		if not selfName then
-			return false
-		end
-		local a = NormalizeLower(selfName, true)
-		local b = NormalizeLower(normalizeSender(sender), true)
-		return (a ~= nil and b ~= nil and a == b)
-	end
-
-	local isDebugEnabled = Options.IsDebugEnabled
-
-	local function traceSync(eventName, details)
-		if not isDebugEnabled() then return end
-		addon:debug((Diag.D.LogSyncTrace):format(tostring(eventName), tostring(details or "")))
-	end
-
-	local Metrics = assert(module._Metrics, "DBSync metrics helpers are not initialized")
-	local SnapshotPayload = assert(module._Payload, "DBSync payload helpers are not initialized")
-	local SnapshotImport = assert(module._Import, "DBSync import helpers are not initialized")
-
-	local terminalizeRequest
-	local releasePushConsent
-
-	local function cleanupExpiredState()
-		local now = nowSec()
-
-		for key, st in pairs(module._incoming) do
-			local age = now - (tonumber(st and st.createdAt) or now)
-			if age > INCOMING_TTL_SECONDS then
-				if st and st.pushConsentKey then
-					local consent = module._pushConsents[st.pushConsentKey]
-					if consent and consent.status == "inflight" then
-						consent.status = "available"
-						if consent.timeoutExtended ~= true then
-							consent.createdAt = now
-							consent.timeoutExtended = true
-						end
-					end
-				end
-				module._incoming[key] = nil
-			end
-		end
-
-		for key, st in pairs(module._pushConsents) do
-			local age = now - (tonumber(st and st.createdAt) or now)
-			if age > INCOMING_TTL_SECONDS then
-				module._pushConsents[key] = nil
-			end
-		end
-
-		local expiredRequests = {}
-		for reqId, st in pairs(module._pendingRequests) do
-			local age = now - (tonumber(st and st.createdAt) or now)
-			if age > REQUEST_TTL_SECONDS then
-				expiredRequests[#expiredRequests + 1] = reqId
-			end
-		end
-		for i = 1, #expiredRequests do
-			terminalizeRequest(expiredRequests[i], "timeout")
-		end
-
-		for reqId, st in pairs(module._terminalRequests) do
-			local age = now - (tonumber(st and st.terminalAt) or now)
-			if age > REQUEST_TTL_SECONDS then
-				module._terminalRequests[reqId] = nil
-			end
-		end
-
-		for reqId, st in pairs(module._outboundPushes) do
-			local age = now - (tonumber(st and st.createdAt) or now)
-			if age > INCOMING_TTL_SECONDS then module._outboundPushes[reqId] = nil end
-		end
-
-		for sender, st in pairs(module._requestRate) do
-			local stamp = tonumber(st and st.windowStart) or tonumber(st and st.lastSeen) or now
-			local age = now - stamp
-			if age > REQUEST_RATE_PRUNE_SECONDS then
-				module._requestRate[sender] = nil
-			end
-		end
-
-		for target, st in pairs(module._outgoingRate) do
-			local stamp = tonumber(st and st.windowStart) or tonumber(st and st.lastSeen) or now
-			local age = now - stamp
-			if age > OUTGOING_RATE_PRUNE_SECONDS then
-				module._outgoingRate[target] = nil
-			end
-		end
-	end
-
-	local function cleanupExpiredStatePassive()
-		local now = nowSec()
-		if now < (tonumber(module._nextPassiveCleanupAt) or 0) then
-			return
-		end
-
-		module._nextPassiveCleanupAt = now + PASSIVE_CLEANUP_INTERVAL_SECONDS
-		cleanupExpiredState()
-	end
-
-	local function cleanupIncomingByRequest(requestId, mode)
-		local requestKey = tostring(requestId or "")
-		local modeKey = tostring(mode or "")
-		if requestKey == "" or modeKey == "" then
-			return
-		end
-		for key, st in pairs(module._incoming) do
-			local incomingRequestId = tostring(st and st.requestId or "")
-			local incomingMode = tostring(st and st.mode or "")
-			if incomingRequestId == requestKey and incomingMode == modeKey then
-				module._incoming[key] = nil
-			end
-		end
-	end
-
-	local function allowIncomingRequest(rawSender)
-		local sender = normalizeSender(rawSender) or tostring(rawSender or "?")
-		local now = nowSec()
-		local rate = module._requestRate[sender]
-		if not rate then
-			module._requestRate[sender] = {
-				windowStart = now,
-				lastSeen = now,
-				count = 1,
-				warned = false,
-			}
-			return true, sender
-		end
-
-		local windowStart = tonumber(rate.windowStart) or now
-		if (now - windowStart) > REQUEST_RATE_WINDOW_SECONDS then
-			rate.windowStart = now
-			rate.lastSeen = now
-			rate.count = 1
-			rate.warned = false
-			return true, sender
-		end
-
-		rate.lastSeen = now
-		rate.count = (tonumber(rate.count) or 0) + 1
-		if rate.count > REQUEST_RATE_MAX_PER_SENDER then
-			if not rate.warned then
-				addon:warn(
-					(Diag.W.LogSyncRequestRateLimited):format(tostring(sender), rate.count, REQUEST_RATE_WINDOW_SECONDS)
-				)
-				rate.warned = true
-			end
-			return false, sender
-		end
-
-		return true, sender
-	end
-
-	local function normalizeOutgoingTarget(target, mode)
-		local normalized = normalizeSender(target)
-		if normalized and normalized ~= "" then
-			return normalized
-		end
-		if target and target ~= "" then
-			return tostring(target)
-		end
-		if mode and mode ~= "" then
-			return tostring(mode)
-		end
-		return "GROUP"
-	end
-
-	local function allowOutgoingRequest(target, mode)
-		local key = normalizeOutgoingTarget(target, mode)
-		local now = nowSec()
-		local rate = module._outgoingRate[key]
-		if not rate then
-			module._outgoingRate[key] = {
-				windowStart = now,
-				lastSeen = now,
-				count = 1,
-				warned = false,
-			}
-			return true, key
-		end
-
-		local windowStart = tonumber(rate.windowStart) or now
-		if (now - windowStart) > OUTGOING_RATE_WINDOW_SECONDS then
-			rate.windowStart = now
-			rate.lastSeen = now
-			rate.count = 1
-			rate.warned = false
-			return true, key
-		end
-
-		rate.lastSeen = now
-		rate.count = (tonumber(rate.count) or 0) + 1
-		if rate.count > OUTGOING_RATE_MAX_PER_TARGET then
-			if not rate.warned then
-				addon:warn(
-					(Diag.W.LogSyncRequestRateLimited):format(tostring(key), rate.count, OUTGOING_RATE_WINDOW_SECONDS)
-				)
-				rate.warned = true
-			end
-			return false, key
-		end
-
-		return true, key
-	end
-
-	local function stableSenderKey(rawSender)
-		local sender = TrimText(rawSender or "")
-		if sender == "" then
-			return nil
-		end
-		return NormalizeLower(sender, true) or sender
-	end
-
-	local function shortSenderKey(rawSender)
-		local sender = stableSenderKey(rawSender)
-		if not sender then
-			return nil
-		end
-		return string.match(sender, "^([^%-]+)") or sender
-	end
-
-	local function findRaidRosterMember(rawSender)
-		local sender = stableSenderKey(rawSender)
-		if not sender then
-			return nil
-		end
-		local senderShort = shortSenderKey(sender)
-		local shortMatchedName, shortMatchedRank, shortMatchCount
-		local count = tonumber(GetNumRaidMembers()) or 0
-		for i = 1, count do
-			local name, rank = GetRaidRosterInfo(i)
-			local rosterName = stableSenderKey(name)
-			if rosterName == sender then
-				return rosterName, tonumber(rank) or 0
-			end
-			if rosterName and shortSenderKey(rosterName) == senderShort then
-				shortMatchCount = (shortMatchCount or 0) + 1
-				shortMatchedName = rosterName
-				shortMatchedRank = tonumber(rank) or 0
-			end
-		end
-		if shortMatchCount == 1 then
-			return shortMatchedName, shortMatchedRank
-		end
+local function normalizeName(value)
+	if type(value) ~= "string" or value == "" then
 		return nil
 	end
-
-	local function isCurrentGroupMember(rawSender)
-		if addon.IsInRaid() then
-			return findRaidRosterMember(rawSender) ~= nil
-		end
-		local raidService = Services.Raid
-		return raidService and raidService.IsGroupMember and raidService:IsGroupMember(rawSender) == true
-	end
-
-	local function canAnswerRequests(rawSender, channel)
-		if not addon.IsInGroup() then
-			return false, "not_in_group"
-		end
-		if channel == "WHISPER" and not isCurrentGroupMember(rawSender) then
-			return false, "sender_not_member"
-		end
-		if channel == "WHISPER" then
-			return true
-		end
-		if not addon.IsInRaid() then
-			return true
-		end
-		local raidService = assert(Services.Raid, "DBSyncer raid service is not initialized")
-		local CanUseCapability =
-			assert(raidService.CanUseCapability, "DBSyncer raid capability resolver is not initialized")
-		local authorized = CanUseCapability(raidService, "raid_leadership") == true
-		if not authorized then
-			return false, "responder_not_authority"
-		end
-		return true
-	end
-
-	local function isCurrentMasterLooterSender(rawSender)
-		local raid = Services.Raid
-		return raid:GetLootMethodName() == "master" and raid:IsLootAuthority(rawSender) == true
-	end
-
-	local function isLocalMasterLooter()
-		local raid = Services.Raid
-		return raid:GetLootMethodName() == "master" and raid:IsMasterLooter() == true
-	end
-
-	local function canAnswerAutomaticSync(rawSender, channel)
-		if channel ~= "RAID" and channel ~= "PARTY" and channel ~= "WHISPER" then
-			return false, "channel_not_supported"
-		end
-		if not addon.IsInGroup() then
-			return false, "not_in_group"
-		end
-		if not isCurrentGroupMember(rawSender) then
-			return false, "sender_not_member"
-		end
-		if not isLocalMasterLooter() then
-			return false, "responder_not_authority"
-		end
-		return true
-	end
-
-	local function normalizeTargetName(raw)
-		local text = TrimText(raw or "")
-		if text == "" then
-			return nil
-		end
-		return NormalizeName(text, true) or text
-	end
-
-	local function ensureGroupSyncAvailable()
-		cleanupExpiredState()
-		if addon.IsInGroup() then
-			return true
-		end
-
-		addon:warn(L.MsgLoggerSyncNotInGroup)
-		return false
-	end
-
-	local function resolveExternalTarget(targetName)
-		local target = normalizeTargetName(targetName)
-		if not target then
-			addon:warn(L.MsgLoggerSyncTargetRequired)
-			return nil
-		end
-		if isSelfSender(target) then
-			addon:warn(L.MsgLoggerSyncTargetSelf)
-			return nil
-		end
-
-		return target
-	end
-
-	local function isPersistentSyncEnabled()
-		return loggerOptions and loggerOptions:Get("persistentSync") == true
-	end
-
-	local function announceCommittedRevision(raidNum)
-		local raidService = Services.Raid
-		if
-			not isPersistentSyncEnabled()
-			or not addon.IsInGroup()
-			or raidService:GetLootMethodName() ~= "master"
-			or raidService:IsMasterLooter() ~= true
-		then
-			return false
-		end
-		local raid, currentRaidId = SnapshotImport.GetCurrentRaidRecord()
-		if not raid or tonumber(raidNum) ~= tonumber(currentRaidId) then
-			return false
-		end
-		local revision = Database.GetRaidStore():GetRaidSyncRevision(raid)
-		local raidNid = tonumber(raid.raidNid) or 0
-		local lastRevision = tonumber(module._lastAnnouncedRevisionByRaid[raidNid]) or 0
-		if raidNid <= 0 or revision <= lastRevision then
-			return false
-		end
-		local signature = SnapshotImport.BuildSignatureFromRaid(raid)
-		local payload = packFields(
-			FIELD_SEP,
-			MSG_REVISION,
-			PROTOCOL_VERSION,
-			raidNid,
-			SnapshotPayload.EncodeText(signature.zone),
-			tonumber(signature.size) or 0,
-			tonumber(signature.diff) or 0,
-			revision
-		)
-		local queued = Comms.Sync(COMM_PREFIX, payload)
-		traceSync(
-			"RV_SEND",
-			format("raidNid=%s revision=%s queued=%s", tostring(raidNid), tostring(revision), tostring(queued == true))
-		)
-		if queued then
-			module._lastAnnouncedRevisionByRaid[raidNid] = revision
-		end
-		return queued == true
-	end
-
-	local nextRequestId = Comms.NextRequestId
-
-	local function isRequestIdUnavailable(requestId)
-		if module._pendingRequests[requestId] or module._terminalRequests[requestId] or module._outboundPushes[requestId] then
-			return true
-		end
-		for _, incoming in pairs(module._incoming) do
-			if tostring(incoming and incoming.requestId or "") == requestId then return true end
-		end
-		for _, consent in pairs(module._pushConsents) do
-			if tostring(consent and consent.requestId or "") == requestId then return true end
-		end
-		return false
-	end
-
-	local function allocateRequestId(syncer)
-		return nextRequestId(syncer, nil, isRequestIdUnavailable)
-	end
-
-	local requestLoggerSync
-
-	local function trackPendingRequest(syncer, requestId, pendingState)
-		if syncer._pendingRequests[requestId] or syncer._terminalRequests[requestId] then
-			return false, "request_id_in_use"
-		end
-		syncer._pendingRequests[requestId] = pendingState
-		pendingState.timeoutHandle = ScheduleTimer(syncer, function()
-			if syncer._pendingRequests[requestId] == pendingState then
-				local currentRaid = select(1, SnapshotImport.GetCurrentRaidRecord())
-				local retry = pendingState.mode == MODE_SYNC
-					and isPersistentSyncEnabled()
-					and pendingState.target
-					and (tonumber(pendingState.retryCount) or 0) < 1
-					and type(currentRaid) == "table"
-					and tonumber(currentRaid.raidNid) == tonumber(pendingState.raidNid)
-					and SnapshotImport.RaidMatchesSignature(currentRaid, pendingState.signature)
-				local target = pendingState.target
-				local sourceRaidNid = pendingState.sourceRaidNid
-				local retryCount = (tonumber(pendingState.retryCount) or 0) + 1
-				terminalizeRequest(requestId, "timeout")
-				if retry and isCurrentMasterLooterSender(target) then
-					requestLoggerSync(syncer, true, target, sourceRaidNid, retryCount)
-				end
-			end
-		end, REQUEST_TTL_SECONDS)
-		if not pendingState.timeoutHandle then
-			syncer._pendingRequests[requestId] = nil
-			return false, "timer_unavailable"
-		end
-		return true
-	end
-
-	local function rollbackPendingRequest(syncer, requestId)
-		local pending = syncer._pendingRequests[requestId]
-		if not pending then return end
-		if pending.timeoutHandle then CancelTimer(syncer, pending.timeoutHandle) end
-		pending.timeoutHandle = nil
-		syncer._pendingRequests[requestId] = nil
-	end
-
-	local function sendAddonPayload(target, payload)
-		if target and target ~= "" then
-			return Comms.QueueAddonMessage(COMM_PREFIX, payload, "WHISPER", target)
-		end
-
-		return Comms.Sync(COMM_PREFIX, payload)
-	end
-
-	local function buildIncomingSnapshotKey(sender, requestId, mode, raidNid)
-		return format("%s|%s|%s|%s", tostring(sender), tostring(requestId), tostring(mode), tostring(raidNid))
-	end
-
-	local function sendRequest(mode, requestId, raidRef, signature, target)
-		signature = signature or {}
-		local payload = packFields(
-			FIELD_SEP,
-			MSG_REQUEST,
-			PROTOCOL_VERSION,
-			requestId,
-			mode,
-			tonumber(raidRef) or 0,
-			SnapshotPayload.EncodeText(signature.zone),
-			tonumber(signature.size) or 0,
-			tonumber(signature.diff) or 0,
-			tonumber(signature.sinceRevision) or 0,
-			signature.supportsCompression == true and 1 or 0
-		)
-		local queued, reason = sendAddonPayload(target, payload)
-		if not queued then return false, reason end
-		Metrics.RecordOutgoingRequest(mode, #payload)
-		if isDebugEnabled() then
-			addon:debug((Diag.D.LogSyncRequestSent):format(tostring(requestId), tostring(raidRef)))
-		end
-		return true
-	end
-
-	local function sendChunkedPayload(kind, target, requestId, mode, raidNid, payload)
-		local encodedPayload =
-			SnapshotPayload.EncodeTransportText(payload, { compress = false })
-		local payloadLen = #encodedPayload
-		local emptyEnvelope = packFields(
-			FIELD_SEP,
-			kind,
-			PROTOCOL_VERSION,
-			requestId,
-			mode,
-			tonumber(raidNid) or 0,
-			MAX_CHUNKS,
-			MAX_CHUNKS,
-			""
-		)
-		local chunkSize = MAX_ADDON_MESSAGE_BYTES - #COMM_PREFIX - 1 - #emptyEnvelope
-		if chunkSize > MAX_CHUNK_SIZE then
-			chunkSize = MAX_CHUNK_SIZE
-		end
-		if chunkSize < 1 then
-			return false, "envelope_too_large"
-		end
-		local totalChunks = floor((payloadLen + chunkSize - 1) / chunkSize)
-		if totalChunks < 1 then
-			totalChunks = 1
-		end
-		if payloadLen > MAX_ENCODED_BYTES or totalChunks > MAX_CHUNKS then
-			return false, "payload_too_large"
-		end
-
-		clearChunkMessageBuffer()
-		chunkMessageBuffer[1] = kind
-		chunkMessageBuffer[2] = PROTOCOL_VERSION
-		chunkMessageBuffer[3] = requestId
-		chunkMessageBuffer[4] = mode
-		chunkMessageBuffer[5] = tonumber(raidNid) or 0
-		chunkMessageBuffer[7] = totalChunks
-
-		local messages = {}
-		for idx = 1, totalChunks do
-			local fromPos = ((idx - 1) * chunkSize) + 1
-			local toPos = fromPos + chunkSize - 1
-			chunkMessageBuffer[6] = idx
-			chunkMessageBuffer[8] = strsub(encodedPayload, fromPos, toPos)
-
-			local msg = packFields(
-				FIELD_SEP,
-				chunkMessageBuffer[1],
-				chunkMessageBuffer[2],
-				chunkMessageBuffer[3],
-				chunkMessageBuffer[4],
-				chunkMessageBuffer[5],
-				chunkMessageBuffer[6],
-				chunkMessageBuffer[7],
-				chunkMessageBuffer[8]
-			)
-			messages[idx] = msg
-		end
-		local queued, reason = Comms.SendAddonBatch(COMM_PREFIX, messages, target)
-		if not queued then
-			clearChunkMessageBuffer()
-			return false, reason or "backpressure"
-		end
-
-		clearChunkMessageBuffer()
-		Metrics.RecordOutgoingSnapshot(mode, payloadLen, totalChunks)
-		return true, totalChunks, payloadLen
-	end
-
-	local function sendDelta(target, requestId, mode, raid, sinceRevision)
-		local payload, deltaRows = SnapshotPayload.BuildDelta(raid, sinceRevision)
-		if not payload or (tonumber(deltaRows) or 0) > MAX_DELTA_ROWS then
-			return false, "delta_unavailable"
-		end
-
-		return sendChunkedPayload(MSG_DELTA, target, requestId, mode, raid.raidNid, payload)
-	end
-
-	local function sendSnapshot(target, requestId, mode, raid)
-		local payload = SnapshotPayload.Build(raid)
-		if not payload then
-			return false, "payload_unavailable"
-		end
-
-		local ok, totalChunks, payloadLen =
-			sendChunkedPayload(MSG_SNAPSHOT, target, requestId, mode, raid.raidNid, payload)
-		if not ok then
-			return false, totalChunks
-		end
-
-		if isDebugEnabled() then
-			addon:debug(
-				(Diag.D.LogSyncSnapshotSent):format(
-					tostring(target or "GROUP"),
-					tostring(requestId),
-					tostring(raid.raidNid),
-					totalChunks,
-					payloadLen
-				)
-			)
-		end
-		return true
-	end
-
-	local function trimTerminalRequests()
-		local count, oldestId, oldestAt = 0, nil, nil
-		for requestId, state in pairs(module._terminalRequests) do
-			count = count + 1
-			local terminalAt = tonumber(state and state.terminalAt) or 0
-			if oldestAt == nil or terminalAt < oldestAt then
-				oldestId, oldestAt = requestId, terminalAt
-			end
-		end
-		if count >= MAX_TERMINAL_REQUESTS and oldestId then
-			module._terminalRequests[oldestId] = nil
-		end
-	end
-
-	terminalizeRequest = function(requestId, reason)
-		local pending = module._pendingRequests[requestId]
-		if not pending or pending.completed == true then
-			return false
-		end
-		pending.completed = true
-		pending.terminalReason = reason
-		pending.terminalAt = nowSec()
-		if pending.timeoutHandle then CancelTimer(module, pending.timeoutHandle) end
-		pending.timeoutHandle = nil
-		for key, incoming in pairs(module._incoming) do
-			if incoming and incoming.requestContext == pending then
-				if incoming and incoming.pushConsentKey then
-					local consent = module._pushConsents[incoming.pushConsentKey]
-					if consent and consent.requestContext == pending then
-						module._pushConsents[incoming.pushConsentKey] = nil
-					else
-						releasePushConsent(incoming.pushConsentKey)
-					end
-				end
-				module._incoming[key] = nil
-			end
-		end
-		for consentKey, consent in pairs(module._pushConsents) do
-			if consent and consent.requestContext == pending then
-				module._pushConsents[consentKey] = nil
-			end
-		end
-		module._pendingRequests[requestId] = nil
-		trimTerminalRequests()
-		module._terminalRequests[requestId] = {
-			createdAt = pending.createdAt,
-			terminalAt = pending.terminalAt,
-			mode = pending.mode,
-			raidRef = pending.raidRef,
-			raidNid = pending.raidNid,
-			target = pending.target,
-			sender = pending.sender,
-			reason = reason,
-		}
-		traceSync(
-			"REQUEST_END",
-			format("mode=%s req=%s reason=%s", tostring(pending.mode), tostring(requestId), tostring(reason))
-		)
-		if type(pending.callback) == "function" and pending.callbackDelivered ~= true then
-			pending.callbackDelivered = true
-			local ok, callbackError = pcall(pending.callback, reason, pending)
-			if not ok then
-				addon:error(tostring(callbackError))
-			end
-		end
-		return true
-	end
-
-	local function completeRequest(requestId)
-		return terminalizeRequest(requestId, "complete")
-	end
-
-	local function getSenderKey(rawSender)
-		return stableSenderKey(rawSender)
-	end
-
-	local function markSyncSenderFailed(pending, rawSender)
-		if type(pending) ~= "table" then
-			return nil
-		end
-		local sender = getSenderKey(rawSender)
-		if not sender then
-			return nil
-		end
-		pending.failedSenders = pending.failedSenders or {}
-		pending.failedSenders[sender] = true
-		return sender
-	end
-
-	local function rejectSyncSender(pending, rawSender, requestId, reason)
-		local sender = markSyncSenderFailed(pending, rawSender)
-		if not sender then
-			sender = getSenderKey(rawSender) or tostring(rawSender or "?")
-		end
-		if isDebugEnabled() then
-			addon:debug(
-				(Diag.D.LogSyncSyncSenderFailed):format(tostring(sender), tostring(requestId), tostring(reason))
-			)
-		end
-	end
-
-	local function finalizeSnapshotFailure(isSync, pending, sender, requestId, reason, responseMode)
-		if responseMode == MODE_PUSH then return end
-		if isSync then
-			rejectSyncSender(pending, sender, requestId, reason)
-			return
-		end
-		terminalizeRequest(requestId, reason or "failed")
-	end
-
-	local function isSyncSenderFailed(pending, rawSender)
-		if type(pending) ~= "table" then
-			return false
-		end
-		local sender = getSenderKey(rawSender)
-		if not sender then
-			return false
-		end
-		local failedSenders = pending.failedSenders
-		return type(failedSenders) == "table" and failedSenders[sender] == true
-	end
-
-	local function isAuthorizedSyncResponder(rawSender)
-		local raid = Services.Raid
-		if raid:GetLootMethodName() == "master" then
-			return raid:IsLootAuthority(rawSender) == true
-		end
-		if not addon.IsInRaid() then
-			local unit = raid:GetUnitID(rawSender)
-			return unit ~= nil and unit ~= "none" and (tonumber(Database.GetUnitRank(unit, 0)) or 0) == 2
-		end
-		local _, rank = findRaidRosterMember(rawSender)
-		return rank == 2
-	end
-
-	local function getMatchingSyncLineage(raid, rawSender, sourceRaidNid)
-		if type(raid) ~= "table" then return nil end
-		local localRaidNid = tonumber(raid.raidNid)
-		local lineage = localRaidNid and module._syncLineage[localRaidNid] or nil
-		if type(lineage) ~= "table" then return nil end
-		if getSenderKey(rawSender) ~= lineage.authorityName then return nil end
-		if tonumber(sourceRaidNid) ~= tonumber(lineage.sourceRaidNid) then return nil end
-		if Database.GetRaidStore():GetRaidSyncRevision(raid) ~= tonumber(lineage.sourceRevision) then return nil end
-		return lineage
-	end
-
-	local function identitiesMatchRosterMember(left, right)
-		local leftRosterName = select(1, findRaidRosterMember(left))
-		local rightRosterName = select(1, findRaidRosterMember(right))
-		return leftRosterName ~= nil and rightRosterName ~= nil and leftRosterName == rightRosterName
-	end
-
-	local function signaturesMatch(left, right)
-		return type(left) == "table"
-			and type(right) == "table"
-			and left.zone == right.zone
-			and tonumber(left.size) == tonumber(right.size)
-			and tonumber(left.diff) == tonumber(right.diff)
-	end
-
-	local function clearPendingNotice()
-		if module._noticePullHandle then
-			CancelTimer(module, module._noticePullHandle)
-		end
-		module._noticePullHandle = nil
-		module._pendingNotice = nil
-	end
-
-	local function invalidateRecoveryContext()
-		clearPendingNotice()
-		module._lastRecoveryContext = nil
-	end
-
-	local function isNoticeContextCurrent(notice)
-		if not isPersistentSyncEnabled() or type(notice) ~= "table" then return false end
-		local currentRaid = select(1, SnapshotImport.GetCurrentRaidRecord())
-		if
-			type(currentRaid) ~= "table"
-			or tonumber(currentRaid.raidNid) ~= tonumber(notice.localRaidNid)
-			or not SnapshotImport.RaidMatchesSignature(currentRaid, notice.signature)
-		then
-			return false
-		end
-		local raidService = Services.Raid
-		local masterName = raidService:GetMasterLooterName()
-		return masterName ~= nil
-			and getSenderKey(masterName) == getSenderKey(notice.sender)
-			and isCurrentMasterLooterSender(notice.sender)
-	end
-
-	local function scheduleNoticePull(notice, acceptedRevision)
-		module._pendingNotice = notice
-		module._noticePullHandle = ScheduleTimer(module, function()
-			local pendingNotice = module._pendingNotice
-			if not isNoticeContextCurrent(pendingNotice) then
-				invalidateRecoveryContext()
-				return
-			end
-			clearPendingNotice()
-			traceSync(
-				"PULL_FIRE",
-				format(
-					"from=%s sourceRaidNid=%s localRaidNid=%s",
-					tostring(pendingNotice.sender),
-					tostring(pendingNotice.sourceRaidNid or 0),
-					tostring(pendingNotice.localRaidNid)
-				)
-			)
-			local queued = requestLoggerSync(
-				module,
-				true,
-				pendingNotice.sender,
-				pendingNotice.sourceRaidNid,
-				0
-			)
-			if queued and pendingNotice.contextKey then
-				module._lastRecoveryContext = pendingNotice.contextKey
-			end
-		end, NOTICE_PULL_DELAY_SECONDS)
-		if not module._noticePullHandle then
-			module._pendingNotice = nil
-			return false
-		end
-		if acceptedRevision ~= nil then
-			traceSync(
-				"RV_ACCEPT",
-				format(
-					"from=%s sourceRaidNid=%s revision=%s coalesced=false",
-					tostring(notice.sender),
-					tostring(notice.sourceRaidNid),
-					tostring(acceptedRevision)
-				)
-			)
-		end
-		traceSync(
-			"PULL_SCHEDULE",
-			format(
-				"from=%s sourceRaidNid=%s localRaidNid=%s delay=%s",
-				tostring(notice.sender),
-				tostring(notice.sourceRaidNid or 0),
-				tostring(notice.localRaidNid),
-				tostring(NOTICE_PULL_DELAY_SECONDS)
-			)
-		)
-		return true
-	end
-
-	local function handleRevisionNotice(sender, sourceRaidNid, signature, revision)
-		local function rejectRevision(reason)
-			traceSync(
-				"RV_REJECT",
-				format(
-					"reason=%s from=%s sourceRaidNid=%s revision=%s",
-					tostring(reason),
-					tostring(sender),
-					tostring(sourceRaidNid),
-					tostring(revision)
-				)
-			)
-		end
-		traceSync(
-			"RV_RECV",
-			format(
-				"from=%s sourceRaidNid=%s revision=%s",
-				tostring(sender),
-				tostring(sourceRaidNid),
-				tostring(revision)
-			)
-		)
-		if not isPersistentSyncEnabled() then
-			rejectRevision("disabled")
-			return false
-		end
-		if not isCurrentMasterLooterSender(sender) then
-			addon:warn(Diag.W.LogSyncRevisionUnauthorized:format(tostring(sender)))
-			rejectRevision("sender_not_authority")
-			return false
-		end
-		local raid = select(1, SnapshotImport.GetCurrentRaidRecord())
-		if not raid or not SnapshotImport.RaidMatchesSignature(raid, signature) then
-			rejectRevision("signature_mismatch")
-			return false
-		end
-
-		local lineage = module._syncLineage[tonumber(raid.raidNid)]
-		if
-			type(lineage) == "table"
-			and identitiesMatchRosterMember(lineage.authorityName, sender)
-			and tonumber(lineage.sourceRaidNid) == tonumber(sourceRaidNid)
-			and tonumber(lineage.sourceRevision) >= tonumber(revision)
-		then
-			rejectRevision("stale_revision")
-			return false
-		end
-
-		local pending = module._pendingNotice
-		if module._noticePullHandle and type(pending) == "table" then
-			if
-				identitiesMatchRosterMember(pending.sender, sender)
-				and tonumber(pending.sourceRaidNid) == tonumber(sourceRaidNid)
-				and signaturesMatch(pending.signature, signature)
-			then
-				traceSync(
-					"RV_ACCEPT",
-					format(
-						"from=%s sourceRaidNid=%s revision=%s coalesced=true",
-						tostring(sender),
-						tostring(sourceRaidNid),
-						tostring(revision)
-					)
-				)
-				return true
-			end
-			rejectRevision("pending_other_lineage")
-			return false
-		end
-
-		local scheduled = scheduleNoticePull({
-			sender = sender,
-			sourceRaidNid = sourceRaidNid,
-			localRaidNid = tonumber(raid.raidNid),
-			signature = signature,
-		}, revision)
-		return scheduled
-	end
-
-	local function hasPushConsent(rawSender, pending)
-		local rosterName, rank = findRaidRosterMember(rawSender)
-		if rank == nil or rank <= 0 then
-			return false, nil, nil, "sender_not_officer"
-		end
-
-		if
-			type(pending) == "table"
-			and pending.completed ~= true
-			and pending.mode == MODE_REQ
-			and (nowSec() - (tonumber(pending.createdAt) or 0)) <= REQUEST_TTL_SECONDS
-			and identitiesMatchRosterMember(rawSender, pending.target or pending.sender)
-		then
-			return true, rosterName, true, nil
-		end
-
-		local configuredSource = loggerOptions and loggerOptions:Get("syncRequirePlayer")
-		local configured = identitiesMatchRosterMember(rawSender, configuredSource)
-		if not configured then
-			return false, rosterName, false, "no_push_consent"
-		end
-		return true, rosterName, false, nil
-	end
-
-	local function buildPushConsentKey(rosterName, requestId, raidNid)
-		return format("%s|%s|%s|%s", tostring(rosterName), tostring(requestId), MODE_PUSH, tostring(raidNid))
-	end
-
-	local function trimPushConsentCache()
-		local count, oldestKey, oldestAt = 0, nil, nil
-		for key, st in pairs(module._pushConsents) do
-			count = count + 1
-			local createdAt = tonumber(st and st.createdAt) or 0
-			if st and st.status == "consumed" and (oldestAt == nil or createdAt < oldestAt) then
-				oldestKey, oldestAt = key, createdAt
-			end
-		end
-		if count >= MAX_PUSH_CONSENTS and oldestKey then
-			module._pushConsents[oldestKey] = nil
-			return true
-		end
-		return count < MAX_PUSH_CONSENTS
-	end
-
-	local function acquirePushConsent(sender, requestId, raidNid, pending, incomingKey)
-		local rosterName, rank = findRaidRosterMember(sender)
-		if not rosterName or rank == nil or rank <= 0 then
-			return nil, "sender_not_officer"
-		end
-		local terminal = module._terminalRequests[requestId]
-		if
-			terminal
-			and terminal.mode == MODE_REQ
-			and tonumber(terminal.raidRef) == tonumber(raidNid)
-			and identitiesMatchRosterMember(sender, terminal.target or terminal.sender)
-		then
-			return nil, "request_terminal"
-		end
-		local consentKey = buildPushConsentKey(rosterName, requestId, raidNid)
-		local consent = module._pushConsents[consentKey]
-		if consent then
-			if consent.status == "inflight" and module._incoming[incomingKey] then
-				return consentKey
-			end
-			if consent.status == "available" then
-				consent.status = "inflight"
-				return consentKey
-			end
-			return nil, "no_push_consent"
-		end
-		local authorized, _, correlated, consentReason = hasPushConsent(sender, pending)
-		if not authorized then
-			return nil, consentReason or "no_push_consent"
-		end
-		if not trimPushConsentCache() then
-			return nil, "consent_capacity"
-		end
-		module._pushConsents[consentKey] = {
-			createdAt = nowSec(),
-			status = "inflight",
-			correlated = correlated == true,
-			requestId = requestId,
-			requestContext = correlated == true and pending or nil,
-		}
-		return consentKey, nil
-	end
-
-	releasePushConsent = function(consentKey)
-		local consent = consentKey and module._pushConsents[consentKey]
-		if consent and consent.status == "inflight" then
-			consent.status = "available"
-		end
-	end
-
-	local function consumePushConsent(consentKey)
-		local consent = consentKey and module._pushConsents[consentKey]
-		if consent and consent.status == "inflight" then
-			consent.status = "consumed"
-			consent.createdAt = nowSec()
-		end
-	end
-
-	local function completeCorrelatedPushRequest(consentKey)
-		local consent = consentKey and module._pushConsents[consentKey]
-		local pending = consent and consent.requestContext
-		if pending and module._pendingRequests[consent.requestId] == pending then
-			terminalizeRequest(consent.requestId, "complete")
-		end
-	end
-
-	local function warnSyncSenderNotOfficer(pending, requestId, rawSender)
-		if type(pending) ~= "table" then
-			return
-		end
-		local sender = getSenderKey(rawSender) or tostring(rawSender or "?")
-		addon:warn((Diag.W.LogSyncSenderNotOfficer):format(tostring(sender), tostring(requestId)))
-	end
-
-	local function handleIncomingRequest(rawSender, channel, requestId, mode, raidRef, signature)
-		traceSync(
-			"RQ_RECV",
-			format(
-				"mode=%s req=%s from=%s raidRef=%s channel=%s",
-				tostring(mode), tostring(requestId), tostring(rawSender), tostring(raidRef), tostring(channel)
-			)
-		)
-		local admitted, rejectionReason
-		if mode == MODE_SYNC then
-			admitted, rejectionReason = canAnswerAutomaticSync(rawSender, channel)
-			if not admitted then
-				traceSync("RQ_REJECT", format("mode=%s req=%s from=%s raidRef=%s reason=%s", tostring(mode), tostring(requestId), tostring(rawSender), tostring(raidRef), tostring(rejectionReason)))
-				return
-			end
-		else
-			admitted, rejectionReason = canAnswerRequests(rawSender, channel)
-			if not admitted then
-				traceSync("RQ_REJECT", format("mode=%s req=%s from=%s raidRef=%s reason=%s", tostring(mode), tostring(requestId), tostring(rawSender), tostring(raidRef), tostring(rejectionReason)))
-				return
-			end
-		end
-
-		local allowed, sender = allowIncomingRequest(rawSender)
-		if not allowed then
-			traceSync("RQ_REJECT", format("mode=%s req=%s from=%s raidRef=%s reason=rate_limited", tostring(mode), tostring(requestId), tostring(rawSender), tostring(raidRef)))
-			return
-		end
-
-		local raid = nil
-		if mode == MODE_REQ then
-			raid = select(1, SnapshotImport.ResolveRaidByReference(raidRef, false))
-		elseif mode == MODE_SYNC then
-			raid = select(1, SnapshotImport.GetCurrentRaidRecord())
-			if raid and not SnapshotImport.RaidMatchesSignature(raid, signature) then
-				raid = nil
-				rejectionReason = "signature_mismatch"
-			end
-		end
-
-		if not raid then
-			traceSync("RQ_REJECT", format("mode=%s req=%s from=%s raidRef=%s reason=%s", tostring(mode), tostring(requestId), tostring(sender), tostring(raidRef), tostring(rejectionReason or "raid_not_found")))
-			return
-		end
-		traceSync("RQ_ACCEPT", format("mode=%s req=%s from=%s raidRef=%s", tostring(mode), tostring(requestId), tostring(sender), tostring(raidRef)))
-
-		if isDebugEnabled() then
-			addon:debug(
-				(Diag.D.LogSyncRequestReceived):format(tostring(sender), tostring(requestId), tostring(raidRef))
-			)
-		end
-		local sinceRevision = tonumber(signature and signature.sinceRevision) or 0
-		if mode == MODE_SYNC and sinceRevision > 0 then
-			local sent, reason = sendDelta(rawSender, requestId, mode, raid, sinceRevision)
-			if sent then
-				traceSync("DL_SEND", format("mode=%s req=%s target=%s raidNid=%s queued=true", tostring(mode), tostring(requestId), tostring(rawSender), tostring(raid.raidNid)))
-				return
-			end
-			if reason ~= "delta_unavailable" then
-				traceSync("DL_SEND", format("mode=%s req=%s target=%s raidNid=%s queued=false reason=%s", tostring(mode), tostring(requestId), tostring(rawSender), tostring(raid.raidNid), tostring(reason or "queue_failed")))
-				return
-			end
-		end
-		local sent, reason = sendSnapshot(rawSender, requestId, mode, raid)
-		if sent then
-			traceSync("SN_SEND", format("mode=%s req=%s target=%s raidNid=%s queued=true", tostring(mode), tostring(requestId), tostring(rawSender), tostring(raid.raidNid)))
-		else
-			traceSync("SN_SEND", format("mode=%s req=%s target=%s raidNid=%s queued=false reason=%s", tostring(mode), tostring(requestId), tostring(rawSender), tostring(raid.raidNid), tostring(reason or "queue_failed")))
-		end
-	end
-
-	local function refreshLoggerUi(focusRaidId)
-		local selectedRaid = tonumber(focusRaidId)
-			or tonumber(coreState and coreState.selectedRaid)
-			or tonumber(Database.GetCurrentRaid())
-		TriggerEvent(LoggerSelectRaidEvent, selectedRaid, "sync")
-	end
-
-	local function traceImportOutcome(eventName, mode, requestId, sender, localRaidId, sourceRaidNid, revision, raid, reason)
-		local details = format(
-			"mode=%s req=%s from=%s localRaid=%s sourceRaidNid=%s revision=%s loot=%s",
-			tostring(mode),
-			tostring(requestId),
-			tostring(sender),
-			tostring(localRaidId or 0),
-			tostring(sourceRaidNid or 0),
-			tostring(revision or 0),
-			tostring(type(raid) == "table" and #(raid.loot or {}) or 0)
-		)
-		if reason then
-			details = details .. format(" reason=%s", tostring(reason))
-		end
-		traceSync(eventName, details)
-	end
-
-	local function onSnapshotReady(sender, requestId, mode, snapshot, pushConsentKey)
-		if mode == MODE_SYNC then
-			local currentRaid, currentId = SnapshotImport.GetCurrentRaidRecord()
-			local pending = module._pendingRequests[requestId]
-			if not currentRaid then
-				addon:warn(L.MsgLoggerSyncNoCurrent)
-				completeRequest(requestId)
-				return
-			end
-			if
-				type(pending) ~= "table"
-				or tonumber(currentRaid.raidNid) ~= tonumber(pending.raidNid)
-				or not SnapshotImport.RaidMatchesSignature(currentRaid, pending.signature)
-				or not SnapshotImport.RaidMatchesSnapshotHeader(currentRaid, snapshot.header)
-			then
-				rejectSyncSender(pending, sender, requestId, "raid_changed")
-				return
-			end
-			if not isAuthorizedSyncResponder(sender) then
-				rejectSyncSender(pending, sender, requestId, "authority_changed")
-				return
-			end
-			local sourceRaidNid = tonumber(snapshot.header and snapshot.header.raidNid)
-			local requestedRevision = tonumber(pending and pending.signature and pending.signature.sinceRevision) or 0
-			if requestedRevision > 0 and not getMatchingSyncLineage(currentRaid, sender, sourceRaidNid) then
-				rejectSyncSender(pending, sender, requestId, "lineage_mismatch")
-				return
-			end
-
-			local ok, raid, importReason =
-				pcall(SnapshotImport.ReplaceRaidFromAuthority, currentRaid, snapshot)
-			if not ok then
-				addon:error(
-					(Diag.E.LogSyncMergeFailed):format(
-						tostring(sender),
-						tostring(requestId),
-						tostring(snapshot.header.raidNid),
-						tostring(raid)
-					)
-				)
-				traceImportOutcome(
-					"IMPORT_REJECT",
-					mode,
-					requestId,
-					sender,
-					currentId,
-					sourceRaidNid,
-					snapshot.header and snapshot.header.revision,
-					currentRaid,
-					"merge_failed"
-				)
-				rejectSyncSender(pending, sender, requestId, "merge_failed")
-				return
-			end
-			if not raid then
-				addon:error(
-					(Diag.E.LogSyncMergeFailed):format(
-						tostring(sender),
-						tostring(requestId),
-						tostring(snapshot.header.raidNid),
-						tostring(importReason or "nil_result")
-					)
-				)
-				traceImportOutcome(
-					"IMPORT_REJECT",
-					mode,
-					requestId,
-					sender,
-					currentId,
-					sourceRaidNid,
-					snapshot.header and snapshot.header.revision,
-					currentRaid,
-					"merge_failed"
-				)
-				rejectSyncSender(pending, sender, requestId, "merge_failed")
-				return
-			end
-			module._syncLineage[currentRaid.raidNid] = {
-				authorityName = getSenderKey(sender),
-				sourceRaidNid = sourceRaidNid,
-				sourceRevision = tonumber(snapshot.header.revision),
-			}
-
-			addon:info(L.MsgLoggerSyncApplied:format(tonumber(currentId) or 0, tostring(sender)))
-			if isDebugEnabled() then
-				addon:debug(
-					(Diag.D.LogSyncMergeApplied):format(
-						tonumber(raid.raidNid) or 0,
-						tonumber(currentId) or 0,
-						tostring(sender),
-						#(raid.bossKills or {}),
-						#(raid.loot or {})
-					)
-				)
-			end
-			traceImportOutcome(
-				"IMPORT_APPLY",
-				mode,
-				requestId,
-				sender,
-				currentId,
-				sourceRaidNid,
-				snapshot.header and snapshot.header.revision,
-				raid
-			)
-
-			cleanupIncomingByRequest(requestId, MODE_SYNC)
-			completeRequest(requestId)
-			refreshLoggerUi(currentId)
-			return
-		end
-
-		local ok, raid, raidId, importReason = pcall(SnapshotImport.ImportSnapshotAsNewRaid, snapshot)
-		if not ok then
-			releasePushConsent(pushConsentKey)
-			addon:error(
-				(Diag.E.LogSyncMergeFailed):format(
-					tostring(sender),
-					tostring(requestId),
-					tostring(snapshot.header.raidNid),
-					tostring(raid)
-				)
-			)
-			traceImportOutcome(
-				"IMPORT_REJECT",
-				mode,
-				requestId,
-				sender,
-				0,
-				snapshot.header and snapshot.header.raidNid,
-				snapshot.header and snapshot.header.revision,
-				nil,
-				"merge_failed"
-			)
-			if mode == MODE_REQ then terminalizeRequest(requestId, "merge_failed") end
-			return
-		end
-		if not raid then
-			releasePushConsent(pushConsentKey)
-			addon:error(
-				(Diag.E.LogSyncMergeFailed):format(
-					tostring(sender),
-					tostring(requestId),
-					tostring(snapshot.header.raidNid),
-					tostring(importReason or "nil_result")
-				)
-			)
-			traceImportOutcome(
-				"IMPORT_REJECT",
-				mode,
-				requestId,
-				sender,
-				0,
-				snapshot.header and snapshot.header.raidNid,
-				snapshot.header and snapshot.header.revision,
-				nil,
-				"merge_failed"
-			)
-			if mode == MODE_REQ then terminalizeRequest(requestId, "merge_failed") end
-			return
-		end
-
-		traceImportOutcome(
-			"IMPORT_APPLY",
-			mode,
-			requestId,
-			sender,
-			raidId,
-			snapshot.header and snapshot.header.raidNid,
-			snapshot.header and snapshot.header.revision,
-			raid
-		)
-		if mode == MODE_PUSH then
-			consumePushConsent(pushConsentKey)
-			addon:info(L.MsgLoggerPushImported:format(tostring(sender), tonumber(raidId) or 0))
-			completeCorrelatedPushRequest(pushConsentKey)
-		else
-			addon:info(L.MsgLoggerReqImported:format(tostring(sender), tonumber(raidId) or 0))
-			completeRequest(requestId)
-		end
-
-		if isDebugEnabled() then
-			addon:debug(
-				(Diag.D.LogSyncMergeApplied):format(
-					tonumber(raid.raidNid) or 0,
-					tonumber(raidId) or 0,
-					tostring(sender),
-					#(raid.bossKills or {}),
-					#(raid.loot or {})
-				)
-			)
-		end
-
-		refreshLoggerUi(raidId)
-	end
-
-	local function onDeltaReady(sender, requestId, mode, delta)
-		if mode ~= MODE_SYNC then
-			completeRequest(requestId)
-			return
-		end
-
-		local currentRaid, currentId = SnapshotImport.GetCurrentRaidRecord()
-		local pending = module._pendingRequests[requestId]
-		if not currentRaid then
-			addon:warn(L.MsgLoggerSyncNoCurrent)
-			completeRequest(requestId)
-			return
-		end
-		if not isAuthorizedSyncResponder(sender) then
-			rejectSyncSender(pending, sender, requestId, "authority_changed")
-			return
-		end
-		local sourceRaidNid = tonumber(delta.header and delta.header.raidNid)
-		local lineage = getMatchingSyncLineage(currentRaid, sender, sourceRaidNid)
-		if not lineage then
-			rejectSyncSender(pending, sender, requestId, "lineage_mismatch")
-			return
-		end
-
-		local ok, raid, importReason =
-			pcall(SnapshotImport.ApplyDeltaFromAuthority, currentRaid, delta, sourceRaidNid)
-		if not ok then
-			addon:error(
-				(Diag.E.LogSyncMergeFailed):format(
-					tostring(sender),
-					tostring(requestId),
-					tostring(delta.header.raidNid),
-					tostring(raid)
-				)
-			)
-			traceImportOutcome(
-				"IMPORT_REJECT",
-				mode,
-				requestId,
-				sender,
-				currentId,
-				sourceRaidNid,
-				delta.header and delta.header.revision,
-				currentRaid,
-				"merge_failed"
-			)
-			rejectSyncSender(pending, sender, requestId, "merge_failed")
-			return
-		end
-		if not raid then
-			addon:error(
-				(Diag.E.LogSyncMergeFailed):format(
-					tostring(sender),
-					tostring(requestId),
-					tostring(delta.header.raidNid),
-					tostring(importReason or "nil_result")
-				)
-			)
-			traceImportOutcome(
-				"IMPORT_REJECT",
-				mode,
-				requestId,
-				sender,
-				currentId,
-				sourceRaidNid,
-				delta.header and delta.header.revision,
-				currentRaid,
-				"merge_failed"
-			)
-			rejectSyncSender(pending, sender, requestId, "merge_failed")
-			return
-		end
-		lineage.sourceRevision = tonumber(delta.header.revision)
-
-		addon:info(L.MsgLoggerSyncApplied:format(tonumber(currentId) or 0, tostring(sender)))
-		traceImportOutcome(
-			"IMPORT_APPLY",
-			mode,
-			requestId,
-			sender,
-			currentId,
-			sourceRaidNid,
-			delta.header and delta.header.revision,
-			raid
-		)
-		cleanupIncomingByRequest(requestId, MODE_SYNC)
-		completeRequest(requestId)
-		refreshLoggerUi(currentId)
-	end
-
-	local function shouldIgnoreSnapshotSender(sender, requestId, mode, raidNid, pending, isPush, isSync)
-		if isPush then
-			return false
-		end
-
-		if module._terminalRequests[requestId] then
-			if pending then terminalizeRequest(requestId, "reused") end
-			return true
-		end
-		if pending and (nowSec() - (tonumber(pending.createdAt) or 0)) > REQUEST_TTL_SECONDS then
-			terminalizeRequest(requestId, "timeout")
-			return true
-		end
-
-		if not pending or pending.completed or pending.mode ~= mode then
-			if isDebugEnabled() then
-				addon:debug(
-					(Diag.D.LogSyncChunkIgnored):format(tostring(sender), tostring(requestId), tostring(raidNid))
-				)
-			end
-			return true
-		end
-
-		local expectedRaidNid
-		if isSync then
-			expectedRaidNid = tonumber(pending.sourceRaidNid)
-		else
-			expectedRaidNid = tonumber(pending.raidNid or pending.raidRef)
-		end
-		if expectedRaidNid and expectedRaidNid ~= tonumber(raidNid) then
-			return true
-		end
-
-		if isSync and isSyncSenderFailed(pending, sender) then
-			if isDebugEnabled() then
-				addon:debug(
-					(Diag.D.LogSyncChunkIgnored):format(tostring(sender), tostring(requestId), tostring(raidNid))
-				)
-			end
-			return true
-		end
-
-		local expectedTarget = normalizeSender(pending.target)
-		if expectedTarget and expectedTarget ~= "" and not identitiesMatchRosterMember(pending.target, sender) then
-			if isDebugEnabled() then
-				addon:debug(
-					(Diag.D.LogSyncChunkIgnored):format(tostring(sender), tostring(requestId), tostring(raidNid))
-				)
-			end
-			return true
-		end
-
-		return false
-	end
-
-	local function getOrCreateIncomingSnapshotState(sender, requestId, mode, raidNid, partCount, pending, isSync, envelopeVersion, envelopeKind)
-		local key = buildIncomingSnapshotKey(sender, requestId, mode, raidNid)
-		local state = module._incoming[key]
-		if state then
-			return key, state
-		end
-
-		local globalCount = 0
-		local senderCount = 0
-		for _, incoming in pairs(module._incoming) do
-			globalCount = globalCount + 1
-			if incoming and incoming.sender == sender then
-				senderCount = senderCount + 1
-			end
-		end
-		if globalCount >= MAX_INCOMING_STATES or senderCount >= MAX_INCOMING_STATES_PER_SENDER then
-			return key, nil, "incoming_capacity"
-		end
-
-		if isSync and not isAuthorizedSyncResponder(sender) then
-			warnSyncSenderNotOfficer(pending, requestId, sender)
-			if isDebugEnabled() then
-				addon:debug(
-					(Diag.D.LogSyncChunkIgnored):format(tostring(sender), tostring(requestId), tostring(raidNid))
-				)
-			end
-			return key, nil, "responder_not_authority"
-		end
-
-		state = {
-			createdAt = nowSec(),
-			sender = sender,
-			requestId = requestId,
-			envelopeVersion = envelopeVersion,
-			envelopeKind = envelopeKind,
-			mode = mode,
-			raidNid = raidNid,
-			total = partCount,
-			got = 0,
-			parts = {},
-			encodedBytes = 0,
-			requestContext = (mode == MODE_REQ or isSync) and pending or nil,
-		}
-		module._incoming[key] = state
-		return key, state
-	end
-
-	local function handleIncomingSnapshot(sender, requestId, mode, raidNid, partIndex, partCount, chunkData, envelopeVersion)
-		local pending = module._pendingRequests[requestId]
-		local isPush = (mode == MODE_PUSH)
-		local isSync = (mode == MODE_SYNC)
-
-		if shouldIgnoreSnapshotSender(sender, requestId, mode, raidNid, pending, isPush, isSync) then
-			return
-		end
-
-		if #tostring(requestId or "") > MAX_REQUEST_ID_BYTES or partIndex < 1 or partCount < 1 or partCount > MAX_CHUNKS or partIndex > partCount or #(chunkData or "") > MAX_CHUNK_SIZE then
-			addon:warn(
-				(Diag.W.LogSyncChunkMalformed):format(
-					tostring(sender),
-					tostring(requestId),
-					tostring(partIndex),
-					tostring(partCount)
-				)
-			)
-			return
-		end
-
-		local pushConsentKey
-		local pushIncomingExisted = false
-		if isPush then
-			local incomingKey = buildIncomingSnapshotKey(sender, requestId, mode, raidNid)
-			pushIncomingExisted = module._incoming[incomingKey] ~= nil
-			local consentReason
-			pushConsentKey, consentReason = acquirePushConsent(sender, requestId, raidNid, pending, incomingKey)
-			if not pushConsentKey then
-				if partIndex == 1 then
-					traceSync("PUSH_REJECT", format(
-						"mode=%s req=%s from=%s raidNid=%s reason=%s",
-						tostring(MODE_PUSH), tostring(requestId), tostring(sender),
-						tostring(raidNid), tostring(consentReason or "no_push_consent")
-					))
-				end
-				if isDebugEnabled() then
-					addon:debug(
-						(Diag.D.LogSyncChunkIgnored):format(tostring(sender), tostring(requestId), tostring(raidNid))
-					)
-				end
-				return
-			end
-		end
-
-		local key, state, stateReason =
-			getOrCreateIncomingSnapshotState(sender, requestId, mode, raidNid, partCount, pending, isSync, envelopeVersion, MSG_SNAPSHOT)
-		if not state then
-			releasePushConsent(pushConsentKey)
-			if isPush and not pushIncomingExisted and partIndex == 1 then
-				traceSync("PUSH_REJECT", format(
-					"mode=%s req=%s from=%s raidNid=%s reason=%s",
-					tostring(MODE_PUSH), tostring(requestId), tostring(sender),
-					tostring(raidNid), tostring(stateReason or "incoming_unavailable")
-				))
-			end
-			return
-		end
-		if isPush and not pushIncomingExisted then
-			local consent = module._pushConsents[pushConsentKey]
-			traceSync("PUSH_ACCEPT", format(
-				"mode=%s req=%s from=%s raidNid=%s consent=%s",
-				tostring(MODE_PUSH), tostring(requestId), tostring(sender), tostring(raidNid),
-				consent and consent.correlated == true and "correlated" or "configured"
-			))
-		end
-		state.pushConsentKey = pushConsentKey
-		if isPush and pushConsentKey then
-			local consent = module._pushConsents[pushConsentKey]
-			state.requestContext = consent and consent.requestContext or nil
-		end
-
-		if state.total ~= partCount then
-			addon:warn(
-				(Diag.W.LogSyncChunkPartCountChanged):format(
-					tostring(sender),
-					tostring(requestId),
-					tostring(raidNid),
-					tonumber(state.total) or 0,
-					tonumber(partCount) or 0
-				)
-			)
-			module._incoming[key] = nil
-			releasePushConsent(state.pushConsentKey)
-			return
-		end
-		if state.envelopeVersion ~= envelopeVersion or state.envelopeKind ~= MSG_SNAPSHOT then
-			module._incoming[key] = nil
-			releasePushConsent(state.pushConsentKey)
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, "version_mismatch", mode)
-			return
-		end
-
-		if state.parts[partIndex] == nil then
-			if state.encodedBytes + #(chunkData or "") > MAX_ENCODED_BYTES then
-				module._incoming[key] = nil
-				releasePushConsent(state.pushConsentKey)
-				return
-			end
-			state.parts[partIndex] = chunkData or ""
-			state.encodedBytes = state.encodedBytes + #(chunkData or "")
-			state.got = state.got + 1
-			Metrics.RecordIncomingSnapshotChunk(mode, #(chunkData or ""))
-		end
-
-		if isDebugEnabled() then
-			addon:debug(
-				(Diag.D.LogSyncChunkReceived):format(tostring(sender), tostring(requestId), partIndex, partCount)
-			)
-		end
-
-		if state.got < state.total then
-			return
-		end
-
-		for i = 1, state.total do
-			local piece = state.parts[i]
-			if piece == nil then
-				module._incoming[key] = nil
-				releasePushConsent(state.pushConsentKey)
-				return
-			end
-		end
-		module._incoming[key] = nil
-
-		Metrics.RecordIncomingSnapshotComplete(mode)
-		local encodedPayload = tconcat(state.parts, "")
-		local payload = SnapshotPayload.DecodeTransportText(encodedPayload)
-		if payload == nil then
-			releasePushConsent(state.pushConsentKey)
-			addon:warn((Diag.W.LogSyncDecodeFailed):format(tostring(sender), tostring(requestId), tostring(raidNid)))
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, "decode_failed", mode)
-			return
-		end
-
-		local snapshot = SnapshotPayload.Parse(payload)
-		if not snapshot then
-			releasePushConsent(state.pushConsentKey)
-			addon:warn((Diag.W.LogSyncParseFailed):format(tostring(sender), tostring(requestId), tostring(raidNid)))
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, "parse_failed", mode)
-			return
-		end
-		if tonumber(snapshot.header and snapshot.header.protocolVersion) ~= state.envelopeVersion then
-			releasePushConsent(state.pushConsentKey)
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, "version_mismatch", mode)
-			return
-		end
-		local localRevision = 0
-		local requestedRevision = tonumber(pending and pending.signature and pending.signature.sinceRevision) or 0
-		if isSync and requestedRevision > 0 then
-			local currentRaid = select(1, SnapshotImport.GetCurrentRaidRecord())
-			if currentRaid then localRevision = Database.GetRaidStore():GetRaidSyncRevision(currentRaid) end
-		end
-		local validSnapshot, validationReason = SnapshotPayload.ValidateSnapshot(snapshot, localRevision, raidNid)
-		if not validSnapshot then
-			releasePushConsent(state.pushConsentKey)
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, validationReason, mode)
-			return
-		end
-
-		local snapshotVersion = tonumber(snapshot.header.protocolVersion)
-		if snapshotVersion ~= PROTOCOL_VERSION and snapshotVersion ~= LEGACY_PROTOCOL_VERSION then
-			releasePushConsent(state.pushConsentKey)
-			if isDebugEnabled() then
-				addon:debug(
-					(Diag.D.LogSyncVersionMismatch):format(
-						tostring(sender),
-						tostring(snapshot.header.protocolVersion),
-						PROTOCOL_VERSION
-					)
-				)
-			end
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, "version_mismatch", mode)
-			return
-		end
-
-		onSnapshotReady(sender, requestId, mode, snapshot, state.pushConsentKey)
-	end
-
-	local function handleIncomingDelta(sender, requestId, mode, raidNid, partIndex, partCount, chunkData, envelopeVersion)
-		local pending = module._pendingRequests[requestId]
-		local isSync = (mode == MODE_SYNC)
-		local incomingKey = buildIncomingSnapshotKey(sender, requestId, mode, raidNid)
-		local existing = module._incoming[incomingKey]
-		if existing and (existing.envelopeKind ~= MSG_DELTA or existing.envelopeVersion ~= envelopeVersion) then
-			module._incoming[incomingKey] = nil
-			releasePushConsent(existing.pushConsentKey)
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, "version_mismatch", mode)
-			return
-		end
-
-		if
-			mode ~= MODE_SYNC or shouldIgnoreSnapshotSender(sender, requestId, mode, raidNid, pending, false, isSync)
-		then
-			return
-		end
-		local currentRaid = select(1, SnapshotImport.GetCurrentRaidRecord())
-		if not getMatchingSyncLineage(currentRaid, sender, raidNid) then
-			rejectSyncSender(pending, sender, requestId, "lineage_mismatch")
-			return
-		end
-
-		if envelopeVersion ~= PROTOCOL_VERSION then
-			return
-		end
-
-		if #tostring(requestId or "") > MAX_REQUEST_ID_BYTES or partIndex < 1 or partCount < 1 or partCount > MAX_CHUNKS or partIndex > partCount or #(chunkData or "") > MAX_CHUNK_SIZE then
-			addon:warn(
-				(Diag.W.LogSyncChunkMalformed):format(
-					tostring(sender),
-					tostring(requestId),
-					tostring(partIndex),
-					tostring(partCount)
-				)
-			)
-			return
-		end
-
-		local key, state =
-			getOrCreateIncomingSnapshotState(sender, requestId, mode, raidNid, partCount, pending, isSync, envelopeVersion, MSG_DELTA)
-		if not state then
-			return
-		end
-
-		if state.total ~= partCount then
-			addon:warn(
-				(Diag.W.LogSyncChunkPartCountChanged):format(
-					tostring(sender),
-					tostring(requestId),
-					tostring(raidNid),
-					tonumber(state.total) or 0,
-					tonumber(partCount) or 0
-				)
-			)
-			module._incoming[key] = nil
-			return
-		end
-		if state.envelopeVersion ~= envelopeVersion or state.envelopeKind ~= MSG_DELTA then
-			module._incoming[key] = nil
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, "version_mismatch", mode)
-			return
-		end
-
-		if state.parts[partIndex] == nil then
-			if state.encodedBytes + #(chunkData or "") > MAX_ENCODED_BYTES then
-				module._incoming[key] = nil
-				return
-			end
-			state.parts[partIndex] = chunkData or ""
-			state.encodedBytes = state.encodedBytes + #(chunkData or "")
-			state.got = state.got + 1
-			Metrics.RecordIncomingSnapshotChunk(mode, #(chunkData or ""))
-		end
-
-		if state.got < state.total then
-			return
-		end
-
-		for i = 1, state.total do
-			local piece = state.parts[i]
-			if piece == nil then
-				module._incoming[key] = nil
-				return
-			end
-		end
-		module._incoming[key] = nil
-
-		Metrics.RecordIncomingSnapshotComplete(mode)
-		local encodedPayload = tconcat(state.parts, "")
-		local payload = SnapshotPayload.DecodeTransportText(encodedPayload)
-		if payload == nil then
-			addon:warn((Diag.W.LogSyncDecodeFailed):format(tostring(sender), tostring(requestId), tostring(raidNid)))
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, "decode_failed", mode)
-			return
-		end
-
-		local delta = SnapshotPayload.ParseDelta(payload)
-		if not delta then
-			addon:warn((Diag.W.LogSyncParseFailed):format(tostring(sender), tostring(requestId), tostring(raidNid)))
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, "parse_failed", mode)
-			return
-		end
-		if tonumber(delta.header and delta.header.protocolVersion) ~= state.envelopeVersion then
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, "version_mismatch", mode)
-			return
-		end
-		currentRaid = select(1, SnapshotImport.GetCurrentRaidRecord())
-		local localRevision = currentRaid and Database.GetRaidStore():GetRaidSyncRevision(currentRaid) or 0
-		local validDelta, validationReason = SnapshotPayload.ValidateDelta(delta, localRevision, raidNid)
-		if not validDelta then
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, validationReason, mode)
-			return
-		end
-
-		if tonumber(delta.header.protocolVersion) ~= PROTOCOL_VERSION then
-			if isDebugEnabled() then
-				addon:debug(
-					(Diag.D.LogSyncVersionMismatch):format(
-						tostring(sender),
-						tostring(delta.header.protocolVersion),
-						PROTOCOL_VERSION
-					)
-				)
-			end
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, "version_mismatch", mode)
-			return
-		end
-
-		onDeltaReady(sender, requestId, mode, delta)
-	end
-
-	-- ----- Public methods ----- --
-	function module:GetProtocolVersion()
-		return PROTOCOL_VERSION
-	end
-
-	function module:GetSyncMetrics()
-		return Metrics.Get()
-	end
-
-	function module:ResetSyncMetrics()
-		return Metrics.Reset()
-	end
-
-	function module:RequestLoggerReq(raidRef, targetName)
-		if not ensureGroupSyncAvailable() then
-			return false
-		end
-
-		local requestRef = tonumber(raidRef)
-		if not requestRef or requestRef <= 0 then
-			addon:warn(L.MsgLoggerSyncRaidRefRequired)
-			return false
-		end
-
-		local target = resolveExternalTarget(targetName or (loggerOptions and loggerOptions:Get("syncRequirePlayer")))
-		if not target then
-			return false
-		end
-
-		local allowed = allowOutgoingRequest(target, MODE_REQ)
-		if not allowed then
-			return false, "rate_limited"
-		end
-
-		local requestId, requestIdReason = allocateRequestId(self)
-		if not requestId then return false, requestIdReason end
-
-		local tracked, trackReason = trackPendingRequest(self, requestId, {
-			createdAt = nowSec(),
-			mode = MODE_REQ,
-			raidRef = requestRef,
-			target = target,
-			sender = target,
-			completed = false,
-		})
-		if not tracked then return false, trackReason end
-
-		local queued, reason = sendRequest(MODE_REQ, requestId, requestRef, { supportsCompression = false }, target)
-		if not queued then
-			rollbackPendingRequest(self, requestId)
-			traceSync("RQ_SEND", format("mode=%s req=%s target=%s raidRef=%s queued=false reason=%s", tostring(MODE_REQ), tostring(requestId), tostring(target), tostring(requestRef), tostring(reason or "queue_failed")))
-			return false, reason
-		end
-		traceSync("RQ_SEND", format("mode=%s req=%s target=%s raidRef=%s queued=true", tostring(MODE_REQ), tostring(requestId), tostring(target), tostring(requestRef)))
-		addon:info(L.MsgLoggerReqSent:format(tostring(requestRef), tostring(target)))
-		return true
-	end
-
-	function module:BroadcastLoggerPush(raidRef, targetName)
-		if not ensureGroupSyncAvailable() then
-			return false
-		end
-
-		local raidRefNum = tonumber(raidRef)
-		if not raidRefNum or raidRefNum <= 0 then
-			addon:warn(L.MsgLoggerSyncRaidRefRequired)
-			return false
-		end
-
-		local target = resolveExternalTarget(targetName or (loggerOptions and loggerOptions:Get("syncPushPlayer")))
-		if not target then
-			return false
-		end
-
-		local raid = select(1, SnapshotImport.ResolveRaidByReference(raidRefNum, false))
-		if not raid then
-			addon:warn(L.MsgLoggerSyncNoRaid)
-			return false
-		end
-
-		local allowed = allowOutgoingRequest(target, MODE_PUSH)
-		if not allowed then
-			return false, "rate_limited"
-		end
-
-		local requestId, requestIdReason = allocateRequestId(self)
-		if not requestId then return false, requestIdReason end
-
-		local sent, reason = sendSnapshot(target, requestId, MODE_PUSH, raid)
-		if not sent then
-			traceSync("SN_SEND", format("mode=%s req=%s target=%s raidNid=%s queued=false reason=%s", tostring(MODE_PUSH), tostring(requestId), tostring(target), tostring(raid.raidNid), tostring(reason or "queue_failed")))
-			return false, reason
-		end
-		traceSync("SN_SEND", format("mode=%s req=%s target=%s raidNid=%s queued=true", tostring(MODE_PUSH), tostring(requestId), tostring(target), tostring(raid.raidNid)))
-		self._outboundPushes[requestId] = { createdAt = nowSec(), target = target, raidNid = raid.raidNid }
-		addon:info(L.MsgLoggerSyncPushSent:format(tostring(tonumber(raid.raidNid) or raidRefNum), tostring(target)))
-		return true
-	end
-
-	requestLoggerSync = function(syncer, quiet, target, requestedSourceRaidNid, retryCount)
-		if not ensureGroupSyncAvailable() then
-			return false
-		end
-
-		local currentRaid, currentRaidId = SnapshotImport.GetCurrentRaidRecord()
-		if not currentRaid then
-			addon:warn(L.MsgLoggerSyncNoCurrent)
-			return false
-		end
-
-		local signature = SnapshotImport.BuildSignatureFromRaid(currentRaid)
-		local localRevision = Database.GetRaidStore():GetRaidSyncRevision(currentRaid)
-		local lineage = module._syncLineage[tonumber(currentRaid.raidNid)]
-		local lineageSourceRaidNid
-		if
-			type(lineage) == "table"
-			and tonumber(lineage.sourceRaidNid)
-			and tonumber(lineage.sourceRaidNid) > 0
-			and tonumber(lineage.sourceRevision) == localRevision
-			and isAuthorizedSyncResponder(lineage.authorityName)
-		then
-			signature.sinceRevision = localRevision
-			lineageSourceRaidNid = tonumber(lineage.sourceRaidNid)
-		else
-			signature.sinceRevision = 0
-		end
-		signature.supportsCompression = false
-		local requestId, requestIdReason = allocateRequestId(syncer)
-		if not requestId then return false, requestIdReason end
-
-		local tracked, trackReason = trackPendingRequest(syncer, requestId, {
-			createdAt = nowSec(),
-			mode = MODE_SYNC,
-			automatic = quiet == true,
-			raidNid = tonumber(currentRaid.raidNid) or 0,
-			target = target,
-			sourceRaidNid = requestedSourceRaidNid or lineageSourceRaidNid,
-			retryCount = tonumber(retryCount) or 0,
-			signature = signature,
-			sender = nil,
-			failedSenders = {},
-			completed = false,
-		})
-		if not tracked then return false, trackReason end
-
-		local queued, reason = sendRequest(
-			MODE_SYNC,
-			requestId,
-			tonumber(currentRaid.raidNid) or 0,
-			signature,
-			target
-		)
-		if not queued then
-			traceSync(
-				"RQ_SEND",
-				format(
-					"mode=%s req=%s target=%s raidRef=%s sourceRaidNid=%s revision=%s queued=false reason=%s",
-					tostring(MODE_SYNC), tostring(requestId), tostring(target or "GROUP"),
-					tostring(currentRaid.raidNid), tostring(requestedSourceRaidNid or lineageSourceRaidNid or 0),
-					tostring(signature.sinceRevision or 0), tostring(reason or "queue_failed")
-				)
-			)
-			rollbackPendingRequest(syncer, requestId)
-			return false, reason
-		end
-		traceSync(
-			"RQ_SEND",
-			format(
-				"mode=%s req=%s target=%s raidRef=%s sourceRaidNid=%s revision=%s",
-				tostring(MODE_SYNC),
-				tostring(requestId),
-				tostring(target or "GROUP"),
-				tostring(currentRaid.raidNid),
-				tostring(requestedSourceRaidNid or lineageSourceRaidNid or 0),
-				tostring(signature.sinceRevision or 0)
-			)
-		)
-		if quiet ~= true then
-			addon:info(L.MsgLoggerSyncSent:format(tonumber(currentRaidId) or 0))
-		end
-		return true
-	end
-
-	local function scheduleAuthorityPull()
-		if not isPersistentSyncEnabled() then
-			invalidateRecoveryContext()
-			return false
-		end
-
-		local currentRaid = select(1, SnapshotImport.GetCurrentRaidRecord())
-		local raidService = Services.Raid
-		if type(currentRaid) ~= "table" or raidService:IsMasterLooter() == true then
-			invalidateRecoveryContext()
-			return false
-		end
-
-		local masterName = raidService:GetMasterLooterName()
-		local masterKey = masterName and getSenderKey(masterName) or nil
-		local raidNid = tonumber(currentRaid.raidNid)
-		if not masterKey or masterKey == "" or not raidNid or raidNid <= 0 then
-			invalidateRecoveryContext()
-			return false
-		end
-
-		local signature = SnapshotImport.BuildSignatureFromRaid(currentRaid)
-		local contextKey = format(
-			"%s|%s|%s|%s|%s",
-			tostring(raidNid),
-			masterKey,
-			tostring(signature.zone or ""),
-			tostring(tonumber(signature.size) or 0),
-			tostring(tonumber(signature.diff) or 0)
-		)
-		if contextKey == module._lastRecoveryContext then
-			return false
-		end
-
-		local pending = module._pendingNotice
-		if module._noticePullHandle and type(pending) == "table" then
-			if pending.contextKey == contextKey then return true end
-			if
-				identitiesMatchRosterMember(pending.sender, masterName)
-				and tonumber(pending.localRaidNid) == raidNid
-				and signaturesMatch(pending.signature, signature)
-			then
-				pending.contextKey = contextKey
-				return true
-			end
-			invalidateRecoveryContext()
-		end
-
-		return scheduleNoticePull({
-			sender = masterName,
-			sourceRaidNid = nil,
-			localRaidNid = raidNid,
-			signature = signature,
-			contextKey = contextKey,
-		})
-	end
-
-	function module:RequestLoggerSync()
-		return requestLoggerSync(self, false)
-	end
-
-	function module:RequestLoggerPersistentSync()
-		if not isPersistentSyncEnabled() then
-			return false
-		end
-		if not (addon.IsInGroup and addon.IsInGroup()) then
-			return false
-		end
-		if not SnapshotImport.GetCurrentRaidRecord() then
-			return false
-		end
-		return requestLoggerSync(self, true)
-	end
-
-	local function stopPersistentSync()
-		if module._persistentSyncHandle then
-			CancelTimer(module, module._persistentSyncHandle)
-		end
-		module._persistentSyncHandle = nil
-	end
-
-	local function cancelAutomaticSyncRequests()
-		local requestIds = {}
-		for requestId, pending in pairs(module._pendingRequests) do
-			if pending and pending.mode == MODE_SYNC and pending.automatic == true then
-				requestIds[#requestIds + 1] = requestId
-			end
-		end
-		for i = 1, #requestIds do
-			terminalizeRequest(requestIds[i], "persistent_sync_disabled")
-		end
-	end
-
-	local function schedulePersistentSync(delay)
-		if not isPersistentSyncEnabled() then
-			stopPersistentSync()
-			return false
-		end
-		if module._persistentSyncHandle then
-			return true
-		end
-
-		module._persistentSyncHandle = ScheduleTimer(module, function()
-			module._persistentSyncHandle = nil
-			module:RefreshPersistentSync(PERSISTENT_SYNC_INTERVAL_SECONDS)
-			module:RequestLoggerPersistentSync()
-		end, tonumber(delay) or PERSISTENT_SYNC_INTERVAL_SECONDS)
-		return module._persistentSyncHandle ~= nil
-	end
-
-	function module:RefreshPersistentSync(delay)
-		if not isPersistentSyncEnabled() then
-			stopPersistentSync()
-			return false
-		end
-		return schedulePersistentSync(delay)
-	end
-
-	local function bindPersistentSyncCallbacks()
-		if module._persistentSyncCallbacksBound then
-			return
-		end
-
-		RegisterCallback(OptionsLoadedEvent, function()
-			module:RefreshPersistentSync(5)
-			scheduleAuthorityPull()
-		end)
-		local persistentSyncEvent = BuildConfigOptionChangedName("persistentSync")
-		RegisterCallback(persistentSyncEvent, function()
-			stopPersistentSync()
-			if isPersistentSyncEnabled() then
-				module:RequestLoggerPersistentSync()
-				module:RefreshPersistentSync(PERSISTENT_SYNC_INTERVAL_SECONDS)
-			else
-				cancelAutomaticSyncRequests()
-				invalidateRecoveryContext()
-			end
-		end)
-		RegisterCallback(RaidCreateEvent, scheduleAuthorityPull)
-		RegisterCallback(RaidRosterDeltaEvent, scheduleAuthorityPull)
-		RegisterCallback(ZoneChangedNewAreaEvent, scheduleAuthorityPull)
-		RegisterCallback(RaidLootUpdateEvent, function(_, raidNum)
-			announceCommittedRevision(raidNum)
-		end)
-
-		module._persistentSyncCallbacksBound = true
-	end
-
-	bindPersistentSyncCallbacks()
-
-	function module:OnAddonMessage(prefix, msg, channel, sender)
-		if prefix ~= COMM_PREFIX then
-			return
-		end
-		if isSelfSender(sender) then
-			return
-		end
-		if type(msg) ~= "string" or msg == "" then
-			return
-		end
-
-		cleanupExpiredStatePassive()
-
-		local fields, n = splitFields(msg, FIELD_SEP)
-		if n < 4 then
-			return
-		end
-
-		local kind = fields[1]
-		local version = parseNumber(fields[2], 0)
-		if kind == MSG_REVISION and version == PROTOCOL_VERSION and n >= 7 then
-			local sourceRaidNid = parseNumber(fields[3], 0)
-			local zone = SnapshotPayload.DecodeText(fields[4])
-			local signature = {
-				zone = zone,
-				size = parseNumber(fields[5], 0),
-				diff = parseNumber(fields[6], 0),
-			}
-			local revision = parseNumber(fields[7], 0)
-			if sourceRaidNid > 0 and zone and signature.size > 0 and signature.diff > 0 and revision > 0 then
-				handleRevisionNotice(sender, sourceRaidNid, signature, revision)
-			end
-			return
-		end
-		if version ~= PROTOCOL_VERSION and version ~= LEGACY_PROTOCOL_VERSION then
-			if isDebugEnabled() then
-				addon:debug(
-					(Diag.D.LogSyncVersionMismatch):format(tostring(sender), tostring(version), PROTOCOL_VERSION)
-				)
-			end
-			return
-		end
-
-		local requestId = tostring(fields[3] or "")
-		if requestId == "" or #requestId > MAX_REQUEST_ID_BYTES then
-			return
-		end
-
-		if kind == MSG_REQUEST and n >= 8 then
-			local mode = tostring(fields[4] or "")
-			if mode ~= MODE_REQ and mode ~= MODE_SYNC then
-				return
-			end
-
-			local raidRef = parseNumber(fields[5], 0)
-			local zone = SnapshotPayload.DecodeText(fields[6])
-			if zone == nil then
-				return
-			end
-
-			local sigSize = parseNumber(fields[7], 0)
-			local sigDiff = parseNumber(fields[8], 0)
-			if mode == MODE_SYNC and (sigSize < 1 or sigSize > 40 or sigDiff < 1 or sigDiff > 4) then
-				return
-			end
-			local signature = {
-				zone = zone,
-				size = sigSize,
-				diff = sigDiff,
-				sinceRevision = (version == PROTOCOL_VERSION) and parseNumber(fields[9], 0) or 0,
-				supportsCompression = version == PROTOCOL_VERSION and parseNumber(fields[10], 0) == 1,
-			}
-
-			Metrics.RecordIncomingRequest(mode, #msg)
-			handleIncomingRequest(sender, channel, requestId, mode, raidRef, signature)
-			return
-		end
-
-		if kind == MSG_SNAPSHOT and n >= 8 then
-			local mode = tostring(fields[4] or "")
-			if mode ~= MODE_REQ and mode ~= MODE_PUSH and mode ~= MODE_SYNC then
-				return
-			end
-
-			local raidNid = parseNumber(fields[5], nil)
-			local partIndex = parseNumber(fields[6], 0)
-			local partCount = parseNumber(fields[7], 0)
-			local chunkData = fields[8] or ""
-			if not raidNid then
-				return
-			end
-
-			local senderName = stableSenderKey(sender) or tostring(sender)
-			handleIncomingSnapshot(senderName, requestId, mode, raidNid, partIndex, partCount, chunkData, version)
-			return
-		end
-
-		if kind == MSG_DELTA and n >= 8 then
-			local mode = tostring(fields[4] or "")
-			local raidNid = parseNumber(fields[5], nil)
-			local partIndex = parseNumber(fields[6], 0)
-			local partCount = parseNumber(fields[7], 0)
-			local chunkData = fields[8] or ""
-			if not raidNid then
-				return
-			end
-
-			local senderName = stableSenderKey(sender) or tostring(sender)
-			handleIncomingDelta(senderName, requestId, mode, raidNid, partIndex, partCount, chunkData, version)
+	local normalized = Comms.NormalizeSender(value)
+	if type(normalized) ~= "string" or normalized == "" then
+		return nil
+	end
+	return string.lower(normalized)
+end
+
+local localPlayer = normalizeName(UnitName("player"))
+module._knownAuthority = normalizeName(Raid:GetRaidLeaderName())
+
+local function setStatus(status, reason)
+	module._status = status
+	module._statusReason = reason
+	return status ~= STATUS_FAILED and status ~= STATUS_SUSPENDED
+end
+
+local function countEntries(values)
+	local count = 0
+	for _ in pairs(values) do
+		count = count + 1
+	end
+	return count
+end
+
+local function pruneExpiring(values, now)
+	for key, value in pairs(values) do
+		if type(value) ~= "table" or tonumber(value.expiresAt) == nil or value.expiresAt <= now then
+			values[key] = nil
 		end
 	end
 end
+
+local function pruneHistoryRuntime()
+	local now = GetTime()
+	pruneExpiring(module._incomingOffers, now)
+	pruneExpiring(module._outgoingOffers, now)
+	pruneExpiring(module._historyResults, now)
+	local transfer = module._historyTransfer
+	if transfer and transfer.expiresAt <= now then
+		module._historyTransfer = nil
+	end
+	if
+		module._status == STATUS_TRANSFERRING_HISTORY
+		and module._historyTransfer == nil
+		and next(module._outgoingOffers) == nil
+	then
+		setStatus(STATUS_SYNCHRONIZED, "HISTORY_EXPIRED")
+	end
+	return now
+end
+
+local function historyOfferKey(peer, offerId)
+	return tostring(peer) .. "\t" .. tostring(offerId)
+end
+
+local function copyScalarTable(value)
+	local copy = {}
+	for key, item in pairs(value) do
+		copy[key] = item
+	end
+	return copy
+end
+
+local function sameOfferSummary(offer, body)
+	return offer.raidUid == body.raidUid
+		and offer.authorityEpoch == body.authorityEpoch
+		and offer.sequence == body.sequence
+		and offer.digest == body.digest
+		and offer.zone == body.zone
+		and offer.startTime == body.startTime
+		and offer.size == body.size
+		and offer.difficulty == body.difficulty
+		and offer.lootCount == body.lootCount
+end
+
+local function addBounded(values, key, value, maximum)
+	if values[key] == nil and countEntries(values) >= maximum then
+		return false, "HISTORY_CAPACITY"
+	end
+	values[key] = value
+	return true
+end
+
+local function nextOfferId()
+	for _ = 1, 1024 do
+		module._nextOfferId = (module._nextOfferId + 1) % 1000000
+		local offerId = "offer-" .. tostring(math.floor(GetTime() * 1000)) .. "-" .. tostring(module._nextOfferId)
+		if #offerId <= 64 then
+			local collision = false
+			for _, offer in pairs(module._outgoingOffers) do
+				if offer.offerId == offerId then
+					collision = true
+					break
+				end
+			end
+			if not collision then
+				return offerId
+			end
+		end
+	end
+	return nil, "OFFER_ID_EXHAUSTED"
+end
+
+local function findOutgoingOffer(sender, raidUid, requestId)
+	for _, offer in pairs(module._outgoingOffers) do
+		if
+			offer.target == sender
+			and offer.raidUid == raidUid
+			and (offer.acceptedRequestId == nil or offer.acceptedRequestId == requestId)
+		then
+			return offer
+		end
+	end
+	return nil
+end
+
+local function notifyHistoryOutcome(outcome, peer)
+	local templates = {
+		IMPORTED = L and L.StrLoggerHistoryShareImported,
+		ALREADY_PRESENT = L and L.StrLoggerHistoryShareAlreadyPresent,
+		CONFLICT = L and L.StrLoggerHistoryShareConflict,
+		DECLINED = L and L.StrLoggerHistoryShareDeclined,
+		FAILED = L and L.StrLoggerHistoryShareFailed,
+	}
+	local template = templates[outcome]
+	if type(template) ~= "string" then
+		return
+	end
+	local message = template:format(tostring(peer or "?"))
+	if outcome == "CONFLICT" or outcome == "FAILED" then
+		if addon.warn then
+			addon:warn(message)
+		end
+	elseif addon.info then
+		addon:info(message)
+	end
+end
+
+local function trace(eventName, details)
+	if not (Options and Options.IsDebugEnabled and Options.IsDebugEnabled()) then
+		return
+	end
+	if addon.debug then
+		local historyEvent = string.sub(tostring(eventName), 1, 8) == "HISTORY_"
+		local template = historyEvent and Diag and Diag.D and Diag.D.LogRaidHistoryShareTrace
+			or Diag and Diag.D and Diag.D.LogRaidSyncTrace
+			or "[RaidSync] event=%s %s"
+		addon:debug(template:format(tostring(eventName), tostring(details or "")))
+	end
+end
+
+local function currentRecordAndUid()
+	local record = RaidStore:GetActiveRecord()
+	if not record then
+		return nil, nil
+	end
+	local raidUid = record.raidUid
+	if not raidUid and RaidStore.GetRaidUid then
+		raidUid = RaidStore:GetRaidUid(record.state)
+	end
+	return record, raidUid
+end
+
+local function headFromRecord(record, raidUid)
+	if type(record) ~= "table" or type(raidUid) ~= "string" then
+		return nil
+	end
+	local head = {
+		raidUid = raidUid,
+		authorityEpoch = record.authorityEpoch,
+		sequence = record.sequence,
+		checkpointSequence = record.checkpointSequence,
+		digest = record.digest,
+		status = record.status,
+	}
+	local state = type(record.state) == "table" and record.state or record
+	if type(state) == "table" and type(state.zone) == "string"
+		and (tonumber(state.size) == 10 or tonumber(state.size) == 25)
+		and tonumber(state.difficulty)
+	then
+		head.zone = state.zone
+		head.size = tonumber(state.size)
+		head.difficulty = tonumber(state.difficulty)
+	end
+	return head
+end
+
+local function samePositionAndDigest(localHead, remoteHead)
+	return localHead
+		and remoteHead
+		and localHead.raidUid == remoteHead.raidUid
+		and localHead.authorityEpoch == remoteHead.authorityEpoch
+		and localHead.sequence == remoteHead.sequence
+		and localHead.digest == remoteHead.digest
+end
+
+local function sameRaidAndEpoch(localHead, remoteHead)
+	return localHead
+		and remoteHead
+		and localHead.raidUid == remoteHead.raidUid
+		and localHead.authorityEpoch == remoteHead.authorityEpoch
+end
+
+local function canRequestRange(localHead, remoteHead)
+	if not sameRaidAndEpoch(localHead, remoteHead) then
+		return false
+	end
+	local firstMissing = (tonumber(localHead.sequence) or 0) + 1
+	local remoteSequence = tonumber(remoteHead.sequence) or 0
+	local checkpoint = tonumber(remoteHead.checkpointSequence) or 0
+	return firstMissing <= remoteSequence
+		and firstMissing > checkpoint
+		and remoteSequence - firstMissing + 1 <= MAX_RANGE_EVENTS
+end
+
+local function sendGroup(kind, body)
+	local message, reason = Protocol.Encode(kind, "-", "-", body)
+	if not message then
+		return false, reason
+	end
+	return Comms.SendAddonBatch(COMM_PREFIX, { message })
+end
+
+local function sendDirectFireAndForget(kind, target, body)
+	local message, reason = Protocol.Encode(kind, "-", "-", body)
+	if not message then
+		return false, reason
+	end
+	return Comms.QueueAddonMessage(COMM_PREFIX, message, "WHISPER", target)
+end
+
+local function cancelDiscovery()
+	local pending = module._discovery
+	if pending and pending.timer then
+		module:CancelTimer(pending.timer)
+	end
+	module._discovery = nil
+end
+
+local function sendHeadRequest(authority)
+	return sendDirectFireAndForget("HEAD_REQ", authority, {})
+end
+
+local function isValidHandoverHead(handover, head)
+	if type(head) ~= "table" or type(head.raidUid) ~= "string" then
+		return false
+	end
+	if head.status ~= "active"
+		or type(head.authorityEpoch) ~= "number"
+		or type(head.sequence) ~= "number"
+		or type(head.checkpointSequence) ~= "number"
+		or head.sequence < 1
+		or head.checkpointSequence < 0
+		or head.checkpointSequence > head.sequence
+		or type(head.digest) ~= "string"
+	then
+		return false
+	end
+	if handover.raidUid == nil then
+		return true
+	end
+	local record, raidUid = currentRecordAndUid()
+	return head.raidUid == handover.raidUid
+		and raidUid == handover.raidUid
+		and record ~= nil
+		and head.authorityEpoch == record.authorityEpoch
+end
+
+local function recordHandoverHead(sender, head)
+	local handover = module._handover
+	if not handover or not isValidHandoverHead(handover, head) then
+		return false, "INVALID_HANDOVER_HEAD"
+	end
+	local normalized = normalizeName(sender)
+	if not normalized then
+		return false, "INVALID_SENDER"
+	end
+	handover.heads[normalized] = headFromRecord(head, head.raidUid)
+	return true
+end
+
+local function applyRange(events, expectedHead)
+	if type(events) ~= "table" or #events < 1 or #events > MAX_RANGE_EVENTS then
+		return nil, "INVALID_EVENT_RANGE"
+	end
+	local snapshot = RaidStore.CaptureRaidHistoryState and RaidStore:CaptureRaidHistoryState() or nil
+	for i = 1, #events do
+		local event = events[i]
+		local applied, reason = RaidStore:ApplyReplicaEvent(event)
+		if not applied then
+			if snapshot and RaidStore.RestoreRaidHistoryState then
+				RaidStore:RestoreRaidHistoryState(snapshot)
+			end
+			return nil, reason
+		end
+	end
+	local record, raidUid = currentRecordAndUid()
+	local head = headFromRecord(record, raidUid)
+	if not samePositionAndDigest(head, expectedHead) then
+		if snapshot and RaidStore.RestoreRaidHistoryState then
+			RaidStore:RestoreRaidHistoryState(snapshot)
+		end
+		return nil, "DIGEST_MISMATCH"
+	end
+	TriggerEvent(LoggerDataChangedEvent, "raid_sync")
+	return true
+end
+
+local function notifyReplicaInstalled(raidUid, wasPresent)
+	TriggerEvent(LoggerDataChangedEvent, "raid_sync")
+	if wasPresent then
+		return
+	end
+	local raidIndex = RaidStore.GetIndexByUid and RaidStore:GetIndexByUid(raidUid) or nil
+	if raidIndex then
+		TriggerEvent(LoggerSelectRaidEvent, raidIndex, "sync")
+	end
+end
+
+local function releaseRecovery(recovery, reason, cancelPending)
+	if module._recovery ~= recovery then
+		return false, "STALE_RECOVERY"
+	end
+	module._recovery = nil
+	if cancelPending and recovery.requestId then
+		Session:CancelRequest(recovery.requestId, reason or "RECOVERY_OBSOLETE")
+	end
+	return true
+end
+
+local function samePositionWithDifferentDigest(expected, actual)
+	return expected
+		and expected.sequence == actual.sequence
+		and expected.digest ~= actual.digest
+end
+
+local function rejectInflightDigestConflict(sender, remotePosition)
+	local recovery = module._recovery
+	if
+		recovery
+		and recovery.sender == sender
+		and recovery.raidUid == remotePosition.raidUid
+		and recovery.authorityEpoch == remotePosition.authorityEpoch
+		and (
+			samePositionWithDifferentDigest(recovery, remotePosition)
+			or samePositionWithDifferentDigest(recovery.followUp, remotePosition)
+		)
+	then
+		releaseRecovery(recovery, "DIGEST_CONFLICT", true)
+		setStatus(STATUS_SUSPENDED, "DIGEST_CONFLICT")
+		return true
+	end
+	return false
+end
+
+local finishHandoverRecovery
+local broadcastCommittedEvent
+local suspendReentry
+local publishReentryReady
+local cancelReentry
+
+local function finishRecovery(recovery, succeeded, reason)
+	if not releaseRecovery(recovery, reason, false) then
+		return false, "STALE_RECOVERY"
+	end
+	if recovery.handover then
+		return finishHandoverRecovery(recovery.handover, succeeded, reason)
+	end
+	if recovery.reentry then
+		if not succeeded then
+			return suspendReentry(recovery.reentry, reason or "SNAPSHOT_FAILED")
+		end
+		return publishReentryReady(recovery.reentry, recovery.raidUid)
+	end
+	if succeeded then
+		setStatus(STATUS_SYNCHRONIZED, "UP_TO_DATE")
+		return true
+	end
+	setStatus(STATUS_FAILED, reason or "RECOVERY_FAILED")
+	return false
+end
+
+local requestSnapshot
+
+local function sameRecovery(left, right)
+	return left
+		and right
+		and left.sender == right.sender
+		and left.kind == right.kind
+		and left.raidUid == right.raidUid
+		and left.authorityEpoch == right.authorityEpoch
+		and left.sequence == right.sequence
+		and left.fromSequence == right.fromSequence
+		and left.toSequence == right.toSequence
+		and left.digest == right.digest
+end
+
+local function coalesceReplicaSnapshot(pending, recovery)
+	if
+		pending.kind ~= "SNAP_REQ"
+		or (recovery.kind ~= "SNAP_REQ" and recovery.kind ~= "RANGE_REQ")
+		or pending.handover
+		or pending.reentry
+		or recovery.handover
+		or recovery.reentry
+		or pending.sender ~= recovery.sender
+		or pending.raidUid ~= recovery.raidUid
+		or pending.authorityEpoch ~= recovery.authorityEpoch
+	then
+		return false
+	end
+	local latest = pending.followUp or pending
+	if recovery.sequence > latest.sequence then
+		pending.followUp = recovery
+	end
+	return true
+end
+
+local function admitRecovery(recovery)
+	local pending = module._recovery
+	if pending then
+		if sameRecovery(pending, recovery) then
+			return true, "RECOVERY_PENDING"
+		end
+		if coalesceReplicaSnapshot(pending, recovery) then
+			return true, "RECOVERY_PENDING"
+		end
+		if
+			pending.sender == recovery.sender
+			and pending.raidUid == recovery.raidUid
+			and pending.authorityEpoch == recovery.authorityEpoch
+			and recovery.sequence > pending.sequence
+		then
+			releaseRecovery(pending, "RECOVERY_SUPERSEDED", true)
+			module._recovery = recovery
+			return nil
+		end
+		return false, "RECOVERY_IN_PROGRESS"
+	end
+	module._recovery = recovery
+	return nil
+end
+
+local function requestRange(remoteSender, fromSequence, toSequence, remoteHead, handover)
+	if module._status == STATUS_SUSPENDED then
+		return false, "SUSPENDED"
+	end
+	local body = {
+		raidUid = remoteHead.raidUid,
+		authorityEpoch = remoteHead.authorityEpoch,
+		fromSequence = fromSequence,
+		toSequence = toSequence,
+	}
+	local recovery = {
+		sender = remoteSender,
+		kind = "RANGE_REQ",
+		raidUid = remoteHead.raidUid,
+		authorityEpoch = remoteHead.authorityEpoch,
+		sequence = remoteHead.sequence,
+		fromSequence = fromSequence,
+		toSequence = toSequence,
+		digest = remoteHead.digest,
+		handover = handover,
+	}
+	local admitted, admissionReason = admitRecovery(recovery)
+	if admitted ~= nil then
+		return admitted, admissionReason
+	end
+	setStatus(STATUS_RECOVERING, "MISSING_RANGE")
+	local requestId, reason = Session:BeginRequest(
+		"RANGE_REQ",
+		remoteSender,
+		body,
+		"RANGE_DATA",
+		body,
+		function(ok, why, result)
+			if module._recovery ~= recovery then
+				return
+			end
+			if not ok or type(result) ~= "table" then
+				releaseRecovery(recovery, why or "RANGE_FAILED", false)
+				requestSnapshot(remoteSender, remoteHead, handover)
+				return
+			end
+			local applied, applyReason = applyRange(result.events, remoteHead)
+			if not applied then
+				releaseRecovery(recovery, applyReason or "RANGE_INVALID", false)
+				requestSnapshot(remoteSender, remoteHead, handover)
+				return
+			end
+			finishRecovery(recovery, true, applyReason)
+		end
+	)
+	if not requestId then
+		local failureReason = reason or "RANGE_REQUEST_FAILED"
+		releaseRecovery(recovery, failureReason, false)
+		if handover then
+			return finishHandoverRecovery(handover, false, failureReason)
+		end
+		setStatus(STATUS_FAILED, failureReason)
+		return false, failureReason
+	end
+	if module._recovery == recovery then
+		recovery.requestId = requestId
+	end
+	trace("RANGE_REQ", remoteHead.raidUid .. " " .. tostring(fromSequence) .. "-" .. tostring(toSequence))
+	return true
+end
+
+requestSnapshot = function(remoteSender, remoteHead, handover, reentry)
+	if module._status == STATUS_SUSPENDED then
+		return false, "SUSPENDED"
+	end
+	local body = { raidUid = remoteHead.raidUid }
+	local metadata = {
+		raidUid = remoteHead.raidUid,
+		authorityEpoch = remoteHead.authorityEpoch,
+		sequence = remoteHead.sequence,
+	}
+	local recovery = {
+		sender = remoteSender,
+		kind = "SNAP_REQ",
+		raidUid = remoteHead.raidUid,
+		authorityEpoch = remoteHead.authorityEpoch,
+		sequence = remoteHead.sequence,
+		digest = remoteHead.digest,
+		handover = handover,
+		reentry = reentry,
+	}
+	local admitted, admissionReason = admitRecovery(recovery)
+	if admitted ~= nil then
+		return admitted, admissionReason
+	end
+	setStatus(STATUS_RECOVERING, "SNAPSHOT_REQUIRED")
+	local requestId, reason = Session:BeginRequest(
+		"SNAP_REQ",
+		remoteSender,
+		body,
+		"SNAP_DATA",
+		metadata,
+		function(ok, why, result)
+			if module._recovery ~= recovery then
+				return
+			end
+			if not ok or type(result) ~= "table" or type(result.snapshot) ~= "table" then
+				finishRecovery(recovery, false, why or "SNAPSHOT_FAILED")
+				return
+			end
+			local snapshot = result.snapshot
+			if
+				snapshot.raidUid ~= remoteHead.raidUid
+				or snapshot.authorityEpoch ~= remoteHead.authorityEpoch
+				or snapshot.sequence ~= remoteHead.sequence
+				or snapshot.digest ~= remoteHead.digest
+			then
+				finishRecovery(recovery, false, "SNAPSHOT_MISMATCH")
+				return
+			end
+			local current, currentUid = currentRecordAndUid()
+			local wasPresent = RaidStore.GetIndexByUid and RaidStore:GetIndexByUid(snapshot.raidUid) ~= nil
+			local replaced, replaceReason
+			if current and currentUid == snapshot.raidUid then
+				replaced, replaceReason = RaidStore:RepairActiveFromSnapshot(snapshot)
+			else
+				replaced, replaceReason = RaidStore:ReplaceActiveFromSnapshot(snapshot)
+			end
+			if replaced ~= nil then
+				notifyReplicaInstalled(snapshot.raidUid, wasPresent)
+			end
+			local followUp = recovery.followUp
+			local finished = finishRecovery(recovery, replaced ~= nil, replaceReason)
+			if
+				replaced ~= nil
+				and followUp
+				and followUp.sequence > snapshot.sequence
+			then
+				return requestRange(
+					followUp.sender,
+					snapshot.sequence + 1,
+					followUp.sequence,
+					followUp
+				)
+			end
+			return finished
+		end
+	)
+	if not requestId then
+		local failureReason = reason or "SNAPSHOT_REQUEST_FAILED"
+		releaseRecovery(recovery, failureReason, false)
+		if handover then
+			return finishHandoverRecovery(handover, false, failureReason)
+		end
+		if reentry then
+			return suspendReentry(reentry, failureReason)
+		end
+		setStatus(STATUS_FAILED, failureReason)
+		return false, failureReason
+	end
+	if module._recovery == recovery then
+		recovery.requestId = requestId
+	end
+	trace("SNAP_REQ", remoteHead.raidUid)
+	return true
+end
+
+local function publishHandoverFinished(handover, succeeded, reason)
+	if not handover or handover.finished then
+		return false
+	end
+	handover.finished = true
+	TriggerEvent(RaidAuthorityRecoveryFinishedEvent, handover.raidUid, succeeded == true, reason)
+	return true
+end
+
+local function suspendHandover(handover, reason)
+	if module._handover ~= handover then
+		return false, "STALE_HANDOVER"
+	end
+	local outcomeReason = reason or "HANDOVER_FAILED"
+	setStatus(STATUS_SUSPENDED, outcomeReason)
+	publishHandoverFinished(handover, false, outcomeReason)
+	if outcomeReason ~= "DIGEST_CONFLICT" then
+		module._handover = nil
+	end
+	return false, outcomeReason
+end
+
+local function cancelHandover(handover, reason)
+	if not handover or module._handover ~= handover then
+		return false
+	end
+	if handover.timer then
+		module:CancelTimer(handover.timer)
+		handover.timer = nil
+	end
+	local recovery = module._recovery
+	if recovery and recovery.handover == handover then
+		releaseRecovery(recovery, reason or "HANDOVER_CANCELLED", true)
+	end
+	publishHandoverFinished(handover, false, reason or "HANDOVER_CANCELLED")
+	module._handover = nil
+	return true
+end
+
+local function promoteHandover(handover)
+	if module._handover ~= handover or normalizeName(Raid:GetRaidLeaderName()) ~= handover.newAuthority then
+		return false, "STALE_HANDOVER"
+	end
+	local record, raidUid = currentRecordAndUid()
+	if not record or raidUid ~= handover.raidUid then
+		return suspendHandover(handover, "HANDOVER_BASE_MISSING")
+	end
+	local recoveredIndex
+	if handover.needsRaidSelection then
+		recoveredIndex = RaidStore.GetIndexByUid and RaidStore:GetIndexByUid(handover.raidUid) or nil
+		if not recoveredIndex or not Database or type(Database.SetCurrentRaid) ~= "function" then
+			return suspendHandover(handover, "HANDOVER_SELECTION_UNAVAILABLE")
+		end
+	end
+	local promoted, promotedOrReason = RaidStore:PromoteAuthority(handover.raidUid, record.sequence)
+	if not promoted then
+		return suspendHandover(handover, promotedOrReason or "HANDOVER_PROMOTION_FAILED")
+	end
+	if recoveredIndex then
+		assert(Database.SetCurrentRaid(recoveredIndex) == recoveredIndex, "Recovered raid selection failed")
+	end
+	setStatus(STATUS_SYNCHRONIZED, "UP_TO_DATE")
+	module._handover = nil
+	publishHandoverFinished(handover, true, "UP_TO_DATE")
+	return module:AdvertiseHead()
+end
+
+finishHandoverRecovery = function(handover, succeeded, reason)
+	if not succeeded then
+		return suspendHandover(handover, reason or "HANDOVER_RECOVERY_FAILED")
+	end
+	return promoteHandover(handover)
+end
+
+local function selectHandoverBase(handover)
+	local positions = {}
+	local selectedSender, selectedHead
+	for sender, head in pairs(handover.heads) do
+		if isValidHandoverHead(handover, head) then
+			local position = head.raidUid .. "\t" .. tostring(head.authorityEpoch) .. "\t" .. tostring(head.sequence)
+			local digest = positions[position]
+			if digest and digest ~= head.digest then
+				return nil, nil, "DIGEST_CONFLICT"
+			end
+			positions[position] = head.digest
+			if not selectedHead or head.sequence > selectedHead.sequence then
+				selectedSender, selectedHead = sender, head
+			end
+		end
+	end
+	local previousHead = handover.heads[handover.previousAuthority]
+	if previousHead and isValidHandoverHead(handover, previousHead) then
+		return handover.previousAuthority, previousHead
+	end
+	return selectedSender, selectedHead
+end
+
+local function completeHandover(handover)
+	if module._handover ~= handover then
+		return false, "STALE_HANDOVER"
+	end
+	local sender, selected, reason = selectHandoverBase(handover)
+	if not selected then
+		if handover.raidUid == nil and reason == nil then
+			setStatus(STATUS_SYNCHRONIZED, "NO_RECOVERABLE_COPY")
+			publishHandoverFinished(handover, false, "NO_RECOVERABLE_COPY")
+			module._handover = nil
+			return true, "NO_RECOVERABLE_COPY"
+		end
+		return suspendHandover(handover, reason or "HANDOVER_BASE_MISSING")
+	end
+	if handover.raidUid == nil then
+		handover.raidUid = selected.raidUid
+	end
+	local record, raidUid = currentRecordAndUid()
+	local localHead = headFromRecord(record, raidUid)
+	if samePositionAndDigest(localHead, selected) then
+		return promoteHandover(handover)
+	end
+	if canRequestRange(localHead, selected) then
+		return requestRange(sender, localHead.sequence + 1, selected.sequence, selected, handover)
+	end
+	return requestSnapshot(sender, selected, handover)
+end
+
+local function isValidReentryHead(reentry, head)
+	if type(head) ~= "table" or head.status ~= "active"
+		or type(head.raidUid) ~= "string" or type(head.authorityEpoch) ~= "number"
+		or type(head.sequence) ~= "number" or type(head.checkpointSequence) ~= "number"
+		or type(head.digest) ~= "string" or head.sequence < 0
+		or head.checkpointSequence < 0 or head.checkpointSequence > head.sequence
+	then
+		return false
+	end
+	if reentry.raidUid then
+		return head.raidUid == reentry.raidUid and head.authorityEpoch == reentry.authorityEpoch
+	end
+	return type(head.zone) == "string" and (head.size == 10 or head.size == 25)
+		and type(head.difficulty) == "number"
+		and head.zone == reentry.context.zone and head.size == reentry.context.size
+		and head.difficulty == reentry.context.difficulty
+end
+
+local function recordReentryHead(sender, head)
+	local reentry = module._reentry
+	if not reentry or reentry.phase ~= "collecting" or not Raid:IsGroupMember(sender) then
+		return false, "REENTRY_NOT_COLLECTING"
+	end
+	if reentry.raidUid and type(head) == "table" and head.status == "active"
+		and (head.raidUid ~= reentry.raidUid or head.authorityEpoch ~= reentry.authorityEpoch)
+	then
+		return suspendReentry(reentry, "AUTHORITY_EPOCH_MISMATCH")
+	end
+	local normalized = normalizeName(sender)
+	if not normalized or normalized == localPlayer or not isValidReentryHead(reentry, head) then
+		return false, "INVALID_REENTRY_HEAD"
+	end
+	reentry.heads[normalized] = headFromRecord(head, head.raidUid)
+	return true
+end
+
+local function selectReentryBase(reentry)
+	local selectedSender, selectedHead
+	local positions = {}
+	local identities = {}
+	for sender, head in pairs(reentry.heads) do
+		if isValidReentryHead(reentry, head) then
+			local identity = head.raidUid .. "\t" .. tostring(head.authorityEpoch)
+			identities[identity] = true
+			local position = identity .. "\t" .. tostring(head.sequence)
+			local digest = positions[position]
+			if digest and digest ~= head.digest then
+				return nil, nil, "DIGEST_CONFLICT"
+			end
+			positions[position] = head.digest
+			if not selectedHead or head.sequence > selectedHead.sequence
+				or (head.sequence == selectedHead.sequence and selectedSender == localPlayer and sender ~= localPlayer)
+			then
+				selectedSender, selectedHead = sender, head
+			end
+		end
+	end
+	if not reentry.raidUid and countEntries(identities) > 1 then
+		return nil, nil, "RAID_IDENTITY_CONFLICT"
+	end
+	return selectedSender, selectedHead
+end
+
+suspendReentry = function(reentry, reason)
+	if module._reentry ~= reentry then
+		return false, "STALE_REENTRY"
+	end
+	if reentry.timer then
+		module:CancelTimer(reentry.timer)
+		reentry.timer = nil
+	end
+	reentry.transitionEvents = nil
+	local recovery = module._recovery
+	if recovery and recovery.reentry == reentry then
+		releaseRecovery(recovery, reason or "REENTRY_SUSPENDED", true)
+	end
+	reentry.phase = "suspended"
+	setStatus(STATUS_SUSPENDED, reason or "REENTRY_SUSPENDED")
+	trace("REENTRY_SUSPENDED", tostring(reason or "REENTRY_SUSPENDED"))
+	if not reentry.warned then
+		reentry.warned = true
+		local template = L and L.WarnRaidReentryRecoverySuspended
+		addon:warn((template or "Raid database recovery was suspended (%s). Recording remains paused and no raid copy was overwritten.")
+			:format(tostring(reason or "REENTRY_SUSPENDED")))
+	end
+	return false, reason
+end
+
+cancelReentry = function(reentry, reason)
+	if module._reentry ~= reentry then
+		return false, "STALE_REENTRY"
+	end
+	if reentry.timer then
+		module:CancelTimer(reentry.timer)
+		reentry.timer = nil
+	end
+	reentry.transitionEvents = nil
+	local recovery = module._recovery
+	if recovery and recovery.reentry == reentry then
+		releaseRecovery(recovery, reason or "REENTRY_CANCELLED", true)
+	end
+	reentry.phase = "cancelled"
+	module._reentry = nil
+	setStatus(STATUS_SYNCHRONIZED, reason or "REENTRY_CANCELLED")
+	trace("REENTRY_CANCELLED", tostring(reason or "REENTRY_CANCELLED"))
+	return true
+end
+
+publishReentryReady = function(reentry, raidUid)
+	if module._reentry ~= reentry then
+		return false, "STALE_REENTRY"
+	end
+	if reentry.timer then
+		module:CancelTimer(reentry.timer)
+		reentry.timer = nil
+	end
+	reentry.phase = "decision"
+	reentry.selectedRaidUid = raidUid
+	setStatus(STATUS_RECOVERING, "REENTRY_DECISION_REQUIRED")
+	local record = RaidStore:GetActiveRecord()
+	TriggerEvent(RaidReentryRecoveryReadyEvent, {
+		raidUid = raidUid,
+		context = copyScalarTable(reentry.context),
+		raid = record and record.state or nil,
+	})
+	return true
+end
+
+local function sameReentryContext(left, right)
+	return type(left) == "table" and type(right) == "table"
+		and left.zone == right.zone
+		and tonumber(left.size) == tonumber(right.size)
+		and tonumber(left.difficulty) == tonumber(right.difficulty)
+end
+
+local function resolveReentryDecision(_, raidUid, decision, context)
+	local reentry = module._reentry
+	if not reentry or reentry.phase ~= "decision" then
+		return false, "STALE_REENTRY_DECISION"
+	end
+	if not sameReentryContext(reentry.context, context) then
+		return false, "REENTRY_CONTEXT_MISMATCH"
+	end
+	if decision == "new" then
+		if reentry.selectedRaidUid ~= nil or raidUid ~= nil then
+			return false, "REENTRY_UID_MISMATCH"
+		end
+	elseif (decision == "resume" or decision == "replace") and reentry.selectedRaidUid == raidUid then
+		-- The recovered active raid can only be continued or concluded once.
+	else
+		return false, "INVALID_REENTRY_DECISION"
+	end
+	reentry.phase = "transition"
+	reentry.transitionEvents = {}
+	if decision == "replace" then
+		reentry.expectedLifecycle = { "RAID_CONCLUDED", "RAID_CREATED" }
+	elseif decision == "new" then
+		reentry.expectedLifecycle = { "RAID_CREATED" }
+	else
+		reentry.expectedLifecycle = {}
+	end
+	local succeeded, resultOrReason, deferredRaidId = Raid:ApplyReentryDecision(raidUid, decision, context)
+	if succeeded ~= true then
+		return suspendReentry(reentry, resultOrReason or "REENTRY_TRANSITION_FAILED")
+	end
+	if reentry.transitionFailure then
+		return suspendReentry(reentry, reentry.transitionFailure)
+	end
+	if #reentry.transitionEvents ~= #reentry.expectedLifecycle then
+		return suspendReentry(reentry, "REENTRY_LIFECYCLE_INCOMPLETE")
+	end
+	if module._reentry ~= reentry then
+		return false, "STALE_REENTRY"
+	end
+	local transitionEvents = reentry.transitionEvents or {}
+	reentry.transitionEvents = nil
+	module._reentry = nil
+	setStatus(STATUS_SYNCHRONIZED, "UP_TO_DATE")
+	for i = 1, #transitionEvents do
+		broadcastCommittedEvent(nil, transitionEvents[i])
+	end
+	if deferredRaidId ~= nil then
+		module._deferReentryAdvertise = true
+		local invoked, notified, notifyReason = pcall(Raid.NotifyDeferredRaidCreate, Raid, deferredRaidId)
+		module._deferReentryAdvertise = false
+		if invoked ~= true or notified ~= true then
+			module._reentry = reentry
+			return suspendReentry(reentry, notifyReason or "REENTRY_RAID_CREATE_NOTIFY_FAILED")
+		end
+	end
+	return module:AdvertiseHead()
+end
+
+local function completeReentry(reentry)
+	if module._reentry ~= reentry or reentry.phase ~= "collecting" then
+		return false, "STALE_REENTRY"
+	end
+	local remoteHeadCount = 0
+	for sender in pairs(reentry.heads) do
+		if sender ~= localPlayer then
+			remoteHeadCount = remoteHeadCount + 1
+		end
+	end
+	if remoteHeadCount == 0 and reentry.retries == 0 then
+		reentry.retries = 1
+		sendGroup("HEAD_REQ", {})
+		reentry.timer = module:ScheduleTimer(function()
+			reentry.timer = nil
+			completeReentry(reentry)
+		end, DISCOVERY_RETRY_SECONDS)
+		return true
+	end
+	local sender, selected, reason = selectReentryBase(reentry)
+	if reason then
+		return suspendReentry(reentry, reason)
+	end
+	if not selected then
+		return publishReentryReady(reentry, nil)
+	end
+	local record, raidUid = currentRecordAndUid()
+	local localHead = headFromRecord(record, raidUid)
+	local localDigest = record and RaidStore.GetStateDigest and RaidStore:GetStateDigest(record.state) or nil
+	if samePositionAndDigest(localHead, selected) and localDigest == record.digest then
+		return publishReentryReady(reentry, selected.raidUid)
+	end
+	reentry.phase = "snapshot"
+	return requestSnapshot(sender, selected, nil, reentry)
+end
+
+local function startReentry(instanceName, instanceDiff)
+	if module._handover then
+		return false, "HANDOVER_ACTIVE"
+	end
+	if module._reentry then
+		return nil
+	end
+	local context, contextReason = Raid:ResolveRaidInstanceContext(instanceName, instanceDiff)
+	if not context then
+		return false, contextReason
+	end
+	local record, raidUid = currentRecordAndUid()
+	local reentry = {
+		phase = "collecting",
+		context = context,
+		raidUid = raidUid,
+		authorityEpoch = record and record.authorityEpoch or nil,
+		heads = {},
+		retries = 0,
+	}
+	if record and raidUid then
+		reentry.heads[localPlayer] = headFromRecord(record, raidUid)
+	end
+	module._reentry = reentry
+	setStatus(STATUS_RECOVERING, "REENTRY_RECOVERY")
+	trace("REENTRY_STARTED", context.zone)
+	sendGroup("HEAD_REQ", {})
+	reentry.timer = module:ScheduleTimer(function()
+		reentry.timer = nil
+		completeReentry(reentry)
+	end, DISCOVERY_RETRY_SECONDS)
+	return nil
+end
+
+local function isRealAuthorityHandover(previousAuthority, currentAuthority)
+	return previousAuthority ~= nil
+		and currentAuthority ~= nil
+		and previousAuthority ~= currentAuthority
+end
+
+local function refreshAuthority()
+	local currentAuthority = normalizeName(Raid:GetRaidLeaderName())
+	local previousAuthority = module._knownAuthority
+	if currentAuthority == previousAuthority then
+		return false
+	end
+	module._knownAuthority = currentAuthority
+	local key = tostring(previousAuthority or "?") .. ">" .. tostring(currentAuthority or "?")
+	if module._lastWarnedAuthorityPair ~= key then
+		if previousAuthority == localPlayer and currentAuthority then
+			addon:warn(L.WarnRaidDatabaseAuthorityReleased:format(currentAuthority))
+		elseif currentAuthority == localPlayer and previousAuthority then
+			addon:warn(L.WarnRaidDatabaseAuthorityReceived:format(previousAuthority))
+		end
+		module._lastWarnedAuthorityPair = key
+	end
+	if module._reentry then
+		cancelReentry(module._reentry, "AUTHORITY_CHANGED")
+	elseif module._handover then
+		cancelHandover(module._handover, "AUTHORITY_CHANGED")
+	elseif module._recovery then
+		releaseRecovery(module._recovery, "AUTHORITY_CHANGED", true)
+	end
+	local record, raidUid = currentRecordAndUid()
+	local head = headFromRecord(record, raidUid)
+	if isRealAuthorityHandover(previousAuthority, currentAuthority)
+		and currentAuthority == localPlayer
+		and Raid:IsRaidLeader()
+	then
+		local handover = {
+			raidUid = raidUid,
+			previousAuthority = previousAuthority,
+			newAuthority = currentAuthority,
+			startedAt = GetTime(),
+			heads = {},
+			needsRaidSelection = head == nil,
+		}
+		module._handover = handover
+		if head then
+			handover.heads[localPlayer] = head
+		else
+			sendGroup("HEAD_REQ", {})
+		end
+		setStatus(STATUS_HANDOVER, "AUTHORITY_CHANGED")
+		handover.timer = module:ScheduleTimer(function()
+			handover.timer = nil
+			completeHandover(handover)
+		end, 1)
+	end
+	if currentAuthority ~= localPlayer and head then
+		sendGroup("HEAD", head)
+	end
+	return true
+end
+
+local function requestActiveRaidIfNeeded(eventName, instanceName, instanceKey, instanceDiff)
+	refreshAuthority()
+	local authority = normalizeName(Raid:GetRaidLeaderName())
+	if Raid:IsRaidLeader() and authority == localPlayer then
+		local activeRecord = RaidStore:GetActiveRecord()
+		if Database and Database.GetCurrentRaid and Database.GetCurrentRaid() == nil and activeRecord then
+			return startReentry(instanceName, instanceDiff)
+		end
+		cancelDiscovery()
+		return
+	end
+	local activeRecord = RaidStore:GetActiveRecord()
+	local currentRaid = Database and Database.GetCurrentRaid and Database.GetCurrentRaid() or nil
+	local unresolvedReentry = activeRecord
+		and currentRaid == nil
+		and (authority == nil or authority == localPlayer)
+	if activeRecord and not unresolvedReentry then
+		cancelDiscovery()
+		return
+	end
+	local validAuthority = authority and authority ~= localPlayer and Raid:IsGroupMember(authority)
+	if module._discovery and (module._discovery.authority == nil or module._discovery.authority == authority) then
+		return
+	end
+	cancelDiscovery()
+	local pending = {
+		authority = validAuthority and authority or nil,
+		instanceName = instanceName,
+		instanceDiff = instanceDiff,
+	}
+	module._discovery = pending
+	if validAuthority then
+		sendHeadRequest(authority)
+		if module._discovery ~= pending then
+			return
+		end
+	end
+	pending.timer = module:ScheduleTimer(function()
+		if module._discovery ~= pending then
+			return
+		end
+		module._discovery = nil
+		refreshAuthority()
+		local retryActiveRecord = RaidStore:GetActiveRecord()
+		local retryCurrentRaid = Database and Database.GetCurrentRaid and Database.GetCurrentRaid() or nil
+		local retryAuthority = normalizeName(Raid:GetRaidLeaderName())
+		if retryActiveRecord
+			and retryCurrentRaid == nil
+			and Raid:IsRaidLeader()
+			and retryAuthority == localPlayer
+		then
+			startReentry(pending.instanceName, pending.instanceDiff)
+			return
+		end
+		if retryActiveRecord then
+			return
+		end
+		local currentAuthority = normalizeName(Raid:GetRaidLeaderName())
+		if
+			not RaidStore:GetActiveRecord()
+			and not Raid:IsRaidLeader()
+			and currentAuthority
+			and currentAuthority ~= localPlayer
+			and (pending.authority == nil or currentAuthority == pending.authority)
+			and Raid:IsGroupMember(currentAuthority)
+		then
+			sendHeadRequest(currentAuthority)
+		end
+	end, DISCOVERY_RETRY_SECONDS)
+end
+
+local function compareHead(remoteSender, remoteHead)
+	if rejectInflightDigestConflict(remoteSender, remoteHead) then
+		return false, "DIGEST_CONFLICT"
+	end
+	local record, raidUid = currentRecordAndUid()
+	local localHead = headFromRecord(record, raidUid)
+	if not localHead and remoteHead.status == "complete" then
+		local completed = RaidStore:GetRecord(remoteHead.raidUid)
+		if completed and completed.status == "complete" then
+			localHead = headFromRecord(completed, remoteHead.raidUid)
+		end
+	end
+	if samePositionAndDigest(localHead, remoteHead) then
+		if module._recovery then
+			releaseRecovery(module._recovery, "RECOVERY_SATISFIED", true)
+		end
+		return setStatus(STATUS_SYNCHRONIZED, "UP_TO_DATE")
+	end
+	if not localHead and remoteHead.status == "complete" then
+		return false, "HISTORY_CONSENT_REQUIRED"
+	end
+	if localHead and localHead.status == "complete" then
+		return false, "HISTORY_CONSENT_REQUIRED"
+	end
+	if
+		localHead
+		and localHead.raidUid == remoteHead.raidUid
+		and localHead.authorityEpoch == remoteHead.authorityEpoch
+		and localHead.sequence == remoteHead.sequence
+	then
+		return setStatus(STATUS_SUSPENDED, "DIGEST_CONFLICT")
+	end
+	if
+		localHead
+		and localHead.raidUid == remoteHead.raidUid
+		and tonumber(remoteHead.authorityEpoch) < tonumber(localHead.authorityEpoch)
+	then
+		return false, "OLD_AUTHORITY_EPOCH"
+	end
+	if remoteHead.status == "complete" then
+		if
+			not localHead
+			or localHead.status ~= "active"
+			or localHead.raidUid ~= remoteHead.raidUid
+			or localHead.authorityEpoch ~= remoteHead.authorityEpoch
+			or remoteHead.sequence <= localHead.sequence
+		then
+			return false, "HISTORY_CONSENT_REQUIRED"
+		end
+		return requestSnapshot(remoteSender, remoteHead)
+	end
+	if sameRaidAndEpoch(localHead, remoteHead) and canRequestRange(localHead, remoteHead) then
+		return requestRange(remoteSender, localHead.sequence + 1, remoteHead.sequence, remoteHead)
+	end
+	return requestSnapshot(remoteSender, remoteHead)
+end
+
+local handleHead
+local handleEvent
+local handleRangeRequest
+local handleRangeData
+local handleSnapshotRequest
+local handleSnapshotData
+local handleOffer
+local handleResult
+
+handleHead = function(sender, envelope)
+	if envelope.body.status == "active" then
+		cancelDiscovery()
+	end
+	return compareHead(sender, envelope.body)
+end
+
+handleEvent = function(sender, envelope)
+	local event = envelope.body.event
+	if
+		rejectInflightDigestConflict(sender, {
+			raidUid = event.raidUid,
+			authorityEpoch = event.authorityEpoch,
+			sequence = event.sequence,
+			digest = event.resultDigest,
+		})
+	then
+		return false, "DIGEST_CONFLICT"
+	end
+	local record, raidUid = currentRecordAndUid()
+	if not record then
+		if event.eventType == "RAID_CONCLUDED" then
+			return false, "LIVE_RAID_NOT_PRESENT"
+		end
+		local remoteHead = {
+			raidUid = event.raidUid,
+			authorityEpoch = event.authorityEpoch,
+			sequence = event.sequence,
+			checkpointSequence = event.sequence,
+			digest = event.resultDigest,
+			status = "active",
+		}
+		return requestSnapshot(sender, remoteHead)
+	end
+	if event.raidUid ~= raidUid then
+		return false, "RAID_UID_MISMATCH"
+	end
+	if event.authorityEpoch < record.authorityEpoch then
+		return false, "OLD_AUTHORITY_EPOCH"
+	end
+	if event.authorityEpoch ~= record.authorityEpoch then
+		return false, "AUTHORITY_EPOCH_MISMATCH"
+	end
+	if event.sequence == record.sequence + 1 then
+		local applied, reason = RaidStore:ApplyReplicaEvent(event)
+		if not applied then
+			return setStatus(STATUS_SUSPENDED, reason or "EVENT_REJECTED")
+		end
+		TriggerEvent(LoggerDataChangedEvent, "raid_sync")
+		local recovery = module._recovery
+		if
+			recovery
+			and recovery.raidUid == event.raidUid
+			and recovery.authorityEpoch == event.authorityEpoch
+			and recovery.sequence <= event.sequence
+		then
+			releaseRecovery(recovery, "RECOVERY_SATISFIED_BY_EVENT", true)
+		end
+		return setStatus(STATUS_SYNCHRONIZED, "UP_TO_DATE")
+	end
+	if event.sequence <= record.sequence then
+		if event.sequence == record.sequence and event.resultDigest ~= record.digest then
+			return setStatus(STATUS_SUSPENDED, "DIGEST_CONFLICT")
+		end
+		return true
+	end
+	if event.eventType == "RAID_CONCLUDED" then
+		local remoteHead = {
+			raidUid = event.raidUid,
+			authorityEpoch = event.authorityEpoch,
+			sequence = event.sequence,
+			checkpointSequence = event.sequence,
+			digest = event.resultDigest,
+			status = "complete",
+		}
+		return requestSnapshot(sender, remoteHead)
+	end
+	local remoteHead = {
+		raidUid = event.raidUid,
+		authorityEpoch = event.authorityEpoch,
+		sequence = event.sequence,
+		checkpointSequence = 0,
+		digest = event.resultDigest,
+		status = "active",
+	}
+	return requestRange(sender, record.sequence + 1, event.sequence, remoteHead)
+end
+
+handleRangeRequest = function(sender, envelope)
+	local currentAuthority = normalizeName(Raid:GetRaidLeaderName())
+	if not Raid:IsRaidLeader() and sender ~= currentAuthority then
+		return false, "NOT_AUTHORITY"
+	end
+	local allowed, reason = Session:AllowIncomingRequest(sender)
+	if not allowed then
+		return false, reason
+	end
+	local body = envelope.body
+	local record = RaidStore:GetRecord(body.raidUid)
+	if not record or record.status ~= "active" or record.authorityEpoch ~= body.authorityEpoch then
+		return false, "RANGE_UNAVAILABLE"
+	end
+	if body.toSequence > record.sequence then
+		return false, "RANGE_UNAVAILABLE"
+	end
+	local events, rangeReason =
+		RaidStore:GetEventRange(body.raidUid, body.fromSequence - 1, body.toSequence - body.fromSequence + 1)
+	if not events or #events ~= body.toSequence - body.fromSequence + 1 then
+		return false, rangeReason or "RANGE_UNAVAILABLE"
+	end
+	return Session:QueueTransfer("RANGE_DATA", envelope.requestId, sender, body, { events = events })
+end
+
+handleRangeData = function(sender, envelope)
+	return Session:ReceiveChunk(sender, envelope)
+end
+
+handleSnapshotRequest = function(sender, envelope)
+	pruneHistoryRuntime()
+	local offer = findOutgoingOffer(sender, envelope.body.raidUid, envelope.requestId)
+	if offer then
+		if not Raid:IsGroupMember(sender) then
+			return false, "HISTORY_CONSENT_REQUIRED"
+		end
+		local allowed, reason = Session:AllowIncomingRequest(sender)
+		if not allowed then
+			return false, reason
+		end
+		local historicalRecord = RaidStore:GetRecord(offer.localRaidUid)
+		if not historicalRecord or historicalRecord.status ~= "complete" then
+			return false, "SNAPSHOT_UNAVAILABLE"
+		end
+		if offer.state == "offered" then
+			offer.state = "accepted"
+			offer.acceptedRequestId = envelope.requestId
+			offer.expiresAt = GetTime() + HISTORY_ACCEPTED_TTL_SECONDS
+		elseif offer.state ~= "accepted" or offer.acceptedRequestId ~= envelope.requestId then
+			return false, "HISTORY_CONSENT_REQUIRED"
+		end
+		local snapshot, snapshotReason = RaidStore:BuildSnapshot(offer.localRaidUid)
+		if not snapshot or snapshot.status ~= "complete" then
+			return false, snapshotReason or "SNAPSHOT_UNAVAILABLE"
+		end
+		local metadata = {
+			raidUid = snapshot.raidUid,
+			authorityEpoch = snapshot.authorityEpoch,
+			sequence = snapshot.sequence,
+		}
+		return Session:QueueTransfer("SNAP_DATA", envelope.requestId, sender, metadata, { snapshot = snapshot })
+	end
+	local currentAuthority = normalizeName(Raid:GetRaidLeaderName())
+	if not Raid:IsRaidLeader() and sender ~= currentAuthority then
+		return false, "NOT_AUTHORITY"
+	end
+	local allowed, reason = Session:AllowIncomingRequest(sender)
+	if not allowed then
+		return false, reason
+	end
+	local current, currentUid = currentRecordAndUid()
+	local snapshot, snapshotReason
+	if current and currentUid == envelope.body.raidUid then
+		snapshot, snapshotReason = RaidStore:BuildSnapshot(envelope.body.raidUid)
+	end
+	if not snapshot or snapshot.status ~= "active" then
+		local recent = module._recentConclusion
+		if recent and recent.expiresAt < GetTime() then
+			module._recentConclusion = nil
+			recent = nil
+		end
+		if not recent or recent.raidUid ~= envelope.body.raidUid then
+			return false, snapshotReason or "SNAPSHOT_UNAVAILABLE"
+		end
+		snapshot = recent.snapshot
+	end
+	local metadata = {
+		raidUid = envelope.body.raidUid,
+		authorityEpoch = snapshot.authorityEpoch,
+		sequence = snapshot.sequence,
+	}
+	return Session:QueueTransfer("SNAP_DATA", envelope.requestId, sender, metadata, { snapshot = snapshot })
+end
+
+handleSnapshotData = function(sender, envelope)
+	return Session:ReceiveChunk(sender, envelope)
+end
+
+handleOffer = function(sender, envelope)
+	local now = pruneHistoryRuntime()
+	local key = historyOfferKey(sender, envelope.requestId)
+	local existing = module._incomingOffers[key]
+	if existing then
+		if sameOfferSummary(existing, envelope.body) then
+			return true
+		end
+		return false, "OFFER_CONFLICT"
+	end
+	local offer = {
+		offerId = envelope.requestId,
+		sender = sender,
+		target = normalizeName(envelope.target),
+		raidUid = envelope.body.raidUid,
+		authorityEpoch = envelope.body.authorityEpoch,
+		sequence = envelope.body.sequence,
+		digest = envelope.body.digest,
+		zone = envelope.body.zone,
+		startTime = envelope.body.startTime,
+		size = envelope.body.size,
+		difficulty = envelope.body.difficulty,
+		lootCount = envelope.body.lootCount,
+		state = "offered",
+		expiresAt = now + HISTORY_OFFER_TTL_SECONDS,
+	}
+	local added, reason = addBounded(module._incomingOffers, key, offer, MAX_HISTORY_OFFERS)
+	if not added then
+		return false, reason
+	end
+	Bus.TriggerEvent(LoggerRaidOfferReceivedEvent, copyScalarTable(offer))
+	trace("HISTORY_OFFER_RECEIVED", offer.raidUid)
+	return true
+end
+
+handleResult = function(sender, envelope)
+	local now = pruneHistoryRuntime()
+	local matchedKey
+	for key, offer in pairs(module._outgoingOffers) do
+		local declined = envelope.body.outcome == "DECLINED"
+		local validDecline = declined and offer.state == "offered" and offer.offerId == envelope.requestId
+		local validTerminal = not declined
+			and offer.state == "accepted"
+			and offer.acceptedRequestId == envelope.requestId
+		if offer.target == sender and (validDecline or validTerminal) then
+			matchedKey = key
+			break
+		end
+	end
+	if not matchedKey then
+		return false, "UNKNOWN_HISTORY_RESULT"
+	end
+	local result = {
+		sender = sender,
+		requestId = envelope.requestId,
+		outcome = envelope.body.outcome,
+		reason = envelope.body.reason,
+		expiresAt = now + HISTORY_RESULT_TTL_SECONDS,
+	}
+	local added, reason =
+		addBounded(module._historyResults, historyOfferKey(sender, envelope.requestId), result, MAX_HISTORY_RESULTS)
+	if not added then
+		return false, reason
+	end
+	module._outgoingOffers[matchedKey] = nil
+	local failed = envelope.body.outcome == "FAILED" or envelope.body.outcome == "CONFLICT"
+	setStatus(failed and STATUS_FAILED or STATUS_SYNCHRONIZED, envelope.body.outcome)
+	notifyHistoryOutcome(envelope.body.outcome, sender)
+	trace("HISTORY_RESULT", envelope.body.outcome)
+	return true
+end
+
+local function handleHeadRequest(sender)
+	local leader = normalizeName(Raid:GetRaidLeaderName())
+	if sender == leader and leader ~= localPlayer and Raid:IsGroupMember(sender) then
+		local record, raidUid = currentRecordAndUid()
+		local head = headFromRecord(record, raidUid)
+		return head and sendDirectFireAndForget("HEAD", sender, head) or false
+	end
+	if Raid:IsRaidLeader() and leader == localPlayer and Raid:IsGroupMember(sender) then
+		return module:AdvertiseHead()
+	end
+	return false
+end
+
+local HANDLERS = {
+	HEAD_REQ = handleHeadRequest,
+	HEAD = handleHead,
+	EVENT = handleEvent,
+	RANGE_REQ = handleRangeRequest,
+	RANGE_DATA = handleRangeData,
+	SNAP_REQ = handleSnapshotRequest,
+	SNAP_DATA = handleSnapshotData,
+	OFFER = handleOffer,
+	RESULT = handleResult,
+}
+
+function module:GetProtocolVersion()
+	return Protocol.VERSION or 3
+end
+
+function module:GetStatus()
+	pruneHistoryRuntime()
+	return self._status, self._statusReason
+end
+
+function module:IsAuthorityRecovering(raidUid)
+	local handover = self._handover
+	if handover and (raidUid == nil or handover.raidUid == raidUid) then
+		return true
+	end
+	local reentry = self._reentry
+	if reentry and (raidUid == nil or reentry.raidUid == nil or reentry.raidUid == raidUid) then
+		return true
+	end
+	local record, activeUid = currentRecordAndUid()
+	return record ~= nil and Raid:IsRaidLeader() and Database and Database.GetCurrentRaid
+		and Database.GetCurrentRaid() == nil and (raidUid == nil or raidUid == activeUid)
+end
+
+function module:AdvertiseHead()
+	if not Raid:IsRaidLeader() then
+		return false, "NOT_AUTHORITY"
+	end
+	if self._handover then
+		return false, "HANDOVER_IN_PROGRESS"
+	end
+	if self._reentry then
+		return false, "AUTHORITY_RECOVERING"
+	end
+	if Database and Database.GetCurrentRaid and Database.GetCurrentRaid() == nil then
+		return false, "AUTHORITY_RECOVERY_REQUIRED"
+	end
+	local record, raidUid = currentRecordAndUid()
+	local head = headFromRecord(record, raidUid)
+	if not head then
+		return false, "NO_ACTIVE_RAID"
+	end
+	return sendGroup("HEAD", head)
+end
+
+function module:RequestMissingRange(sender, remoteHead, fromSequence, toSequence)
+	return requestRange(sender, fromSequence, toSequence, remoteHead)
+end
+
+function module:RequestSnapshot(sender, remoteHead)
+	return requestSnapshot(sender, remoteHead)
+end
+
+function module:OfferHistoricalRaid(raidUid, target)
+	local now = pruneHistoryRuntime()
+	local normalizedTarget = normalizeName(target)
+	if not normalizedTarget or normalizedTarget == localPlayer or not Raid:IsGroupMember(target) then
+		return false, "INVALID_HISTORY_TARGET"
+	end
+	local record = RaidStore:GetRecord(raidUid)
+	if not record or record.status ~= "complete" or type(record.state) ~= "table" then
+		return false, "HISTORY_NOT_COMPLETE"
+	end
+	local snapshot, snapshotReason = RaidStore:BuildSnapshot(raidUid)
+	if not snapshot or snapshot.status ~= "complete" then
+		return false, snapshotReason or "SNAPSHOT_UNAVAILABLE"
+	end
+	for key, offer in pairs(self._outgoingOffers) do
+		if offer.target == normalizedTarget and offer.localRaidUid == raidUid then
+			self._outgoingOffers[key] = nil
+		end
+	end
+	local offerId, idReason = nextOfferId()
+	if not offerId then
+		return false, idReason
+	end
+	local state = snapshot.state
+	local body = {
+		raidUid = snapshot.raidUid,
+		authorityEpoch = snapshot.authorityEpoch,
+		sequence = snapshot.sequence,
+		digest = snapshot.digest,
+		zone = state.zone,
+		startTime = state.startTime,
+		size = state.size,
+		difficulty = state.difficulty,
+		lootCount = type(state.loot) == "table" and #state.loot or 0,
+	}
+	local message, encodeReason = Protocol.Encode("OFFER", offerId, target, body)
+	if not message then
+		return false, encodeReason
+	end
+	local key = historyOfferKey(normalizedTarget, offerId)
+	local offer = {
+		offerId = offerId,
+		target = normalizedTarget,
+		localRaidUid = raidUid,
+		raidUid = snapshot.raidUid,
+		authorityEpoch = snapshot.authorityEpoch,
+		sequence = snapshot.sequence,
+		digest = snapshot.digest,
+		state = "offered",
+		expiresAt = now + HISTORY_OUTGOING_OFFER_RETENTION_SECONDS,
+	}
+	local added, addReason = addBounded(self._outgoingOffers, key, offer, MAX_HISTORY_OFFERS)
+	if not added then
+		return false, addReason
+	end
+	local queued, queueReason = Comms.QueueAddonMessage(COMM_PREFIX, message, "WHISPER", target)
+	if not queued then
+		self._outgoingOffers[key] = nil
+		return false, queueReason or "SEND_FAILED"
+	end
+	setStatus(STATUS_TRANSFERRING_HISTORY, "HISTORY_OFFERED")
+	trace("HISTORY_OFFER_SENT", raidUid)
+	return true, offerId
+end
+
+function module:AcceptHistoricalOffer(sender, offerId)
+	local now = pruneHistoryRuntime()
+	if self._historyTransfer then
+		return false, "HISTORY_TRANSFER_IN_PROGRESS"
+	end
+	local normalizedSender = normalizeName(sender)
+	local key = normalizedSender and historyOfferKey(normalizedSender, offerId) or nil
+	local offer = key and self._incomingOffers[key] or nil
+	if not offer or offer.state ~= "offered" or not Raid:IsGroupMember(sender) then
+		return false, "OFFER_UNAVAILABLE"
+	end
+	offer.state = "accepted"
+	offer.expiresAt = now + HISTORY_ACCEPTED_TTL_SECONDS
+	self._historyTransfer = {
+		sender = normalizedSender,
+		offerId = offerId,
+		raidUid = offer.raidUid,
+		expiresAt = now + HISTORY_TRANSFER_TTL_SECONDS,
+	}
+	setStatus(STATUS_TRANSFERRING_HISTORY, "HISTORY_TRANSFER")
+	local requestId, reason = Session:BeginRequest(
+		"SNAP_REQ",
+		sender,
+		{ raidUid = offer.raidUid },
+		"SNAP_DATA",
+		{ raidUid = offer.raidUid, authorityEpoch = offer.authorityEpoch, sequence = offer.sequence },
+		function(ok, why, result, request)
+			local transfer = module._historyTransfer
+			if not transfer or transfer.offerId ~= offerId or transfer.sender ~= normalizedSender then
+				return
+			end
+			module._historyTransfer = nil
+			module._incomingOffers[key] = nil
+			local terminalRequestId = request and request.requestId or transfer.requestId or offerId
+			if not ok or type(result) ~= "table" or type(result.snapshot) ~= "table" then
+				Session:SendResult(sender, terminalRequestId, "FAILED", why or "TRANSFER_FAILED")
+				setStatus(STATUS_FAILED, why or "TRANSFER_FAILED")
+				notifyHistoryOutcome("FAILED", sender)
+				return
+			end
+			local snapshot = result.snapshot
+			if
+				snapshot.raidUid ~= offer.raidUid
+				or snapshot.authorityEpoch ~= offer.authorityEpoch
+				or snapshot.sequence ~= offer.sequence
+				or snapshot.digest ~= offer.digest
+				or snapshot.status ~= "complete"
+			then
+				Session:SendResult(sender, terminalRequestId, "FAILED", "SNAPSHOT_MISMATCH")
+				setStatus(STATUS_FAILED, "SNAPSHOT_MISMATCH")
+				notifyHistoryOutcome("FAILED", sender)
+				return
+			end
+			local outcome, importReason, importedIndex = RaidStore:ImportHistoricalSnapshot(snapshot)
+			if not outcome then
+				Session:SendResult(sender, terminalRequestId, "FAILED", importReason or "IMPORT_FAILED")
+				setStatus(STATUS_FAILED, importReason or "IMPORT_FAILED")
+				notifyHistoryOutcome("FAILED", sender)
+				return
+			end
+			Session:SendResult(sender, terminalRequestId, outcome, importReason)
+			notifyHistoryOutcome(outcome, sender)
+			trace("HISTORY_IMPORT", outcome)
+			if outcome == "IMPORTED" or outcome == "CONFLICT" then
+				Bus.TriggerEvent(LoggerSelectRaidEvent, importedIndex, "sync")
+			end
+			setStatus(outcome == "CONFLICT" and STATUS_FAILED or STATUS_SYNCHRONIZED, outcome)
+		end
+	)
+	if not requestId then
+		offer.state = "offered"
+		offer.expiresAt = now + HISTORY_OFFER_TTL_SECONDS
+		self._historyTransfer = nil
+		setStatus(STATUS_FAILED, reason or "HISTORY_REQUEST_FAILED")
+		return false, reason
+	end
+	if self._historyTransfer then
+		self._historyTransfer.requestId = requestId
+	end
+	return true, requestId
+end
+
+function module:DeclineHistoricalOffer(sender, offerId)
+	pruneHistoryRuntime()
+	local normalizedSender = normalizeName(sender)
+	local key = normalizedSender and historyOfferKey(normalizedSender, offerId) or nil
+	local offer = key and self._incomingOffers[key] or nil
+	if not offer or offer.state ~= "offered" then
+		return false, "OFFER_UNAVAILABLE"
+	end
+	self._incomingOffers[key] = nil
+	if Raid:IsGroupMember(sender) then
+		Session:SendResult(sender, offerId, "DECLINED")
+	end
+	notifyHistoryOutcome("DECLINED", sender)
+	return true
+end
+
+function module:OnAddonMessage(prefix, message, channel, rawSender)
+	if prefix ~= COMM_PREFIX or type(message) ~= "string" or #message < 1 or #message > MAX_WIRE_BYTES then
+		return false
+	end
+	local sender = normalizeName(rawSender)
+	if not sender or sender == localPlayer then
+		return false
+	end
+	local envelope = Protocol.Decode(message)
+	if type(envelope) ~= "table" or type(envelope.body) ~= "table" then
+		return false
+	end
+	if not Raid:IsGroupMember(rawSender) then
+		return false
+	end
+	pruneHistoryRuntime()
+	refreshAuthority()
+	local kind = envelope.kind
+	local handler = HANDLERS[kind]
+	if not handler then
+		return false
+	end
+	local leader = normalizeName(Raid:GetRaidLeaderName())
+	local handover = module._handover
+	local reentry = module._reentry
+	if kind == "HEAD" and handover and handover.newAuthority == localPlayer then
+		return recordHandoverHead(sender, envelope.body)
+	end
+	if kind == "HEAD" and reentry and normalizeName(Raid:GetRaidLeaderName()) == localPlayer
+		and Raid:IsRaidLeader()
+	then
+		return recordReentryHead(sender, envelope.body)
+	end
+	if kind == "HEAD" or kind == "EVENT" or kind == "RANGE_DATA" or kind == "SNAP_DATA" then
+		local handoverResponse = handover
+			and handover.newAuthority == localPlayer
+			and module._recovery
+			and module._recovery.handover == handover
+			and module._recovery.sender == sender
+			and (kind == "RANGE_DATA" or kind == "SNAP_DATA")
+		local reentryResponse = module._reentry
+			and module._recovery
+			and module._recovery.reentry == module._reentry
+			and module._recovery.sender == sender
+			and kind == "SNAP_DATA"
+		local historyResponse = kind == "SNAP_DATA"
+			and module._historyTransfer
+			and module._historyTransfer.sender == sender
+			and module._historyTransfer.requestId == envelope.requestId
+		if not handoverResponse and not reentryResponse and not historyResponse and (not leader or sender ~= leader) then
+			return false
+		end
+	end
+	if kind ~= "HEAD_REQ" and kind ~= "HEAD" and kind ~= "EVENT" then
+		if normalizeName(envelope.target) ~= localPlayer then
+			return false
+		end
+	end
+	return handler(sender, envelope, channel)
+end
+
+broadcastCommittedEvent = function(_, event)
+	if not Raid:IsRaidLeader() or module._handover or type(event) ~= "table" then
+		return
+	end
+	local reentry = module._reentry
+	if reentry then
+		if reentry.phase == "transition" then
+			local events = reentry.transitionEvents
+			local expected = reentry.expectedLifecycle
+			local expectedType = type(expected) == "table" and expected[#events + 1] or nil
+			if type(events) ~= "table" or #events >= MAX_REENTRY_TRANSITION_EVENTS or not expectedType then
+				reentry.transitionFailure = "REENTRY_UNEXPECTED_LIFECYCLE"
+				return
+			end
+			if event.eventType ~= expectedType then
+				reentry.transitionFailure = "REENTRY_LIFECYCLE_ORDER"
+				return
+			end
+			if expectedType == "RAID_CONCLUDED" and event.raidUid ~= reentry.selectedRaidUid then
+				reentry.transitionFailure = "REENTRY_LIFECYCLE_UID"
+				return
+			end
+			if expectedType == "RAID_CREATED" then
+				if type(event.raidUid) ~= "string" or event.raidUid == "" or event.raidUid == reentry.selectedRaidUid then
+					reentry.transitionFailure = "REENTRY_LIFECYCLE_UID"
+					return
+				end
+				reentry.createdRaidUid = event.raidUid
+			end
+			if #events + 1 > #expected then
+				reentry.transitionFailure = "REENTRY_UNEXPECTED_LIFECYCLE"
+				return
+			end
+			events[#events + 1] = event
+		end
+		return
+	end
+	local record = RaidStore:GetRecord(event.raidUid)
+	if not record or event.authorityEpoch ~= record.authorityEpoch or event.sequence ~= record.sequence then
+		return
+	end
+	if event.eventType == "RAID_CONCLUDED" then
+		local snapshot = RaidStore:BuildSnapshot(event.raidUid)
+		if snapshot and snapshot.status == "complete" then
+			module._recentConclusion = {
+				raidUid = event.raidUid,
+				snapshot = snapshot,
+				expiresAt = GetTime() + RECENT_CONCLUSION_TTL_SECONDS,
+			}
+		end
+	end
+	local sent, reason = sendGroup("EVENT", { event = event })
+	if not sent and reason == "MESSAGE_TOO_LARGE" then
+		local head = headFromRecord(record, event.raidUid)
+		if head then
+			sendGroup("HEAD", head)
+		end
+	end
+	if event.eventType == "RAID_CONCLUDED" then
+		local finalHead = headFromRecord(record, event.raidUid)
+		if finalHead then
+			sendGroup("HEAD", finalHead)
+		end
+	end
+end
+
+local function advertiseIfAuthoritative()
+	if module._deferReentryAdvertise then
+		return
+	end
+	if not refreshAuthority() and not module._reentry then
+		module:AdvertiseHead()
+	end
+end
+
+assert(RaidStore:SetAuthorityGuard(function(operation)
+	refreshAuthority()
+	local isRaidLeader = Raid:IsRaidLeader() == true
+	local identifiedLeader = normalizeName(Raid:GetRaidLeaderName())
+	if operation == "promote" then
+		return module._handover ~= nil
+	end
+	if module._handover ~= nil then
+		return false, "AUTHORITY_RECOVERING"
+	end
+	if module._reentry ~= nil then
+		if module._reentry.phase ~= "transition" then
+			return false, "AUTHORITY_RECOVERING"
+		end
+	end
+	if Raid:IsRaidLeader() and RaidStore:GetActiveRecord() and Database and Database.GetCurrentRaid
+		and Database.GetCurrentRaid() == nil
+	then
+		return false, "AUTHORITY_RECOVERY_REQUIRED"
+	end
+	return isRaidLeader and identifiedLeader ~= nil and identifiedLeader == localPlayer
+end))
+Comms.RegisterPrefixIfAvailable(COMM_PREFIX)
+RegisterCallback(RaidReplicationCommittedEvent, broadcastCommittedEvent)
+RegisterCallback(RaidInstanceRecognizedEvent, requestActiveRaidIfNeeded)
+RegisterCallback(RaidReentryDecisionResolvedEvent, resolveReentryDecision)
+RegisterCallback(OptionsLoadedEvent, advertiseIfAuthoritative)
+RegisterCallback(RaidCreateEvent, advertiseIfAuthoritative)
+RegisterCallback(RaidRosterDeltaEvent, advertiseIfAuthoritative)
+RegisterCallback(ZoneChangedNewAreaEvent, advertiseIfAuthoritative)
+RegisterCallback(PartyLootMethodChangedEvent, advertiseIfAuthoritative)

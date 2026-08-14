@@ -19,6 +19,9 @@ local IsTrashMobName = IgnoredMobs.IsTrashMobName
 do
 	DB.RaidValidator = DB.RaidValidator or {}
 	local module = DB.RaidValidator
+	local function validRaidUid(value)
+		return type(value) == "string" and #value >= 1 and #value <= 40 and value:find("[^!-~]") == nil
+	end
 
 	-- ----- Internal state ----- --
 
@@ -70,11 +73,31 @@ do
 		end
 	end
 
-	local function validateRaidSourceKeys(result, raid)
-		for key in pairs(raid) do
-			if type(key) == "string" and strsub(key, 1, 1) == "_" and key ~= "_runtime" then
-				pushDetail(result, "E", "RUNTIME_OUTSIDE", { key = key })
+	local function findPrivateStateKey(value, seen)
+		if type(value) ~= "table" then
+			return nil
+		end
+		seen = seen or {}
+		if seen[value] then
+			return nil
+		end
+		seen[value] = true
+		for key, item in pairs(value) do
+			if type(key) == "string" and strsub(key, 1, 1) == "_" then
+				return key
 			end
+			local nested = findPrivateStateKey(item, seen)
+			if nested then
+				return nested
+			end
+		end
+		return nil
+	end
+
+	local function validateRaidSourceKeys(result, raid)
+		local key = findPrivateStateKey(raid)
+		if key then
+			pushDetail(result, "E", "RUNTIME_OUTSIDE", { key = key })
 		end
 	end
 
@@ -338,6 +361,162 @@ do
 	end
 
 	-- ----- Public methods ----- --
+	function module:ValidateRaidUid(raidUid)
+		if not validRaidUid(raidUid) then
+			return nil, "INVALID_RAID_UID"
+		end
+		return true
+	end
+
+	function module:ValidateRecord(record)
+		if type(record) ~= "table" then
+			return nil, "INVALID_RAID_RECORD"
+		end
+		if record.status ~= "active" and record.status ~= "complete" then
+			return nil, "INVALID_RAID_STATUS"
+		end
+		if record.sourceRaidUid ~= nil and not validRaidUid(record.sourceRaidUid) then
+			return nil, "INVALID_SOURCE_RAID_UID"
+		end
+		if record.status ~= "complete" and (record.sourceRaidUid ~= nil or record.conflictOfRaidUid ~= nil) then
+			return nil, "INVALID_HISTORICAL_PROVENANCE"
+		end
+		if
+			record.conflictOfRaidUid ~= nil
+			and (type(record.conflictOfRaidUid) ~= "string" or record.conflictOfRaidUid ~= record.sourceRaidUid)
+		then
+			return nil, "INVALID_CONFLICT_RAID_UID"
+		end
+		local epoch = tonumber(record.authorityEpoch)
+		local sequence = tonumber(record.sequence)
+		local checkpoint = tonumber(record.checkpointSequence)
+		if
+			not epoch
+			or epoch < 1
+			or epoch ~= math.floor(epoch)
+			or not sequence
+			or sequence < 0
+			or sequence ~= math.floor(sequence)
+			or (record.status == "active" and sequence < 1)
+			or not checkpoint
+			or checkpoint < 0
+			or checkpoint > sequence
+			or checkpoint ~= math.floor(checkpoint)
+		then
+			return nil, "INVALID_RECORD_POSITION"
+		end
+		if type(record.state) ~= "table" or type(record.events) ~= "table" then
+			return nil, "INVALID_RAID_RECORD"
+		end
+		if findPrivateStateKey(record.state) then
+			return nil, "RUNTIME_OUTSIDE"
+		end
+		if record.status == "active" and record.state.endTime ~= nil then
+			return nil, "INVALID_ACTIVE_RAID_STATE"
+		end
+		if record.status == "complete" and #record.events ~= 0 then
+			return nil, "INVALID_COMPLETE_LEDGER"
+		end
+		if record.status == "complete" then
+			local endTime = record.state.endTime
+			local startTime = record.state.startTime
+			if
+				type(endTime) ~= "number"
+				or endTime ~= endTime
+				or endTime == math.huge
+				or endTime == -math.huge
+				or endTime < 0
+				or endTime > 9999999999
+				or endTime ~= math.floor(endTime)
+				or (startTime ~= nil and (type(startTime) ~= "number" or endTime < startTime))
+			then
+				return nil, "INVALID_COMPLETE_RAID_STATE"
+			end
+		end
+		local digest, digestReason = DB.RaidEvents.DigestState(record.state)
+		if not digest then
+			return nil, digestReason
+		end
+		if digest ~= record.digest then
+			return nil, "DIGEST_MISMATCH"
+		end
+		local expectedSequence = checkpoint + 1
+		local raidUid
+		for i = 1, #record.events do
+			local event = record.events[i]
+			if type(event) ~= "table" or event.resultDigest == nil then
+				return nil, "INVALID_RESULT_DIGEST"
+			end
+			local valid, reason = DB.RaidEvents.ValidateEvent(event)
+			if not valid then
+				return nil, reason
+			end
+			if event.authorityEpoch ~= epoch or event.sequence ~= expectedSequence then
+				return nil, "INVALID_EVENT_POSITION"
+			end
+			raidUid = raidUid or event.raidUid
+			if event.raidUid ~= raidUid then
+				return nil, "INVALID_RAID_UID"
+			end
+			expectedSequence = expectedSequence + 1
+		end
+		if expectedSequence - 1 ~= sequence then
+			return nil, "EVENT_GAP"
+		end
+		if #record.events > 0 and record.events[#record.events].resultDigest ~= record.digest then
+			return nil, "DIGEST_MISMATCH"
+		end
+		return true
+	end
+
+	function module:ValidateArchive(archive)
+		if
+			type(archive) ~= "table"
+			or archive.formatVersion ~= 1
+			or type(archive.order) ~= "table"
+			or type(archive.raids) ~= "table"
+		then
+			return nil, "INVALID_RAID_ARCHIVE"
+		end
+		local ordered = {}
+		for i = 1, #archive.order do
+			local raidUid = archive.order[i]
+			if type(raidUid) ~= "string" or ordered[raidUid] or type(archive.raids[raidUid]) ~= "table" then
+				return nil, "INVALID_ARCHIVE_ORDER"
+			end
+			ordered[raidUid] = true
+		end
+		local activeCount, activeRaidUid = 0, nil
+		for raidUid, record in pairs(archive.raids) do
+			if type(raidUid) ~= "string" or not ordered[raidUid] then
+				return nil, "INVALID_ARCHIVE_ORDER"
+			end
+			local valid, reason = self:ValidateRecord(record)
+			if not valid then
+				return nil, reason
+			end
+			if record.status == "active" then
+				activeCount = activeCount + 1
+				activeRaidUid = raidUid
+			end
+		end
+		if activeCount > 1 then
+			return nil, "MULTIPLE_ACTIVE_RAIDS"
+		end
+		if archive.activeRaidUid == nil then
+			if activeCount ~= 0 then
+				return nil, "ACTIVE_RAID_POINTER_MISMATCH"
+			end
+		elseif
+			type(archive.activeRaidUid) ~= "string"
+			or activeCount ~= 1
+			or activeRaidUid ~= archive.activeRaidUid
+		then
+			return nil, "ACTIVE_RAID_POINTER_MISMATCH"
+		end
+		return true
+	end
+
 	function module:GetRaidRecordValidation(raid, index, currentSchemaVersion)
 		local raidNid = type(raid) == "table" and tonumber(raid.raidNid) or nil
 		local result = {

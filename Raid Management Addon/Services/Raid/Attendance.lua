@@ -41,13 +41,68 @@ do
 	-- ----- Internal state ----- --
 
 	-- ----- Private helpers ----- --
+	local findAttendanceEntry
+	local function copyValue(value, seen)
+		if type(value) ~= "table" then
+			return value
+		end
+		seen = seen or {}
+		if seen[value] then
+			return seen[value]
+		end
+		local copy = {}
+		seen[value] = copy
+		for key, item in pairs(value) do
+			copy[copyValue(key, seen)] = copyValue(item, seen)
+		end
+		return copy
+	end
+
+	local function valuesEqual(left, right)
+		if type(left) ~= type(right) then
+			return false
+		end
+		if type(left) ~= "table" then
+			return left == right
+		end
+		for key, value in pairs(left) do
+			if not valuesEqual(value, right[key]) then
+				return false
+			end
+		end
+		for key in pairs(right) do
+			if left[key] == nil then
+				return false
+			end
+		end
+		return true
+	end
+
 	local function commitAttendanceMutation(raid, stagedRaid, reason, deferPublication)
 		local raidNid = tonumber(raid and raid.raidNid)
 		if not raidNid then
 			return false
 		end
-		local committed = Database.GetRaidStore():CommitAttendanceMutation(raid, stagedRaid, reason or "attendance")
-		if committed ~= true then
+		local raidStore = Database.GetRaidStore()
+		local raidUid = raidStore:GetRaidUid(raid)
+		if not raidUid then
+			return false
+		end
+		local committed = false
+		for i = 1, #(stagedRaid.attendance or {}) do
+			local candidate = stagedRaid.attendance[i]
+			local current = findAttendanceEntry(raid, candidate and candidate.playerNid)
+			if not current or not valuesEqual(current, candidate) then
+				local event = raidStore:CommitAuthoritativeEvent(raidUid, "ATTENDANCE_UPDATED", {
+					attendance = candidate,
+				})
+				if not event then
+					return false
+				end
+				committed = true
+			end
+		end
+		if not committed then
 			return false
 		end
 		if not deferPublication then
@@ -63,7 +118,7 @@ do
 		return raid.attendance
 	end
 
-	local function findAttendanceEntry(raid, playerNid)
+	findAttendanceEntry = function(raid, playerNid)
 		local resolvedPlayerNid = tonumber(playerNid) or 0
 		local attendance = raid and raid.attendance or nil
 		if resolvedPlayerNid <= 0 or type(attendance) ~= "table" then
@@ -240,10 +295,7 @@ do
 
 	local function seedFromCurrentRoster(raid, reason)
 		local canonicalRaid = raid
-		raid = Database.GetRaidStore():StageRaidHistoryMutation(canonicalRaid)
-		if not raid then
-			return false
-		end
+		raid = copyValue(canonicalRaid)
 		local now = Time.GetCurrentTime()
 		local playerCount = tonumber(GetNumRaidMembers()) or 0
 		if playerCount <= 0 then
@@ -283,10 +335,7 @@ do
 		end
 		Database.EnsureRaidSchema(raid)
 		local canonicalRaid = raid
-		raid = Database.GetRaidStore():StageRaidHistoryMutation(canonicalRaid)
-		if not raid then
-			return
-		end
+		raid = copyValue(canonicalRaid)
 
 		local timestamp = tonumber(delta.timestamp) or Time.GetCurrentTime()
 		local joined = applyRosterList(raid, delta.joined, timestamp, false)
@@ -327,10 +376,7 @@ do
 			return false
 		end
 		local canonicalRaid = raid
-		raid = Database.GetRaidStore():StageRaidHistoryMutation(canonicalRaid)
-		if not raid then
-			return false
-		end
+		raid = copyValue(canonicalRaid)
 
 		local attendance = ensureAttendanceTable(raid)
 		local resolvedTimestamp = tonumber(timestamp) or Time.GetCurrentTime()

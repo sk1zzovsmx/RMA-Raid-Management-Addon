@@ -135,7 +135,7 @@ local cmdAchiev, cmdLFM, cmdConfig =
 	{ "ach", "achi", "achiev", "achievement" },
 	{ "pug", "lfm", "group", "grouper" },
 	{ "config", "conf", "options", "opt" }
-local cmdWarnings, cmdLogger = { "warning", "warnings", "warn", "rw" }, { "history" }
+local cmdWarnings, cmdLogger = { "warning", "warnings", "warn", "rw" }, { "logger" }
 local cmdAttendance = { "attendance", "attendees", "att" }
 local cmdDebug, cmdLoot, cmdCounter = { "debug", "dbg", "debugger" }, { "ml" }, { "counter", "counters", "counts" }
 local cmdReserves, cmdMinimap, cmdValidate =
@@ -147,7 +147,7 @@ local cmdPerf = { "perf", "performance" }
 -- ----- Private helpers ----- --
 local helpString = "%s: %s"
 local function printHelp(cmd, desc)
-	addon:info("%s", helpString:format(addon.WrapTextInColorCode(cmd, Colors.NormalizeHexColor(MA_COLOR)), desc))
+	addon:info("%s", helpString:format(Colors.WrapText(cmd, Colors.NormalizeHexColor(MA_COLOR)), desc))
 end
 
 local GetOption = Options.GetValue
@@ -159,7 +159,7 @@ local function showHelp()
 	printHelp("lfm", L.StrCmdGrouper)
 	printHelp("ach", L.StrCmdAchiev)
 	printHelp("warnings", L.StrCmdWarnings)
-	printHelp("history", L.StrCmdLogger)
+	printHelp("logger", L.StrCmdLogger)
 	printHelp("attendance", L.StrRaidAttendance)
 	printHelp("debug", L.StrCmdDebug)
 	printHelp("counter", L.StrCmdCounter)
@@ -197,11 +197,6 @@ local function callSyncerMethod(methodName, ...)
 		return method(syncer, ...)
 	end
 	return nil
-end
-
-local function callSyncerMethodWithTarget(methodName, args)
-	local raidRefArg, targetArg = Strings.SplitArgs(args)
-	callSyncerMethod(methodName, tonumber(raidRefArg), targetArg)
 end
 
 local function getVersionInfo()
@@ -338,21 +333,6 @@ local function printPerfReport()
 	end
 end
 
-local function formatPerfAverageBytes(bytes, chunks)
-	bytes = tonumber(bytes) or 0
-	chunks = tonumber(chunks) or 0
-	if chunks <= 0 then
-		return "0"
-	end
-	return tostring(floor((bytes / chunks) + 0.5))
-end
-
-local function getPerfSyncMetrics()
-	local syncer = Database.GetSyncer()
-	local getter = syncer and syncer.GetSyncMetrics
-	return type(getter) == "function" and getter(syncer) or {}
-end
-
 local function printPerfAudit()
 	local getter = addon._PerfGetStats
 	local rows = type(getter) == "function" and getter(addon) or nil
@@ -374,18 +354,6 @@ local function printPerfAudit()
 		)
 	)
 
-	local syncMetrics = getPerfSyncMetrics()
-	addon:info(
-		L.MsgPerfAuditSync:format(
-			tonumber(syncMetrics.outgoingBytes) or 0,
-			tonumber(syncMetrics.outgoingChunks) or 0,
-			formatPerfAverageBytes(syncMetrics.outgoingBytes, syncMetrics.outgoingChunks),
-			tonumber(syncMetrics.incomingBytes) or 0,
-			tonumber(syncMetrics.incomingChunks) or 0,
-			formatPerfAverageBytes(syncMetrics.incomingBytes, syncMetrics.incomingChunks)
-		)
-	)
-
 	local itemModule = Item
 	local itemGetter = itemModule and itemModule.GetInfoMetrics
 	local itemMetrics = type(itemGetter) == "function" and itemGetter() or {}
@@ -398,51 +366,6 @@ local function printPerfAudit()
 			tonumber(itemMetrics.tooltipProbes) or 0
 		)
 	)
-end
-
-local function printPerfSyncReport()
-	local metrics = getPerfSyncMetrics()
-	local totalMessages = (tonumber(metrics and metrics.outgoingMessages) or 0)
-		+ (tonumber(metrics and metrics.incomingMessages) or 0)
-	if totalMessages <= 0 then
-		addon:info(L.MsgPerfSyncReportEmpty)
-		return
-	end
-
-	addon:info(
-		L.MsgPerfSyncReportTitle:format(
-			tonumber(metrics.outgoingMessages) or 0,
-			tonumber(metrics.outgoingChunks) or 0,
-			tonumber(metrics.outgoingBytes) or 0,
-			tonumber(metrics.outgoingRequests) or 0,
-			tonumber(metrics.outgoingSnapshots) or 0,
-			tonumber(metrics.incomingMessages) or 0,
-			tonumber(metrics.incomingChunks) or 0,
-			tonumber(metrics.incomingBytes) or 0,
-			tonumber(metrics.incomingRequests) or 0,
-			tonumber(metrics.incomingSnapshots) or 0
-		)
-	)
-
-	local modes = metrics.modes or {}
-	for i = 1, #modes do
-		local row = modes[i] or {}
-		addon:info(
-			L.MsgPerfSyncReportRow:format(
-				tostring(row.mode or L.StrUnknown),
-				tonumber(row.outgoingMessages) or 0,
-				tonumber(row.outgoingChunks) or 0,
-				tonumber(row.outgoingBytes) or 0,
-				tonumber(row.outgoingRequests) or 0,
-				tonumber(row.outgoingSnapshots) or 0,
-				tonumber(row.incomingMessages) or 0,
-				tonumber(row.incomingChunks) or 0,
-				tonumber(row.incomingBytes) or 0,
-				tonumber(row.incomingRequests) or 0,
-				tonumber(row.incomingSnapshots) or 0
-			)
-		)
-	end
 end
 
 local function printPerfItemReport()
@@ -470,11 +393,6 @@ local function resetPerfReport()
 	local resetter = addon._PerfResetStats
 	if type(resetter) == "function" then
 		resetter(addon)
-	end
-	local syncer = Database.GetSyncer()
-	local resetSyncMetrics = syncer and syncer.ResetSyncMetrics
-	if type(resetSyncMetrics) == "function" then
-		resetSyncMetrics(syncer)
 	end
 	local itemModule = Item
 	local resetItemMetrics = itemModule and itemModule.ResetInfoMetrics
@@ -549,11 +467,6 @@ local function handlePerfCommand(rest)
 		return
 	end
 
-	if subCmd == "sync" or subCmd == "payload" or subCmd == "payloads" then
-		printPerfSyncReport()
-		return
-	end
-
 	if subCmd == "items" or subCmd == "item" or subCmd == "tooltip" then
 		printPerfItemReport()
 		return
@@ -576,7 +489,6 @@ local function handlePerfCommand(rest)
 	printHelp("threshold <ms>", L.StrCmdPerfThreshold)
 	printHelp("report", L.StrCmdPerfReport)
 	printHelp("audit", L.StrCmdPerfAudit)
-	printHelp("sync", L.StrCmdPerfSync)
 	printHelp("items", L.StrCmdPerfItems)
 	printHelp("reset", L.StrCmdPerfReset)
 end
@@ -642,21 +554,15 @@ local function handleWarningsCommand(rest)
 end
 
 local function handleLoggerCommand(rest)
-	local sub, arg = Strings.SplitArgs(rest)
+	local sub = Strings.SplitArgs(rest)
 	if isToggleCommand(sub) then
 		LoggerController:ToggleLootHistory()
-	elseif sub == "req" then
-		callSyncerMethodWithTarget("RequestLoggerReq", arg)
-	elseif sub == "push" then
-		callSyncerMethodWithTarget("BroadcastLoggerPush", arg)
-	elseif sub == "sync" then
-		callSyncerMethod("RequestLoggerSync")
+	elseif sub == "share" then
+		LoggerController:ShowShareDialog()
 	else
-		addon:info(format(L.StrCmdCommands, "RMA history"), "RMA")
+		addon:info(format(L.StrCmdCommands, "RMA logger"), "RMA")
 		printHelp("toggle", L.StrCmdToggle)
-		printHelp("req <raidId|raidNid> <player>", L.StrCmdLoggerReq)
-		printHelp("push <raidId|raidNid> <player>", L.StrCmdLoggerPush)
-		printHelp("sync", L.StrCmdLoggerSync)
+		printHelp("share", L.StrCmdLoggerShare)
 	end
 end
 

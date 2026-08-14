@@ -29,6 +29,8 @@ local TriggerEvent = assert(Bus.TriggerEvent, "Loot service event publisher is n
 local RaidLootUpdateEvent =
 	assert(InternalEvents.RaidLootUpdate, "Loot service raid-loot update event is not initialized")
 local SetItemEvent = assert(InternalEvents.SetItem, "Loot service selected-item event is not initialized")
+local DistributionChangedEvent =
+	assert(InternalEvents.LootDistributionSessionChanged, "Loot service distribution event is not initialized")
 
 local _, lootState, itemInfo, raidState = Database.EnsureLootRuntimeState()
 local rollTypes = addon.C.rollTypes
@@ -59,6 +61,7 @@ local GetLootThreshold = assert(_G.GetLootThreshold, "Loot service loot-threshol
 local PENDING_AWARD_TTL_SECONDS = tonumber(C.PENDING_AWARD_TTL_SECONDS) or 8
 local GROUP_LOOT_PENDING_AWARD_TTL_SECONDS = tonumber(C.GROUP_LOOT_PENDING_AWARD_TTL_SECONDS) or 60
 local BOSS_EVENT_CONTEXT_TTL_SECONDS = tonumber(C.BOSS_EVENT_CONTEXT_TTL_SECONDS) or 30
+local GROUP_LOOT_RECOVERY_FACT_LIMIT = 64
 local UNCOMMON_ITEM_RARITY = 2
 local UNCOMMON_ITEM_LINK_COLOR = "ff1eff00"
 
@@ -100,6 +103,8 @@ do
 	local CHEAP_SUGGESTION_OPTS = { allowItemInfo = false, allowTooltip = false }
 	local workflowContext = lootState.workflowShadow or {}
 	lootState.workflowShadow = workflowContext
+	local authorityRecoveryLootFacts = {}
+	local authorityRecoveryLootFactKeys = {}
 
 	local function notifyRaidLootUpdate(raidNum, loot)
 		TriggerEvent(RaidLootUpdateEvent, raidNum, loot)
@@ -317,6 +322,184 @@ do
 			return loot.itemString
 		end
 		return PassiveGroupLoot.GetPassiveLootRollItemKey(loot.itemLink)
+	end
+
+	local function getCurrentRaidRetryIdentity()
+		local raidNum = Database.GetCurrentRaid()
+		if raidNum == nil or type(Database.EnsureRaidByIndex) ~= "function" then
+			return nil
+		end
+		local raid = Database.EnsureRaidByIndex(raidNum)
+		local raidStore = Database.GetRaidStore()
+		local raidUid = raidStore and raidStore.GetRaidUid and raidStore:GetRaidUid(raid) or nil
+		if not raidUid then
+			return nil
+		end
+		return raidNum, raidUid, raid
+	end
+
+	local function getActiveRaidRecoveryIdentity()
+		local raidStore = Database.GetRaidStore()
+		if not (raidStore and type(raidStore.GetActiveRecord) == "function") then
+			return nil
+		end
+		local record = raidStore:GetActiveRecord()
+		local raid = type(record) == "table" and record.state or nil
+		local raidUid = record and record.raidUid or nil
+		if type(raid) ~= "table" or not raidUid then
+			return nil
+		end
+		return Database.GetCurrentRaid(), raidUid, raid
+	end
+
+	local function isAuthorityRecovering(raidUid)
+		local syncer = addon.DB and addon.DB.Syncer
+		return raidUid ~= nil
+			and syncer ~= nil
+			and type(syncer.IsAuthorityRecovering) == "function"
+			and syncer:IsAuthorityRecovering(raidUid) == true
+	end
+
+	local function copyParsedGroupLootFact(parsedGroupLoot)
+		if type(parsedGroupLoot) ~= "table" then
+			return nil
+		end
+		local copy = {}
+		if
+			parsedGroupLoot.kind == "selection"
+			or parsedGroupLoot.kind == "roll"
+			or parsedGroupLoot.kind == "winner"
+		then
+			copy.kind = parsedGroupLoot.kind
+		end
+		if type(parsedGroupLoot.msg) == "string" then
+			copy.msg = parsedGroupLoot.msg
+		end
+		if type(parsedGroupLoot.playerName) == "string" then
+			copy.playerName = parsedGroupLoot.playerName
+		end
+		if type(parsedGroupLoot.itemLink) == "string" then
+			copy.itemLink = parsedGroupLoot.itemLink
+		end
+		if type(parsedGroupLoot.sessionId) == "string" then
+			copy.sessionId = parsedGroupLoot.sessionId
+		end
+		copy.rollType = tonumber(parsedGroupLoot.rollType)
+		copy.rollValue = tonumber(parsedGroupLoot.rollValue)
+		copy.rollId = tonumber(parsedGroupLoot.rollId)
+		copy.itemCount = tonumber(parsedGroupLoot.itemCount) or 1
+		copy.isPassiveWinner = parsedGroupLoot.isPassiveWinner == true or copy.kind == "winner"
+		return copy
+	end
+
+	local function buildAuthorityRecoveryLootIdentity(raidUid, msg, parsedGroupLoot, observedAt)
+		local parsed = type(parsedGroupLoot) == "table" and parsedGroupLoot or nil
+		local sessionId = parsed and (parsed.sessionId or parsed.rollSessionId) or nil
+		local rollId = parsed and parsed.rollId or nil
+		local kind = parsed and parsed.kind or nil
+		local looter = parsed and (parsed.playerName or parsed.looter or parsed.winnerName) or nil
+		local itemLink = parsed and parsed.itemLink or nil
+		sessionId = sessionId and tostring(sessionId) or nil
+		rollId = rollId and tostring(rollId) or nil
+		looter = NormalizeName(looter, true) or looter
+		local itemKey = itemLink and PassiveGroupLoot.GetPassiveLootRollItemKey(itemLink) or nil
+		if sessionId or rollId then
+			local key = tconcat({
+				tostring(raidUid),
+				"kind=" .. tostring(kind or ""),
+				"session=" .. tostring(sessionId or ""),
+				"roll=" .. tostring(rollId or ""),
+				"looter=" .. tostring(looter or ""),
+				"item=" .. tostring(itemKey or itemLink or ""),
+			}, "\031")
+			return key,
+				{
+					kind = kind,
+					sessionId = sessionId,
+					rollId = rollId,
+					looter = looter,
+					itemKey = itemKey or itemLink,
+				}
+		end
+
+		local bucket = math.floor((tonumber(observedAt) or 0) / GROUP_LOOT_PENDING_AWARD_TTL_SECONDS)
+		return tconcat({
+			tostring(raidUid),
+			"kind=" .. tostring(kind or ""),
+			"msg=" .. tostring(msg),
+			"bucket=" .. tostring(bucket),
+		}, "\031"),
+			{
+				kind = kind,
+				msg = msg,
+			}
+	end
+
+	local function removeAuthorityRecoveryLootFact(index)
+		local fact = authorityRecoveryLootFacts[index]
+		if fact then
+			authorityRecoveryLootFactKeys[fact.key] = nil
+			table.remove(authorityRecoveryLootFacts, index)
+		end
+	end
+
+	local function queueAuthorityRecoveryLootFact(raidUid, msg, rollType, rollValue, parsedGroupLoot, winnerOnly)
+		local observedAt = Time.GetCurrentTime()
+		local parsedCopy = copyParsedGroupLootFact(parsedGroupLoot)
+		local key, identity = buildAuthorityRecoveryLootIdentity(raidUid, msg, parsedCopy, observedAt)
+		if authorityRecoveryLootFactKeys[key] then
+			return true
+		end
+		if #authorityRecoveryLootFacts >= GROUP_LOOT_RECOVERY_FACT_LIMIT then
+			removeAuthorityRecoveryLootFact(1)
+		end
+
+		local fact = {
+			key = key,
+			identity = identity,
+			raidUid = raidUid,
+			msg = msg,
+			rollType = rollType,
+			rollValue = rollValue,
+			parsedGroupLoot = parsedCopy,
+			winnerOnly = winnerOnly == true,
+			observedAt = observedAt,
+			expiresAt = GetTime() + GROUP_LOOT_PENDING_AWARD_TTL_SECONDS,
+		}
+		authorityRecoveryLootFacts[#authorityRecoveryLootFacts + 1] = fact
+		authorityRecoveryLootFactKeys[key] = fact
+		return true
+	end
+
+	local function resolveRecoveryFactSessionId(identity)
+		if identity.sessionId then
+			return identity.sessionId
+		end
+		if identity.rollId and type(PassiveGroupLoot.GetPassiveLootRollEntryByRollId) == "function" then
+			local passiveRoll = PassiveGroupLoot.GetPassiveLootRollEntryByRollId(identity.rollId)
+			return passiveRoll and passiveRoll.sessionId and tostring(passiveRoll.sessionId) or nil
+		end
+		return nil
+	end
+
+	local function hasCanonicalAuthorityRecoveryLoot(raid, fact)
+		local identity = fact.identity or {}
+		local sessionId = resolveRecoveryFactSessionId(identity)
+		if not sessionId or not identity.itemKey or not identity.looter then
+			return false
+		end
+		for i = 1, #(raid.loot or {}) do
+			local loot = raid.loot[i]
+			local looter = NormalizeName(resolveStoredLootLooterName(raid, loot), true)
+			if
+				tostring(loot.rollSessionId or "") == sessionId
+				and getLootItemKey(loot) == identity.itemKey
+				and looter == identity.looter
+			then
+				return true
+			end
+		end
+		return false
 	end
 
 	local function findUpgradeablePassiveLootEntry(raid, raidNum, itemLink, looter, rollSessionId)
@@ -643,7 +826,7 @@ do
 		-- pending lookup enabled to preserve passive Group Loot logging in mixed
 		-- transition windows (Group Loot -> ML).
 		local allowGroupLootPendingAwards = passiveGroupLoot or not preferredRollSessionId
-		local pendingAward = module:RemovePendingAward(
+		local pendingAward = LootAttribution.Prepare(
 			itemLink,
 			player,
 			pendingAwardTtl,
@@ -652,6 +835,7 @@ do
 			allowGroupLootPendingAwards
 		)
 		if pendingAward then
+			outcome.pendingAward = pendingAward
 			if not rollType then
 				rollType = pendingAward.rollType
 			end
@@ -867,6 +1051,18 @@ do
 		return appended, lootNid
 	end
 
+	local function commitPreparedPendingAward(rollOutcome)
+		local pendingAward = rollOutcome and rollOutcome.pendingAward or nil
+		if pendingAward then
+			LootAttribution.CommitPrepared(pendingAward)
+		end
+	end
+
+	local function commitTerminalPassiveOutcome(rollOutcome, rollSessionId)
+		commitPreparedPendingAward(rollOutcome)
+		PassiveGroupLoot.ConsumePassiveLootRollEntry(rollSessionId)
+	end
+
 	setSelectedItem = function(i)
 		if not i then
 			notifySelectedItem(nil, nil)
@@ -900,26 +1096,36 @@ do
 			return false
 		end
 
+		local updated = Recording.Copy(loot)
 		local changed = false
-		if hasRollType and loot.rollType ~= resolvedRollType then
-			loot.rollType = resolvedRollType
+		if hasRollType and updated.rollType ~= resolvedRollType then
+			updated.rollType = resolvedRollType
 			changed = true
 		end
-		if (hasRollValue or (tonumber(loot.rollValue) or 0) <= 0) and loot.rollValue ~= resolvedRollValue then
-			loot.rollValue = resolvedRollValue
+		if (hasRollValue or (tonumber(updated.rollValue) or 0) <= 0) and updated.rollValue ~= resolvedRollValue then
+			updated.rollValue = resolvedRollValue
 			changed = true
 		end
-		if rollSessionId and (not loot.rollSessionId or loot.rollSessionId == "") then
-			loot.rollSessionId = tostring(rollSessionId)
+		if rollSessionId and (not updated.rollSessionId or updated.rollSessionId == "") then
+			updated.rollSessionId = tostring(rollSessionId)
 			changed = true
 		end
 		if not changed then
 			return false
 		end
 
-		bindLootNidToRollSession(loot.lootNid, loot.rollSessionId, loot.itemId, loot.itemString, loot.itemLink)
-		Recording.MarkUpdated(raid, loot, "passive_roll")
-		notifyRaidLootUpdate(currentRaidId, loot)
+		local _, committed = Recording.MarkUpdated(raid, updated, "passive_roll")
+		if not committed then
+			return false
+		end
+		bindLootNidToRollSession(
+			committed.lootNid,
+			committed.rollSessionId,
+			committed.itemId,
+			committed.itemString,
+			committed.itemLink
+		)
+		notifyRaidLootUpdate(currentRaidId, committed)
 		return true
 	end
 
@@ -931,37 +1137,82 @@ do
 		for i = 1, #raid.loot do
 			local row = raid.loot[i]
 			if row and tonumber(row.lootNid) == tonumber(award.recordIndex) then
-				local changed = row.source ~= "CHAT_MSG_LOOT"
-				row.source = "CHAT_MSG_LOOT"
+				local updated = Recording.Copy(row)
+				local changed = updated.source ~= "CHAT_MSG_LOOT"
+				updated.source = "CHAT_MSG_LOOT"
 				if type(authoritative) == "table" then
-					local itemCount = tonumber(authoritative.itemCount) or row.itemCount
-					local itemName = authoritative.itemName or row.itemName
-					local itemRarity = authoritative.itemRarity or row.itemRarity
-					local itemTexture = authoritative.itemTexture or row.itemTexture
-					local itemString = authoritative.itemString or row.itemString
+					local itemCount = tonumber(authoritative.itemCount) or updated.itemCount
+					local itemName = authoritative.itemName or updated.itemName
+					local itemRarity = authoritative.itemRarity or updated.itemRarity
+					local itemTexture = authoritative.itemTexture or updated.itemTexture
+					local itemString = authoritative.itemString or updated.itemString
 					changed = changed
-						or row.itemCount ~= itemCount
-						or row.itemName ~= itemName
-						or row.itemRarity ~= itemRarity
-						or row.itemTexture ~= itemTexture
-						or row.itemString ~= itemString
-					row.itemCount = itemCount
-					row.itemName = itemName
-					row.itemRarity = itemRarity
-					row.itemTexture = itemTexture
-					row.itemString = itemString
+						or updated.itemCount ~= itemCount
+						or updated.itemName ~= itemName
+						or updated.itemRarity ~= itemRarity
+						or updated.itemTexture ~= itemTexture
+						or updated.itemString ~= itemString
+					updated.itemCount = itemCount
+					updated.itemName = itemName
+					updated.itemRarity = itemRarity
+					updated.itemTexture = itemTexture
+					updated.itemString = itemString
 				end
 				if changed then
-					Recording.MarkUpdated(raid, row, "authoritative_loot")
-					notifyRaidLootUpdate(Database.GetCurrentRaid(), row)
+					local _, committed = Recording.MarkUpdated(raid, updated, "authoritative_loot")
+					if committed then
+						notifyRaidLootUpdate(Database.GetCurrentRaid(), committed)
+					end
 				end
 				return
 			end
 		end
 	end
 
+	function module:ReplayAuthorityRecoveryFacts(raidUid)
+		local _, currentRaidUid, raid = getCurrentRaidRetryIdentity()
+		if currentRaidUid ~= raidUid or type(raid) ~= "table" or isAuthorityRecovering(raidUid) then
+			return false
+		end
+
+		local currentTime = GetTime()
+		local index = 1
+		while index <= #authorityRecoveryLootFacts do
+			local fact = authorityRecoveryLootFacts[index]
+			if fact.raidUid ~= raidUid or currentTime >= (tonumber(fact.expiresAt) or 0) then
+				removeAuthorityRecoveryLootFact(index)
+			elseif hasCanonicalAuthorityRecoveryLoot(raid, fact) then
+				removeAuthorityRecoveryLootFact(index)
+			else
+				local previousLootCount = #(raid.loot or {})
+				local _, _, handled = self:HandleLootChatMessage(fact.msg, fact.winnerOnly, fact.parsedGroupLoot)
+				local _, replayRaidUid, replayRaid = getCurrentRaidRetryIdentity()
+				local consumed = replayRaidUid == raidUid
+					and type(replayRaid) == "table"
+					and (
+						#(replayRaid.loot or {}) > previousLootCount
+						or hasCanonicalAuthorityRecoveryLoot(replayRaid, fact)
+						or handled == true
+					)
+				if consumed then
+					raid = replayRaid
+					removeAuthorityRecoveryLootFact(index)
+				else
+					index = index + 1
+				end
+			end
+		end
+		return true
+	end
+
 	-- Adds a loot item to the active raid log.
 	function module:AddLoot(msg, rollType, rollValue, parsedGroupLoot)
+		local _, recoveryRaidUid = getActiveRaidRecoveryIdentity()
+		if recoveryRaidUid and isAuthorityRecovering(recoveryRaidUid) then
+			queueAuthorityRecoveryLootFact(recoveryRaidUid, msg, rollType, rollValue, parsedGroupLoot)
+			return
+		end
+
 		local player
 		local itemCount
 		local itemLink
@@ -1043,14 +1294,14 @@ do
 			passiveGroupLoot = passiveGroupLoot,
 			parsedGroupLoot = parsedGroupLoot,
 		})
-		Workflow.RecordReceipt(workflowContext, receipt)
 		if not Recording.ShouldCreateRecord(receipt) then
+			Workflow.RecordReceipt(workflowContext, receipt)
 			return
 		end
 
 		if passiveGroupLoot and shouldSkipPassiveGroupLootEntry(itemRarity, itemType, itemLink) then
-			PassiveGroupLoot.ConsumePassiveLootRollEntry(rollSessionId)
-			return
+			commitTerminalPassiveOutcome(rollOutcome, rollSessionId)
+			return true, "ignored_passive_item"
 		end
 
 		if
@@ -1064,7 +1315,8 @@ do
 				rollSessionId = rollSessionId,
 			})
 		then
-			return
+			commitTerminalPassiveOutcome(rollOutcome, rollSessionId)
+			return true, "passive_duplicate"
 		end
 
 		local raidService = Services.Raid
@@ -1107,6 +1359,83 @@ do
 			bossNid,
 			lootSource
 		)
+		lootInfo.looter = player
+
+		local authorityFallback, fallbackIndex = Recording.FindRecentAuthorityFallback(
+			raid,
+			lootInfo,
+			passiveGroupLoot and GROUP_LOOT_PENDING_AWARD_TTL_SECONDS or PENDING_AWARD_TTL_SECONDS
+		)
+		if authorityFallback then
+			local updated = Recording.Copy(authorityFallback)
+			local _, changed = Recording.MergeTradeOnlyFallback(updated, lootInfo)
+			changed = changed or (lootInfo.itemId ~= nil and updated.itemId ~= lootInfo.itemId)
+			changed = changed or (lootInfo.itemName ~= nil and updated.itemName ~= lootInfo.itemName)
+			changed = changed or (lootInfo.itemString ~= nil and updated.itemString ~= lootInfo.itemString)
+			changed = changed or (lootInfo.itemLink ~= nil and updated.itemLink ~= lootInfo.itemLink)
+			changed = changed or (lootInfo.itemRarity ~= nil and updated.itemRarity ~= lootInfo.itemRarity)
+			changed = changed or (lootInfo.itemTexture ~= nil and updated.itemTexture ~= lootInfo.itemTexture)
+			changed = changed or (updated.lootSource == nil and lootInfo.lootSource ~= nil)
+			updated.itemId = lootInfo.itemId or updated.itemId
+			updated.itemName = lootInfo.itemName or updated.itemName
+			updated.itemString = lootInfo.itemString or updated.itemString
+			updated.itemLink = lootInfo.itemLink or updated.itemLink
+			updated.itemRarity = lootInfo.itemRarity or updated.itemRarity
+			updated.itemTexture = lootInfo.itemTexture or updated.itemTexture
+			if not updated.lootSource and lootInfo.lootSource then
+				updated.lootSource = lootInfo.lootSource
+			end
+
+			local committed, committedRaid, committedIndex = authorityFallback, raid, fallbackIndex
+			if changed then
+				local _
+				_, committed, committedRaid, committedIndex = Recording.MarkUpdated(raid, updated, "authority_receipt")
+				if not committed then
+					return false, "store_rejected"
+				end
+			end
+			if
+				lootState.opened == true
+				and lootState.fromInventory ~= true
+				and raidService
+				and raidService.ConsumeLootWindowItemContext
+			then
+				raidService:ConsumeLootWindowItemContext(committed.itemLink)
+			end
+			indexAppendedLootRuntime(committedRaid, committed, committedIndex or fallbackIndex)
+			bindLootNidToRollSession(
+				committed.lootNid,
+				committed.rollSessionId,
+				committed.itemId,
+				committed.itemString,
+				committed.itemLink
+			)
+			PassiveGroupLoot.ConsumePassiveLootRollEntry(committed.rollSessionId)
+			notifyRaidLootUpdate(currentRaidId, committed)
+			commitPreparedPendingAward(rollOutcome)
+			Workflow.RecordReceipt(workflowContext, receipt)
+			Recording.MarkPassiveLogged({
+				PassiveGroupLoot = PassiveGroupLoot,
+				passiveGroupLoot = passiveGroupLoot,
+				isPassiveWinnerMessage = isPassiveWinnerMessage,
+				itemLink = committed.itemLink,
+				playerName = player,
+				rollSessionId = committed.rollSessionId,
+			})
+			return true, "reconciled"
+		end
+
+		lootInfo = appendLootRecord(raid, currentRaidId, lootInfo, {
+			raidService = raidService,
+			consumeLootWindow = true,
+			consumePassiveRoll = true,
+		})
+		if not lootInfo then
+			return false, "store_rejected"
+		end
+
+		commitPreparedPendingAward(rollOutcome)
+		Workflow.RecordReceipt(workflowContext, receipt)
 
 		-- LootCounter: passive/group loot credits on observed loot chat. Master-loot awards
 		-- initiated by RMA may already be credited at GiveMasterLoot time because loot chat
@@ -1127,12 +1456,6 @@ do
 			playerName = player,
 			rollSessionId = rollSessionId,
 		})
-
-		lootInfo = appendLootRecord(raid, currentRaidId, lootInfo, {
-			raidService = raidService,
-			consumeLootWindow = true,
-			consumePassiveRoll = true,
-		})
 		if addon.hasDebug then
 			addon:debug(
 				Diag.D.LogLootLogged:format(
@@ -1143,6 +1466,7 @@ do
 				)
 			)
 		end
+		return true, "recorded"
 	end
 
 	-- Creates a local raid loot entry for inventory-trade awards when no reliable loot context exists.
@@ -1160,12 +1484,12 @@ do
 		local resolvedRaidNum, raid = resolveRaidRecord(raidNum)
 		raidNum = resolvedRaidNum
 		if not raidNum or not itemLink or not looter or looter == "" then
-			return 0
+			return 0, false
 		end
 		looter = NormalizeName(looter, true) or looter
 
 		if not raid then
-			return 0
+			return 0, false
 		end
 
 		local raidService = Services.Raid
@@ -1218,22 +1542,26 @@ do
 
 		local existing, existingIndex = Recording.FindTradeOnlyFallback(raid, lootInfo)
 		if existing then
-			local _, changed = Recording.MergeTradeOnlyFallback(existing, lootInfo)
+			local updated = Recording.Copy(existing)
+			local _, changed = Recording.MergeTradeOnlyFallback(updated, lootInfo)
 			local existingLootNid = tonumber(existing.lootNid) or 0
 			if not changed then
-				return existingLootNid
+				return existingLootNid, false
 			end
-			indexAppendedLootRuntime(raid, existing, existingIndex)
+			local _, committed, committedRaid, committedIndex = Recording.MarkUpdated(raid, updated, "trade_reconcile")
+			if not committed then
+				return 0, false
+			end
+			indexAppendedLootRuntime(committedRaid, committed, committedIndex or existingIndex)
 			bindLootNidToRollSession(
 				existingLootNid,
-				existing.rollSessionId,
-				existing.itemId,
-				existing.itemString,
-				existing.itemLink
+				committed.rollSessionId,
+				committed.itemId,
+				committed.itemString,
+				committed.itemLink
 			)
-			Recording.MarkUpdated(raid, existing, "trade_reconcile")
-			notifyRaidLootUpdate(raidNum, existing)
-			return existingLootNid
+			notifyRaidLootUpdate(raidNum, committed)
+			return existingLootNid, false
 		end
 
 		local appended, lootNid = appendLootRecord(raid, raidNum, lootInfo)
@@ -1249,21 +1577,239 @@ do
 				)
 			)
 		end
-		return lootNid
+		return lootNid, lootNid > 0
 	end
+
+	-- ITEM_DONE is terminal on the wire. Keep a valid fact for two same-raid,
+	-- one-shot retries while raid-leader and master-looter identity settles.
+	local DISTRIBUTION_AWARD_RETRY_LIMIT = 2
+	local DISTRIBUTION_AWARD_RETRY_DELAY_SECONDS = 1
+	local distributionAwardRetries = {}
+
+	local function normalizeDistributionAward(row, sessionId)
+		if type(row) ~= "table" or type(row.sender) ~= "string" or row.sender == "" then
+			return nil
+		end
+		local itemLink = row.itemLink or row.itemKey
+		local winnerName = NormalizeName(row.winnerName, true)
+		local rollType = tonumber(row.rollType)
+		local count = tonumber(row.count) or 1
+		local transactionId = type(row.reason) == "string" and strmatch(row.reason, "^master_loot:(.+)$") or nil
+		local resolvedSessionId = sessionId and tostring(sessionId) or nil
+		if
+			type(itemLink) ~= "string"
+			or itemLink == ""
+			or not winnerName
+			or not rollType
+			or rollType ~= math.floor(rollType)
+			or not transactionId
+			or not resolvedSessionId
+			or resolvedSessionId == ""
+			or count < 1
+			or count > 999999999
+			or count ~= math.floor(count)
+		then
+			return nil
+		end
+		return {
+			sender = row.sender,
+			itemLink = itemLink,
+			winnerName = winnerName,
+			rollType = rollType,
+			rollValue = row.rollValue,
+			count = count,
+			transactionId = transactionId,
+			sessionId = resolvedSessionId,
+			awardId = resolvedSessionId .. "|" .. transactionId,
+		}
+	end
+
+	function module:RecordDistributionAward(row, sessionId, expectedRaidUid)
+		local facts = normalizeDistributionAward(row, sessionId)
+		if not facts then
+			return false, "invalid_distribution_award", false
+		end
+		local raidNum
+		local currentRaidUid
+		if expectedRaidUid then
+			raidNum, currentRaidUid = getCurrentRaidRetryIdentity()
+			if currentRaidUid ~= expectedRaidUid then
+				return false, "distribution_raid_changed", false, facts
+			end
+		else
+			raidNum = Database.GetCurrentRaid()
+			local identityRaidNum
+			identityRaidNum, currentRaidUid = getCurrentRaidRetryIdentity()
+			raidNum = raidNum or identityRaidNum
+		end
+		if isAuthorityRecovering(currentRaidUid) then
+			return false, "distribution_authority_not_ready", true, facts
+		end
+
+		local raidService = Services.Raid
+		if not raidService or not raidService.CanCommitRaidHistory or not raidService.IsLootAuthority then
+			return false, "distribution_authority_unavailable", false, facts
+		end
+		if raidService:CanCommitRaidHistory() ~= true or raidService:IsLootAuthority(facts.sender) ~= true then
+			local retryable = raidService.IsRaidLeader and raidService:IsRaidLeader() == true
+			return false, "distribution_authority_not_ready", retryable, facts
+		end
+		local localPlayerName = Database.GetPlayerName and NormalizeName(Database.GetPlayerName(), true) or nil
+		local distributionSender = NormalizeName(facts.sender, true)
+		if
+			raidService.IsRaidLeader
+			and raidService:IsRaidLeader() == true
+			and localPlayerName
+			and distributionSender == localPlayerName
+		then
+			return true, nil, false, facts
+		end
+		local lootNid = self:LogTradeOnlyLoot(
+			facts.itemLink,
+			facts.winnerName,
+			facts.rollType,
+			facts.rollValue,
+			facts.count,
+			"DISTRIBUTION_AWARD",
+			raidNum,
+			nil,
+			facts.awardId
+		)
+		if (tonumber(lootNid) or 0) <= 0 then
+			return false, "distribution_record_failed", false, facts
+		end
+		return true, nil, false, facts
+	end
+
+	local function clearDistributionAwardRetry(awardId, cancelTimer)
+		local entry = distributionAwardRetries[awardId]
+		if not entry then
+			return
+		end
+		distributionAwardRetries[awardId] = nil
+		if cancelTimer and entry.handle then
+			pcall(module.CancelTimer, module, entry.handle)
+		end
+		entry.handle = nil
+	end
+
+	local scheduleDistributionAwardRetry
+	scheduleDistributionAwardRetry = function(entry)
+		if entry.attempts >= DISTRIBUTION_AWARD_RETRY_LIMIT then
+			clearDistributionAwardRetry(entry.awardId, false)
+			return
+		end
+		entry.attempts = entry.attempts + 1
+		local scheduled, handle = pcall(module.ScheduleTimer, module, function()
+			entry.handle = nil
+			if distributionAwardRetries[entry.awardId] ~= entry then
+				return
+			end
+			local _, currentRaidUid = getCurrentRaidRetryIdentity()
+			if currentRaidUid ~= entry.raidUid then
+				clearDistributionAwardRetry(entry.awardId, false)
+				return
+			end
+			local recorded, _, retryable = module:RecordDistributionAward(entry.row, entry.sessionId, entry.raidUid)
+			if recorded or not retryable then
+				clearDistributionAwardRetry(entry.awardId, false)
+				return
+			end
+			scheduleDistributionAwardRetry(entry)
+		end, DISTRIBUTION_AWARD_RETRY_DELAY_SECONDS)
+		if not scheduled or not handle then
+			clearDistributionAwardRetry(entry.awardId, false)
+			return
+		end
+		entry.handle = handle
+	end
+
+	local function queueDistributionAwardRetry(facts)
+		if distributionAwardRetries[facts.awardId] then
+			return
+		end
+		local _, raidUid = getCurrentRaidRetryIdentity()
+		if not raidUid then
+			return
+		end
+		local entry = {
+			awardId = facts.awardId,
+			sessionId = facts.sessionId,
+			raidUid = raidUid,
+			attempts = 0,
+			row = {
+				sender = facts.sender,
+				itemLink = facts.itemLink,
+				winnerName = facts.winnerName,
+				rollType = facts.rollType,
+				rollValue = facts.rollValue,
+				count = facts.count,
+				reason = "master_loot:" .. facts.transactionId,
+			},
+		}
+		distributionAwardRetries[entry.awardId] = entry
+		scheduleDistributionAwardRetry(entry)
+	end
+
+	Bus.RegisterCallback(DistributionChangedEvent, function(_, reason, row, sessionId)
+		if reason == "item_done" or reason == "item_done_replay" then
+			local recorded, _, retryable, facts = module:RecordDistributionAward(row, sessionId)
+			if recorded and facts then
+				clearDistributionAwardRetry(facts.awardId, true)
+			elseif retryable and facts then
+				queueDistributionAwardRetry(facts)
+			end
+		end
+	end)
 
 	local function shouldIgnoreGroupLoot()
 		return GetOption("Logger", "ignoreGroupLoot") == true
 	end
 
-	function module:ObservePassiveLootMessage(msg, winnerOnly)
-		if shouldIgnoreGroupLoot() then
-			return nil
+	function module:HandleLootChatMessage(msg, winnerOnly, stagedParsedGroupLoot)
+		local observedType
+		local parsedGroupLoot = copyParsedGroupLootFact(stagedParsedGroupLoot)
+		if parsedGroupLoot then
+			observedType = parsedGroupLoot.kind == "winner" and "winner" or "selection"
+		elseif not shouldIgnoreGroupLoot() then
+			observedType, parsedGroupLoot = PassiveGroupLoot.ParseGroupLootMessage(msg, winnerOnly)
+			parsedGroupLoot = copyParsedGroupLootFact(parsedGroupLoot)
 		end
-		if winnerOnly then
-			return PassiveGroupLoot.ObserveGroupLootWinnerMessage(self, msg)
+
+		local raidService = Services.Raid
+		local canObservePassiveLoot = raidService
+			and raidService.CanObservePassiveLoot
+			and raidService:CanObservePassiveLoot()
+		local shouldRecord = canObservePassiveLoot
+			and (
+				(winnerOnly and observedType == "winner")
+				or (not winnerOnly and (observedType == nil or observedType == "winner"))
+			)
+		local _, recoveryRaidUid = getActiveRaidRecoveryIdentity()
+		if recoveryRaidUid and isAuthorityRecovering(recoveryRaidUid) then
+			if parsedGroupLoot or shouldRecord then
+				queueAuthorityRecoveryLootFact(recoveryRaidUid, msg, nil, nil, parsedGroupLoot, winnerOnly)
+			end
+			return observedType, parsedGroupLoot, nil, "recovery_queued"
 		end
-		return PassiveGroupLoot.ObserveGroupLootMessage(self, msg)
+
+		local handled
+		local outcome
+		if shouldRecord then
+			handled, outcome = self:AddLoot(msg, nil, nil, parsedGroupLoot)
+			if handled and parsedGroupLoot then
+				observedType, parsedGroupLoot =
+					PassiveGroupLoot.ApplyGroupLootObservation(self, observedType, parsedGroupLoot, true)
+				parsedGroupLoot = copyParsedGroupLootFact(parsedGroupLoot)
+			end
+		elseif parsedGroupLoot then
+			observedType, parsedGroupLoot =
+				PassiveGroupLoot.ApplyGroupLootObservation(self, observedType, parsedGroupLoot)
+			parsedGroupLoot = copyParsedGroupLootFact(parsedGroupLoot)
+			handled = true
+			outcome = "observation_applied"
+		end
+		return observedType, parsedGroupLoot, handled, outcome
 	end
 
 	function module:AddPassiveLootRoll(rollId, rollTime)
@@ -1271,13 +1817,6 @@ do
 			return nil
 		end
 		return PassiveGroupLoot.AddPassiveLootRoll(self, rollId, rollTime)
-	end
-
-	function module:AddGroupLootMessage(msg)
-		if shouldIgnoreGroupLoot() then
-			return nil
-		end
-		return PassiveGroupLoot.AddGroupLootMessage(self, msg)
 	end
 
 	-- Pending award helpers (shared with Master/Raid flows).
@@ -1302,11 +1841,18 @@ do
 	end
 
 	function module:ReconcileProvisionalAward(itemLink, looter, rollSessionId, authoritative)
-		local pending, reason = LootAttribution.ReconcileProvisional(itemLink, looter, rollSessionId, nil, function(handle)
-			return module:CancelTimer(handle)
-		end, function(award)
-			applyAuthoritativeProvisional(award, authoritative)
-		end)
+		local pending, reason = LootAttribution.ReconcileProvisional(
+			itemLink,
+			looter,
+			rollSessionId,
+			nil,
+			function(handle)
+				return module:CancelTimer(handle)
+			end,
+			function(award)
+				applyAuthoritativeProvisional(award, authoritative)
+			end
+		)
 		if not pending then
 			return false, reason
 		end
@@ -1362,7 +1908,8 @@ do
 		local distributionRevision, publicationReason = DistributionSession.BeginWindow(#distributionItems)
 		local publicationOk
 		if distributionRevision then
-			publicationOk, publicationReason = DistributionSession.PublishWindowItems(distributionItems, distributionRevision)
+			publicationOk, publicationReason =
+				DistributionSession.PublishWindowItems(distributionItems, distributionRevision)
 		end
 		if addon.hasTrace then
 			addon:trace(Diag.D.LogLootFetchDone:format(lootState.lootCount or 0, lootState.currentItemIndex or 0))

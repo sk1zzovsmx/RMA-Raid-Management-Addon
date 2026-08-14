@@ -33,6 +33,30 @@ local GetItemIndex = Database.GetItemIndex
 local tconcat = table.concat
 
 local tostring, tonumber = tostring, tonumber
+local pairs, type, next, setmetatable = pairs, type, next, setmetatable
+
+local itemCountPool = setmetatable({}, { __mode = "k" })
+
+local function newItemCounts()
+	local values = next(itemCountPool) or {}
+	itemCountPool[values] = nil
+	return values
+end
+
+local function deleteItemCounts(values, recursive)
+	if type(values) ~= "table" then
+		return nil
+	end
+	setmetatable(values, nil)
+	for key, value in pairs(values) do
+		if recursive and type(value) == "table" then
+			deleteItemCounts(value, true)
+		end
+		values[key] = nil
+	end
+	itemCountPool[values] = true
+	return nil
+end
 
 local function getReserveCountForItem(itemId, name)
 	local reserves = Services.Reserves
@@ -110,11 +134,7 @@ do
 		countdownTicker = nil,
 		countdownEndTimer = nil,
 	}
-	local newItemCounts, delItemCounts
-	if addon.TablePool then
-		newItemCounts, delItemCounts = addon.TablePool("k")
-	end
-	state.itemCounts = newItemCounts and newItemCounts() or {}
+	state.itemCounts = newItemCounts()
 	local GetOption = Options.GetValue
 	local IsDebugEnabled = Options.IsDebugEnabled
 
@@ -300,7 +320,7 @@ do
 			state = state,
 			lootState = lootState,
 			newItemCounts = newItemCounts,
-			delItemCounts = delItemCounts,
+			delItemCounts = deleteItemCounts,
 			getActiveRollType = getActiveRollType,
 			getReserveCountForItem = getReserveCountForItem,
 			getCurrentWinner = function()

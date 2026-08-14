@@ -11,8 +11,11 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG_XML = ROOT / "Raid Management Addon" / "UI" / "Config.xml"
 LAYOUT_LUA = ROOT / "Raid Management Addon" / "Modules" / "UI" / "OptionsLayout.lua"
 CONTROLLER_LUA = ROOT / "Raid Management Addon" / "Controllers" / "Config.lua"
+DBSYNCER_LUA = ROOT / "Raid Management Addon" / "Database" / "DBSyncer.lua"
+DIAGNOSE_LOG_LUA = ROOT / "Raid Management Addon" / "Localization" / "DiagnoseLog.en.lua"
+LOCALIZATION_LUA = ROOT / "Raid Management Addon" / "Localization" / "localization.en.lua"
 EXPECTED_ORDERED_NAMES_SHA256 = (
-    "53f86d9fa781ade75839a4d895840fd1013970add79c98a1bad9ef471fd8528d"
+    "695b52f4411e0541a98eb67dc8f745b517d0f4bb6e4ab71979940335c7e9855f"
 )
 REQUIRED_PUBLIC_FRAMES = {
     "RMAConfig",
@@ -42,7 +45,7 @@ class ConfigXmlContractTest(unittest.TestCase):
     def test_ordered_name_contract_is_unchanged(self) -> None:
         names = re.findall(r'\bname="([^"]+)"', source())
         digest = hashlib.sha256("\n".join(names).encode("utf-8")).hexdigest()
-        self.assertEqual(235, len(names))
+        self.assertEqual(220, len(names))
         self.assertEqual(EXPECTED_ORDERED_NAMES_SHA256, digest)
 
     def test_required_public_frames_remain_declared(self) -> None:
@@ -61,12 +64,44 @@ class ConfigXmlContractTest(unittest.TestCase):
 
 class ConfigLayoutOwnershipTest(unittest.TestCase):
 
-    def test_logger_sync_panel_actions_emit_debug_gated_results(self) -> None:
-        source = CONTROLLER_LUA.read_text(encoding="utf-8")
-        self.assertIn("Diag.D.LogSyncConfigAction", source)
-        self.assertIn('traceConfigSyncAction("CONFIG_REQ", "dispatch"', source)
-        self.assertIn('traceConfigSyncAction("CONFIG_PUSH", "dispatch"', source)
-        self.assertIn('traceConfigSyncAction(eventName, "result"', source)
+    def test_help_lists_only_current_loot_history_and_perf_commands(self) -> None:
+        localization = LOCALIZATION_LUA.read_text(encoding="utf-8")
+        self.assertIn("/rma logger [share]", localization)
+        for retired in (
+            "/rma history " + "req",
+            "/rma history " + "push",
+            "/rma history " + "sync",
+            "audit|" + "sync|items",
+        ):
+            self.assertNotIn(retired, localization)
+
+    def test_logger_preferences_keep_only_current_recording_defaults(self) -> None:
+        source = DBSYNCER_LUA.read_text(encoding="utf-8")
+        start = source.index('Options.RegisterNamespace("Logger", {')
+        end = source.index("\n\t})", start)
+        defaults = source[start:end]
+        self.assertIn("ignoreGroupLoot = false,", defaults)
+        self.assertIn("ignoreSelectionThreshold = true,", defaults)
+        self.assertIn("loggerLootQualityThreshold = 4,", defaults)
+
+    def test_retired_config_sync_diagnostic_is_removed(self) -> None:
+        source = DIAGNOSE_LOG_LUA.read_text(encoding="utf-8")
+        self.assertNotIn("LogSyncConfigAction", source)
+
+    def test_logger_panel_keeps_recording_preferences_only(self) -> None:
+        xml = source()
+        controller = CONTROLLER_LUA.read_text(encoding="utf-8")
+        for retired in (
+            "Persistent" + "SyncCheck",
+            "RequireDatabaseEditBox",
+            "RequireDatabaseBtn",
+            "PushDatabaseEditBox",
+            "PushDatabaseBtn",
+            "SyncNowBtn",
+        ):
+            self.assertNotIn(retired, xml)
+            self.assertNotIn(retired, controller)
+        self.assertNotIn("RequestLogger" + "SyncPanelAction", controller)
 
     def test_cleanup_success_ui_is_gated_by_completed_callback(self) -> None:
         source = CONTROLLER_LUA.read_text(encoding="utf-8")

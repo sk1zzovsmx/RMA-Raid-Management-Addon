@@ -13,8 +13,9 @@ Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\LibBossIDs-1.0\lib.xml
 Libs\LibDeflate\LibDeflate.lua
 Libs\LibDeformat-3.0\lib.xml
-Libs\LibCompat-1.0\lib.xml
-Libs\LibLogger-1.0\lib.xml
+Libs\LibBabble-TalentTree-3.0\lib.xml
+Libs\LibTalentQuery-1.0\lib.xml
+Libs\LibGroupTalents-1.0\lib.xml
 
 # Layer 1 - Unified init/bootstrap/runtime (must load before all addon Lua files)
 Init.lua
@@ -34,6 +35,7 @@ UI\RaidGrid.xml
 # Layer 4 - Shared modules (helpers/constants)
 EntryPoints\Debug.lua
 Modules\C.lua
+Modules\Group.lua
 Modules\Timer.lua
 Modules\Events.lua
 Modules\Colors.lua
@@ -63,14 +65,12 @@ Modules\UI\ScreenNotice.lua
 
 # Layer 5 - Runtime modules (ordered by dependency)
 # Services + entrypoint + parents + child UI controllers
-Database\DBRaidMigrations.lua
+Database\DBRaidEvents.lua
+Database\DBSyncProtocol.lua
+Database\DBSyncSession.lua
 Database\DBRaidStore.lua
 Database\DBRaidQueries.lua
 Database\DBRaidValidator.lua
-Database\DBSyncMetrics.lua
-Database\DBSyncPayload.lua
-Database\DBSyncImport.lua
-Database\DBSyncer.lua
 Services\Loot\Context.lua
 Services\Loot\State.lua
 Services\Loot\Snapshots.lua
@@ -79,6 +79,7 @@ Services\Raid\State.lua
 Services\Raid\Roster.lua
 Services\Raid\LootBans.lua
 Services\Raid\Capabilities.lua
+Database\DBSyncer.lua
 Services\Loot\PassiveGroupLoot.lua
 Services\Loot\Tracking.lua
 Services\Loot\Workflow.lua
@@ -93,6 +94,7 @@ Services\Raid\Attendance.lua
 Services\Raid\LootRecords.lua
 Services\Raid\Session.lua
 Services\Raid\Projections.lua
+Controllers\RaidRecovery.lua
 Services\InspectCoordinator.lua
 Services\SpecInspect.lua
 Services\EquipInspect.lua

@@ -124,12 +124,23 @@ local LoggerEvents = {
 		InternalEvents.RaidLootUpdate,
 		"Logger controller raid loot update event is not initialized"
 	),
+	LoggerRaidOfferReceived = assert(
+		InternalEvents.LoggerRaidOfferReceived,
+		"Logger controller raid-offer event is not initialized"
+	),
+	RaidRosterDelta = assert(
+		InternalEvents.RaidRosterDelta,
+		"Logger controller roster-delta event is not initialized"
+	),
 }
 
 local rollTypes = addon.C.rollTypes
 local lootTypesColored = addon.C.lootTypesColored
 local itemColors = addon.C.itemColors
 local showLoggerExportFrame
+local showLoggerShareFrame
+local initializeShareDropdown
+local refreshShareFrameState
 local setLootEntry
 
 local _G = _G
@@ -139,6 +150,7 @@ local pairs, type = pairs, type
 local tostring, tonumber = tostring, tonumber
 local max, floor = math.max, math.floor
 local strlower = string.lower
+local sort = table.sort
 local IsTrashMobName = IgnoredMobs.IsTrashMobName
 local GetTrashMobName = IgnoredMobs.GetTrashMobName
 
@@ -413,6 +425,20 @@ end
 local GetItemIcon = assert(_G.GetItemIcon, "Logger item icon API is not initialized")
 local CreateFrame = assert(_G.CreateFrame, "Logger frame creation API is not initialized")
 local UIParent = assert(_G.UIParent, "Logger root UI parent is not initialized")
+local UnitName = assert(_G.UnitName, "Logger unit-name API is not initialized")
+local UnitIsUnit = assert(_G.UnitIsUnit, "Logger unit-identity API is not initialized")
+local Group = assert(addon.Group, "Logger group helper owner is not initialized")
+local UIDropDownMenu_Initialize =
+	assert(_G.UIDropDownMenu_Initialize, "Logger dropdown init API is not initialized")
+local UIDropDownMenu_CreateInfo =
+	assert(_G.UIDropDownMenu_CreateInfo, "Logger dropdown info API is not initialized")
+local UIDropDownMenu_AddButton =
+	assert(_G.UIDropDownMenu_AddButton, "Logger dropdown add-button API is not initialized")
+local UIDropDownMenu_SetWidth =
+	assert(_G.UIDropDownMenu_SetWidth, "Logger dropdown width API is not initialized")
+local UIDropDownMenu_SetButtonWidth =
+	assert(_G.UIDropDownMenu_SetButtonWidth, "Logger dropdown button-width API is not initialized")
+local UIDropDownMenu_SetText = assert(_G.UIDropDownMenu_SetText, "Logger dropdown text API is not initialized")
 
 local function bindLoggerSortHeaders(frameName, columns, listRef, boundFlag)
 	local frame = frameName and _G[frameName] or nil
@@ -446,6 +472,67 @@ local function bindRaidSortHeaders(frameName, listRef)
 end
 
 local uiState = UI.ModuleState.Ensure(module)
+
+local function getShareEligibility(raid)
+	if not raid then
+		return false, L.StrLoggerShareNoRaid
+	end
+	if not addon.IsInGroup() then
+		return false, L.StrLoggerShareRequiresGroup
+	end
+	local raidStore = Database.GetRaidStore()
+	local raidUid = raidStore:GetRaidUid(raid)
+	local record = raidUid and raidStore:GetRecord(raidUid) or nil
+	if not record or record.status ~= "complete" then
+		return false, L.StrLoggerShareCompletedOnly
+	end
+	return true, nil, raidUid
+end
+
+local function collectShareRecipients()
+	local recipients = {}
+	local groupType, firstIndex, memberCount = Group.GetTypeAndCount()
+	if not groupType then
+		return recipients
+	end
+	for i = firstIndex, memberCount do
+		local unit = groupType .. i
+		if not UnitIsUnit(unit, "player") then
+			local name = NormalizeName(UnitName(unit), true)
+			if name and Raid:IsGroupMember(name) then
+				recipients[#recipients + 1] = name
+			end
+		end
+	end
+	sort(recipients, function(a, b)
+		return compareStrings(a, b, true)
+	end)
+	return recipients
+end
+
+if not IsPopupDefined("RMALOGGER_RAID_OFFER") then
+	DefinePopup("RMALOGGER_RAID_OFFER", {
+		text = L.StrLoggerRaidOfferPrompt,
+		button1 = L.BtnAccept,
+		button2 = L.BtnDecline,
+		timeout = 30,
+		whileDead = 1,
+		hideOnEscape = 1,
+		preferredIndex = 3,
+		OnAccept = function(_, offer)
+			local syncer = Database.GetSyncer()
+			if syncer and offer then
+				syncer:AcceptHistoricalOffer(offer.sender, offer.offerId)
+			end
+		end,
+		OnCancel = function(_, offer)
+			local syncer = Database.GetSyncer()
+			if syncer and offer then
+				syncer:DeclineHistoricalOffer(offer.sender, offer.offerId)
+			end
+		end,
+	})
+end
 
 local function getCountTitle(baseText, count)
 	return ("%s (%d)"):format(tostring(baseText or ""), tonumber(count) or 0)
@@ -868,6 +955,132 @@ do
 		return raid, rID
 	end
 
+	initializeShareDropdown = function(frame)
+		local dropdown = frame and _G[frame:GetName() .. "RecipientDropDown"] or nil
+		if not dropdown then
+			return
+		end
+		UIDropDownMenu_Initialize(dropdown, function(_, level)
+			if level and level ~= 1 then
+				return
+			end
+			local recipients = collectShareRecipients()
+			for i = 1, #recipients do
+				local recipient = recipients[i]
+				local info = UIDropDownMenu_CreateInfo()
+				info.text = recipient
+				info.arg1 = recipient
+				info.checked = recipient == module._shareTarget
+				info.func = function(_, target)
+					module._shareTarget = target
+					UIDropDownMenu_SetText(dropdown, target)
+					refreshShareFrameState(frame)
+				end
+				UIDropDownMenu_AddButton(info, level)
+			end
+		end)
+		UIDropDownMenu_SetWidth(dropdown, 220)
+		UIDropDownMenu_SetButtonWidth(dropdown, 240)
+		UIDropDownMenu_SetText(dropdown, module._shareTarget or L.StrLoggerShareRecipient)
+	end
+
+	refreshShareFrameState = function(frame)
+		if not frame then
+			return
+		end
+		local raid = module._needRaid()
+		local shareAllowed = getShareEligibility(raid)
+		local sendButton = _G[frame:GetName() .. "SendBtn"]
+		local statusLabel = _G[frame:GetName() .. "Status"]
+		local canSend = shareAllowed
+			and module._shareTarget ~= nil
+			and Raid:IsGroupMember(module._shareTarget)
+		UI.Primitives.SetEnabled(sendButton, canSend)
+		local syncer = Database.GetSyncer()
+		local status = syncer and syncer:GetStatus() or "failed"
+		local labels = {
+			synchronized = L.RaidSyncStatusUpToDate,
+			recovering = L.RaidSyncStatusRecovering,
+			handover = L.RaidSyncStatusHandover,
+			transferring_history = L.RaidSyncStatusTransferringHistory,
+			suspended = L.RaidSyncStatusSuspended,
+			failed = L.RaidSyncStatusFailed,
+		}
+		if statusLabel then
+			statusLabel:SetText(L.StrLoggerSyncStatus:format(labels[status] or L.RaidSyncStatusFailed))
+		end
+	end
+
+	local function bindShareFrame()
+		local frame = _G.RMALootHistoryShareFrame
+		if not frame then
+			return nil
+		end
+		local frameName = frame:GetName()
+		SetFrameTitle("RMALootHistoryShareFrame", L.StrLoggerShareTitle)
+		_G[frameName .. "RecipientLabel"]:SetText(L.StrLoggerShareRecipient)
+		_G[frameName .. "SendBtn"]:SetText(L.BtnLoggerSendRaid)
+		initializeShareDropdown(frame)
+
+		if not frame._RMAShareBound then
+			SetScriptSafely(frame, "OnHide", function()
+				module._shareTarget = nil
+				UIDropDownMenu_SetText(_G[frameName .. "RecipientDropDown"], L.StrLoggerShareRecipient)
+			end)
+			SetScriptSafely(_G[frameName .. "SendBtn"], "OnClick", function()
+				local raid = module._needRaid()
+				local shareAllowed, reason, raidUid = getShareEligibility(raid)
+				if not shareAllowed then
+					addon:warn(reason)
+					refreshShareFrameState(frame)
+					return false, reason
+				end
+				if not (module._shareTarget and Raid:IsGroupMember(module._shareTarget)) then
+					refreshShareFrameState(frame)
+					return false
+				end
+				local syncer = Database.GetSyncer()
+				local offered, offerReason
+				if syncer then
+					offered, offerReason = syncer:OfferHistoricalRaid(raidUid, module._shareTarget)
+				end
+				if offered then
+					frame:Hide()
+					return true
+				end
+				offerReason = offerReason or L.StrLoggerHistoryShareFailed:format(module._shareTarget)
+				addon:warn(offerReason)
+				return false, offerReason
+			end)
+			frame._RMAShareBound = true
+		end
+
+		return frame
+	end
+
+	showLoggerShareFrame = function()
+		local raid = module._needRaid()
+		local shareAllowed, reason = getShareEligibility(raid)
+		if not shareAllowed then
+			addon:warn(reason)
+			return false, reason
+		end
+		local frame = bindShareFrame()
+		if not frame then
+			return false
+		end
+		_G[frame:GetName() .. "Summary"]:SetText(L.StrLoggerShareSummary:format(
+			tostring(raid.zone or L.StrUnknown),
+			RaidProjections.FormatTimestamp(raid.startTime),
+			RaidProjections.GetDifficultyLabel(raid),
+			#(raid.loot or {})
+		))
+		refreshShareFrameState(frame)
+		frame:Show()
+		return true
+	end
+	module.ShowShareDialog = showLoggerShareFrame
+
 	module._runWithSelectedRaid = function(fn, refreshEvent)
 		local raid, rID = module._needRaid()
 		if not raid then
@@ -1048,11 +1261,7 @@ do
 		if button and button ~= "LeftButton" then
 			return
 		end
-		local raidNid = btn and btn.GetID and btn:GetID()
-		if not raidNid then
-			return
-		end
-		local raidIndex = raidNid and Database.GetRaidIndexByNid(raidNid) or nil
+		local raidIndex = btn and btn.GetID and btn:GetID()
 		if not raidIndex then
 			return
 		end
@@ -1066,26 +1275,23 @@ do
 			ordered = module.Raids and module.Raids._ctrl and module.Raids._ctrl.data or nil
 		end
 		local action, count = applyFocusedMultiSelect({
-			id = raidNid,
+			id = raidIndex,
 			context = (opts and opts.context) or MS_CTX_RAID,
 			ordered = ordered,
 			isMulti = isMulti,
 			isRange = isRange,
 			allowDeselect = opts and opts.allowDeselect,
 			setFocus = module._SetSelectedRaid,
-			mapSelectedToFocus = function(nid)
-				return nid and Database.GetRaidIndexByNid(nid) or nil
-			end,
-			isClickedFocused = function(clickedNid)
-				local selectedRaidNid = module.selectedRaid and Database.GetRaidNidByIndex(module.selectedRaid) or nil
-				return selectedRaidNid == clickedNid
+			mapSelectedToFocus = function(index) return tonumber(index) end,
+			isClickedFocused = function(clickedIndex)
+				return tonumber(module.selectedRaid) == tonumber(clickedIndex)
 			end,
 		})
 
 		if Options.IsDebugEnabled() and addon.debug then
 			addon:debug(
 				(Diag.D.LogLoggerSelectClickRaid):format(
-					tostring(raidNid),
+					tostring(raidIndex),
 					isMulti and 1 or 0,
 					isRange and 1 or 0,
 					tostring(action),
@@ -1507,6 +1713,7 @@ do
 				_G[n .. "HeaderSize"]:SetText(L.StrSize)
 				applyRaidListColumnWidths(n)
 				_G[n .. "CurrentBtn"]:SetText(L.StrSetCurrent)
+				_G[n .. "ShareBtn"]:SetText(L.BtnShare)
 				local del = _G[n .. "DeleteBtn"]
 				if del then
 					del:SetText(L.BtnDelete)
@@ -1517,6 +1724,9 @@ do
 				if frame and not frame._RMABound then
 					SetScriptSafely(_G[n .. "CurrentBtn"], "OnClick", function(self, button)
 						setCurrentRaidFromLogger(self, button)
+					end)
+					SetScriptSafely(_G[n .. "ShareBtn"], "OnClick", function()
+						showLoggerShareFrame()
 					end)
 					SetScriptSafely(_G[n .. "DeleteBtn"], "OnClick", function(self, button)
 						confirmDeleteSelectedRaids(self, button)
@@ -1579,6 +1789,7 @@ do
 				end
 
 				UI.Primitives.SetEnabled(_G[n .. "CurrentBtn"], canSetCurrent)
+				UI.Primitives.SetEnabled(_G[n .. "ShareBtn"], getShareEligibility(raid))
 
 				local ctx = module._msRaidCtx
 				local selCount = UI.Selection.GetCount(ctx)
@@ -1618,9 +1829,7 @@ do
 		"selectedRaid",
 		"_msRaidCtx",
 		{
-			transform = function(id)
-				return Database.GetRaidNidByIndex(id)
-			end,
+			transform = function(id) return id end,
 		}
 	)
 
@@ -1651,32 +1860,33 @@ do
 				return
 			end
 
-			local raidNids = {}
-			local seenNids = {}
+			local raidIndexes = {}
+			local seenIndexes = {}
 			for i = 1, #ids do
-				local nid = tonumber(ids[i])
-				if nid and not seenNids[nid] then
-					seenNids[nid] = true
-					raidNids[#raidNids + 1] = nid
+				local index = tonumber(ids[i])
+				if index and not seenIndexes[index] then
+					seenIndexes[index] = true
+					raidIndexes[#raidIndexes + 1] = index
 				end
 			end
-			if #raidNids == 0 then
+			if #raidIndexes == 0 then
 				return
 			end
 
 			-- Safety: never delete the current raid
-			local currentRaidNid = Database.GetRaidNidByIndex(Database.GetCurrentRaid())
-			if currentRaidNid then
-				for i = 1, #raidNids do
-					if tonumber(raidNids[i]) == tonumber(currentRaidNid) then
+			local currentRaid = Database.GetCurrentRaid()
+			if currentRaid then
+				for i = 1, #raidIndexes do
+					if tonumber(raidIndexes[i]) == tonumber(currentRaid) then
 						return
 					end
 				end
 			end
 
 			local prevFocus = module.selectedRaid
-			local prevFocusNid = prevFocus and Database.GetRaidNidByIndex(prevFocus) or nil
-			module.Actions:DeleteRaidsByNid(raidNids)
+			local raidStore = Database.GetRaidStore()
+			local prevFocusKey = prevFocus and raidStore:GetArchiveKeyByIndex(prevFocus) or nil
+			module.Actions:DeleteRaidsByIndex(raidIndexes)
 
 			UI.Selection.EnsureState(ctx)
 
@@ -1684,7 +1894,7 @@ do
 			local n = #raids
 			local newFocus = nil
 			if n > 0 then
-				newFocus = prevFocusNid and Database.GetRaidIndexByNid(prevFocusNid) or nil
+				newFocus = prevFocusKey and raidStore:GetIndexByArchiveKey(prevFocusKey) or nil
 				if not newFocus then
 					local base = tonumber(prevFocus) or n
 					if base > n then
@@ -1722,6 +1932,18 @@ do
 		controller:Dirty()
 	end)
 
+	RegisterCallback(LoggerEvents.RaidRosterDelta, function()
+		if module._shareTarget and not Raid:IsGroupMember(module._shareTarget) then
+			module._shareTarget = nil
+		end
+		local frame = _G.RMALootHistoryShareFrame
+		if frame and frame:IsShown() then
+			initializeShareDropdown(frame)
+			refreshShareFrameState(frame)
+		end
+		controller:Touch()
+	end)
+
 	RegisterCallback(LoggerEvents.LoggerSelectRaid, function(_, raidId, reason)
 		local raidIdType = type(raidId)
 		if raidId ~= nil and raidIdType ~= "number" and raidIdType ~= "string" then
@@ -1731,6 +1953,12 @@ do
 		if reason ~= nil and reason ~= "ui" and reason ~= "sync" then
 			addon:warn(Diag.W.LogLoggerSelectRaidPayloadInvalid:format(tostring(raidId), tostring(reason)))
 			return
+		end
+
+		local shareFrame = _G.RMALootHistoryShareFrame
+		module._shareTarget = nil
+		if shareFrame and shareFrame:IsShown() then
+			shareFrame:Hide()
 		end
 
 		local prevRaid = module.selectedRaid
@@ -1931,7 +2159,7 @@ do
 				ui.Name:SetText(nameText)
 			else
 				ui.Name:SetText(
-					addon.WrapTextInColorCode(nameText, Colors.NormalizeHexColor(itemColors[(it.itemRarity or 1) + 1]))
+					Colors.WrapText(nameText, Colors.NormalizeHexColor(itemColors[(it.itemRarity or 1) + 1]))
 				)
 			end
 
@@ -2191,6 +2419,19 @@ do
 		controller:Touch()
 	end)
 end
+
+RegisterCallback(LoggerEvents.LoggerRaidOfferReceived, function(_, offer)
+	if type(offer) ~= "table" or not offer.sender then
+		return
+	end
+	local summary = L.StrLoggerShareSummary:format(
+		tostring(offer.zone or L.StrUnknown),
+		RaidProjections.FormatTimestamp(offer.startTime),
+		RaidProjections.GetDifficultyLabel(offer),
+		tonumber(offer.lootCount) or 0
+	)
+	ShowPopup("RMALOGGER_RAID_OFFER", offer.sender, summary, offer)
+end)
 
 module.ToggleLootHistory = function()
 	if module._toggleLootHistoryView then

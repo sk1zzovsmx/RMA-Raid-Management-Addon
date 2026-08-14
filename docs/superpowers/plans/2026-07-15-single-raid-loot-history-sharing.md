@@ -205,6 +205,14 @@ function module:OfferLoggerRaid(raidRef, targetName)
 		addon:warn(L.MsgLoggerSyncNoRaid)
 		return false, "raid_not_found"
 	end
+	local raidNid = tonumber(raid.raidNid) or 0
+	local startTime = tonumber(raid.startTime) or 0
+	local size = tonumber(raid.size) or 0
+	local difficulty = tonumber(raid.difficulty) or 0
+	local lootCount = type(raid.loot) == "table" and #raid.loot or 0
+	if raidNid <= 0 or startTime <= 0 or size < 1 or size > 40 or difficulty < 1 or difficulty > 4 or lootCount > 10000 then
+		return false, "invalid_raid_summary"
+	end
 	local offerId, reason = allocateRequestId(self)
 	if not offerId then return false, reason end
 	local payload = packFields(
@@ -212,13 +220,13 @@ function module:OfferLoggerRaid(raidRef, targetName)
 		MSG_OFFER,
 		PROTOCOL_VERSION,
 		offerId,
-		tonumber(raid.raidNid) or 0,
+		raidNid,
 		target,
 		SnapshotPayload.EncodeText(tostring(raid.zone or "")),
-		tonumber(raid.startTime) or 0,
-		tonumber(raid.size) or 0,
-		tonumber(raid.difficulty) or 0,
-		type(raid.loot) == "table" and #raid.loot or 0
+		startTime,
+		size,
+		difficulty,
+		lootCount
 	)
 	if #payload > MAX_ADDON_MESSAGE_BYTES then return false, "message_too_large" end
 	local queued, queueReason = sendAddonPayload(target, payload)

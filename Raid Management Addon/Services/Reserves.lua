@@ -31,6 +31,14 @@ local GetItemInfo = assert(_G.GetItemInfo, "Reserves item info API is not initia
 local NormalizeName = assert(Strings.NormalizeName, "Reserves display name normalizer is not initialized")
 local NormalizeLower = assert(Strings.NormalizeLower, "Reserves canonical name normalizer is not initialized")
 
+local function countKeys(values)
+	local count = 0
+	for _ in pairs(values) do
+		count = count + 1
+	end
+	return count
+end
+
 local InternalEvents = assert(Events.Internal, "Reserves internal events are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Reserves event publisher is not initialized")
 local ReservesDataChangedEvent =
@@ -706,7 +714,7 @@ do
 	local function saveCanonicalReservesData(canonical)
 		rebuildReserveIndexes()
 		if isDebugEnabled() then
-			addon:debug(Diag.D.LogReservesSaveEntries:format(addon.tLength(reservesData)))
+			addon:debug(Diag.D.LogReservesSaveEntries:format(countKeys(reservesData)))
 		end
 		SavedVariables.ReplaceReserves(buildSavedReservesData(canonical))
 	end
@@ -966,7 +974,7 @@ do
 		if not published then return nil, reason end
 		-- Observers run after persistence and are not part of the transaction.
 		pcall(notifyReservesDataChanged, eventReason or "edit-reserve", nil,
-			module:GetImportMode(), addon.tLength(reservesData))
+			module:GetImportMode(), countKeys(reservesData))
 		return true
 	end
 
@@ -1049,7 +1057,7 @@ do
 		end
 		pcall(clearDisplayRefreshQueue)
 
-		local nPlayers = tonumber(parsed.nPlayers) or addon.tLength(reservesData)
+		local nPlayers = tonumber(parsed.nPlayers) or countKeys(reservesData)
 		if isDebugEnabled() then pcall(addon.debug, addon, Diag.D.LogReservesParseComplete:format(nPlayers)) end
 		if not (opts and opts.silentInfo) then
 			pcall(addon.info, addon, format(L.SuccessReservesParsed, tostring(nPlayers)))
@@ -1295,7 +1303,7 @@ do
 			pcall(rebuildReserveIndexes)
 			return false, "publish_failed"
 		end
-		pcall(notifyReservesDataChanged, "alias", nil, module:GetImportMode(), addon.tLength(reservesData))
+		pcall(notifyReservesDataChanged, "alias", nil, module:GetImportMode(), countKeys(reservesData))
 		return true
 	end
 
@@ -2226,7 +2234,7 @@ do
 		syncedCacheMeta = nil
 		syncedCacheActive = false
 		copyReservesData(persistedReservesData, reservesData)
-		rebuildReserveIndexes("sync-clear", nil, importMode, addon.tLength(reservesData))
+		rebuildReserveIndexes("sync-clear", nil, importMode, countKeys(reservesData))
 		return true
 	end
 

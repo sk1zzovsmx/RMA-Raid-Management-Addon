@@ -39,6 +39,7 @@ local tostring, tonumber = tostring, tonumber
 local tsort = table.sort
 local GetTime = assert(_G.GetTime, "RMA time API is not initialized")
 local GetRealmName = assert(_G.GetRealmName, "RMA realm name API is not initialized")
+local UnitName = _G.UnitName
 local UnitIsGroupLeader = _G.UnitIsGroupLeader
 local UnitIsGroupAssistant = _G.UnitIsGroupAssistant
 local IsInRaid = _G.IsInRaid
@@ -72,6 +73,7 @@ local function seedBootstrapEvents()
 	local Wow = addon.Events.Wow
 
 	Internal.RaidRosterDelta = Internal.RaidRosterDelta or "RaidRosterDelta"
+	Internal.RaidInstanceRecognized = Internal.RaidInstanceRecognized or "RaidInstanceRecognized"
 	Internal.LootDistributionSessionChanged = Internal.LootDistributionSessionChanged
 		or "LootDistributionSessionChanged"
 
@@ -86,6 +88,7 @@ local function seedBootstrapEvents()
 	Wow.GetItemInfoReceived = Wow.GetItemInfoReceived or "wow.GET_ITEM_INFO_RECEIVED"
 	Wow.PlayerRegenEnabled = Wow.PlayerRegenEnabled or "wow.PLAYER_REGEN_ENABLED"
 	Wow.ZoneChangedNewArea = Wow.ZoneChangedNewArea or "wow.ZONE_CHANGED_NEW_AREA"
+	Wow.PartyLootMethodChanged = Wow.PartyLootMethodChanged or "wow.PARTY_LOOT_METHOD_CHANGED"
 	Wow.PlayerTargetChanged = Wow.PlayerTargetChanged or "wow.PLAYER_TARGET_CHANGED"
 	Wow.UiErrorMessage = Wow.UiErrorMessage or "wow.UI_ERROR_MESSAGE"
 	Wow.UiInfoMessage = Wow.UiInfoMessage or "wow.UI_INFO_MESSAGE"
@@ -260,7 +263,12 @@ end
 function Database.GetPlayerName()
 	local state = addon.State
 	state.player = state.player or {}
-	local name = state.player.name or addon.UnitFullName("player")
+	local name = state.player.name
+	if not name then
+		assert(type(UnitName) == "function", "RMA unit name API is not initialized")
+		local playerName, realm = UnitName("player")
+		name = realm and realm ~= "" and playerName .. "-" .. realm or playerName
+	end
 	state.player.name = name
 	return name
 end
@@ -369,7 +377,7 @@ do
 	local WowEvents = Events.Wow
 
 	local _G = _G
-	local tremove = table.remove
+	local tremove, tconcat = table.remove, table.concat
 	local pairs, select, type = pairs, select, type
 	local error, pcall = error, pcall
 	local tostring, tonumber = tostring, tonumber
@@ -377,37 +385,93 @@ do
 	_G["RMA"] = addon
 
 	-- =========== External Libraries / Bootstrap  =========== --
-	local Compat = LibStub("LibCompat-1.0")
-	addon.Compat = Compat
 	addon.BossIDs = LibStub("LibBossIDs-1.0")
-	addon.Debugger = LibStub("LibLogger-1.0")
 	addon.Deformat = LibStub("LibDeformat-3.0")
 
-	Compat:Embed(addon) -- mixin: After, UnitIterator, GetCreatureId, etc.
-	addon.Debugger:Embed(addon)
 	addon.IsInRaid = isInRaid
 	addon.IsInGroup = isInGroup
 
-	-- Remove global timer APIs injected by LibCompat:Embed. Modules must use
-	-- the addon.Timer mixin (Timer.BindMixin + self:ScheduleTimer/...).
-	-- Timer loads later than this bootstrap block, and addon embedding happens
-	-- in ADDON_LOADED before event handlers are registered.
-	addon.After = nil
-	addon.NewTimer = nil
-	addon.NewTicker = nil
-	addon.CancelTimer = nil
-
-	-- =========== LibCompat  =========== --
-
-	-- Keep LibCompat chat output behavior, but without prepending tostring(addon) ("table: ...").
 	function addon:Print(...)
-		return Compat.Print(Compat, ...)
+		local frame = select(1, ...)
+		local first = 1
+		if type(frame) == "table" and type(frame.AddMessage) == "function" then
+			first = 2
+		else
+			frame = _G.DEFAULT_CHAT_FRAME
+		end
+		if not frame or type(frame.AddMessage) ~= "function" then
+			return false
+		end
+		local parts = {}
+		local count = 0
+		for index = first, select("#", ...) do
+			count = count + 1
+			parts[count] = tostring(select(index, ...))
+		end
+		frame:AddMessage(tconcat(parts, " ", 1, count))
+		return true
 	end
 
 	do
-		local lv = addon.Debugger.logLevels.INFO
+		local logPrefixes = {
+			"|cffff0000ERROR:|r ",
+			"|cffffff00WARN:|r ",
+			"",
+			"|cffd9d919DEBUG:|r ",
+			"|cffd9d5fFTRACE:|r ",
+			"|cffff5050SPAM:|r ",
+		}
+		local logLevels = {
+			NONE = 0,
+			ERROR = 1,
+			WARN = 2,
+			INFO = 3,
+			DEBUG = 4,
+			TRACE = 5,
+			SPAM = 6,
+		}
+
+		local function logMessage(level, owner, ...)
+			if level <= owner.logLevel then
+				owner:Print(logPrefixes[level] .. string.format(...))
+			end
+		end
+
+		local function logError(...) logMessage(logLevels.ERROR, ...) end
+		local function logWarn(...) logMessage(logLevels.WARN, ...) end
+		local function logInfo(...) logMessage(logLevels.INFO, ...) end
+		local function logDebug(...) logMessage(logLevels.DEBUG, ...) end
+		local function logTrace(...) logMessage(logLevels.TRACE, ...) end
+		local function logSpam(...) logMessage(logLevels.SPAM, ...) end
+
+		addon.logLevels = logLevels
+		addon.error = logError
+		addon.warn = logWarn
+		addon.info = logInfo
+		addon.debug = logDebug
+		addon.trace = logTrace
+		addon.spam = logSpam
+
+		function addon:SetLogLevel(level)
+			local logLevel = tonumber(level)
+			self.hasError = logLevel >= logLevels.ERROR and logError or nil
+			self.hasWarn = logLevel >= logLevels.WARN and logWarn or nil
+			self.hasInfo = logLevel >= logLevels.INFO and logInfo or nil
+			self.hasDebug = logLevel >= logLevels.DEBUG and logDebug or nil
+			self.hasTrace = logLevel >= logLevels.TRACE and logTrace or nil
+			self.hasSpam = logLevel >= logLevels.SPAM and logSpam or nil
+			self.logLevel = logLevel
+		end
+
+		function addon:GetLogLevel()
+			return self.logLevel
+		end
+	end
+
+	do
+		local lv = addon.logLevels.INFO
 		if addon.State and addon.State.debugEnabled then
-			lv = addon.Debugger.logLevels.DEBUG
+			lv = addon.logLevels.DEBUG
 		end
 		addon:SetLogLevel(lv)
 	end
@@ -586,6 +650,7 @@ do
 		GET_ITEM_INFO_RECEIVED = "GET_ITEM_INFO_RECEIVED",
 		PLAYER_REGEN_ENABLED = "PLAYER_REGEN_ENABLED",
 		PLAYER_LOGOUT = "PLAYER_LOGOUT",
+		PARTY_LOOT_METHOD_CHANGED = "PARTY_LOOT_METHOD_CHANGED",
 	}
 	local ADDON_EVENTS_COUNT = 0
 	for _ in pairs(addonEvents) do
@@ -614,6 +679,7 @@ do
 			INSPECT_TALENT_READY = WowEvents.InspectTalentReady,
 			GET_ITEM_INFO_RECEIVED = WowEvents.GetItemInfoReceived,
 			PLAYER_REGEN_ENABLED = WowEvents.PlayerRegenEnabled,
+			PARTY_LOOT_METHOD_CHANGED = WowEvents.PartyLootMethodChanged,
 		}
 
 		for eventName, busEventName in pairs(wowBusEvents) do
@@ -780,6 +846,7 @@ do
 		if not raidService then
 			return false
 		end
+		Bus.TriggerEvent(InternalEvents.RaidInstanceRecognized, instanceName, instanceKey, instanceDiff)
 		if emitRecognizedLog then
 			if isDebugEnabled() then
 				addon:debug(Diag.D.LogRaidInstanceRecognized:format(tostring(instanceName), tostring(instanceDiff)))
@@ -861,9 +928,8 @@ do
 		Bus.TriggerEvent(WowEvents.ZoneChangedNewArea)
 	end
 
-	-- PLAYER_ENTERING_WORLD: Performs initial checks when the player logs in.
+	-- PLAYER_ENTERING_WORLD: Re-check after login and each world or instance transition.
 	function addon:PLAYER_ENTERING_WORLD()
-		self:UnregisterEvent("PLAYER_ENTERING_WORLD")
 		handleRaidInstanceInfoChanged()
 		local module = getService("Raid")
 		if not module then
@@ -879,11 +945,12 @@ do
 			module.CheckInitialRaidStateHandle = nil
 		end
 		module.CheckInitialRaidStateHandle = module:ScheduleTimer(function()
+			handleRaidInstanceInfoChanged()
 			module:CheckInitialRaidState()
 		end, 3)
 	end
 
-	local function observePassiveLootMessage(msg, winnerOnly)
+	local function handleLootChatMessage(msg, winnerOnly)
 		local currentRaid = Database.GetCurrentRaid()
 		local raidService = getService("Raid")
 		local lootService = getService("Loot")
@@ -891,16 +958,9 @@ do
 			return raidService, nil
 		end
 
-		if lootService and lootService.ObservePassiveLootMessage then
-			local observedType, parsedLoot = lootService:ObservePassiveLootMessage(msg, winnerOnly)
-			return raidService, observedType, parsedLoot
-		end
-
-		if lootService and lootService.AddGroupLootMessage then
-			return raidService, lootService:AddGroupLootMessage(msg)
-		end
-
-		return raidService, nil
+		assert(lootService and lootService.HandleLootChatMessage, "RMA Loot chat handler is not initialized")
+		local observedType, parsedLoot = lootService:HandleLootChatMessage(msg, winnerOnly)
+		return raidService, observedType, parsedLoot
 	end
 
 	-- CHAT_MSG_LOOT: Adds looted items to the raid log.
@@ -910,8 +970,7 @@ do
 			addon:trace(Diag.D.LogLootChatMsgLootRaw:format(tostring(msg)))
 		end
 		local currentRaid = Database.GetCurrentRaid()
-		local raidService, observedType, parsedLoot = observePassiveLootMessage(msg)
-		local lootService = getService("Loot")
+		local raidService, observedType = handleLootChatMessage(msg, false)
 		if not (currentRaid and raidService) then
 			if perfStart then
 				addon:_PerfFinish("CHAT_MSG_LOOT", perfStart, "raid=none")
@@ -919,12 +978,6 @@ do
 			return
 		end
 
-		local canObservePassiveLoot = raidService.CanObservePassiveLoot and raidService:CanObservePassiveLoot()
-		if canObservePassiveLoot and (observedType == nil or observedType == "winner") then
-			if lootService and lootService.AddLoot then
-				lootService:AddLoot(msg, nil, nil, parsedLoot)
-			end
-		end
 		if perfStart then
 			addon:_PerfFinish(
 				"CHAT_MSG_LOOT",
@@ -938,16 +991,7 @@ do
 	function addon:CHAT_MSG_SYSTEM(msg)
 		local perfStart = addon.hasPerf and addon:_PerfStart() or nil
 		local currentRaid = Database.GetCurrentRaid()
-		local raidService, observedType, parsedLoot = observePassiveLootMessage(msg)
-		local lootService = getService("Loot")
-		if currentRaid and raidService then
-			local canObservePassiveLoot = raidService.CanObservePassiveLoot and raidService:CanObservePassiveLoot()
-			if canObservePassiveLoot and observedType == "winner" then
-				if lootService and lootService.AddLoot then
-					lootService:AddLoot(msg, nil, nil, parsedLoot)
-				end
-			end
-		end
+		local raidService, observedType = handleLootChatMessage(msg, true)
 
 		if
 			Database.GetCurrentRaid()

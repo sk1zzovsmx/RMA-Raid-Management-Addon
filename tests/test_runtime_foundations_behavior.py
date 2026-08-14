@@ -17,6 +17,26 @@ class RuntimeFoundationsBehaviorTest(unittest.TestCase):
 
         self.assertIn("PASS lua_51_smoke", result.stdout)
 
+    def test_group_helpers_preserve_wotlk_roster_semantics(self) -> None:
+        result = run_lua_case("rma_group_helpers_preserve_wotlk_roster_semantics")
+        self.assertIn("PASS rma_group_helpers_preserve_wotlk_roster_semantics", result.stdout)
+
+    def test_colors_own_class_and_markup_helpers(self) -> None:
+        result = run_lua_case("rma_colors_own_class_and_markup_helpers")
+        self.assertIn("PASS rma_colors_own_class_and_markup_helpers", result.stdout)
+
+    def test_timer_runs_without_libcompat(self) -> None:
+        result = run_lua_case("rma_timer_runs_without_libcompat")
+        self.assertIn("PASS rma_timer_runs_without_libcompat", result.stdout)
+
+    def test_print_preserves_chat_output_contract(self) -> None:
+        result = run_lua_case("rma_print_preserves_chat_output_contract")
+        self.assertIn("PASS rma_print_preserves_chat_output_contract", result.stdout)
+
+    def test_logger_preserves_levels_flags_and_output_contract(self) -> None:
+        result = run_lua_case("rma_logger_preserves_levels_flags_and_output_contract")
+        self.assertIn("PASS rma_logger_preserves_levels_flags_and_output_contract", result.stdout)
+
     def test_bootstrap_retries_after_failure(self) -> None:
         result = run_lua_case("bootstrap_retries_after_failure")
 
@@ -36,6 +56,11 @@ class RuntimeFoundationsBehaviorTest(unittest.TestCase):
         result = run_lua_case("nested_dispatch_preserves_outer_snapshot")
 
         self.assertIn("PASS nested_dispatch_preserves_outer_snapshot", result.stdout)
+
+    def test_player_entering_world_remains_registered_for_instance_entry(self) -> None:
+        result = run_lua_case("player_entering_world_remains_registered_for_instance_entry")
+
+        self.assertIn("PASS player_entering_world_remains_registered_for_instance_entry", result.stdout)
 
     def test_bootstrap_retries_after_commit_failure(self) -> None:
         result = run_lua_case("bootstrap_retries_after_commit_failure")

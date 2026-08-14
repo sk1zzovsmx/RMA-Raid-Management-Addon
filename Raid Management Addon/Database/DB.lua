@@ -15,6 +15,11 @@ addon.DBSchema = DBSchema
 
 local strsub = string.sub
 
+addon.Events = addon.Events or {}
+addon.Events.Internal = addon.Events.Internal or {}
+addon.Events.Internal.RaidReplicationCommitted = addon.Events.Internal.RaidReplicationCommitted
+	or "RaidReplicationCommitted"
+
 -- ----- Internal state ----- --
 local DEFAULT_RAID_SCHEMA_VERSION = 6
 
@@ -80,12 +85,12 @@ function Database.GetRaidQueries()
 	return getRequiredOwner("RaidQueries")
 end
 
-function Database.GetRaidMigrations()
-	return getRequiredOwner("RaidMigrations")
-end
-
 function Database.GetRaidValidator()
 	return getRequiredOwner("RaidValidator")
+end
+
+function Database.EnsureArchive()
+	return Database.GetRaidStore():EnsureArchive()
 end
 
 function Database.GetSyncer()

@@ -17,9 +17,18 @@ local pcall = pcall
 local tostring = tostring
 local tonumber = tonumber
 local type = type
+local pairs = pairs
 local byte = string.byte
 local floor = math.floor
 local huge = math.huge
+
+local function countKeys(values)
+	local count = 0
+	for _ in pairs(values) do
+		count = count + 1
+	end
+	return count
+end
 
 -- Import limits are sized for a full 40-player raid plus administrative exports.
 -- Compressed input is intentionally unsupported because LibDeflate has no bounded-output inflate API.
@@ -776,7 +785,7 @@ function Import.BuildParser()
 		local result = {
 			mode = resolvedMode,
 			reservesData = newReservesData,
-			nPlayers = addon.tLength(newReservesData),
+			nPlayers = countKeys(newReservesData),
 			opts = opts,
 			importStats = importStats,
 		}

@@ -100,7 +100,7 @@ DistributionSession._sessionOwners = DistributionSession._sessionOwners or {}
 local sessionOwners = DistributionSession._sessionOwners
 local nextSessionOwner = tonumber(DistributionSession._nextSessionOwner) or 1
 local trustedAuthority = type(DistributionSession._trustedAuthority) == "string"
-	and DistributionSession._trustedAuthority
+		and DistributionSession._trustedAuthority
 	or nil
 local sessionEndRequested = false
 local lastWindowNow = tonumber(GetTime())
@@ -403,8 +403,7 @@ local function isNewerSessionId(candidate, current, authority)
 	if not candidateOrdinal or not currentOrdinal then
 		return false
 	end
-	return candidateTime > currentTime
-		or (candidateTime == currentTime and candidateOrdinal > currentOrdinal)
+	return candidateTime > currentTime or (candidateTime == currentTime and candidateOrdinal > currentOrdinal)
 end
 
 local function canReplaceOwnerSession(sender, sessionId)
@@ -507,16 +506,25 @@ local function cleanupStreams()
 			stream.window = nil
 		end
 		local lastActivity = tonumber(stream.lastActivity)
-		if stream.committedRevision and (not lastActivity or (now >= lastActivity and (now - lastActivity) >= ACTIVE_STREAM_TTL_SECONDS)) then
+		if
+			stream.committedRevision
+			and (not lastActivity or (now >= lastActivity and (now - lastActivity) >= ACTIVE_STREAM_TTL_SECONDS))
+		then
 			retireActiveStream(key, stream, true, now)
 		end
 		local endedAt = tonumber(stream.endedAt)
-		if stream.tombstoneRevision and (not endedAt or (now >= endedAt and (now - endedAt) >= STREAM_TOMBSTONE_TTL_SECONDS)) then
+		if
+			stream.tombstoneRevision
+			and (not endedAt or (now >= endedAt and (now - endedAt) >= STREAM_TOMBSTONE_TTL_SECONDS))
+		then
 			stream.tombstoneRevision = nil
 			stream.endedAt = nil
 		end
 		local atomicSeenAt = tonumber(stream.atomicSeenAt)
-		if stream.atomicSeenAt and (not atomicSeenAt or (now >= atomicSeenAt and (now - atomicSeenAt) >= ACTIVE_STREAM_TTL_SECONDS)) then
+		if
+			stream.atomicSeenAt
+			and (not atomicSeenAt or (now >= atomicSeenAt and (now - atomicSeenAt) >= ACTIVE_STREAM_TTL_SECONDS))
+		then
 			stream.atomicSeenAt = nil
 		end
 		removeStreamIfEmpty(key, stream)
@@ -688,11 +696,7 @@ local function acceptIncomingMutation(sender, sessionId, revision, messageState)
 		return true, key, stream
 	end
 	if messageState == "clear" then
-		if
-			state.sessionId
-			and sessionId ~= state.sessionId
-			and not canReplaceOwnerSession(sender, sessionId)
-		then
+		if state.sessionId and sessionId ~= state.sessionId and not canReplaceOwnerSession(sender, sessionId) then
 			return nil, "stale_session"
 		end
 		return true, key, stream
@@ -1073,10 +1077,22 @@ local function handleItemDoneMessage(fields, sender)
 		return true
 	end
 	sessionId = setSessionId(sessionId)
+	local itemKey = resolveItemKey(fields[4], fields[4])
+	local winnerName = decodeText(fields[5])
+	local committed = itemKey and state.itemsByKey[itemKey] or nil
+	if
+		committed
+		and committed.sessionId == sessionId
+		and committed.state == STATE_DONE
+		and committed.winnerName == normalizeText(winnerName, true)
+	then
+		triggerChanged("item_done_replay", copyRow(committed))
+		return true
+	end
 	local row = upsertRow({
 		sessionId = sessionId,
-		itemKey = fields[4],
-		winnerName = decodeText(fields[5]),
+		itemKey = itemKey,
+		winnerName = winnerName,
 		state = STATE_DONE,
 		sender = sender,
 	}, "item_done")

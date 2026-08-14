@@ -25,7 +25,7 @@ local function buildRaidListRow(raid, seq, queries)
 	local mode = difficulty and ((difficulty == 3 or difficulty == 4) and "H" or "N") or "?"
 	local startTime = (summary and summary.startTime) or raid.startTime
 	return {
-		id = tonumber(raid.raidNid),
+		id = seq,
 		seq = seq,
 		zone = raid.zone,
 		size = size,

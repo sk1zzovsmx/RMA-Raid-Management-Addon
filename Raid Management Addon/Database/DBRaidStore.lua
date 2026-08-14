@@ -16,6 +16,40 @@ local pairs, type = pairs, type
 local tostring, tonumber = tostring, tonumber
 local tconcat = table.concat
 local format = string.format
+local Events = addon.Events or {}
+local InternalEvents = Events.Internal or {}
+local RaidReplicationCommittedEvent = InternalEvents.RaidReplicationCommitted or "RaidReplicationCommitted"
+local TriggerEvent = addon.Bus.TriggerEvent or function() end
+local RaidEvents = DB.RaidEvents
+local GetTime = _G.GetTime
+local UnitFullName = _G.UnitFullName
+
+local function deepCopy(value, seen)
+	if type(value) ~= "table" then
+		return value
+	end
+	seen = seen or {}
+	if seen[value] then
+		return seen[value]
+	end
+	local copy = {}
+	seen[value] = copy
+	for key, item in pairs(value) do
+		copy[deepCopy(key, seen)] = deepCopy(item, seen)
+	end
+	return copy
+end
+
+local function checkpointIfRequired(record, limit)
+	local excess = #record.events - limit
+	if excess <= 0 then
+		return
+	end
+	for _ = 1, excess do
+		local removed = tremove(record.events, 1)
+		record.checkpointSequence = removed.sequence
+	end
+end
 
 -- Raid storage service.
 do
@@ -23,12 +57,6 @@ do
 	local module = DB.RaidStore
 
 	-- ----- Internal state ----- --
-	local ROOT_RUNTIME_CACHE_KEYS = {
-		_playersByName = true,
-		_playerIdxByNid = true,
-		_bossIdxByNid = true,
-		_lootIdxByNid = true,
-	}
 	local RUNTIME_INDEX_MAP_KEYS = {
 		"playersByName",
 		"playerByNid",
@@ -51,6 +79,26 @@ do
 		coreState.raidStore = storeState
 	end
 	local stagedMutationBase = setmetatable({}, { __mode = "k" })
+	local Validator
+	local raidUidCounter = 0
+	local sessionNonce
+	local authorityGuard
+	local validatedArchive
+	local runtimeByRaid = setmetatable({}, { __mode = "k" })
+
+	local function requireLocalAuthority(operation)
+		if type(authorityGuard) ~= "function" then
+			return nil, "AUTHORITY_GUARD_UNAVAILABLE"
+		end
+		local ok, allowed, reason = pcall(authorityGuard, operation)
+		if not ok then
+			return nil, "NOT_RAID_LEADER"
+		end
+		if allowed ~= true then
+			return nil, reason or "NOT_RAID_LEADER"
+		end
+		return true
+	end
 
 	-- ----- Private helpers ----- --
 	local function clearMap(map)
@@ -104,6 +152,42 @@ do
 		return SavedVariables.GetRaids()
 	end
 
+	local function getValidator()
+		if not Validator then
+			Validator = Database.GetRaidValidator()
+		end
+		return Validator
+	end
+
+	local function requireValidArchive()
+		local quarantinedReason = SavedVariables.GetRaidArchiveError and SavedVariables.GetRaidArchiveError()
+		if quarantinedReason then
+			return nil, quarantinedReason
+		end
+		local archive = SavedVariables.GetRaids()
+		if archive == validatedArchive then
+			return archive
+		end
+		local valid, reason = getValidator():ValidateArchive(archive)
+		if not valid then
+			return nil, reason or "INVALID_RAID_ARCHIVE"
+		end
+		validatedArchive = archive
+		return archive
+	end
+
+	local function requireCurrentStateDigest(record)
+		local digest = type(record) == "table" and RaidEvents.DigestState(record.state) or nil
+		if not digest or digest ~= record.digest then
+			return nil, "CURRENT_STATE_DIGEST_MISMATCH"
+		end
+		return true
+	end
+
+	local function appendOrder(archive, raidUid)
+		archive.order[#archive.order + 1] = raidUid
+	end
+
 	local function resolveRaidStartTime(value)
 		if value ~= nil then
 			local timestamp = tonumber(value)
@@ -125,16 +209,6 @@ do
 		return version
 	end
 
-	local function getMigrations()
-		return Database.GetRaidMigrations()
-	end
-
-	local function removeRootRuntimeCaches(raid)
-		for key in pairs(ROOT_RUNTIME_CACHE_KEYS) do
-			raid[key] = nil
-		end
-	end
-
 	local function isRuntimeIndexReady(runtime)
 		if type(runtime) ~= "table" then
 			return false
@@ -148,24 +222,12 @@ do
 	end
 
 	local function ensureRuntimeTable(raid)
-		local runtime = raid._runtime
+		local runtime = runtimeByRaid[raid]
 		if type(runtime) ~= "table" then
 			runtime = {}
-			raid._runtime = runtime
+			runtimeByRaid[raid] = runtime
 		end
 		return runtime
-	end
-
-	local function ensureSyncRevision(raid)
-		if type(raid) ~= "table" then
-			return 0
-		end
-		local runtime = ensureRuntimeTable(raid)
-		runtime.syncRevision = tonumber(runtime.syncRevision) or 0
-		if type(runtime.lootSyncRevisionByNid) ~= "table" then
-			runtime.lootSyncRevisionByNid = {}
-		end
-		return runtime.syncRevision
 	end
 
 	local function acquireRuntimeIndexMap(runtime, key)
@@ -255,19 +317,56 @@ do
 		if type(raid) ~= "table" then
 			return
 		end
-
-		removeRootRuntimeCaches(raid)
-		if type(raid._runtime) ~= "table" then
-			raid._runtime = nil
-		end
+		runtimeByRaid[raid] = nil
 	end
 
 	local function stripRuntimeState(raid)
 		if type(raid) ~= "table" then
 			return
 		end
-		removeRootRuntimeCaches(raid)
-		raid._runtime = nil
+		runtimeByRaid[raid] = nil
+	end
+
+	local function compactInspectSnapshot(snapshot)
+		if type(snapshot) ~= "table" or snapshot.status ~= "ready" then
+			return nil
+		end
+		local compact = {
+			playerNid = tonumber(snapshot.playerNid),
+			name = type(snapshot.name) == "string" and snapshot.name or nil,
+			guid = type(snapshot.guid) == "string" and snapshot.guid or nil,
+			class = type(snapshot.class) == "string" and snapshot.class or nil,
+			status = "ready",
+			avgIlvl = tonumber(snapshot.avgIlvl),
+			specName = type(snapshot.specName) == "string" and snapshot.specName or nil,
+			specIcon = type(snapshot.specIcon) == "string" and snapshot.specIcon or nil,
+			mainTalentTree = tonumber(snapshot.mainTalentTree),
+			secondarySpecName = type(snapshot.secondarySpecName) == "string" and snapshot.secondarySpecName or nil,
+			secondarySpecIcon = type(snapshot.secondarySpecIcon) == "string" and snapshot.secondarySpecIcon or nil,
+			activeTalentGroup = tonumber(snapshot.activeTalentGroup),
+			numTalentGroups = tonumber(snapshot.numTalentGroups),
+			secondaryTalentGroup = tonumber(snapshot.secondaryTalentGroup),
+			secondaryMainTalentTree = tonumber(snapshot.secondaryMainTalentTree),
+		}
+		local inspectedAt = tonumber(snapshot.inspectedAt)
+		if inspectedAt and inspectedAt >= 1000000000 then
+			compact.inspectedAt = inspectedAt
+		end
+		return compact
+	end
+
+	local function compactInspectForPersistence(raid)
+		local players = type(raid.inspect) == "table" and raid.inspect.players or nil
+		local compactPlayers = {}
+		if type(players) == "table" then
+			for key, snapshot in pairs(players) do
+				local compact = compactInspectSnapshot(snapshot)
+				if compact then
+					compactPlayers[key] = compact
+				end
+			end
+		end
+		raid.inspect = next(compactPlayers) and { players = compactPlayers } or nil
 	end
 
 	local function buildRuntimeSignature(raid, players, bosses, lootRows, attendance)
@@ -365,6 +464,72 @@ do
 		storeState.raidNidIndexDirty = true
 	end
 
+	local function isRaidArchive(value)
+		return type(value) == "table"
+			and value.formatVersion == 1
+			and type(value.order) == "table"
+			and type(value.raids) == "table"
+	end
+
+	local function buildArchiveRaidNidIndexSignature(archive)
+		local parts = {}
+		for i = 1, #archive.order do
+			local raidUid = archive.order[i]
+			local record = archive.raids[raidUid]
+			local raidNid = record and not record.conflictOfRaidUid and record.state and record.state.raidNid or ""
+			parts[i] = tostring(raidUid) .. ":" .. tostring(raidNid)
+		end
+		return tconcat(parts, "|")
+	end
+
+	local function rebuildArchiveRaidNidIndex(archive)
+		local raidIdxByNid = {}
+		local ambiguous = {}
+		local activeNid
+		local nextRaidNid = 1
+		for i = 1, #archive.order do
+			local archiveKey = archive.order[i]
+			local record = archive.raids[archiveKey]
+			local raidNid = tonumber(record and not record.conflictOfRaidUid and record.state and record.state.raidNid)
+			if raidNid and raidNid > 0 then
+				if archiveKey == archive.activeRaidUid then
+					raidIdxByNid[raidNid] = i
+					ambiguous[raidNid] = nil
+					activeNid = raidNid
+				elseif raidNid ~= activeNid and not ambiguous[raidNid] then
+					if raidIdxByNid[raidNid] then
+						raidIdxByNid[raidNid] = nil
+						ambiguous[raidNid] = true
+					else
+						raidIdxByNid[raidNid] = i
+					end
+				end
+				if raidNid >= nextRaidNid then
+					nextRaidNid = raidNid + 1
+				end
+			end
+		end
+		storeState.raidIdxByNid = raidIdxByNid
+		storeState.nextRaidNid = nextRaidNid
+		storeState.raidNidIndexCount = #archive.order
+		storeState.raidNidIndexSignature = buildArchiveRaidNidIndexSignature(archive)
+		storeState.raidNidIndexDirty = nil
+		return raidIdxByNid
+	end
+
+	local function ensureArchiveRaidNidIndex(archive)
+		local signature = buildArchiveRaidNidIndexSignature(archive)
+		if
+			storeState.raidNidIndexDirty ~= true
+			and type(storeState.raidIdxByNid) == "table"
+			and storeState.raidNidIndexCount == #archive.order
+			and storeState.raidNidIndexSignature == signature
+		then
+			return storeState.raidIdxByNid
+		end
+		return rebuildArchiveRaidNidIndex(archive)
+	end
+
 	local function buildRaidNidIndexSignature(raids)
 		local parts = {}
 		for i = 1, #raids do
@@ -376,6 +541,9 @@ do
 
 	local function rebuildRaidNidIndex()
 		local raids = ensureRaidsTable()
+		if isRaidArchive(raids) then
+			return raids, rebuildArchiveRaidNidIndex(raids)
+		end
 		local raidIdxByNid = {}
 		local allocateRaidNid, getNextRaidNidValue = createNidAllocator(1)
 
@@ -398,6 +566,9 @@ do
 
 	local function ensureRaidNidIndex()
 		local raids = ensureRaidsTable()
+		if isRaidArchive(raids) then
+			return raids, ensureArchiveRaidNidIndex(raids)
+		end
 		local signature = buildRaidNidIndexSignature(raids)
 		if
 			storeState.raidNidIndexDirty ~= true
@@ -423,6 +594,20 @@ do
 	local function getNextRaidNid(preferred)
 		local raids, raidIdxByNid = ensureRaidNidIndex()
 		local raidNid = tonumber(preferred)
+		if isRaidArchive(raids) then
+			if raidNid and raidNid > 0 and not raidIdxByNid[raidNid] then
+				if raidNid >= (tonumber(storeState.nextRaidNid) or 1) then
+					storeState.nextRaidNid = raidNid + 1
+				end
+				return raidNid
+			end
+			local nextRaidNid = tonumber(storeState.nextRaidNid) or 1
+			while raidIdxByNid[nextRaidNid] do
+				nextRaidNid = nextRaidNid + 1
+			end
+			storeState.nextRaidNid = nextRaidNid + 1
+			return nextRaidNid
+		end
 		if raidNid and raidNid > 0 then
 			local cachedIdx = raidIdxByNid[raidNid]
 			if cachedIdx and tonumber(raids[cachedIdx] and raids[cachedIdx].raidNid) ~= raidNid then
@@ -523,13 +708,596 @@ do
 	end
 
 	-- ----- Public methods ----- --
+	function module:SetAuthorityGuard(guard)
+		if type(guard) ~= "function" then
+			return false, "INVALID_AUTHORITY_GUARD"
+		end
+		authorityGuard = guard
+		return true
+	end
+
+	function module:EnsureArchive()
+		return SavedVariables.GetRaids()
+	end
+
+	function module:GetRecord(raidUid)
+		local archive = self:EnsureArchive()
+		return type(raidUid) == "string" and type(archive.raids) == "table" and archive.raids[raidUid] or nil
+	end
+
+	function module:GetActiveRecord()
+		local archive = self:EnsureArchive()
+		return type(archive.raids) == "table" and archive.activeRaidUid and archive.raids[archive.activeRaidUid] or nil
+	end
+
+	function module:GetStateByIndex(index)
+		local archive = self:EnsureArchive()
+		if type(archive.order) ~= "table" or type(archive.raids) ~= "table" then
+			return nil, tonumber(index)
+		end
+		local resolvedIndex = tonumber(index)
+		local raidUid = resolvedIndex and archive.order[resolvedIndex] or nil
+		local record = raidUid and archive.raids[raidUid] or nil
+		return record and record.state or nil, resolvedIndex, record
+	end
+
+	function module:GetArchiveKeyByIndex(index)
+		local archive = self:EnsureArchive()
+		if type(archive.order) ~= "table" then
+			return nil
+		end
+		local resolvedIndex = tonumber(index)
+		return resolvedIndex and archive.order[resolvedIndex] or nil
+	end
+
+	function module:GetIndexByArchiveKey(archiveKey)
+		if type(archiveKey) ~= "string" then
+			return nil
+		end
+		return self:GetIndexByUid(archiveKey)
+	end
+
+	function module:GetIndexByUid(raidUid)
+		local archive = self:EnsureArchive()
+		if type(archive.order) ~= "table" or type(archive.raids) ~= "table" then
+			return nil
+		end
+		for i = 1, #archive.order do
+			if archive.order[i] == raidUid then
+				return i
+			end
+		end
+		return nil
+	end
+
+	function module:CreateActiveRaid(args)
+		local validArchive, archiveReason = requireValidArchive()
+		if not validArchive then
+			return nil, archiveReason
+		end
+		local authorized, authorityReason = requireLocalAuthority()
+		if not authorized then
+			return nil, authorityReason
+		end
+		assert(RaidEvents, "Raid event reducer is not initialized")
+		if type(args) ~= "table" then
+			return nil, "INVALID_RAID_STATE"
+		end
+		if not sessionNonce then
+			assert(GetTime, "Raid store monotonic time API is not initialized")
+			sessionNonce = format("%08x", math.floor((GetTime() * 1000) % 4294967295))
+		end
+		local archive = validArchive
+		if archive.activeRaidUid and archive.raids[archive.activeRaidUid] then
+			return nil, "ACTIVE_RAID_EXISTS"
+		end
+		local creatorKey = args.authorityKey
+		if type(creatorKey) ~= "string" or creatorKey == "" then
+			local name, realm
+			if UnitFullName then
+				name, realm = UnitFullName("player")
+			end
+			creatorKey = name and (realm and (name .. "-" .. realm) or name) or nil
+		end
+		local serverTime = tonumber(args.serverTime) or tonumber(GetCurrentTime())
+		local authorityEpoch = tonumber(args.authorityEpoch) or 1
+		local initialState = {
+			schemaVersion = getSchemaVersion(),
+			raidNid = getNextRaidNid(args.raidNid),
+			realm = args.realm,
+			zone = args.zone,
+			size = args.size,
+			difficulty = args.difficulty,
+			startTime = serverTime,
+			players = deepCopy(type(args.players) == "table" and args.players or {}),
+			bossKills = deepCopy(type(args.bossKills) == "table" and args.bossKills or {}),
+			loot = deepCopy(type(args.loot) == "table" and args.loot or {}),
+			changes = {},
+			attendance = deepCopy(type(args.attendance) == "table" and args.attendance or {}),
+			nextPlayerNid = tonumber(args.nextPlayerNid) or 1,
+			nextBossNid = tonumber(args.nextBossNid) or 1,
+			nextLootNid = tonumber(args.nextLootNid) or 1,
+		}
+		local function advanceNextNid(collection, field, current)
+			local nextNid = tonumber(current) or 1
+			for _, entity in pairs(collection) do
+				local nid = tonumber(type(entity) == "table" and entity[field])
+				if nid and nid >= nextNid then
+					nextNid = nid + 1
+				end
+			end
+			return nextNid
+		end
+		initialState.nextPlayerNid = advanceNextNid(initialState.players, "playerNid", initialState.nextPlayerNid)
+		initialState.nextBossNid = advanceNextNid(initialState.bossKills, "bossNid", initialState.nextBossNid)
+		initialState.nextLootNid = advanceNextNid(initialState.loot, "lootNid", initialState.nextLootNid)
+		local raidUid
+		repeat
+			raidUidCounter = raidUidCounter + 1
+			raidUid = RaidEvents.CreateRaidUid(creatorKey, serverTime, raidUidCounter, sessionNonce)
+			if not raidUid then
+				return nil, "INVALID_RAID_UID_INPUT"
+			end
+		until not archive.raids[raidUid]
+
+		local event = {
+			raidUid = raidUid,
+			authorityEpoch = authorityEpoch,
+			sequence = 1,
+			eventUid = RaidEvents.BuildEventUid(raidUid, authorityEpoch, 1),
+			eventType = "RAID_CREATED",
+			payload = { state = deepCopy(initialState) },
+		}
+		local candidateState, reason = RaidEvents.Apply({}, event)
+		if not candidateState then
+			return nil, reason
+		end
+		event.resultDigest = assert(RaidEvents.DigestState(candidateState))
+		local candidate = {
+			status = "active",
+			authorityEpoch = authorityEpoch,
+			sequence = 1,
+			digest = event.resultDigest,
+			checkpointSequence = 0,
+			state = candidateState,
+			events = { deepCopy(event) },
+		}
+		local valid, validationReason = getValidator():ValidateRecord(candidate)
+		if not valid then
+			return nil, validationReason
+		end
+		archive.raids[raidUid] = candidate
+		appendOrder(archive, raidUid)
+		archive.activeRaidUid = raidUid
+		markRaidNidIndexDirty()
+		TriggerEvent(RaidReplicationCommittedEvent, deepCopy(event))
+		return candidate.state, self:GetIndexByUid(raidUid), raidUid
+	end
+
+	function module:GetRaidUid(raid)
+		if type(raid) ~= "table" then
+			return nil
+		end
+		local archive = self:EnsureArchive()
+		if type(archive.order) ~= "table" or type(archive.raids) ~= "table" then
+			return nil
+		end
+		for i = 1, #archive.order do
+			local raidUid = archive.order[i]
+			local record = archive.raids[raidUid]
+			if record and record.state == raid then
+				return raidUid
+			end
+		end
+		return nil
+	end
+
+	function module:GetStateDigest(raid)
+		return type(raid) == "table" and RaidEvents.DigestState(raid) or nil
+	end
+
+	function module:CommitAuthoritativeEvent(raidUid, eventType, payload)
+		local archive, archiveReason = requireValidArchive()
+		if not archive then
+			return nil, archiveReason
+		end
+		local authorized, authorityReason = requireLocalAuthority()
+		if not authorized then
+			return nil, authorityReason
+		end
+		local current = self:GetRecord(raidUid)
+		if not current or current.status ~= "active" then
+			return nil, "RAID_NOT_ACTIVE"
+		end
+		local currentValid, currentReason = requireCurrentStateDigest(current)
+		if not currentValid then
+			return nil, currentReason
+		end
+		local nextSequence = current.sequence + 1
+		local event = {
+			raidUid = raidUid,
+			authorityEpoch = current.authorityEpoch,
+			sequence = nextSequence,
+			eventUid = RaidEvents.BuildEventUid(raidUid, current.authorityEpoch, nextSequence),
+			eventType = eventType,
+			payload = deepCopy(payload),
+		}
+		local candidateState, reason = RaidEvents.Apply(current.state, event)
+		if not candidateState then
+			return nil, reason
+		end
+		event.resultDigest = assert(RaidEvents.DigestState(candidateState))
+		local candidate = deepCopy(current)
+		candidate.state = candidateState
+		candidate.sequence = event.sequence
+		candidate.digest = event.resultDigest
+		candidate.events[#candidate.events + 1] = deepCopy(event)
+		checkpointIfRequired(candidate, 512)
+		local valid, validationReason = getValidator():ValidateRecord(candidate)
+		if not valid then
+			return nil, validationReason
+		end
+		archive.raids[raidUid] = candidate
+		TriggerEvent(RaidReplicationCommittedEvent, deepCopy(event))
+		return deepCopy(event), candidate.state
+	end
+
+	function module:PromoteAuthority(raidUid, recoveredSequence)
+		local archive, archiveReason = requireValidArchive()
+		if not archive then
+			return nil, archiveReason
+		end
+		local authorized, authorityReason = requireLocalAuthority("promote")
+		if not authorized then
+			return nil, authorityReason
+		end
+		local current = self:GetRecord(raidUid)
+		if not current or current.status ~= "active" or recoveredSequence ~= current.sequence then
+			return nil, "RECOVERED_SEQUENCE_MISMATCH"
+		end
+		local currentValid, currentReason = requireCurrentStateDigest(current)
+		if not currentValid then
+			return nil, currentReason
+		end
+		local candidate = deepCopy(current)
+		candidate.authorityEpoch = candidate.authorityEpoch + 1
+		candidate.checkpointSequence = recoveredSequence
+		candidate.events = {}
+		local valid, validationReason = getValidator():ValidateRecord(candidate)
+		if not valid then
+			return nil, validationReason
+		end
+		archive.raids[raidUid] = candidate
+		return deepCopy(candidate)
+	end
+
+	function module:ApplyReplicaEvent(event)
+		local archive, archiveReason = requireValidArchive()
+		if not archive then
+			return nil, archiveReason
+		end
+		local current = type(event) == "table" and self:GetRecord(event.raidUid) or nil
+		if not current or current.status ~= "active" then
+			return nil, "RAID_NOT_ACTIVE"
+		end
+		if event.authorityEpoch ~= current.authorityEpoch then
+			return nil, "AUTHORITY_EPOCH_MISMATCH"
+		end
+		if event.sequence ~= current.sequence + 1 then
+			return nil, "SEQUENCE_MISMATCH"
+		end
+		if event.eventUid ~= RaidEvents.BuildEventUid(event.raidUid, event.authorityEpoch, event.sequence) then
+			return nil, "INVALID_EVENT_UID"
+		end
+		local currentValid, currentReason = requireCurrentStateDigest(current)
+		if not currentValid then
+			return nil, currentReason
+		end
+		local candidateState, reason = RaidEvents.Apply(current.state, event)
+		if not candidateState then
+			return nil, reason
+		end
+		local digest, digestReason = RaidEvents.DigestState(candidateState)
+		if not digest then
+			return nil, digestReason
+		end
+		if digest ~= event.resultDigest then
+			return nil, "DIGEST_MISMATCH"
+		end
+		local candidate = deepCopy(current)
+		candidate.state = candidateState
+		candidate.sequence = event.sequence
+		candidate.digest = digest
+		if event.eventType == "RAID_CONCLUDED" then
+			candidate.status = "complete"
+			candidate.checkpointSequence = event.sequence
+			candidate.events = {}
+		else
+			candidate.events[#candidate.events + 1] = deepCopy(event)
+			checkpointIfRequired(candidate, 512)
+		end
+		local valid, validationReason = getValidator():ValidateRecord(candidate)
+		if not valid then
+			return nil, validationReason
+		end
+		archive.raids[event.raidUid] = candidate
+		if event.eventType == "RAID_CONCLUDED" then
+			archive.activeRaidUid = nil
+		end
+		return deepCopy(event), candidate.state
+	end
+
+	function module:GetEventRange(raidUid, afterSequence, maximumCount)
+		local record = self:GetRecord(raidUid)
+		local sequence = tonumber(afterSequence)
+		if not record then
+			return nil, "RAID_NOT_FOUND"
+		end
+		if not sequence or sequence < record.checkpointSequence or sequence > record.sequence then
+			return nil, "SNAPSHOT_REQUIRED"
+		end
+		local out = {}
+		local limit = tonumber(maximumCount)
+		for i = 1, #record.events do
+			local event = record.events[i]
+			if event.sequence > sequence then
+				if #out > 0 and event.sequence ~= out[#out].sequence + 1 then
+					return nil, "SNAPSHOT_REQUIRED"
+				end
+				out[#out + 1] = deepCopy(event)
+				if limit and #out >= limit then
+					break
+				end
+			end
+		end
+		if #out > 0 and out[1].sequence ~= sequence + 1 then
+			return nil, "SNAPSHOT_REQUIRED"
+		end
+		return out
+	end
+
+	function module:BuildSnapshot(raidUid)
+		local record = self:GetRecord(raidUid)
+		if not record then
+			return nil, "RAID_NOT_FOUND"
+		end
+		local snapshot = deepCopy(record)
+		snapshot.raidUid = record.sourceRaidUid or raidUid
+		snapshot.sourceRaidUid = nil
+		snapshot.conflictOfRaidUid = nil
+		snapshot.checkpointSequence = snapshot.sequence
+		snapshot.events = {}
+		return snapshot
+	end
+
+	local function detachedSnapshotCandidate(snapshot, requiredStatus)
+		if type(snapshot) ~= "table" or type(snapshot.raidUid) ~= "string" then
+			return nil, nil, "INVALID_SNAPSHOT"
+		end
+		local candidate = deepCopy(snapshot)
+		local raidUid = candidate.raidUid
+		local validRaidUid, raidUidReason = getValidator():ValidateRaidUid(raidUid)
+		if not validRaidUid then
+			return nil, nil, raidUidReason
+		end
+		candidate.raidUid = nil
+		candidate.sourceRaidUid = nil
+		candidate.conflictOfRaidUid = nil
+		if requiredStatus and candidate.status ~= requiredStatus then
+			return nil, nil, "INVALID_RAID_STATUS"
+		end
+		local valid, reason = getValidator():ValidateRecord(candidate)
+		if not valid then
+			return nil, nil, reason
+		end
+		return raidUid, candidate
+	end
+
+	function module:ReplaceActiveFromSnapshot(snapshot)
+		local archive, archiveReason = requireValidArchive()
+		if not archive then
+			return nil, archiveReason
+		end
+		local raidUid, candidate, reason = detachedSnapshotCandidate(snapshot, "active")
+		if not candidate then
+			return nil, reason
+		end
+		local activeRaidUid = archive.activeRaidUid
+		local activeRecord = activeRaidUid and archive.raids[activeRaidUid] or nil
+		if activeRecord and activeRecord.status == "active" and activeRaidUid ~= raidUid then
+			return nil, "ACTIVE_RAID_EXISTS"
+		end
+		local existing = archive.raids[raidUid]
+		if existing and existing.digest == candidate.digest then
+			archive.activeRaidUid = raidUid
+			return existing.state
+		end
+		if existing and existing.digest ~= candidate.digest then
+			return nil, "RAID_CONFLICT"
+		end
+		archive.raids[raidUid] = candidate
+		appendOrder(archive, raidUid)
+		archive.activeRaidUid = raidUid
+		markRaidNidIndexDirty()
+		return candidate.state
+	end
+
+	function module:RepairActiveFromSnapshot(snapshot)
+		local archive, archiveReason = requireValidArchive()
+		if not archive then
+			return nil, archiveReason
+		end
+		local raidUid, candidate, reason = detachedSnapshotCandidate(snapshot)
+		if not candidate then
+			return nil, reason
+		end
+		if candidate.status ~= "active" and candidate.status ~= "complete" then
+			return nil, "INVALID_RAID_STATUS"
+		end
+		if archive.activeRaidUid ~= raidUid then
+			return nil, "RAID_NOT_ACTIVE"
+		end
+		local current = archive.raids[raidUid]
+		if not current or current.status ~= "active" then
+			return nil, "RAID_NOT_ACTIVE"
+		end
+		if candidate.authorityEpoch ~= current.authorityEpoch then
+			return nil, "AUTHORITY_EPOCH_MISMATCH"
+		end
+		if candidate.sequence < current.sequence then
+			return nil, "STALE_SNAPSHOT"
+		end
+		if candidate.sequence == current.sequence then
+			if candidate.digest ~= current.digest or candidate.status ~= current.status then
+				return nil, "DIGEST_CONFLICT"
+			end
+			local currentDigest = RaidEvents.DigestState(current.state)
+			if currentDigest == current.digest then
+				return current.state
+			end
+		end
+		archive.raids[raidUid] = candidate
+		archive.activeRaidUid = candidate.status == "active" and raidUid or nil
+		markRaidNidIndexDirty()
+		return candidate.state
+	end
+
+	function module:ImportHistoricalSnapshot(snapshot)
+		local archive, archiveReason = requireValidArchive()
+		if not archive then
+			return nil, archiveReason
+		end
+		local sourceRaidUid, candidate, reason = detachedSnapshotCandidate(snapshot, "complete")
+		if not candidate then
+			return nil, reason
+		end
+		local sourceExists = false
+		for i = 1, #archive.order do
+			local localRaidUid = archive.order[i]
+			local existing = archive.raids[localRaidUid]
+			if existing and (existing.sourceRaidUid or localRaidUid) == sourceRaidUid then
+				sourceExists = true
+				if existing.digest == candidate.digest then
+					return "ALREADY_PRESENT", nil, i, localRaidUid
+				end
+			end
+		end
+		candidate.sourceRaidUid = sourceRaidUid
+		local localRaidUid = sourceRaidUid
+		local outcome = "IMPORTED"
+		local outcomeReason
+		if sourceExists or archive.raids[localRaidUid] ~= nil then
+			outcome = "CONFLICT"
+			outcomeReason = "RAID_CONFLICT"
+			candidate.conflictOfRaidUid = sourceRaidUid
+			local base = sourceRaidUid .. ":history:" .. candidate.digest
+			local allocated
+			for suffix = 0, 31 do
+				local key = suffix == 0 and base or base .. ":" .. tostring(suffix)
+				if archive.raids[key] == nil then
+					localRaidUid = key
+					allocated = true
+					break
+				end
+			end
+			if not allocated then
+				return nil, "HISTORY_KEY_CAPACITY"
+			end
+		end
+		local finalValid, finalReason = getValidator():ValidateRecord(candidate)
+		if not finalValid then
+			return nil, finalReason
+		end
+		archive.raids[localRaidUid] = candidate
+		appendOrder(archive, localRaidUid)
+		markRaidNidIndexDirty()
+		local index = #archive.order
+		return outcome, outcomeReason, index, localRaidUid
+	end
+
+	function module:ConcludeActiveRaid(raidUid, endTime)
+		local archive, archiveReason = requireValidArchive()
+		if not archive then
+			return nil, archiveReason
+		end
+		local authorized, authorityReason = requireLocalAuthority()
+		if not authorized then
+			return nil, authorityReason
+		end
+		raidUid = raidUid or archive.activeRaidUid
+		if raidUid ~= archive.activeRaidUid then
+			return nil, "RAID_NOT_ACTIVE"
+		end
+		local current = raidUid and archive.raids[raidUid] or nil
+		if not current or current.status ~= "active" then
+			return nil, "RAID_NOT_ACTIVE"
+		end
+		local currentValid, currentReason = requireCurrentStateDigest(current)
+		if not currentValid then
+			return nil, currentReason
+		end
+		local nextSequence = current.sequence + 1
+		local event = {
+			raidUid = raidUid,
+			authorityEpoch = current.authorityEpoch,
+			sequence = nextSequence,
+			eventUid = RaidEvents.BuildEventUid(raidUid, current.authorityEpoch, nextSequence),
+			eventType = "RAID_CONCLUDED",
+			payload = { endTime = endTime },
+		}
+		local candidateState, reason = RaidEvents.Apply(current.state, event)
+		if not candidateState then
+			return nil, reason
+		end
+		event.resultDigest = assert(RaidEvents.DigestState(candidateState))
+		local candidate = deepCopy(current)
+		candidate.status = "complete"
+		candidate.state = candidateState
+		candidate.sequence = nextSequence
+		candidate.digest = event.resultDigest
+		candidate.checkpointSequence = nextSequence
+		candidate.events = {}
+		local valid, validationReason = getValidator():ValidateRecord(candidate)
+		if not valid then
+			return nil, validationReason
+		end
+		archive.raids[raidUid] = candidate
+		archive.activeRaidUid = nil
+		TriggerEvent(RaidReplicationCommittedEvent, deepCopy(event))
+		return deepCopy(event), candidate.state
+	end
+
 	function module:GetAllRaids()
+		local archive = self:EnsureArchive()
+		if archive.formatVersion == 1 then
+			local states = {}
+			if type(archive.order) ~= "table" or type(archive.raids) ~= "table" then
+				return states
+			end
+			for i = 1, #archive.order do
+				local record = archive.raids[archive.order[i]]
+				states[i] = record and record.state or nil
+			end
+			return states
+		end
 		local raids = ensureRaidNidIndex()
 		return raids
 	end
 
 	function module:GetRawRaids()
-		return ensureRaidsTable()
+		local archive = self:EnsureArchive()
+		if archive.formatVersion == 1 then
+			local states = {}
+			if type(archive.order) ~= "table" or type(archive.raids) ~= "table" then
+				return states
+			end
+			for i = 1, #archive.order do
+				local record = archive.raids[archive.order[i]]
+				states[i] = record and record.state or nil
+			end
+			return states
+		end
+		return archive
 	end
 
 	function module:EnsureRaidByIndex(index)
@@ -538,6 +1306,13 @@ do
 			return nil, nil
 		end
 
+		local archive = self:EnsureArchive()
+		if archive.formatVersion == 1 then
+			if type(archive.order) ~= "table" or type(archive.raids) ~= "table" then
+				return nil, idx
+			end
+			return self:GetStateByIndex(idx)
+		end
 		local raids = ensureRaidNidIndex()
 		local raid = raids[idx]
 		if not raid then
@@ -552,6 +1327,16 @@ do
 			return nil, nil, nil
 		end
 
+		local archive = self:EnsureArchive()
+		if archive.formatVersion == 1 then
+			if type(archive.order) ~= "table" or type(archive.raids) ~= "table" then
+				return nil, nil, nid
+			end
+			local raidIdxByNid = ensureArchiveRaidNidIndex(archive)
+			local idx = raidIdxByNid[nid]
+			local record = idx and archive.raids[archive.order[idx]] or nil
+			return record and record.state or nil, idx, nid
+		end
 		local raids, raidIdxByNid = ensureRaidNidIndex()
 		local idx = raidIdxByNid[nid]
 		if idx and tonumber(raids[idx] and raids[idx].raidNid) ~= nid then
@@ -603,15 +1388,6 @@ do
 		raid.loot = (type(raid.loot) == "table") and raid.loot or {}
 		raid.changes = (type(raid.changes) == "table") and raid.changes or {}
 		raid.attendance = (type(raid.attendance) == "table") and raid.attendance or {}
-
-		local migrations = getMigrations()
-		if migrations and migrations.MigrateRaidToCurrentSchema then
-			local migrated, migrationError =
-				migrations:MigrateRaidToCurrentSchema(raid, storedSchemaVersion, schemaVersion)
-			if not migrated then
-				return nil, migrationError
-			end
-		end
 
 		if not storedSchemaVersion or storedSchemaVersion < schemaVersion then
 			raid.schemaVersion = schemaVersion
@@ -750,12 +1526,11 @@ do
 	end
 
 	function module:EnsureRaidRuntime(raid)
-		raid = self:NormalizeRaidRecord(raid)
-		if not raid then
+		if type(raid) ~= "table" then
 			return nil
 		end
 
-		local runtime = raid._runtime
+		local runtime = runtimeByRaid[raid]
 		local signature = buildRaidRuntimeSignature(raid)
 		if isRuntimeIndexReady(runtime) and runtime.signature == signature then
 			return runtime
@@ -841,44 +1616,6 @@ do
 		return transient
 	end
 
-	function module:GetRaidSyncRevision(raid)
-		return ensureSyncRevision(raid)
-	end
-
-	function module:SetRaidSyncRevision(raid, revision, reason)
-		if type(raid) ~= "table" then
-			return 0
-		end
-		local runtime = ensureRuntimeTable(raid)
-		local resolvedRevision = tonumber(revision) or 0
-		if resolvedRevision < 0 then
-			resolvedRevision = 0
-		end
-		runtime.syncRevision = resolvedRevision
-		runtime.lastSyncRevisionReason = tostring(reason or "sync")
-		if type(runtime.lootSyncRevisionByNid) ~= "table" then
-			runtime.lootSyncRevisionByNid = {}
-		end
-		return resolvedRevision
-	end
-
-	function module:TouchRaidSyncRevision(raid, reason)
-		if type(raid) ~= "table" then
-			return 0
-		end
-		local runtime = ensureRuntimeTable(raid)
-		runtime.syncRevision = (tonumber(runtime.syncRevision) or 0) + 1
-		local resolvedReason = tostring(reason or "change")
-		runtime.lastSyncRevisionReason = resolvedReason
-		if type(runtime.lootSyncRevisionByNid) ~= "table" then
-			runtime.lootSyncRevisionByNid = {}
-		end
-		if resolvedReason ~= "loot_row" then
-			runtime.fullSyncRevision = runtime.syncRevision
-		end
-		return runtime.syncRevision
-	end
-
 	local function inspectSnapshotsEqual(left, right)
 		if type(left) ~= type(right) then
 			return false
@@ -907,116 +1644,36 @@ do
 		if not resolvedPlayerNid or resolvedPlayerNid <= 0 then
 			return nil, "invalid inspect player nid"
 		end
-		local inspect = type(raid.inspect) == "table" and raid.inspect or nil
-		local players = inspect and type(inspect.players) == "table" and inspect.players or nil
-		local previous = players and players[resolvedPlayerNid] or nil
+		local player
+		for i = 1, #(raid.players or {}) do
+			if tonumber(raid.players[i] and raid.players[i].playerNid) == resolvedPlayerNid then
+				player = raid.players[i]
+				break
+			end
+		end
+		if not player then
+			return nil, "missing inspect player"
+		end
+		local previous = player.inspect
 		if previous and inspectSnapshotsEqual(previous, readySnapshot) then
 			return false
 		end
-
-		local runtimeExisted = type(raid._runtime) == "table"
-		local runtime = ensureRuntimeTable(raid)
-		local syncRevision = runtime.syncRevision
-		local lastSyncRevisionReason = runtime.lastSyncRevisionReason
-		local fullSyncRevision = runtime.fullSyncRevision
-		local lootSyncRevisionByNid = runtime.lootSyncRevisionByNid
-		local inspectExisted = inspect ~= nil
-		local playersExisted = players ~= nil
-		if not inspect then
-			inspect = {}
-			raid.inspect = inspect
+		local candidate = deepCopy(player)
+		candidate.inspect = deepCopy(readySnapshot)
+		local raidUid = self:GetRaidUid(raid)
+		if not raidUid then
+			return nil, "RAID_NOT_ACTIVE"
 		end
-		if not players then
-			players = {}
-			inspect.players = players
-		end
-		players[resolvedPlayerNid] = readySnapshot
-
-		local ok, revision = pcall(self.TouchRaidSyncRevision, self, raid, "inspect")
-		if ok and type(revision) == "number" and revision > 0 then
-			return true
-		end
-
-		players[resolvedPlayerNid] = previous
-		if not playersExisted then
-			inspect.players = nil
-		end
-		if not inspectExisted then
-			raid.inspect = nil
-		end
-		runtime.syncRevision = syncRevision
-		runtime.lastSyncRevisionReason = lastSyncRevisionReason
-		runtime.fullSyncRevision = fullSyncRevision
-		runtime.lootSyncRevisionByNid = lootSyncRevisionByNid
-		if not runtimeExisted then
-			raid._runtime = nil
-		end
-		return nil, ok and "invalid inspect sync revision" or tostring(revision)
-	end
-
-	function module:MarkLootSyncRevision(raid, loot, reason)
-		if type(raid) ~= "table" or type(loot) ~= "table" then
-			return 0
-		end
-		local lootNid = tonumber(loot.lootNid)
-		if not lootNid or lootNid <= 0 then
-			return self:TouchRaidSyncRevision(raid, reason or "loot")
-		end
-		local revision = self:TouchRaidSyncRevision(raid, reason or "loot_row")
-		local runtime = ensureRuntimeTable(raid)
-		if type(runtime.lootSyncRevisionByNid) ~= "table" then
-			runtime.lootSyncRevisionByNid = {}
-		end
-		runtime.lootSyncRevisionByNid[lootNid] = revision
-		return revision
-	end
-
-	function module:SetLootSyncRevision(raid, loot, revision)
-		if type(raid) ~= "table" or type(loot) ~= "table" then
-			return 0
-		end
-		local lootNid = tonumber(loot.lootNid)
-		if not lootNid or lootNid <= 0 then
-			return self:SetRaidSyncRevision(raid, revision, "delta")
-		end
-		local resolvedRevision = self:SetRaidSyncRevision(raid, revision, "delta")
-		local runtime = ensureRuntimeTable(raid)
-		if type(runtime.lootSyncRevisionByNid) ~= "table" then
-			runtime.lootSyncRevisionByNid = {}
-		end
-		runtime.lootSyncRevisionByNid[lootNid] = resolvedRevision
-		return resolvedRevision
-	end
-
-	function module:RequiresFullSyncSince(raid, sinceRevision)
-		if type(raid) ~= "table" then
-			return true
-		end
-		local runtime = ensureRuntimeTable(raid)
-		local fullSyncRevision = tonumber(runtime.fullSyncRevision) or 0
-		return fullSyncRevision > (tonumber(sinceRevision) or 0)
-	end
-
-	function module:GetLootSyncRevision(raid, loot)
-		if type(raid) ~= "table" or type(loot) ~= "table" then
-			return 0
-		end
-		local lootNid = tonumber(loot.lootNid)
-		if not lootNid or lootNid <= 0 then
-			return 0
-		end
-		local runtime = ensureRuntimeTable(raid)
-		local revisions = runtime.lootSyncRevisionByNid
-		return tonumber(type(revisions) == "table" and revisions[lootNid]) or tonumber(loot.syncRevision) or 0
+		local event = self:CommitAuthoritativeEvent(raidUid, "PLAYER_UPDATED", { player = candidate })
+		return event and true or nil
 	end
 
 	function module:UpsertLootIndex(raid, loot, index)
-		raid = self:NormalizeRaidRecord(raid)
-		if not raid then
+		if type(raid) ~= "table" then
 			return nil
 		end
 
-		local runtime = raid._runtime
+		local runtime = runtimeByRaid[raid]
 		if not isRuntimeIndexReady(runtime) then
 			return nil
 		end
@@ -1046,6 +1703,10 @@ do
 	function module:NormalizeAllRaids(contextTag)
 		local raids = ensureRaidsTable()
 		markRaidNidIndexDirty()
+		if isRaidArchive(raids) then
+			rebuildArchiveRaidNidIndex(raids)
+			return raids
+		end
 		for i = 1, #raids do
 			self:NormalizeRaidRecord(raids[i], contextTag, i)
 		end
@@ -1061,17 +1722,16 @@ do
 		end
 
 		self:StripRuntime(raid)
-
-		local migrations = getMigrations()
-		if migrations and migrations.CompactRaidForPersistence then
-			migrations:CompactRaidForPersistence(raid)
-		end
+		compactInspectForPersistence(raid)
 
 		return raid
 	end
 
 	function module:PrepareAllRaidsForSave()
 		local raids = ensureRaidsTable()
+		if isRaidArchive(raids) then
+			return raids
+		end
 		for i = 1, #raids do
 			local prepared, prepareError = self:PrepareRaidForSave(raids[i], i)
 			if not prepared then
@@ -1081,76 +1741,31 @@ do
 		return raids
 	end
 
-	function module:CreateRaidRecord(args)
-		args = args or {}
-
-		local raidNid = getNextRaidNid(args.raidNid)
-		local startTime = resolveRaidStartTime(args.startTime)
-
-		local raid = {
-			schemaVersion = getSchemaVersion(),
-			raidNid = raidNid,
-			realm = args.realm,
-			zone = args.zone,
-			size = args.size,
-			difficulty = args.difficulty,
-			startTime = startTime,
-			endTime = args.endTime,
-			players = {},
-			bossKills = {},
-			loot = {},
-			changes = {},
-			attendance = {},
-			nextBossNid = 1,
-			nextLootNid = 1,
-			nextPlayerNid = 1,
-		}
-
-		return self:NormalizeRaidRecord(raid)
-	end
-
-	function module:InsertRaid(raid)
-		raid = self:NormalizeRaidRecord(raid)
-		if not raid then
-			return nil, nil
-		end
-
-		local raidNid = getNextRaidNid(raid.raidNid)
-		raid.raidNid = raidNid
-
-		local raids = ensureRaidsTable()
-		tinsert(raids, raid)
-		markRaidNidIndexDirty()
-		rebuildRaidNidIndex()
-
-		local idx = (storeState.raidIdxByNid and storeState.raidIdxByNid[raidNid]) or #raids
-		return raid, idx
-	end
-
 	function module:CaptureRaidInsertionState()
 		local raids = ensureRaidsTable()
-		local snapshot = { raids = {}, nextRaidNid = storeState.nextRaidNid }
-		for i = 1, #raids do
-			snapshot.raids[i] = raids[i]
-		end
-		return snapshot
+		return { raids = deepCopy(raids), nextRaidNid = storeState.nextRaidNid }
 	end
 
-	function module:RestoreRaidInsertionState(snapshot)
+	local function restoreCapturedRaids(snapshot)
 		if type(snapshot) ~= "table" or type(snapshot.raids) ~= "table" then
 			return false
 		end
+		local restored = deepCopy(snapshot.raids)
 		local raids = ensureRaidsTable()
-		for i = #raids, 1, -1 do
-			raids[i] = nil
+		for key in pairs(raids) do
+			raids[key] = nil
 		end
-		for i = 1, #snapshot.raids do
-			raids[i] = snapshot.raids[i]
+		for key, value in pairs(restored) do
+			raids[key] = value
 		end
 		storeState.nextRaidNid = snapshot.nextRaidNid
 		markRaidNidIndexDirty()
 		rebuildRaidNidIndex()
 		return true
+	end
+
+	function module:RestoreRaidInsertionState(snapshot)
+		return false, "LEGACY_SYNC_DISABLED"
 	end
 
 	local function copyRaidHistoryValue(value, seen)
@@ -1174,21 +1789,20 @@ do
 	end
 
 	function module:RestoreRaidHistoryState(snapshot)
-		if type(snapshot) ~= "table" or type(snapshot.raids) ~= "table" then
-			return false
+		local current = ensureRaidsTable()
+		if isRaidArchive(current) then
+			local valid, reason = requireValidArchive()
+			if not valid then
+				return false, reason
+			end
 		end
-		local raids = ensureRaidsTable()
-		for i = #raids, 1, -1 do
-			raids[i] = nil
+		if type(snapshot) == "table" and isRaidArchive(snapshot.raids) then
+			local validSnapshot, snapshotReason = getValidator():ValidateArchive(snapshot.raids)
+			if not validSnapshot then
+				return false, snapshotReason
+			end
 		end
-		local restored = copyRaidHistoryValue(snapshot.raids)
-		for i = 1, #restored do
-			raids[i] = restored[i]
-		end
-		storeState.nextRaidNid = snapshot.nextRaidNid
-		markRaidNidIndexDirty()
-		rebuildRaidNidIndex()
-		return true
+		return restoreCapturedRaids(snapshot)
 	end
 
 	local function isPositiveInteger(value)
@@ -1232,13 +1846,20 @@ do
 			return nil
 		end
 		local stagedRaid = copyRaidHistoryValue(raid)
-		stagedMutationBase[stagedRaid] = { raid = raid, revision = self:GetRaidSyncRevision(raid) }
+		stagedMutationBase[stagedRaid] = { raid = raid, digest = self:GetStateDigest(raid) }
 		return stagedRaid
 	end
 
 	function module:CommitRaidHistoryMutation(raid, stagedRaid, opts, verify)
 		-- A successful commit replaces nested rows. Callers must re-resolve row aliases from the canonical raid.
 		opts = opts or {}
+		local root = ensureRaidsTable()
+		if isRaidArchive(root) then
+			local validArchive, archiveReason = requireValidArchive()
+			if not validArchive then
+				return false, archiveReason
+			end
+		end
 		if type(raid) ~= "table" or type(stagedRaid) ~= "table" then
 			return false, "INVALID_RAID"
 		end
@@ -1249,18 +1870,51 @@ do
 			return false, "INVALID_RAID"
 		end
 		local base = stagedMutationBase[stagedRaid]
-		if not base or base.raid ~= raid or self:GetRaidSyncRevision(raid) ~= base.revision then
+		if not base or base.raid ~= raid or self:GetStateDigest(raid) ~= base.digest then
 			return false, "CONFLICT"
 		end
-		local canonicalFound, raids = false, ensureRaidsTable()
-		for i = 1, #raids do
-			if raids[i] == raid then
-				canonicalFound = true
-				break
+		local lootNid = opts.lootNid
+		if lootNid ~= nil and not isPositiveInteger(lootNid) then
+			return false, "INVALID_LOOT_SCOPE"
+		end
+		local raidUid = self:GetRaidUid(raid)
+		local record = raidUid and self:GetRecord(raidUid) or nil
+		if record and record.status == "active" then
+			return false, "ACTIVE_RAID_REQUIRES_EVENT"
+		end
+		if not record then
+			local canonicalFound = false
+			local legacyRaids = ensureRaidsTable()
+			for i = 1, #legacyRaids do
+				if legacyRaids[i] == raid then
+					canonicalFound = true
+					break
+				end
 			end
-		end
-		if not canonicalFound then
-			return false, "CONFLICT"
+			if not canonicalFound then
+				return false, "CONFLICT"
+			end
+			local legacyValid, legacyReason = validateRaidHistory(stagedRaid)
+			if not legacyValid then
+				return false, legacyReason
+			end
+			if type(verify) == "function" then
+				local verifyOk, verified, verifyError = pcall(verify, stagedRaid)
+				if not verifyOk then
+					return false, "VERIFY_FAILED"
+				end
+				if verified ~= true then
+					return false, verifyError or "VERIFY_FAILED"
+				end
+			end
+			for key in pairs(raid) do
+				raid[key] = nil
+			end
+			for key, value in pairs(copyRaidHistoryValue(stagedRaid)) do
+				raid[key] = value
+			end
+			stagedMutationBase[stagedRaid] = nil
+			return true, raid
 		end
 		local valid, validationError = validateRaidHistory(stagedRaid)
 		if not valid then
@@ -1275,204 +1929,153 @@ do
 				return false, verifyError or "VERIFY_FAILED"
 			end
 		end
-		local lootNid = opts.lootNid
-		if lootNid ~= nil and not isPositiveInteger(lootNid) then
-			return false, "INVALID_LOOT_SCOPE"
-		end
-		local snapshot = copyRaidHistoryValue(raid)
-		local function replaceRaid(source)
-			for key in pairs(raid) do
-				raid[key] = nil
-			end
-			for key, value in pairs(copyRaidHistoryValue(source)) do
-				raid[key] = value
-			end
-		end
-		local function applyCommit()
-			replaceRaid(stagedRaid)
-			local revision, loot
-			if lootNid then
-				local matches = 0
-				for i = 1, #(raid.loot or {}) do
-					if raid.loot[i].lootNid == lootNid then
-						matches = matches + 1
-						loot = raid.loot[i]
-					end
+		if lootNid then
+			local matches = 0
+			for i = 1, #(stagedRaid.loot or {}) do
+				if stagedRaid.loot[i].lootNid == lootNid then
+					matches = matches + 1
 				end
-				if matches ~= 1 then
-					error("INVALID_LOOT_SCOPE")
-				end
-				revision = self:MarkLootSyncRevision(raid, loot, opts.reason or "loot_row")
-			else
-				revision = self:TouchRaidSyncRevision(raid, opts.reason or "logger_history")
 			end
-			if not isPositiveInteger(revision) or revision <= base.revision then
-				error("REVISION_FAILED")
-			end
-			local runtime = self:EnsureRaidRuntime(raid)
-			if type(runtime) ~= "table" then
-				error("INDEX_REBUILD_FAILED")
-			end
-			if lootNid and (type(runtime.lootByNid) ~= "table" or runtime.lootByNid[lootNid] ~= loot) then
-				error("INDEX_REBUILD_FAILED")
+			if matches ~= 1 then
+				return false, "INVALID_LOOT_SCOPE"
 			end
 		end
-		local committed = pcall(applyCommit)
-		if not committed then
-			replaceRaid(snapshot)
-			return false, "COMMIT_FAILED"
+		local candidate = deepCopy(record)
+		candidate.state = copyRaidHistoryValue(stagedRaid)
+		candidate.digest = RaidEvents.DigestState(candidate.state)
+		local recordValid, recordReason = getValidator():ValidateRecord(candidate)
+		if not recordValid then
+			return false, recordReason
 		end
+		self:EnsureArchive().raids[raidUid] = candidate
+		markRaidNidIndexDirty()
 		stagedMutationBase[stagedRaid] = nil
-		return true, raid
+		return true, candidate.state
 	end
 
-	-- Commits attendance rows and their synchronization revision as one canonical
-	-- transaction.  The history commit owns rollback when Touch or index rebuild
-	-- fails, so callers never expose partially edited attendance.
+	-- Completed-history edits use digest conflicts. Active attendance writes use
+	-- ATTENDANCE_UPDATED events instead of this detached history path.
 	function module:CommitAttendanceMutation(raid, stagedRaid, reason)
 		return self:CommitRaidHistoryMutation(raid, stagedRaid, { reason = reason or "attendance" })
 	end
 
-	function module:CommitRaidHistoryImport(raid, stagedRaid, revision, reason, lootRevisions, allowRevisionZero)
-		local targetRevision = tonumber(revision)
-		local legacyZero = allowRevisionZero == true and targetRevision == 0
-		if not isPositiveInteger(targetRevision) and not legacyZero then
-			return false, "INVALID_REVISION"
-		end
-		local base = stagedMutationBase[stagedRaid]
-		if
-			not base
-			or base.raid ~= raid
-			or (legacyZero and base.revision ~= 0)
-			or (not legacyZero and targetRevision <= base.revision)
-		then
-			return false, "CONFLICT"
-		end
-		local valid, validationError = validateRaidHistory(stagedRaid)
-		if not valid then
-			return false, validationError
-		end
-		local canonicalFound, raids = false, ensureRaidsTable()
-		for i = 1, #raids do
-			if raids[i] == raid then canonicalFound = true; break end
-		end
-		if not canonicalFound or self:GetRaidSyncRevision(raid) ~= base.revision then
-			return false, "CONFLICT"
-		end
-		local snapshot = {}
-		for key, value in pairs(raid) do
-			snapshot[key] = value
-		end
-		local function replaceRaid(source)
-			for key in pairs(raid) do raid[key] = nil end
-			for key, value in pairs(source) do raid[key] = value end
-		end
-		local committedCopy = copyRaidHistoryValue(stagedRaid)
-		local committed = pcall(function()
-			replaceRaid(committedCopy)
-			if type(lootRevisions) == "table" then
-				for i = 1, #(raid.loot or {}) do
-					local loot = raid.loot[i]
-					local lootRevision = lootRevisions[loot.lootNid]
-					if lootRevision then
-						if self:SetLootSyncRevision(raid, loot, lootRevision) ~= lootRevision then
-							error("LOOT_REVISION_FAILED")
-						end
-						if self:GetLootSyncRevision(raid, loot) ~= lootRevision then
-							error("LOOT_REVISION_POSTCONDITION_FAILED")
+	function module:CommitRaidHistoryCleanup(plan, currentRaidIdentity)
+		local root = ensureRaidsTable()
+		if isRaidArchive(root) then
+			if type(plan) ~= "table" or plan.protectedArchiveKey ~= currentRaidIdentity then
+				return nil, "CONFLICT"
+			end
+			local validRoot, rootReason = requireValidArchive()
+			if not validRoot then
+				return nil, rootReason
+			end
+			if root.activeRaidUid ~= currentRaidIdentity then
+				return nil, "CONFLICT"
+			end
+			local raidCandidates = type(plan.raidCandidates) == "table" and plan.raidCandidates or {}
+			local lootCandidates = type(plan.lootCandidates) == "table" and plan.lootCandidates or {}
+			if #raidCandidates == 0 and #lootCandidates == 0 then
+				return {
+					raidsRemoved = 0,
+					lootRemoved = 0,
+					removedRaidNids = {},
+					affectedRaidNids = {},
+					removedArchiveKeys = {},
+					affectedArchiveKeys = {},
+				}
+			end
+			local candidate = copyRaidHistoryValue(root)
+			local deleteSet, lootDeleteSet = {}, {}
+			for i = 1, #raidCandidates do
+				local entry = raidCandidates[i]
+				local archiveKey = type(entry) == "table" and entry.archiveKey or nil
+				local record = archiveKey and candidate.raids[archiveKey] or nil
+				if
+					type(archiveKey) ~= "string"
+					or archiveKey == candidate.activeRaidUid
+					or not record
+					or record.digest ~= entry.baseDigest
+					or deleteSet[archiveKey]
+				then
+					return nil, "CONFLICT"
+				end
+				deleteSet[archiveKey] = true
+			end
+			for i = 1, #lootCandidates do
+				local entry = lootCandidates[i]
+				local archiveKey = type(entry) == "table" and entry.archiveKey or nil
+				local record = archiveKey and candidate.raids[archiveKey] or nil
+				local loot
+				if record and record.digest == entry.baseDigest and not deleteSet[archiveKey] then
+					for lootIndex = 1, #(record.state.loot or {}) do
+						local row = record.state.loot[lootIndex]
+						if tonumber(row and row.lootNid) == tonumber(entry.lootNid) then
+							if loot then
+								return nil, "CONFLICT"
+							end
+							loot = row
 						end
 					end
 				end
+				if
+					not loot
+					or tonumber(loot.itemId) ~= entry.itemId
+					or loot.itemLink ~= entry.itemLink
+					or tonumber(loot.bossNid) ~= entry.bossNid
+				then
+					return nil, "CONFLICT"
+				end
+				lootDeleteSet[archiveKey] = lootDeleteSet[archiveKey] or {}
+				if lootDeleteSet[archiveKey][entry.lootNid] then
+					return nil, "CONFLICT"
+				end
+				lootDeleteSet[archiveKey][entry.lootNid] = true
 			end
-			if self:SetRaidSyncRevision(raid, targetRevision, reason or "sync_import") ~= targetRevision then
-				error("REVISION_FAILED")
+			local removedRaidNids, affectedRaidNids = {}, {}
+			local removedArchiveKeys, affectedArchiveKeys = {}, {}
+			local raidsRemoved, lootRemoved = 0, 0
+			for orderIndex = #candidate.order, 1, -1 do
+				local archiveKey = candidate.order[orderIndex]
+				local record = candidate.raids[archiveKey]
+				if deleteSet[archiveKey] then
+					candidate.raids[archiveKey] = nil
+					tremove(candidate.order, orderIndex)
+					raidsRemoved = raidsRemoved + 1
+					removedArchiveKeys[#removedArchiveKeys + 1] = archiveKey
+					removedRaidNids[#removedRaidNids + 1] = tonumber(record.state.raidNid)
+				elseif lootDeleteSet[archiveKey] then
+					for lootIndex = #record.state.loot, 1, -1 do
+						if lootDeleteSet[archiveKey][tonumber(record.state.loot[lootIndex].lootNid)] then
+							tremove(record.state.loot, lootIndex)
+							lootRemoved = lootRemoved + 1
+						end
+					end
+					record.digest = RaidEvents.DigestState(record.state)
+					local recordValid, recordReason = getValidator():ValidateRecord(record)
+					if not recordValid then
+						return nil, recordReason
+					end
+					affectedArchiveKeys[#affectedArchiveKeys + 1] = archiveKey
+					affectedRaidNids[#affectedRaidNids + 1] = tonumber(record.state.raidNid)
+				end
 			end
-			local runtime = self:EnsureRaidRuntime(raid)
-			if type(runtime) ~= "table" or self:GetRaidSyncRevision(raid) ~= targetRevision then
-				error("POSTCONDITION_FAILED")
+			local archiveValid, archiveReason = getValidator():ValidateArchive(candidate)
+			if not archiveValid then
+				return nil, archiveReason
 			end
-		end)
-		if not committed then
-			replaceRaid(snapshot)
-			return false, "COMMIT_FAILED"
+			SavedVariables.ReplaceRaids(candidate)
+			validatedArchive = candidate
+			markRaidNidIndexDirty()
+			return {
+				raidsRemoved = raidsRemoved,
+				lootRemoved = lootRemoved,
+				removedRaidNids = removedRaidNids,
+				affectedRaidNids = affectedRaidNids,
+				removedArchiveKeys = removedArchiveKeys,
+				affectedArchiveKeys = affectedArchiveKeys,
+			}
 		end
-		stagedMutationBase[stagedRaid] = nil
-		return true, raid
-	end
-
-	function module:CommitAuthoritativeRaidHistoryImport(raid, stagedRaid, revision)
-		local targetRevision = tonumber(revision)
-		if not isPositiveInteger(targetRevision) then
-			return false, "INVALID_REVISION"
-		end
-		local base = stagedMutationBase[stagedRaid]
-		if not base or base.raid ~= raid or self:GetRaidSyncRevision(raid) ~= base.revision then
-			return false, "CONFLICT"
-		end
-		local valid, validationError = validateRaidHistory(stagedRaid)
-		if not valid then
-			return false, validationError
-		end
-		local canonicalFound = false
-		local raids = ensureRaidsTable()
-		for i = 1, #raids do
-			if raids[i] == raid then
-				canonicalFound = true
-				break
-			end
-		end
-		if not canonicalFound then
-			return false, "CONFLICT"
-		end
-		local snapshot = copyRaidHistoryValue(raid)
-		local function replaceRaid(source)
-			for key in pairs(raid) do raid[key] = nil end
-			for key, value in pairs(copyRaidHistoryValue(source)) do raid[key] = value end
-		end
-		local committed = pcall(function()
-			replaceRaid(stagedRaid)
-			if self:SetRaidSyncRevision(raid, targetRevision, "sync_bootstrap") ~= targetRevision then
-				error("REVISION_FAILED")
-			end
-			if type(self:EnsureRaidRuntime(raid)) ~= "table" then
-				error("INDEX_REBUILD_FAILED")
-			end
-		end)
-		if not committed then
-			replaceRaid(snapshot)
-			return false, "COMMIT_FAILED"
-		end
-		stagedMutationBase[stagedRaid] = nil
-		return true, raid
-	end
-
-	function module:CommitNewRaidHistoryImport(raid, revision, allowRevisionZero)
-		local targetRevision = tonumber(revision)
-		local legacyZero = allowRevisionZero == true and targetRevision == 0
-		if type(raid) ~= "table" or (not isPositiveInteger(targetRevision) and not legacyZero) then
-			return nil, nil, "INVALID_IMPORT"
-		end
-		local valid, validationError = validateRaidHistory(raid)
-		if not valid then return nil, nil, validationError end
-		local insertionState = self:CaptureRaidInsertionState()
-		local insertedRaid, raidIndex
-		local committed = pcall(function()
-			insertedRaid, raidIndex = self:InsertRaid(raid)
-			if not insertedRaid or not raidIndex then error("INSERT_FAILED") end
-			if self:SetRaidSyncRevision(insertedRaid, targetRevision, "sync_import") ~= targetRevision then
-				error("REVISION_FAILED")
-			end
-			if type(self:EnsureRaidRuntime(insertedRaid)) ~= "table" then error("POSTCONDITION_FAILED") end
-			if self:GetRaidSyncRevision(insertedRaid) ~= targetRevision then error("REVISION_POSTCONDITION_FAILED") end
-		end)
-		if not committed then
-			self:RestoreRaidInsertionState(insertionState)
-			return nil, nil, "COMMIT_FAILED"
-		end
-		return insertedRaid, raidIndex
-	end
-
-	function module:CommitRaidHistoryCleanup(plan, currentRaidNid)
+		local currentRaidNid = currentRaidIdentity
 		if type(plan) ~= "table" or tonumber(plan.protectedRaidNid) ~= tonumber(currentRaidNid) then
 			return nil, "CONFLICT"
 		end
@@ -1484,7 +2087,6 @@ do
 				affectedRaidNids = {},
 			}
 		end
-		local root = ensureRaidsTable()
 		local candidate = copyRaidHistoryValue(root)
 		local byNid, deleteSet, lootDeleteSet = {}, {}, {}
 		for i = 1, #candidate do
@@ -1496,7 +2098,7 @@ do
 			if
 				entry.raidNid == tonumber(currentRaidNid)
 				or not raid
-				or self:GetRaidSyncRevision(raid) ~= entry.baseRevision
+				or self:GetStateDigest(raid) ~= entry.baseDigest
 			then
 				return nil, "CONFLICT"
 			end
@@ -1510,8 +2112,7 @@ do
 			if
 				not raid
 				or not loot
-				or self:GetRaidSyncRevision(raid) ~= entry.baseRevision
-				or (tonumber(loot.syncRevision) or 0) ~= entry.lootRevision
+				or self:GetStateDigest(raid) ~= entry.baseDigest
 				or tonumber(loot.itemId) ~= entry.itemId
 				or loot.itemLink ~= entry.itemLink
 				or tonumber(loot.bossNid) ~= entry.bossNid
@@ -1541,7 +2142,6 @@ do
 				if not valid then
 					return nil, reason
 				end
-				self:TouchRaidSyncRevision(raid, "history_cleanup")
 				self:EnsureRaidRuntime(raid)
 				affectedRaidNids[#affectedRaidNids + 1] = raidNid
 			end
@@ -1562,7 +2162,42 @@ do
 		}
 	end
 
+	local function resolveDeletableArchiveKeyByRaidNid(archive, raidNid)
+		local nid = tonumber(raidNid)
+		if not nid or nid <= 0 then
+			return nil
+		end
+		local resolvedKey, resolvedIndex
+		for i = 1, #archive.order do
+			local archiveKey = archive.order[i]
+			local record = archive.raids[archiveKey]
+			if tonumber(record and record.state and record.state.raidNid) == nid then
+				if archiveKey == archive.activeRaidUid or record.status == "active" then
+					return nil, nil, "ACTIVE_RAID_PROTECTED"
+				end
+				if resolvedKey then
+					return nil, nil, "AMBIGUOUS_RAID_NID"
+				end
+				resolvedKey = archiveKey
+				resolvedIndex = i
+			end
+		end
+		return resolvedKey, resolvedIndex
+	end
+
 	function module:DeleteRaid(raidNid)
+		local root = ensureRaidsTable()
+		if isRaidArchive(root) then
+			local archive, archiveReason = requireValidArchive()
+			if not archive then
+				return false, nil, archiveReason
+			end
+			local archiveKey, _, resolveReason = resolveDeletableArchiveKeyByRaidNid(archive, raidNid)
+			if not archiveKey then
+				return false, nil, resolveReason
+			end
+			return self:DeleteRaidByArchiveKey(archiveKey)
+		end
 		local raid, idx = self:EnsureRaidByNid(raidNid)
 		if not (raid and idx) then
 			return false, nil
@@ -1575,20 +2210,152 @@ do
 		return true, idx
 	end
 
+	function module:DeleteRaidByArchiveKey(archiveKey)
+		local archive, reason = requireValidArchive()
+		if not archive then
+			return false, nil, reason
+		end
+		local index = self:GetIndexByArchiveKey(archiveKey)
+		if not index or archive.activeRaidUid == archiveKey then
+			return false, index
+		end
+		local candidate = copyRaidHistoryValue(archive)
+		candidate.raids[archiveKey] = nil
+		tremove(candidate.order, index)
+		local valid, validationReason = getValidator():ValidateArchive(candidate)
+		if not valid then
+			return false, nil, validationReason
+		end
+		SavedVariables.ReplaceRaids(candidate)
+		validatedArchive = candidate
+		markRaidNidIndexDirty()
+		return true, index
+	end
+
+	function module:DeleteRaidsByArchiveKey(archiveKeys, protectedArchiveKey)
+		if type(archiveKeys) ~= "table" then
+			return 0, {}
+		end
+		local archive, reason = requireValidArchive()
+		if not archive then
+			return 0, {}, reason
+		end
+		local deleteSet = {}
+		for i = 1, #archiveKeys do
+			local archiveKey = archiveKeys[i]
+			if type(archiveKey) == "string" and archiveKey ~= protectedArchiveKey then
+				deleteSet[archiveKey] = true
+			end
+		end
+		local candidate = copyRaidHistoryValue(archive)
+		local removedKeys = {}
+		for i = #candidate.order, 1, -1 do
+			local archiveKey = candidate.order[i]
+			if deleteSet[archiveKey] and archiveKey ~= candidate.activeRaidUid then
+				candidate.raids[archiveKey] = nil
+				tremove(candidate.order, i)
+				removedKeys[#removedKeys + 1] = archiveKey
+			end
+		end
+		local valid, validationReason = getValidator():ValidateArchive(candidate)
+		if not valid then
+			return 0, {}, validationReason
+		end
+		if #removedKeys > 0 then
+			SavedVariables.ReplaceRaids(candidate)
+			validatedArchive = candidate
+			markRaidNidIndexDirty()
+		end
+		return #removedKeys, removedKeys
+	end
+
+	function module:DeleteLootByArchiveKey(archiveKey, lootNids)
+		local archive, reason = requireValidArchive()
+		if not archive then
+			return 0, reason
+		end
+		local record = archive.raids[archiveKey]
+		if not record or type(lootNids) ~= "table" then
+			return 0
+		end
+		if archive.activeRaidUid == archiveKey then
+			return self:DeleteLootByNid(record.state.raidNid, lootNids, "loot_delete")
+		end
+		local deleteSet = {}
+		for i = 1, #lootNids do
+			local lootNid = tonumber(lootNids[i])
+			if lootNid and lootNid > 0 then
+				deleteSet[lootNid] = true
+			end
+		end
+		local candidate = copyRaidHistoryValue(record)
+		local removed = 0
+		for i = #(candidate.state.loot or {}), 1, -1 do
+			if deleteSet[tonumber(candidate.state.loot[i].lootNid)] then
+				tremove(candidate.state.loot, i)
+				removed = removed + 1
+			end
+		end
+		if removed == 0 then
+			return 0
+		end
+		candidate.digest = RaidEvents.DigestState(candidate.state)
+		local valid, validationReason = getValidator():ValidateRecord(candidate)
+		if not valid then
+			return 0, validationReason
+		end
+		archive.raids[archiveKey] = candidate
+		return removed
+	end
+
 	function module:DeleteRaidsByNid(raidNids, opts)
 		if type(raidNids) ~= "table" then
 			return 0, {}
 		end
 		opts = type(opts) == "table" and opts or {}
-		local protectedRaidNid = tonumber(opts.protectedRaidNid)
-		local deleteSet = {}
+		local requestedNids = {}
+		local seenNids = {}
 		for i = 1, #raidNids do
 			local raidNid = tonumber(raidNids[i])
-			if raidNid and raidNid > 0 and raidNid ~= protectedRaidNid then
-				deleteSet[raidNid] = true
+			if raidNid and raidNid > 0 and not seenNids[raidNid] then
+				seenNids[raidNid] = true
+				requestedNids[#requestedNids + 1] = raidNid
 			end
 		end
 		local raids = ensureRaidsTable()
+		if isRaidArchive(raids) then
+			local archive, archiveReason = requireValidArchive()
+			if not archive then
+				return 0, {}, archiveReason
+			end
+			local archiveKeys = {}
+			local raidNidByArchiveKey = {}
+			for i = 1, #requestedNids do
+				local raidNid = requestedNids[i]
+				local archiveKey, _, resolveReason = resolveDeletableArchiveKeyByRaidNid(archive, raidNid)
+				if resolveReason then
+					return 0, {}, resolveReason
+				end
+				if archiveKey then
+					archiveKeys[#archiveKeys + 1] = archiveKey
+					raidNidByArchiveKey[archiveKey] = raidNid
+				end
+			end
+			local removed, removedKeys, deleteReason = self:DeleteRaidsByArchiveKey(archiveKeys, archive.activeRaidUid)
+			local removedRaidNids = {}
+			for i = 1, #removedKeys do
+				removedRaidNids[i] = raidNidByArchiveKey[removedKeys[i]]
+			end
+			return removed, removedRaidNids, deleteReason
+		end
+		local protectedRaidNid = tonumber(opts.protectedRaidNid)
+		local deleteSet = {}
+		for i = 1, #requestedNids do
+			local raidNid = requestedNids[i]
+			if raidNid ~= protectedRaidNid then
+				deleteSet[raidNid] = true
+			end
+		end
 		local removed = 0
 		local removedRaidNids = {}
 		for i = #raids, 1, -1 do
@@ -1607,33 +2374,48 @@ do
 	end
 
 	function module:DeleteLootByNid(raidNid, lootNids, reason)
+		local root = ensureRaidsTable()
+		if isRaidArchive(root) then
+			local valid, archiveReason = requireValidArchive()
+			if not valid then
+				return 0, archiveReason
+			end
+		end
 		local raid = self:EnsureRaidByNid(raidNid)
 		if not (raid and type(raid.loot) == "table" and type(lootNids) == "table") then
 			return 0
 		end
-		local deleteSet = {}
+		local deleteSet, ordered = {}, {}
 		for i = 1, #lootNids do
 			local lootNid = tonumber(lootNids[i])
 			if lootNid and lootNid > 0 then
 				deleteSet[lootNid] = true
 			end
 		end
+		for lootNid in pairs(deleteSet) do
+			ordered[#ordered + 1] = lootNid
+		end
+		table.sort(ordered)
+		local raidUid = self:GetRaidUid(raid)
+		if not raidUid then
+			return 0
+		end
 		local removed = 0
-		for i = #raid.loot, 1, -1 do
-			local lootNid = tonumber(raid.loot[i] and raid.loot[i].lootNid)
-			if lootNid and deleteSet[lootNid] then
-				tremove(raid.loot, i)
+		for i = 1, #ordered do
+			local event = self:CommitAuthoritativeEvent(raidUid, "LOOT_DELETED", { lootNid = ordered[i] })
+			if event then
 				removed = removed + 1
 			end
-		end
-		if removed > 0 then
-			self:TouchRaidSyncRevision(raid, reason or "loot_delete")
-			self:EnsureRaidRuntime(raid)
 		end
 		return removed
 	end
 
 	function Database.EnsureRaidSchema(raid)
+		-- Canonical archive states may only change through store commits. Normalizing
+		-- an exposed state alias here would invalidate its persisted digest.
+		if module:GetRaidUid(raid) then
+			return raid
+		end
 		return module:NormalizeRaidRecord(raid)
 	end
 

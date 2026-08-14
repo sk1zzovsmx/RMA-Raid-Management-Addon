@@ -10,9 +10,7 @@ local type, tostring, tonumber = type, tostring, tonumber
 local pcall = pcall
 local select = select
 local strfind, strmatch, strsub = string.find, string.match, string.sub
-local strbyte = string.byte
 local tconcat = table.concat
-local floor = math.floor
 local _G = _G
 local SendAddonMessage = assert(_G.SendAddonMessage, "Comms addon-message send API is not initialized")
 local SendChatMessage = assert(_G.SendChatMessage, "Comms chat send API is not initialized")
@@ -496,40 +494,6 @@ function Comms.NormalizeSender(sender)
 	end
 	local short = strmatch(sender, "^([^%-]+)") or sender
 	return NormalizeName(short, true) or short
-end
-
-local function buildRequestSessionNonce()
-	local getTime = _G.GetTime
-	local stamp = type(getTime) == "function" and floor((tonumber(getTime()) or 0) * 1000) or 0
-	local seed = tostring(UnitName("player") or "") .. ":" .. tostring(stamp) .. ":" .. tostring({})
-	local hash = 5381
-	for i = 1, #seed do
-		hash = ((hash * 33) + strbyte(seed, i)) % 1000000000
-	end
-	return tostring(hash)
-end
-
-function Comms.NextRequestId(owner, fieldName, isUnavailable)
-	if type(owner) ~= "table" then
-		return nil
-	end
-	local key = fieldName or "_nextRequestId"
-	if type(isUnavailable) ~= "function" then
-		owner[key] = (tonumber(owner[key]) or 0) + 1
-		return tostring(owner[key])
-	end
-	local nonce = tostring(owner._requestSessionNonce or buildRequestSessionNonce())
-	owner._requestSessionNonce = nonce
-	local counter = floor(tonumber(owner[key]) or -1)
-	for _ = 1, 1024 do
-		counter = (counter + 1) % 1000000
-		local candidate = nonce .. "-" .. tostring(counter)
-		if #candidate <= 64 and isUnavailable(candidate) ~= true then
-			owner[key] = counter
-			return candidate
-		end
-	end
-	return nil, "request_id_exhausted"
 end
 
 function Comms:EnsureVersionPrefix()

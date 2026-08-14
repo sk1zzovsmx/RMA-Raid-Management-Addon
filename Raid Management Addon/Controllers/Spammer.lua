@@ -523,7 +523,8 @@ do
 			setInputsLocked(false)
 		else
 			ensureReadyForStart()
-			if not addon.WithinRange(strlen(finalOutput), 4, 255) then return end
+			local outputLength = strlen(finalOutput)
+			if outputLength < 4 or outputLength > 255 then return end
 			local store = Draft.GetStore()
 			local started, reason = StartRuntime(RuntimeSvc, {
 				duration = duration,

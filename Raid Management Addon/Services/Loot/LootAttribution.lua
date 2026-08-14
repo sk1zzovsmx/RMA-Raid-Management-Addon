@@ -73,6 +73,20 @@ local function getPendingAwardList(itemLink, looter)
 	return key, list
 end
 
+local function getPendingAwardListReadOnly(itemLink, looter)
+	local key = buildPendingAwardKey(itemLink, looter)
+	local list = lootState.pendingAwards[key]
+	if list then
+		return list
+	end
+
+	local rawLinkKey = buildPendingAwardKey(itemLink, looter, true)
+	if rawLinkKey ~= key then
+		return lootState.pendingAwards[rawLinkKey]
+	end
+	return nil
+end
+
 local function ensurePendingAwardList(itemLink, looter)
 	local key, list = getPendingAwardList(itemLink, looter)
 	if not list then
@@ -688,6 +702,52 @@ function LootAttribution.Remove(
 		lootState.pendingAwards[key] = nil
 	end
 	return nil
+end
+
+function LootAttribution.Prepare(
+	itemLink,
+	looter,
+	maxAge,
+	rollSessionId,
+	preferResolvedValue,
+	allowGroupLootPendingAwards
+)
+	local ttl = normalizePendingAwardTtl(maxAge)
+	local list = getPendingAwardListReadOnly(itemLink, looter)
+	if not list then
+		return nil
+	end
+
+	local now = GetTime()
+	local preferredSessionId = rollSessionId and tostring(rollSessionId) or nil
+	if preferredSessionId and preferredSessionId ~= "" then
+		local sessionIndex = findPendingAwardIndex(list, now, ttl, function(pending)
+			return shouldConsiderPendingForMode(pending, allowGroupLootPendingAwards)
+				and tostring(pending.rollSessionId or "") == preferredSessionId
+		end)
+		if sessionIndex then
+			return list[sessionIndex]
+		end
+	end
+
+	if preferResolvedValue then
+		local resolvedIndex = findPendingAwardIndex(list, now, ttl, function(pending)
+			return shouldConsiderPendingForMode(pending, allowGroupLootPendingAwards)
+				and hasResolvedPendingAwardValue(pending)
+		end)
+		if resolvedIndex then
+			return list[resolvedIndex]
+		end
+	end
+
+	local firstValidIndex = findPendingAwardIndex(list, now, ttl, function(pending)
+		return shouldConsiderPendingForMode(pending, allowGroupLootPendingAwards)
+	end)
+	return firstValidIndex and list[firstValidIndex] or nil
+end
+
+function LootAttribution.CommitPrepared(pendingAward)
+	return consumePendingAwardReference(pendingAward)
 end
 
 function LootAttribution.Refresh(itemLink, looter, maxAge, rollSessionId, expiresAt)

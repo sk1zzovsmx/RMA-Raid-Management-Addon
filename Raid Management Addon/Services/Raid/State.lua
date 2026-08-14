@@ -18,12 +18,22 @@ local Base64 = addon.Base64
 local IgnoredMobs = addon.IgnoredMobs or {}
 local LootSources = addon.LootSources
 local LootSourceCandidates = addon.LootSourceCandidates
+local Group = assert(addon.Group, "Raid state group helper owner is not initialized")
 
 local InternalEvents = assert(Events.Internal, "Raid state internal events are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Raid state event publisher is not initialized")
+local RegisterCallback = assert(Bus.RegisterCallback, "Raid state event listener is not initialized")
 local RaidCreateEvent = assert(InternalEvents.RaidCreate, "Raid state raid-create event is not initialized")
 local RaidAttendanceChangedEvent =
 	assert(InternalEvents.RaidAttendanceChanged, "Raid state attendance event is not initialized")
+local RaidAuthorityRecoveryFinishedEvent =
+	assert(InternalEvents.RaidAuthorityRecoveryFinished, "Raid authority recovery event is not initialized")
+local RaidReentryRecoveryReadyEvent =
+	assert(InternalEvents.RaidReentryRecoveryReady, "Raid re-entry recovery event is not initialized")
+local RaidReentryDecisionRequiredEvent =
+	assert(InternalEvents.RaidReentryDecisionRequired, "Raid re-entry decision-required event is not initialized")
+local RaidReentryDecisionResolvedEvent =
+	assert(InternalEvents.RaidReentryDecisionResolved, "Raid re-entry decision-resolved event is not initialized")
 
 local coreState = addon.State
 local raidState = addon.State.raid
@@ -32,7 +42,7 @@ if coreState.nextReset == nil then
 end
 
 local tinsert, twipe = table.insert, table.wipe
-local ipairs, type, select = ipairs, type, select
+local pairs, ipairs, type, select = pairs, ipairs, type, select
 
 local tostring, tonumber = tostring, tonumber
 local IsTrashMobName = IgnoredMobs.IsTrashMobName
@@ -45,9 +55,23 @@ local UnitName = assert(_G.UnitName, "Raid state unit name API is not initialize
 local UnitRace = UnitRace
 local GetInstanceInfo = assert(_G.GetInstanceInfo, "Raid state instance info API is not initialized")
 local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "Raid state roster count API is not initialized")
-local GetGroupTypeAndCount = addon.GetGroupTypeAndCount
+local GetGroupTypeAndCount = assert(Group.GetTypeAndCount, "Raid state group policy helper is not initialized")
 local BossIDs = addon.BossIDs
-local GetCreatureId = assert(addon.GetCreatureId, "Raid state creature-id helper is not initialized")
+
+local function countKeys(values)
+	local count = 0
+	for _ in pairs(values) do
+		count = count + 1
+	end
+	return count
+end
+
+local function getCreatureId(guid)
+	if type(guid) ~= "string" then
+		return 0
+	end
+	return tonumber(guid:sub(9, 12), 16) or 0
+end
 
 -- Raid helper module.
 -- Manages raid state, roster, boss kills, and loot logging.
@@ -55,6 +79,7 @@ do
 	addon.Services.EnsureNamespace("Raid")
 	local Raid = Services.Raid
 	local module = Raid
+	module.GetCreatureId = getCreatureId
 	local function scheduleRosterRefresh()
 		local schedule = assert(module._ScheduleRosterRefreshInternal, "Raid roster scheduler is not initialized")
 		return schedule()
@@ -63,6 +88,15 @@ do
 	local function cancelRosterRefresh()
 		local cancel = assert(module._CancelRosterRefreshInternal, "Raid roster cancellation is not initialized")
 		return cancel()
+	end
+
+	local function commitRaidEvent(raid, eventType, payload)
+		local raidStore = Database.GetRaidStore()
+		local raidUid = raidStore:GetRaidUid(raid)
+		if not raidUid then
+			return nil, "RAID_NOT_ACTIVE"
+		end
+		return raidStore:CommitAuthoritativeEvent(raidUid, eventType, payload)
 	end
 	-- ----- Internal state ----- --
 	local getRaidRosterInfo = GetRaidRosterInfo
@@ -77,6 +111,7 @@ do
 	local trimText = Strings.TrimText
 
 	local BOSS_KILL_DEDUPE_WINDOW_SECONDS = tonumber(C.BOSS_KILL_DEDUPE_WINDOW_SECONDS) or 30
+	local MAX_PENDING_BOSS_FACTS = 64
 	local BOSS_EVENT_CONTEXT_TTL_SECONDS = tonumber(C.BOSS_EVENT_CONTEXT_TTL_SECONDS) or BOSS_KILL_DEDUPE_WINDOW_SECONDS
 	local GROUP_LOOT_PENDING_AWARD_TTL_SECONDS = tonumber(C.GROUP_LOOT_PENDING_AWARD_TTL_SECONDS) or 60
 	local RECENT_LOOT_DEATH_CONTEXT_TTL_SECONDS = tonumber(C.RECENT_LOOT_DEATH_CONTEXT_TTL_SECONDS) or 8
@@ -91,12 +126,60 @@ do
 	local recentTrashDeathContextRaidNum = 0
 	local recentTrashDeathContextSeenAt = 0
 	local recentTrashDeathContextActivityAt = 0
+	local pendingBossFacts = {}
+	local pendingBossFactKeys = {}
+	local pendingAutomaticConclusion
 
 	-- ----- Private helpers ----- --
 	local isDebugEnabled = addon.Options.IsDebugEnabled
 
 	local function notifyRaidCreate(raidId)
 		TriggerEvent(RaidCreateEvent, raidId)
+	end
+
+	local function clearAuthorityRecoveryFacts()
+		pendingBossFacts = {}
+		pendingBossFactKeys = {}
+		pendingAutomaticConclusion = nil
+	end
+
+	local function isAuthorityRecovering(raidUid)
+		local syncer = addon.DB and addon.DB.Syncer
+		return raidUid ~= nil
+			and syncer ~= nil
+			and type(syncer.IsAuthorityRecovering) == "function"
+			and syncer:IsAuthorityRecovering(raidUid) == true
+	end
+
+	local function rememberPendingBossFact(raidUid, bossName, manDiff, sourceNpcId, observedAt)
+		local fact = {
+			raidUid = raidUid,
+			bossName = bossName,
+			manDiff = manDiff,
+			sourceNpcId = tonumber(sourceNpcId),
+			observedAt = tonumber(observedAt) or Time.GetCurrentTime(),
+		}
+		fact.key = table.concat({
+			fact.raidUid,
+			tostring(fact.sourceNpcId or fact.bossName),
+			tostring(fact.manDiff or 0),
+		}, "|")
+		local previous = pendingBossFactKeys[fact.key]
+		if previous then
+			local delta = fact.observedAt - previous.observedAt
+			if delta >= 0 and delta <= BOSS_KILL_DEDUPE_WINDOW_SECONDS then
+				return false
+			end
+		end
+		if #pendingBossFacts >= MAX_PENDING_BOSS_FACTS then
+			local discarded = table.remove(pendingBossFacts, 1)
+			if discarded and pendingBossFactKeys[discarded.key] == discarded then
+				pendingBossFactKeys[discarded.key] = nil
+			end
+		end
+		pendingBossFacts[#pendingBossFacts + 1] = fact
+		pendingBossFactKeys[fact.key] = fact
+		return true
 	end
 
 	local function isTraceEnabled()
@@ -127,7 +210,7 @@ do
 		masterLootCandidateCache.rosterVersion = currentRosterVersion
 		twipe(masterLootCandidateCache.indexByName)
 
-		for p = 1, addon.GetNumGroupMembers() do
+		for p = 1, Group.GetNumMembers() do
 			local candidate = GetMasterLootCandidate(p)
 			if candidate and candidate ~= "" then
 				masterLootCandidateCache.indexByName[candidate] = p
@@ -138,7 +221,7 @@ do
 			addon:debug(
 				Diag.D.LogMLCandidateCacheBuilt:format(
 					tostring(itemLink),
-					addon.tLength(masterLootCandidateCache.indexByName)
+					countKeys(masterLootCandidateCache.indexByName)
 				)
 			)
 		end
@@ -506,7 +589,7 @@ do
 			options = options or {}
 
 			local guid = UnitGUID(unit)
-			local npcId = guid and GetCreatureId(guid) or 0
+			local npcId = guid and getCreatureId(guid) or 0
 			if npcId <= 0 then
 				return nil
 			end
@@ -760,6 +843,13 @@ do
 			leave = nil,
 			countMS = 0,
 		}
+	end
+
+	local function resolveAddedPlayer(player, committed, commitResult)
+		if not committed then
+			return nil, commitResult
+		end
+		return player
 	end
 
 	local function ensureRaidPlayerNid(name, raidNum)
@@ -1152,8 +1242,6 @@ do
 		local players = {}
 
 		local bossNid = tonumber(raid.nextBossNid) or 1
-		raid.nextBossNid = bossNid + 1
-
 		local killInfo = {
 			bossNid = bossNid,
 			name = sourceName,
@@ -1168,8 +1256,10 @@ do
 			hash = Base64.Encode(raidNum .. "|" .. sourceName .. "|" .. bossNid),
 		}
 
-		tinsert(raid.bossKills, killInfo)
-		invalidateRaidRuntime(raid)
+		local committed = commitRaidEvent(raid, "BOSS_UPDATED", { boss = killInfo })
+		if not committed then
+			return 0
+		end
 
 		if source.kind == "boss" then
 			Database.SetLastBoss(bossNid)
@@ -1459,7 +1549,16 @@ do
 	local function finalizeRaidRecord(raidNum, currentTime, deferAttendancePublication)
 		local raid = Database.EnsureRaidByIndex(raidNum)
 		if not raid then
-			return
+			return false, "RAID_NOT_FOUND"
+		end
+		local raidStore = Database.GetRaidStore()
+		local raidUid = raidStore:GetRaidUid(raid)
+		if not raidUid then
+			return false, "RAID_NOT_ACTIVE"
+		end
+		local event, reason = raidStore:ConcludeActiveRaid(raidUid, currentTime)
+		if not event then
+			return false, reason or "CONCLUSION_FAILED"
 		end
 		local duration = currentTime - (raid.startTime or currentTime)
 		addon:info(
@@ -1472,23 +1571,11 @@ do
 				duration
 			)
 		)
-		for _, player in ipairs(raid.players) do
-			if not player.leave then
-				player.leave = currentTime
-			end
-		end
-		raid.endTime = currentTime
-		local attendanceChanged, attendanceRaidNid
-		if type(module.CloseAttendanceForRaid) == "function" then
-			attendanceChanged, attendanceRaidNid = module:CloseAttendanceForRaid(
-				raid, currentTime, "raid_end", deferAttendancePublication
-			)
-		end
-		return attendanceChanged, attendanceRaidNid
+		return true, tonumber(raid.raidNid)
 	end
 
 	-- Creates a new raid log entry.
-	function module:Create(zoneName, raidSize, raidDiff)
+	function module:Create(zoneName, raidSize, raidDiff, deferRaidCreate)
 		if not addon.IsInRaid() then
 			return false
 		end
@@ -1525,18 +1612,7 @@ do
 			return historyOk == true and rosterOk == true
 		end
 
-		local createOk, raidInfo = pcall(raidStore.CreateRaidRecord, raidStore, {
-			realm = realm,
-			zone = zoneName,
-			size = raidSize,
-			difficulty = tonumber(instanceDiff) or nil,
-			startTime = currentTime,
-		})
-		if not createOk or not raidInfo then
-			rollbackCreate()
-			return false
-		end
-
+		local pendingPlayers = {}
 		for i = 1, num do
 			local name, rank, subgroup, level, classL, class = getRaidRosterInfo(i)
 			if name then
@@ -1544,7 +1620,7 @@ do
 				local raceL, race = UnitRace(unitID)
 
 				local p = {
-					playerNid = raidInfo.nextPlayerNid,
+					playerNid = #pendingPlayers + 1,
 					name = name,
 					rank = rank or 0,
 					subgroup = subgroup or 1,
@@ -1553,27 +1629,14 @@ do
 					leave = nil,
 					countMS = 0,
 				}
-				raidInfo.nextPlayerNid = (tonumber(raidInfo.nextPlayerNid) or 1) + 1
-
-				tinsert(raidInfo.players, p)
+				tinsert(pendingPlayers, p)
 
 				pendingPlayerMeta[#pendingPlayerMeta + 1] = { name, unitID, level, race, raceL, class, classL }
 			end
 		end
 
-		local insertOk, _, raidId = pcall(raidStore.InsertRaid, raidStore, raidInfo)
-		if not insertOk or not raidId then
-			rollbackCreate()
-			return false
-		end
-
-		local switchOk, switchedRaidId = pcall(Database.SetCurrentRaid, raidId)
-		if not switchOk or switchedRaidId ~= raidId then
-			rollbackCreate()
-			return false
-		end
 		local attendanceChanged, attendanceRaidNid
-		local commitOk = pcall(function()
+		local commitOk, commitError = pcall(function()
 			if createState.currentRaid then
 				if type(module.CancelInstanceChecks) == "function" then
 					module:CancelInstanceChecks()
@@ -1582,30 +1645,52 @@ do
 				-- Preserve the historical callback context while the old raid closes.
 				coreState.currentRaid = createState.currentRaid
 				attendanceChanged, attendanceRaidNid = finalizeRaidRecord(createState.currentRaid, currentTime, true)
-				coreState.currentRaid = raidId
+				coreState.currentRaid = nil
 				Database.SetLastBoss(nil)
 			end
+			local raidInfo, raidId = raidStore:CreateActiveRaid({
+				authorityKey = Database.GetPlayerName(),
+				serverTime = currentTime,
+				realm = realm,
+				zone = zoneName,
+				size = raidSize,
+				difficulty = tonumber(instanceDiff) or nil,
+				players = pendingPlayers,
+				nextPlayerNid = #pendingPlayers + 1,
+			})
+			if not raidInfo then
+				error(raidId or "RAID_CREATE_FAILED", 0)
+			end
+			assert(Database.SetCurrentRaid(raidId) == raidId)
 			module:CommitRosterSession(realm, pendingPlayerMeta, num)
 			resetLootContextState()
+			createState.createdRaid = raidInfo
 		end)
 		if not commitOk then
 			rollbackCreate()
-			return false
+			return false, commitError
 		end
 
 		if attendanceChanged and attendanceRaidNid then
 			TriggerEvent(RaidAttendanceChangedEvent, attendanceRaidNid, "raid_end")
 		end
-		notifyRaidCreate(Database.GetCurrentRaid())
+		local createdRaidId = Database.GetCurrentRaid()
+		if deferRaidCreate ~= true then
+			notifyRaidCreate(createdRaidId)
+		end
 
 		-- Publication is the commit point. Diagnostics and scheduling are
 		-- failure-isolated because they cannot roll back listener side effects.
-		local logged, logError = pcall(addon.info, addon, Diag.I.LogRaidCreated:format(
-			Database.GetCurrentRaid() or -1,
-			tostring(zoneName),
-			tonumber(raidSize) or -1,
-			#raidInfo.players
-		))
+		local logged, logError = pcall(
+			addon.info,
+			addon,
+			Diag.I.LogRaidCreated:format(
+				Database.GetCurrentRaid() or -1,
+				tostring(zoneName),
+				tonumber(raidSize) or -1,
+				#pendingPlayers
+			)
+		)
 		if not logged and type(addon.error) == "function" then
 			pcall(addon.error, addon, tostring(logError))
 		end
@@ -1615,24 +1700,97 @@ do
 		if not scheduled and type(addon.error) == "function" then
 			pcall(addon.error, addon, tostring(scheduleError))
 		end
+		return true, nil, deferRaidCreate == true and createdRaidId or nil
+	end
+
+	function module:NotifyDeferredRaidCreate(raidId)
+		if raidId == nil or Database.GetCurrentRaid() ~= raidId then
+			return false, "RAID_NOT_CURRENT"
+		end
+		notifyRaidCreate(raidId)
 		return true
 	end
 
-	-- Ends the current raid log entry, marking end time.
-	function module:End()
+	function module:ApplyReentryDecision(raidUid, decision, context)
+		if type(context) ~= "table" then
+			return false, "INVALID_RAID_CONTEXT"
+		end
+		local raidStore = Database.GetRaidStore()
+		if decision == "new" and raidUid == nil then
+			Database.SetCurrentRaid(nil)
+			local created, reason, deferredRaidId = module:Create(context.zone, context.size, context.difficulty, true)
+			local active = raidStore:GetActiveRecord()
+			return created == true, created and active and raidStore:GetRaidUid(active.state) or reason, deferredRaidId
+		end
+		local record = raidStore:GetRecord(raidUid)
+		local index = raidStore:GetIndexByUid(raidUid)
+		if not record or record.status ~= "active" or not index then
+			return false, "RAID_NOT_ACTIVE"
+		end
+		if decision == "resume" then
+			if record.state.zone ~= context.zone
+				or tonumber(record.state.size) ~= tonumber(context.size)
+				or tonumber(record.state.difficulty) ~= tonumber(context.difficulty)
+			then
+				return false, "RAID_CONTEXT_MISMATCH"
+			end
+			Database.SetCurrentRaid(index)
+			scheduleRosterRefresh()
+			return true, raidUid
+		end
+		if decision == "replace" then
+			Database.SetCurrentRaid(index)
+			local created, reason, deferredRaidId = module:Create(context.zone, context.size, context.difficulty, true)
+			local active = raidStore:GetActiveRecord()
+			return created == true, created and active and raidStore:GetRaidUid(active.state) or reason, deferredRaidId
+		end
+		return false, "INVALID_REENTRY_DECISION"
+	end
+
+	local function endRaidAt(currentTime)
+		if not Database.GetCurrentRaid() then
+			return false, "RAID_NOT_ACTIVE"
+		end
+		local ended, reason = finalizeRaidRecord(Database.GetCurrentRaid(), currentTime)
+		if not ended then
+			return false, reason
+		end
 		if type(module.CancelInstanceChecks) == "function" then
 			module:CancelInstanceChecks()
 		end
-		if not Database.GetCurrentRaid() then
-			return
-		end
-		-- Stop any pending roster update when ending the raid
+		-- Stop pending runtime work only after the conclusion commits.
 		cancelRosterRefresh()
-		local currentTime = Time.GetCurrentTime()
-		finalizeRaidRecord(Database.GetCurrentRaid(), currentTime)
 		Database.SetCurrentRaid(nil)
 		Database.SetLastBoss(nil)
 		resetLootContextState()
+		return true
+	end
+
+	-- Ends the current raid log entry, marking end time. Automatic callers may
+	-- request one recovery retry; manual requests remain explicit user actions.
+	function module:End(isAutomatic)
+		local raidNum = Database.GetCurrentRaid()
+		if not raidNum then
+			return false, "RAID_NOT_ACTIVE"
+		end
+		local raid = Database.EnsureRaidByIndex(raidNum)
+		local raidStore = Database.GetRaidStore()
+		local raidUid = raid and raidStore:GetRaidUid(raid) or nil
+		local currentTime = Time.GetCurrentTime()
+		if isAuthorityRecovering(raidUid) then
+			if isAutomatic == true then
+				pendingAutomaticConclusion = { raidUid = raidUid, endTime = currentTime }
+			end
+			return false, "AUTHORITY_RECOVERING"
+		end
+		local ended, reason = endRaidAt(currentTime)
+		if not ended and reason == "AUTHORITY_RECOVERING" and isAutomatic == true and raidUid then
+			pendingAutomaticConclusion = { raidUid = raidUid, endTime = currentTime }
+		end
+		if ended and pendingAutomaticConclusion and pendingAutomaticConclusion.raidUid == raidUid then
+			pendingAutomaticConclusion = nil
+		end
+		return ended, reason
 	end
 
 	-- Performs an initial raid check on player login.
@@ -1683,40 +1841,28 @@ do
 		Database.EnsureRaidSchema(raid)
 
 		local players = module:GetPlayers(raidNum)
-		local found = false
 		local nextPlayerNid = tonumber(raid.nextPlayerNid) or 1
 
-		for i, p in ipairs(players) do
+		for _, p in ipairs(players) do
 			if t.name == p.name then
 				t.countMS = t.countMS or p.countMS or 0
 				t.playerNid = tonumber(t.playerNid) or tonumber(p.playerNid) or nextPlayerNid
-				if tonumber(t.playerNid) >= nextPlayerNid then
-					raid.nextPlayerNid = tonumber(t.playerNid) + 1
-				end
-				raid.players[i] = t
-				found = true
-				break
+				local committed, commitResult = commitRaidEvent(raid, "PLAYER_UPDATED", { player = t })
+				return resolveAddedPlayer(t, committed, commitResult)
 			end
 		end
 
-		if not found then
-			t.countMS = t.countMS or 0
-			t.playerNid = tonumber(t.playerNid) or nextPlayerNid
-			raid.nextPlayerNid = tonumber(t.playerNid) + 1
-			tinsert(raid.players, t)
-			if isTraceEnabled() then
-				addon:trace(Diag.D.LogRaidPlayerJoin:format(tostring(t.name), tonumber(raidNum) or -1))
-			end
-		else
-			if isTraceEnabled() then
-				addon:trace(Diag.D.LogRaidPlayerRefresh:format(tostring(t.name), tonumber(raidNum) or -1))
-			end
+		t.countMS = t.countMS or 0
+		t.playerNid = tonumber(t.playerNid) or nextPlayerNid
+		local committed, commitResult = commitRaidEvent(raid, "PLAYER_UPDATED", { player = t })
+		if committed and isTraceEnabled() then
+			addon:trace(Diag.D.LogRaidPlayerJoin:format(tostring(t.name), tonumber(raidNum) or -1))
 		end
-		invalidateRaidRuntime(raid)
+		return resolveAddedPlayer(t, committed, commitResult)
 	end
 
 	-- Adds a boss kill to the active raid log.
-	function module:AddBoss(bossName, manDiff, raidNum, sourceNpcId)
+	function module:AddBoss(bossName, manDiff, raidNum, sourceNpcId, observedAt)
 		sourceNpcId = tonumber(sourceNpcId)
 		local sourceKind = sourceNpcId and classifyNpcLootSource(sourceNpcId) or nil
 		if sourceKind == "ignored" then
@@ -1737,6 +1883,14 @@ do
 			end
 			return 0
 		end
+		local raidStore = Database.GetRaidStore()
+		local activeRecord = type(raidStore.GetActiveRecord) == "function" and raidStore:GetActiveRecord() or nil
+		local activeRaid = activeRecord and activeRecord.state or nil
+		local activeRaidUid = activeRaid and raidStore:GetRaidUid(activeRaid) or nil
+		if raidNum == Database.GetCurrentRaid() and isAuthorityRecovering(activeRaidUid) then
+			rememberPendingBossFact(activeRaidUid, bossName, manDiff, sourceNpcId, observedAt)
+			return 0, "AUTHORITY_RECOVERING"
+		end
 		local isTrashBoss = IsTrashMobName(bossName)
 
 		local raid = Database.EnsureRaidByIndex(raidNum)
@@ -1753,7 +1907,7 @@ do
 			end
 		end
 
-		local currentTime = Time.GetCurrentTime()
+		local currentTime = tonumber(observedAt) or Time.GetCurrentTime()
 		local bossSource = sourceNpcId and "UNIT_DIED" or "YELL"
 		local existingBoss, delta = findRecentBossKillByName(raid, bossName, currentTime)
 		if existingBoss then
@@ -1781,7 +1935,7 @@ do
 
 		local players = {}
 		local seenPlayers = {}
-		for unit in addon.UnitIterator(true) do
+		for unit in Group.IterateUnits(true) do
 			if UnitIsConnected(unit) then
 				local name = UnitName(unit)
 				if name then
@@ -1796,8 +1950,6 @@ do
 		end
 
 		local bossNid = tonumber(raid.nextBossNid) or 1
-		raid.nextBossNid = bossNid + 1
-
 		local killInfo = {
 			bossNid = bossNid,
 			name = bossName,
@@ -1809,8 +1961,10 @@ do
 			hash = Base64.Encode(raidNum .. "|" .. bossName .. "|" .. bossNid),
 		}
 
-		tinsert(raid.bossKills, killInfo)
-		invalidateRaidRuntime(raid)
+		local committed, commitResult = commitRaidEvent(raid, "BOSS_UPDATED", { boss = killInfo })
+		if not committed then
+			return 0, commitResult
+		end
 		Database.SetLastBoss(bossNid)
 		if not isTrashBoss then
 			setBossEventContext(raidNum, bossNid, bossName, bossSource, currentTime)
@@ -1925,8 +2079,7 @@ do
 			return
 		end
 
-		-- LibCompat embeds GetCreatureId with the 3.3.5a GUID parsing rules.
-		local npcId = destGUID and GetCreatureId(destGUID)
+		local npcId = destGUID and getCreatureId(destGUID)
 		local sourceKind, sourceNpcId, sourceBossName = classifyNpcLootSource(npcId)
 		if sourceKind == "ignored" then
 			if isTraceEnabled() then
@@ -1962,4 +2115,81 @@ do
 			)
 		end
 	end
+
+	local function replayPendingBossFacts(raidUid)
+		local facts = pendingBossFacts
+		local now = Time.GetCurrentTime()
+		pendingBossFacts = {}
+		pendingBossFactKeys = {}
+		for i = 1, #facts do
+			local fact = facts[i]
+			local age = now - fact.observedAt
+			if fact.raidUid == raidUid and age >= 0 and age <= BOSS_KILL_DEDUPE_WINDOW_SECONDS then
+				module:AddBoss(fact.bossName, fact.manDiff, nil, fact.sourceNpcId, fact.observedAt)
+			end
+		end
+	end
+
+	local function retryAutomaticConclusion(raidUid)
+		local conclusion = pendingAutomaticConclusion
+		pendingAutomaticConclusion = nil
+		if conclusion and conclusion.raidUid == raidUid then
+			return endRaidAt(conclusion.endTime)
+		end
+		return false
+	end
+
+	function module:_ReplayAuthorityRecovery(raidUid, succeeded, reason)
+		if succeeded ~= true then
+			clearAuthorityRecoveryFacts()
+			return false, reason
+		end
+
+		local raidNum = Database.GetCurrentRaid()
+		local raid = raidNum and Database.EnsureRaidByIndex(raidNum) or nil
+		local currentRaidUid = raid and Database.GetRaidStore():GetRaidUid(raid) or nil
+		local lostAuthority = type(module.IsRaidLeader) == "function" and module:IsRaidLeader() ~= true
+		if currentRaidUid ~= raidUid then
+			clearAuthorityRecoveryFacts()
+			return false, "RAID_UID_MISMATCH"
+		end
+		if isAuthorityRecovering(raidUid) then
+			clearAuthorityRecoveryFacts()
+			return false, "AUTHORITY_RECOVERING"
+		end
+		if lostAuthority then
+			clearAuthorityRecoveryFacts()
+			return false, "NOT_RAID_LEADER"
+		end
+
+		module:RefreshAndPublish()
+		replayPendingBossFacts(raidUid)
+		local loot = Services.Loot
+		if loot and type(loot.ReplayAuthorityRecoveryFacts) == "function" then
+			loot:ReplayAuthorityRecoveryFacts(raidUid)
+		end
+		retryAutomaticConclusion(raidUid)
+		return true
+	end
+
+	RegisterCallback(RaidAuthorityRecoveryFinishedEvent, function(_, raidUid, succeeded, reason)
+		module:_ReplayAuthorityRecovery(raidUid, succeeded, reason)
+	end)
+
+	RegisterCallback(RaidReentryRecoveryReadyEvent, function(_, summary)
+		local raid = type(summary) == "table" and summary.raid or nil
+		local context = type(summary) == "table" and summary.context or nil
+		if type(context) ~= "table" then
+			return
+		end
+		if raid and raid.zone == context.zone
+			and tonumber(raid.size) == tonumber(context.size)
+			and tonumber(raid.difficulty) == tonumber(context.difficulty)
+		then
+			TriggerEvent(RaidReentryDecisionRequiredEvent, summary)
+		else
+			TriggerEvent(RaidReentryDecisionResolvedEvent, summary and summary.raidUid or nil,
+				raid and "replace" or "new", context)
+		end
+	end)
 end

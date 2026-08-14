@@ -13,8 +13,8 @@ local Deformat = addon.Deformat
 local Options = addon.Options
 local Services = addon.Services
 local Strings = addon.Strings
-
-local GetGroupTypeAndCount = assert(addon.GetGroupTypeAndCount, "Chat group policy helper is not initialized")
+local Group = assert(addon.Group, "Chat group helper owner is not initialized")
+local GetGroupTypeAndCount = assert(Group.GetTypeAndCount, "Chat group policy helper is not initialized")
 
 local find = string.find
 local len = string.len

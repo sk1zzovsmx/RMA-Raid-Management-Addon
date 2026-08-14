@@ -29,8 +29,8 @@ local function printHelp(usage, description)
 	local colors = addon.Colors
 	local color = addon.C and addon.C.MA_COLOR
 	local text = "/rma debug " .. usage
-	if colors and color and addon.WrapTextInColorCode then
-		text = addon.WrapTextInColorCode(text, colors.NormalizeHexColor(color))
+	if colors and color and colors.WrapText then
+		text = colors.WrapText(text, colors.NormalizeHexColor(color))
 	end
 	addon:info("%s: %s", text, description)
 end

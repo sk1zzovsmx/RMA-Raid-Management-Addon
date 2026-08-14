@@ -316,12 +316,12 @@ function Frames.GetRef(frameOrName, childName)
 		return _G[childName]
 	end
 
-	local exact = _G[childName]
-	if exact then
-		return exact
+	local owned = _G[frameName .. childName]
+	if owned then
+		return owned
 	end
 
-	return _G[frameName .. childName]
+	return _G[childName]
 end
 
 function Frames.GetNamedParts(widget, parts, cacheField)

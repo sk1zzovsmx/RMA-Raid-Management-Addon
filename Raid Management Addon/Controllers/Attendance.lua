@@ -744,8 +744,7 @@ local function selectAttendanceRaid(btn, button)
 	if button and button ~= "LeftButton" then
 		return
 	end
-	local raidNid = btn and btn.GetID and btn:GetID()
-	local raidId = raidNid and Database.GetRaidIndexByNid(raidNid) or nil
+	local raidId = btn and btn.GetID and btn:GetID()
 	setAttendanceSelectedRaid(raidId)
 end
 
@@ -993,9 +992,7 @@ attendanceRaidsController = makeAttendanceList(
 	},
 	"attendanceSelectedRaid",
 	{
-		transform = function(id)
-			return Database.GetRaidNidByIndex(id)
-		end,
+		transform = function(id) return id end,
 		debugTag = "RaidAttendanceSelectRaid",
 	}
 )

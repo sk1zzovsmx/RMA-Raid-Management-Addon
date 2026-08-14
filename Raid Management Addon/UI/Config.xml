@@ -524,21 +524,12 @@
 								<FontString name="$parentTitle" inherits="GameFontNormalLarge" justifyH="LEFT" />
 								<FontString name="$parentReportTitle" inherits="GameFontNormalSmall" justifyH="LEFT" />
 								<FontString name="$parentReportSummary" inherits="GameFontHighlightSmall" justifyH="LEFT" justifyV="TOP" />
-								<FontString name="$parentSyncTitle" inherits="GameFontNormalSmall" justifyH="LEFT" />
-								<FontString name="$parentPersistentSyncStr" inherits="RMAConfigFontStringTemplate" />
-								<FontString name="$parentPersistentSyncDesc" inherits="RMAConfigDescriptionFontStringTemplate" />
 								<FontString name="$parentIgnoreGroupLootStr" inherits="RMAConfigFontStringTemplate" />
 								<FontString name="$parentIgnoreGroupLootDesc" inherits="RMAConfigDescriptionFontStringTemplate" />
 								<FontString name="$parentIgnoreSelectionThresholdStr" inherits="RMAConfigFontStringTemplate" />
 								<FontString name="$parentIgnoreSelectionThresholdDesc" inherits="RMAConfigDescriptionFontStringTemplate" />
 								<FontString name="$parentLoggerLootQualityTitle" inherits="GameFontHighlightSmall" justifyH="LEFT" />
 								<FontString name="$parentLoggerLootQualityDesc" inherits="RMAConfigDescriptionFontStringTemplate" />
-								<FontString name="$parentRequireDatabaseTitle" inherits="GameFontHighlightSmall" justifyH="LEFT" />
-								<FontString name="$parentRequireDatabaseDesc" inherits="RMAConfigDescriptionFontStringTemplate" />
-								<FontString name="$parentPushDatabaseTitle" inherits="GameFontHighlightSmall" justifyH="LEFT" />
-								<FontString name="$parentPushDatabaseDesc" inherits="RMAConfigDescriptionFontStringTemplate" />
-								<FontString name="$parentSyncNowTitle" inherits="GameFontHighlightSmall" justifyH="LEFT" />
-								<FontString name="$parentSyncNowDesc" inherits="RMAConfigDescriptionFontStringTemplate" />
 								<FontString name="$parentDataHealthTitle" inherits="GameFontNormalSmall" justifyH="LEFT" />
 								<FontString name="$parentScanHistoryTitle" inherits="GameFontHighlightSmall" justifyH="LEFT" />
 								<FontString name="$parentScanHistoryDesc" inherits="RMAConfigDescriptionFontStringTemplate" />
@@ -552,16 +543,10 @@
 							</Layer>
 						</Layers>
 						<Frames>
-							<CheckButton name="$parentPersistentSyncCheck" inherits="RMAConfigCheckButtonTemplate" />
 							<CheckButton name="$parentIgnoreGroupLootCheck" inherits="RMAConfigCheckButtonTemplate" />
 							<CheckButton name="$parentIgnoreSelectionThresholdCheck" inherits="RMAConfigCheckButtonTemplate" />
 							<Frame name="$parentLoggerLootQualityDropDown" inherits="UIDropDownMenuTemplate">
 							</Frame>
-							<EditBox name="$parentRequireDatabaseEditBox" inherits="RMATextInputTemplate" letters="32" />
-							<Button name="$parentRequireDatabaseBtn" inherits="RMAActionButtonTemplate" />
-							<EditBox name="$parentPushDatabaseEditBox" inherits="RMATextInputTemplate" letters="32" />
-							<Button name="$parentPushDatabaseBtn" inherits="RMAActionButtonTemplate" />
-							<Button name="$parentSyncNowBtn" inherits="RMAActionButtonTemplate" />
 							<Button name="$parentScanHistoryBtn" inherits="RMAActionButtonTemplate" />
 							<Button name="$parentPurgeHistoryBtn" inherits="RMAActionButtonTemplate" />
 							<Button name="$parentRebuildSourcesBtn" inherits="RMAActionButtonTemplate" />
