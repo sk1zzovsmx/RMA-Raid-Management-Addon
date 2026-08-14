@@ -45,10 +45,6 @@ do
 		return normalizeRaid(raid)
 	end
 
-	local function ensureRuntime(raid)
-		return Database.GetRaidStore():GetRaidRuntimeForRead(raid)
-	end
-
 	local function getCollection(value)
 		return type(value) == "table" and value or {}
 	end
@@ -71,28 +67,32 @@ do
 		return row
 	end
 
-	local function collectCanonicalTables(value, canonicalTables)
-		if type(value) ~= "table" or canonicalTables[value] then
-			return
-		end
-		canonicalTables[value] = true
-		for _, item in pairs(value) do
-			collectCanonicalTables(item, canonicalTables)
-		end
+	local function isTopLevelCanonicalTable(raid, value)
+		return value == raid
+			or value == raid.players
+			or value == raid.bossKills
+			or value == raid.loot
+			or value == raid.attendance
+			or value == raid.changes
 	end
 
-	local function prepareOutputRows(raid, out)
-		local canonicalTables = {}
-		collectCanonicalTables(raid, canonicalTables)
-		if type(out) ~= "table" or canonicalTables[out] then
-			return {}, canonicalTables
+	local function prepareOutputRows(raid, source, out)
+		-- out is caller-owned; only supported top-level and source-row aliases are guarded.
+		local sourceRows = {}
+		for i = 1, #source do
+			if type(source[i]) == "table" then
+				sourceRows[source[i]] = true
+			end
 		end
-		return out, canonicalTables
+		if type(out) ~= "table" or isTopLevelCanonicalTable(raid, out) then
+			return {}, sourceRows
+		end
+		return out, sourceRows
 	end
 
-	local function acquireOutputRow(rows, index, canonicalTables)
+	local function acquireOutputRow(rows, index, sourceRows)
 		local row = rows[index]
-		if type(row) ~= "table" or canonicalTables[row] then
+		if type(row) ~= "table" or sourceRows[row] then
 			row = {}
 			rows[index] = row
 			return row
@@ -123,7 +123,7 @@ do
 			end
 		end
 
-		for i = 1, #players do
+		for i = #players, 1, -1 do
 			local player = players[i]
 			if type(player) == "table" and tonumber(player.playerNid) == queryNid then
 				return player
@@ -139,7 +139,7 @@ do
 		end
 
 		local bosses = getCollection(raid and raid.bossKills)
-		for i = 1, #bosses do
+		for i = #bosses, 1, -1 do
 			local boss = bosses[i]
 			if type(boss) == "table" and tonumber(boss.bossNid) == resolvedBossNid then
 				return boss
@@ -246,7 +246,7 @@ do
 			return indexedEntry
 		end
 
-		for i = 1, #attendance do
+		for i = #attendance, 1, -1 do
 			local entry = attendance[i]
 			if type(entry) == "table" and tonumber(entry.playerNid) == queryNid then
 				return entry
@@ -315,7 +315,6 @@ do
 
 	function module:ResolveLootLooterName(raid, loot, runtime)
 		raid = normalizeRaid(raid)
-		runtime = runtime or ensureRuntime(raid)
 		return resolveLootLooterName(raid, runtime, loot)
 	end
 
@@ -357,9 +356,9 @@ do
 		if type(raid) ~= "table" then
 			return nil, normalizeError
 		end
-		local rows, canonicalTables = prepareOutputRows(raid, out)
-		local count = 0
 		local bosses = getCollection(raid and raid.bossKills)
+		local rows, sourceRows = prepareOutputRows(raid, bosses, out)
+		local count = 0
 		for i = 1, #bosses do
 			local boss = bosses[i]
 			if type(boss) == "table" then
@@ -369,7 +368,7 @@ do
 				end
 				local killTime = tonumber(boss.time) or 0
 				count = count + 1
-				local row = acquireOutputRow(rows, count, canonicalTables)
+				local row = acquireOutputRow(rows, count, sourceRows)
 				row.id = tonumber(boss.bossNid)
 				row.seq = i
 				row.name = boss.name or ""
@@ -389,20 +388,19 @@ do
 		if type(raid) ~= "table" then
 			return nil, normalizeError
 		end
-		local rows, canonicalTables = prepareOutputRows(raid, out)
-		local count = 0
 		local players = getCollection(raid and raid.players)
-		local runtime = raid and ensureRuntime(raid) or nil
+		local rows, sourceRows = prepareOutputRows(raid, players, out)
+		local count = 0
 		for i = 1, #players do
 			local player = players[i]
 			if type(player) == "table" then
 				local joinTime = tonumber(player.join)
 				local leaveTime = tonumber(player.leave)
-				local attendanceEntry = getAttendanceEntry(raid, runtime, player.playerNid)
+				local attendanceEntry = getAttendanceEntry(raid, nil, player.playerNid)
 				local totalSeconds, onlineSeconds, offlineSeconds, segmentCount =
 					summarizeAttendance(attendanceEntry, joinTime, leaveTime)
 				count = count + 1
-				local row = acquireOutputRow(rows, count, canonicalTables)
+				local row = acquireOutputRow(rows, count, sourceRows)
 				row.id = tonumber(player.playerNid)
 				row.name = player.name
 				row.class = player.class
@@ -426,40 +424,33 @@ do
 		if type(raid) ~= "table" then
 			return nil, normalizeError
 		end
-		local rows, canonicalTables = prepareOutputRows(raid, out)
+		local players = getCollection(raid.players)
+		local rows, sourceRows = prepareOutputRows(raid, players, out)
 		local count = 0
 		local queryNid = tonumber(bossNid)
 		if not (raid and queryNid) then
 			return clearOutputTail(rows, count)
 		end
 
-		local runtime = ensureRuntime(raid)
-		local bosses = getCollection(raid.bossKills)
-		local bossIdxByNid = runtime and runtime.bossIdxByNid or nil
-		local bossKill = bossIdxByNid and bosses[bossIdxByNid[queryNid]] or nil
+		local bossKill = findBossByNid(raid, queryNid)
 		if not (type(bossKill) == "table" and isBossFightRecord(bossKill) and type(bossKill.players) == "table") then
 			return clearOutputTail(rows, count)
 		end
 
-		local setByBossNid = runtime and runtime.bossPlayerSetByBossNid or nil
-		local set = setByBossNid and setByBossNid[queryNid] or nil
-		if type(set) ~= "table" then
-			set = {}
-			for i = 1, #bossKill.players do
-				local playerNid = tonumber(bossKill.players[i])
-				if playerNid and playerNid > 0 then
-					set[playerNid] = true
-				end
+		local set = {}
+		for i = 1, #bossKill.players do
+			local playerNid = tonumber(bossKill.players[i])
+			if playerNid and playerNid > 0 then
+				set[playerNid] = true
 			end
 		end
 
-		local players = getCollection(raid.players)
 		for i = 1, #players do
 			local player = players[i]
 			local playerNid = type(player) == "table" and tonumber(player.playerNid) or nil
 			if type(player) == "table" and player.name and playerNid and set[playerNid] then
 				count = count + 1
-				local row = acquireOutputRow(rows, count, canonicalTables)
+				local row = acquireOutputRow(rows, count, sourceRows)
 				row.id = playerNid
 				row.name = player.name
 				row.class = player.class
@@ -475,65 +466,42 @@ do
 		if type(raid) ~= "table" then
 			return nil, normalizeError
 		end
-		local rows, canonicalTables = prepareOutputRows(raid, out)
+		local lootRows = getCollection(raid and raid.loot)
+		local rows, sourceRows = prepareOutputRows(raid, lootRows, out)
 		local count = 0
 		local bossFilterNid = tonumber(bossNid)
 		local hasBossFilter = bossFilterNid and bossFilterNid > 0
 		local hasPlayerFilter = playerName and playerName ~= ""
-		local runtime = raid and ensureRuntime(raid) or nil
 		local playerFilterNid = nil
 		if hasPlayerFilter then
 			local queryName = tostring(playerName)
-			local playerNidByName = runtime and runtime.playerNidByName or nil
-			playerFilterNid = playerNidByName and tonumber(playerNidByName[queryName]) or nil
-			if not playerFilterNid then
-				local players = getCollection(raid and raid.players)
-				for i = #players, 1, -1 do
-					local player = players[i]
-					if type(player) == "table" and player.name == queryName then
-						playerFilterNid = tonumber(player.playerNid)
-						break
-					end
+			local players = getCollection(raid and raid.players)
+			for i = #players, 1, -1 do
+				local player = players[i]
+				if type(player) == "table" and player.name == queryName then
+					playerFilterNid = tonumber(player.playerNid)
+					break
 				end
 			end
-		end
-
-		local bosses = getCollection(raid and raid.bossKills)
-		local bossIdxByNid = runtime and runtime.bossIdxByNid or nil
-		local lootRows = getCollection(raid and raid.loot)
-		local lootIndexList = nil
-		local lootIdxByBossNid = runtime and runtime.lootIdxByBossNid or nil
-		local lootIdxByLooterNid = runtime and runtime.lootIdxByLooterNid or nil
-		local bossIndexList = hasBossFilter and lootIdxByBossNid and lootIdxByBossNid[bossFilterNid] or nil
-		local looterIndexList = playerFilterNid and lootIdxByLooterNid and lootIdxByLooterNid[playerFilterNid] or nil
-		if type(bossIndexList) == "table" and type(looterIndexList) == "table" then
-			lootIndexList = (#bossIndexList <= #looterIndexList) and bossIndexList or looterIndexList
-		elseif type(bossIndexList) == "table" then
-			lootIndexList = bossIndexList
-		elseif type(looterIndexList) == "table" then
-			lootIndexList = looterIndexList
-		elseif hasBossFilter or playerFilterNid then
-			lootIndexList = {}
 		end
 
 		local function appendLootRow(loot)
 			if type(loot) == "table" then
 				local looterNid = nil
 				local looterName = nil
-				looterName, looterNid = resolveLootLooterName(raid, runtime, loot)
+				looterName, looterNid = resolveLootLooterName(raid, nil, loot)
 				local okBoss = (not hasBossFilter) or (tonumber(loot.bossNid) == bossFilterNid)
 				local okPlayer = not hasPlayerFilter
 					or (playerFilterNid and looterNid and playerFilterNid == looterNid)
 					or ((not playerFilterNid) and looterName and looterName == playerName)
 				if okBoss and okPlayer then
 					local lootTime = tonumber(loot.time) or 0
-					local sourceBossIndex = bossIdxByNid and bossIdxByNid[tonumber(loot.bossNid)] or nil
-					local sourceBoss = sourceBossIndex and bosses[sourceBossIndex] or nil
+					local sourceBoss = findBossByNid(raid, loot.bossNid)
 					local sourceName, sourceKind, sourceCandidates, sourceKey =
 						LootSourceCandidates.ResolveSourceMetadata(loot, sourceBoss)
-					local looterPlayer = looterNid and getPlayerByNid(raid, runtime, looterNid) or nil
+					local looterPlayer = looterNid and getPlayerByNid(raid, nil, looterNid) or nil
 					count = count + 1
-					local row = acquireOutputRow(rows, count, canonicalTables)
+					local row = acquireOutputRow(rows, count, sourceRows)
 					row.id = tonumber(loot.lootNid)
 					row.itemId = tonumber(loot.itemId)
 					row.itemName = loot.itemName
@@ -558,14 +526,8 @@ do
 			end
 		end
 
-		if lootIndexList then
-			for i = 1, #lootIndexList do
-				appendLootRow(lootRows[lootIndexList[i]])
-			end
-		else
-			for i = 1, #lootRows do
-				appendLootRow(lootRows[i])
-			end
+		for i = 1, #lootRows do
+			appendLootRow(lootRows[i])
 		end
 
 		return clearOutputTail(rows, count)

@@ -187,7 +187,7 @@ getCurrentRaidNid = function()
 	if not currentRaid then
 		return nil
 	end
-	local raids = Database.GetRaidStore():GetRawRaids()
+	local raids = Database.GetRaidStore():GetAllRaids()
 	return tonumber(raids[currentRaid] and raids[currentRaid].raidNid)
 end
 
@@ -199,7 +199,7 @@ restoreCurrentRaidIndex = function(currentRaidNid)
 	end
 
 	local currentRaidId
-	local raids = Database.GetRaidStore():GetRawRaids()
+	local raids = Database.GetRaidStore():GetAllRaids()
 	for i = 1, #raids do
 		if tonumber(raids[i] and raids[i].raidNid) == tonumber(currentRaidNid) then
 			currentRaidId = i
@@ -482,7 +482,7 @@ local function countDuplicateRaidCandidates(raids)
 end
 
 local function getRaidHistoryScanRaids()
-	return Database.GetRaidStore():GetRawRaids()
+	return Database.GetRaidStore():GetAllRaids()
 end
 
 local function normalizeHistoryScanChunkSize(value)
@@ -630,7 +630,7 @@ end
 
 local function getHistoryCleanupContext()
 	local raidStore = Database.GetRaidStore()
-	local raids = raidStore:GetRawRaids()
+	local raids = raidStore:GetAllRaids()
 	local archive = raidStore:EnsureArchive()
 	return raidStore, raids, archive and archive.activeRaidUid or nil
 end
@@ -674,6 +674,9 @@ local function stageRaidForHistoryCleanup(raid, plan, key, archiveKey)
 end
 
 local function stageNonEpicLootAt(raid, lootRows, index, plan, archiveKey)
+	if archiveKey and archiveKey == plan.protectedArchiveKey then
+		return false
+	end
 	local loot = lootRows and lootRows[index] or nil
 	if isNonEpicLoot(loot) then
 		local raidNid = tonumber(raid and raid.raidNid)
@@ -1059,9 +1062,11 @@ local function setLootEntry(raidID, lootNid, looter, rollType, rollValue, source
 	end
 	local raidStore = Database.GetRaidStore()
 	local raidUid = raidStore:GetRaidUid(raid)
+	local raidRecord = raidUid and raidStore:GetRecord(raidUid) or nil
+	local isActiveRaid = raidRecord and raidRecord.status == "active"
 	local stagedLoot = {}
 	local stagedRaid
-	if raidUid then
+	if isActiveRaid then
 		for key, value in pairs(it) do
 			stagedLoot[key] = value
 		end
@@ -1110,7 +1115,7 @@ local function setLootEntry(raidID, lootNid, looter, rollType, rollValue, source
 	then
 		return false
 	end
-	if raidUid then
+	if isActiveRaid then
 		return raidStore:CommitAuthoritativeEvent(raidUid, "LOOT_UPDATED", { loot = it }) ~= nil
 	end
 	return raidStore:CommitRaidHistoryMutation(raid, stagedRaid, { lootNid = lootNid }) == true
@@ -1893,6 +1898,11 @@ function Actions:StartRaidHistoryScan(callback, opts)
 end
 
 function Actions:SetCurrentRaid(rID)
+	if not Services.Raid:IsRaidLeader() then
+		addon:error(L.ErrCannotSetCurrentNotRaidLeader)
+		return false
+	end
+
 	local sel = tonumber(rID)
 	local raid = sel and Database.EnsureRaidByIndex(sel) or nil
 	if not (sel and raid) then

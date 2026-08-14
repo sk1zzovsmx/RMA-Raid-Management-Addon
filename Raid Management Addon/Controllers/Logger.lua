@@ -880,6 +880,22 @@ do
 		clearSelection(module, "selectedItem", MS_CTX_LOOT)
 	end
 
+	local function getDefaultViewedRaid()
+		local currentRaid = Database.GetCurrentRaid()
+		if currentRaid then
+			return currentRaid
+		end
+		if Raid:IsRaidLeader() then
+			return nil
+		end
+
+		local raidStore = Database.GetRaidStore()
+		local activeRecord = raidStore and raidStore:GetActiveRecord() or nil
+		local activeRaid = activeRecord and activeRecord.state or nil
+		local activeRaidUid = activeRaid and raidStore:GetRaidUid(activeRaid) or nil
+		return activeRaidUid and raidStore:GetIndexByArchiveKey(activeRaidUid) or nil
+	end
+
 	local function clearPlayerSelections()
 		local selectedPlayer = module.selectedPlayer ~= nil
 		local selectedBossPlayer = module.selectedBossPlayer ~= nil
@@ -1187,15 +1203,13 @@ do
 		uiState.FrameName = BindModuleFrame(module, frame, {
 			enableDrag = true,
 			hookOnShow = function()
-				if not module.selectedRaid then
-					module._SetSelectedRaid(Database.GetCurrentRaid())
-				end
+				module._SetSelectedRaid(getDefaultViewedRaid())
 				clearSelections()
 				refreshLoggerTabLayout()
 				triggerSelectionEvent(module, "selectedRaid", "ui")
 			end,
 			hookOnHide = function()
-				module._SetSelectedRaid(Database.GetCurrentRaid())
+				module._SetSelectedRaid(getDefaultViewedRaid())
 				clearSelections()
 			end,
 		}) or uiState.FrameName
@@ -1212,7 +1226,7 @@ do
 			return
 		end
 		if not module.selectedRaid then
-			module._SetSelectedRaid(Database.GetCurrentRaid())
+			module._SetSelectedRaid(getDefaultViewedRaid())
 		end
 		clearSelections()
 		refreshLoggerTabLayout()
@@ -1765,7 +1779,7 @@ do
 				local count = controller and controller.data and #controller.data or 0
 
 				local canSetCurrent = false
-				if sel and raid and sel ~= Database.GetCurrentRaid() then
+				if Raid:IsRaidLeader() and sel and raid and sel ~= Database.GetCurrentRaid() then
 					-- This button is intended to resolve duplicate raid creation while actively raiding.
 					if not addon.IsInRaid() then
 						canSetCurrent = false

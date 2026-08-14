@@ -290,6 +290,9 @@ class RaidReplicationBehaviorTests(unittest.TestCase):
     def test_invalid_format_one_archive_is_quarantined_without_mutation(self) -> None:
         self.assert_case("raid_archive_invalid_load_quarantine")
 
+    def test_quarantined_archive_reads_fail_closed(self) -> None:
+        self.assert_case("raid_archive_quarantined_reads_fail_closed")
+
     def test_history_ui_uses_archive_order_identity(self) -> None:
         projections = Path("Raid Management Addon/Services/Raid/Projections.lua").read_text(encoding="utf-8")
         logger = Path("Raid Management Addon/Controllers/Logger.lua").read_text(encoding="utf-8")
@@ -299,6 +302,10 @@ class RaidReplicationBehaviorTests(unittest.TestCase):
 
     def test_runtime_indexes_never_enter_canonical_raid_state(self) -> None:
         self.assert_case("raid_runtime_indexes_are_store_owned")
+        store = Path("Raid Management Addon/Database/DBRaidStore.lua").read_text(encoding="utf-8")
+        queries = Path("Raid Management Addon/Database/DBRaidQueries.lua").read_text(encoding="utf-8")
+        self.assertNotIn("GetRaidRuntime" + "ForRead", store)
+        self.assertNotIn("collectCanonical" + "Tables", queries)
 
     def test_queries_and_validator_have_no_runtime_field_exception(self) -> None:
         queries = Path("Raid Management Addon/Database/DBRaidQueries.lua").read_text(encoding="utf-8")

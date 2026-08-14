@@ -89,10 +89,6 @@ function Database.GetRaidValidator()
 	return getRequiredOwner("RaidValidator")
 end
 
-function Database.EnsureArchive()
-	return Database.GetRaidStore():EnsureArchive()
-end
-
 function Database.GetSyncer()
 	return getRequiredOwner("Syncer")
 end

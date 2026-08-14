@@ -464,13 +464,6 @@ do
 		storeState.raidNidIndexDirty = true
 	end
 
-	local function isRaidArchive(value)
-		return type(value) == "table"
-			and value.formatVersion == 1
-			and type(value.order) == "table"
-			and type(value.raids) == "table"
-	end
-
 	local function buildArchiveRaidNidIndexSignature(archive)
 		local parts = {}
 		for i = 1, #archive.order do
@@ -530,112 +523,27 @@ do
 		return rebuildArchiveRaidNidIndex(archive)
 	end
 
-	local function buildRaidNidIndexSignature(raids)
-		local parts = {}
-		for i = 1, #raids do
-			local raid = raids[i]
-			parts[i] = tostring(type(raid) == "table" and tonumber(raid.raidNid) or "")
-		end
-		return tconcat(parts, "|")
-	end
-
 	local function rebuildRaidNidIndex()
-		local raids = ensureRaidsTable()
-		if isRaidArchive(raids) then
-			return raids, rebuildArchiveRaidNidIndex(raids)
-		end
-		local raidIdxByNid = {}
-		local allocateRaidNid, getNextRaidNidValue = createNidAllocator(1)
-
-		for i = 1, #raids do
-			local raid = module:NormalizeRaidRecord(raids[i])
-			if raid then
-				local raidNid = allocateRaidNid(raid.raidNid)
-				raid.raidNid = raidNid
-				raidIdxByNid[raidNid] = i
-			end
-		end
-
-		storeState.raidIdxByNid = raidIdxByNid
-		storeState.nextRaidNid = getNextRaidNidValue()
-		storeState.raidNidIndexCount = #raids
-		storeState.raidNidIndexSignature = buildRaidNidIndexSignature(raids)
-		storeState.raidNidIndexDirty = nil
-		return raids, raidIdxByNid
+		local archive = ensureRaidsTable()
+		return archive, rebuildArchiveRaidNidIndex(archive)
 	end
 
 	local function ensureRaidNidIndex()
-		local raids = ensureRaidsTable()
-		if isRaidArchive(raids) then
-			return raids, ensureArchiveRaidNidIndex(raids)
-		end
-		local signature = buildRaidNidIndexSignature(raids)
-		if
-			storeState.raidNidIndexDirty ~= true
-			and type(storeState.raidIdxByNid) == "table"
-			and tonumber(storeState.raidNidIndexCount) == #raids
-			and storeState.raidNidIndexSignature == signature
-		then
-			return raids, storeState.raidIdxByNid
-		end
-		return rebuildRaidNidIndex()
-	end
-
-	local function hasRawRaidNid(raids, raidNid)
-		for i = 1, #raids do
-			local raid = raids[i]
-			if type(raid) == "table" and tonumber(raid.raidNid) == raidNid then
-				return true, i
-			end
-		end
-		return false, nil
+		local archive = ensureRaidsTable()
+		return archive, ensureArchiveRaidNidIndex(archive)
 	end
 
 	local function getNextRaidNid(preferred)
-		local raids, raidIdxByNid = ensureRaidNidIndex()
+		local _, raidIdxByNid = ensureRaidNidIndex()
 		local raidNid = tonumber(preferred)
-		if isRaidArchive(raids) then
-			if raidNid and raidNid > 0 and not raidIdxByNid[raidNid] then
-				if raidNid >= (tonumber(storeState.nextRaidNid) or 1) then
-					storeState.nextRaidNid = raidNid + 1
-				end
-				return raidNid
+		if raidNid and raidNid > 0 and not raidIdxByNid[raidNid] then
+			if raidNid >= (tonumber(storeState.nextRaidNid) or 1) then
+				storeState.nextRaidNid = raidNid + 1
 			end
-			local nextRaidNid = tonumber(storeState.nextRaidNid) or 1
-			while raidIdxByNid[nextRaidNid] do
-				nextRaidNid = nextRaidNid + 1
-			end
-			storeState.nextRaidNid = nextRaidNid + 1
-			return nextRaidNid
+			return raidNid
 		end
-		if raidNid and raidNid > 0 then
-			local cachedIdx = raidIdxByNid[raidNid]
-			if cachedIdx and tonumber(raids[cachedIdx] and raids[cachedIdx].raidNid) ~= raidNid then
-				markRaidNidIndexDirty()
-				raids, raidIdxByNid = rebuildRaidNidIndex()
-				cachedIdx = raidIdxByNid[raidNid]
-			elseif not cachedIdx then
-				local exists = hasRawRaidNid(raids, raidNid)
-				if exists then
-					markRaidNidIndexDirty()
-					raids, raidIdxByNid = rebuildRaidNidIndex()
-					cachedIdx = raidIdxByNid[raidNid]
-				end
-			end
-
-			if not cachedIdx then
-				if raidNid >= (tonumber(storeState.nextRaidNid) or 1) then
-					storeState.nextRaidNid = raidNid + 1
-				end
-				return raidNid
-			end
-		end
-
 		local nextRaidNid = tonumber(storeState.nextRaidNid) or 1
-		if nextRaidNid < 1 then
-			nextRaidNid = 1
-		end
-		while raidIdxByNid[nextRaidNid] or hasRawRaidNid(raids, nextRaidNid) do
+		while raidIdxByNid[nextRaidNid] do
 			nextRaidNid = nextRaidNid + 1
 		end
 		storeState.nextRaidNid = nextRaidNid + 1
@@ -717,21 +625,30 @@ do
 	end
 
 	function module:EnsureArchive()
-		return SavedVariables.GetRaids()
+		return requireValidArchive()
 	end
 
 	function module:GetRecord(raidUid)
-		local archive = self:EnsureArchive()
+		local archive = requireValidArchive()
+		if not archive then
+			return nil
+		end
 		return type(raidUid) == "string" and type(archive.raids) == "table" and archive.raids[raidUid] or nil
 	end
 
 	function module:GetActiveRecord()
-		local archive = self:EnsureArchive()
+		local archive = requireValidArchive()
+		if not archive then
+			return nil
+		end
 		return type(archive.raids) == "table" and archive.activeRaidUid and archive.raids[archive.activeRaidUid] or nil
 	end
 
 	function module:GetStateByIndex(index)
-		local archive = self:EnsureArchive()
+		local archive = requireValidArchive()
+		if not archive then
+			return nil, tonumber(index)
+		end
 		if type(archive.order) ~= "table" or type(archive.raids) ~= "table" then
 			return nil, tonumber(index)
 		end
@@ -742,7 +659,10 @@ do
 	end
 
 	function module:GetArchiveKeyByIndex(index)
-		local archive = self:EnsureArchive()
+		local archive = requireValidArchive()
+		if not archive then
+			return nil
+		end
 		if type(archive.order) ~= "table" then
 			return nil
 		end
@@ -758,7 +678,10 @@ do
 	end
 
 	function module:GetIndexByUid(raidUid)
-		local archive = self:EnsureArchive()
+		local archive = requireValidArchive()
+		if not archive then
+			return nil
+		end
 		if type(archive.order) ~= "table" or type(archive.raids) ~= "table" then
 			return nil
 		end
@@ -878,7 +801,10 @@ do
 		if type(raid) ~= "table" then
 			return nil
 		end
-		local archive = self:EnsureArchive()
+		local archive = requireValidArchive()
+		if not archive then
+			return nil
+		end
 		if type(archive.order) ~= "table" or type(archive.raids) ~= "table" then
 			return nil
 		end
@@ -1268,36 +1194,29 @@ do
 	end
 
 	function module:GetAllRaids()
-		local archive = self:EnsureArchive()
-		if archive.formatVersion == 1 then
-			local states = {}
-			if type(archive.order) ~= "table" or type(archive.raids) ~= "table" then
-				return states
-			end
-			for i = 1, #archive.order do
-				local record = archive.raids[archive.order[i]]
-				states[i] = record and record.state or nil
-			end
+		local archive = requireValidArchive()
+		local states = {}
+		if not archive or type(archive.order) ~= "table" or type(archive.raids) ~= "table" then
 			return states
 		end
-		local raids = ensureRaidNidIndex()
-		return raids
+		for i = 1, #archive.order do
+			local record = archive.raids[archive.order[i]]
+			states[i] = record and record.state or nil
+		end
+		return states
 	end
 
 	function module:GetRawRaids()
-		local archive = self:EnsureArchive()
-		if archive.formatVersion == 1 then
-			local states = {}
-			if type(archive.order) ~= "table" or type(archive.raids) ~= "table" then
-				return states
-			end
-			for i = 1, #archive.order do
-				local record = archive.raids[archive.order[i]]
-				states[i] = record and record.state or nil
-			end
+		local archive = ensureRaidsTable()
+		local states = {}
+		if type(archive.order) ~= "table" or type(archive.raids) ~= "table" then
 			return states
 		end
-		return archive
+		for i = 1, #archive.order do
+			local record = archive.raids[archive.order[i]]
+			states[i] = record and record.state or nil
+		end
+		return states
 	end
 
 	function module:EnsureRaidByIndex(index)
@@ -1306,19 +1225,7 @@ do
 			return nil, nil
 		end
 
-		local archive = self:EnsureArchive()
-		if archive.formatVersion == 1 then
-			if type(archive.order) ~= "table" or type(archive.raids) ~= "table" then
-				return nil, idx
-			end
-			return self:GetStateByIndex(idx)
-		end
-		local raids = ensureRaidNidIndex()
-		local raid = raids[idx]
-		if not raid then
-			return nil, idx
-		end
-		return self:NormalizeRaidRecord(raid), idx
+		return self:GetStateByIndex(idx)
 	end
 
 	function module:EnsureRaidByNid(raidNid)
@@ -1327,39 +1234,17 @@ do
 			return nil, nil, nil
 		end
 
-		local archive = self:EnsureArchive()
-		if archive.formatVersion == 1 then
-			if type(archive.order) ~= "table" or type(archive.raids) ~= "table" then
-				return nil, nil, nid
-			end
-			local raidIdxByNid = ensureArchiveRaidNidIndex(archive)
-			local idx = raidIdxByNid[nid]
-			local record = idx and archive.raids[archive.order[idx]] or nil
-			return record and record.state or nil, idx, nid
+		local archive = requireValidArchive()
+		if not archive then
+			return nil, nil, nid
 		end
-		local raids, raidIdxByNid = ensureRaidNidIndex()
+		if type(archive.order) ~= "table" or type(archive.raids) ~= "table" then
+			return nil, nil, nid
+		end
+		local raidIdxByNid = ensureArchiveRaidNidIndex(archive)
 		local idx = raidIdxByNid[nid]
-		if idx and tonumber(raids[idx] and raids[idx].raidNid) ~= nid then
-			markRaidNidIndexDirty()
-			raids, raidIdxByNid = rebuildRaidNidIndex()
-			idx = raidIdxByNid[nid]
-		elseif not idx then
-			local exists = hasRawRaidNid(raids, nid)
-			if exists then
-				markRaidNidIndexDirty()
-				raids, raidIdxByNid = rebuildRaidNidIndex()
-				idx = raidIdxByNid[nid]
-			end
-		end
-		if not idx then
-			return nil, nil, nid
-		end
-
-		local raid = raids[idx]
-		if not raid then
-			return nil, nil, nid
-		end
-		return self:NormalizeRaidRecord(raid), idx, nid
+		local record = idx and archive.raids[archive.order[idx]] or nil
+		return record and record.state or nil, idx, nid
 	end
 
 	function module:GetRaidNidByIndex(index)
@@ -1538,84 +1423,6 @@ do
 		return buildRuntimeIndexesForNormalizedRaid(raid)
 	end
 
-	function module:GetRaidRuntimeForRead(raid)
-		if type(raid) ~= "table" then
-			return nil
-		end
-
-		-- Observation never reuses admission caches: their row aliases are mutable and
-		-- their compact signature cannot detect same-length content changes.
-		local transient = {
-			playerNidByName = {},
-			playerIdxByNid = {},
-			bossIdxByNid = {},
-			bossPlayerSetByBossNid = {},
-			lootIdxByNid = {},
-			lootIdxByBossNid = {},
-			lootIdxByLooterNid = {},
-			attendanceIdxByPlayerNid = {},
-		}
-		local players = type(raid.players) == "table" and raid.players or {}
-		local bosses = type(raid.bossKills) == "table" and raid.bossKills or {}
-		local lootRows = type(raid.loot) == "table" and raid.loot or {}
-		local attendance = type(raid.attendance) == "table" and raid.attendance or {}
-		for i = 1, #players do
-			local player = players[i]
-			if type(player) == "table" then
-				local playerNid = tonumber(player.playerNid)
-				if playerNid then
-					transient.playerIdxByNid[playerNid] = i
-					if player.name then
-						transient.playerNidByName[player.name] = playerNid
-					end
-				end
-			end
-		end
-		for i = 1, #attendance do
-			local entry = attendance[i]
-			local playerNid = type(entry) == "table" and tonumber(entry.playerNid) or nil
-			if playerNid then
-				transient.attendanceIdxByPlayerNid[playerNid] = i
-			end
-		end
-		for i = 1, #bosses do
-			local boss = bosses[i]
-			local bossNid = type(boss) == "table" and tonumber(boss.bossNid) or nil
-			if bossNid then
-				transient.bossIdxByNid[bossNid] = i
-				local attendeeSet = {}
-				local attendees = boss.players
-				if type(attendees) == "table" then
-					for j = 1, #attendees do
-						local playerNid = tonumber(attendees[j])
-						if playerNid and playerNid > 0 then
-							attendeeSet[playerNid] = true
-						end
-					end
-				end
-				transient.bossPlayerSetByBossNid[bossNid] = attendeeSet
-			end
-		end
-		for i = 1, #lootRows do
-			local loot = lootRows[i]
-			if type(loot) == "table" then
-				local lootNid = tonumber(loot.lootNid)
-				if lootNid then
-					transient.lootIdxByNid[lootNid] = i
-				end
-				local bossNid = tonumber(loot.bossNid)
-				if bossNid and bossNid > 0 then
-					appendRuntimeIndexList(transient.lootIdxByBossNid, bossNid, i, false)
-				end
-				local looterNid = tonumber(loot.looterNid)
-				if looterNid and looterNid > 0 then
-					appendRuntimeIndexList(transient.lootIdxByLooterNid, looterNid, i, false)
-				end
-			end
-		end
-		return transient
-	end
-
 	local function inspectSnapshotsEqual(left, right)
 		if type(left) ~= type(right) then
 			return false
@@ -1700,18 +1507,11 @@ do
 		stripRuntimeState(raid)
 	end
 
-	function module:NormalizeAllRaids(contextTag)
-		local raids = ensureRaidsTable()
+	function module:NormalizeAllRaids()
+		local archive = ensureRaidsTable()
 		markRaidNidIndexDirty()
-		if isRaidArchive(raids) then
-			rebuildArchiveRaidNidIndex(raids)
-			return raids
-		end
-		for i = 1, #raids do
-			self:NormalizeRaidRecord(raids[i], contextTag, i)
-		end
-		rebuildRaidNidIndex()
-		return raids
+		rebuildArchiveRaidNidIndex(archive)
+		return archive
 	end
 
 	function module:PrepareRaidForSave(raid, raidIndex)
@@ -1728,22 +1528,20 @@ do
 	end
 
 	function module:PrepareAllRaidsForSave()
-		local raids = ensureRaidsTable()
-		if isRaidArchive(raids) then
-			return raids
+		local archive = ensureRaidsTable()
+		if type(archive.order) ~= "table" or type(archive.raids) ~= "table" then
+			return nil, "INVALID_RAID_ARCHIVE"
 		end
-		for i = 1, #raids do
-			local prepared, prepareError = self:PrepareRaidForSave(raids[i], i)
-			if not prepared then
-				return nil, prepareError, i
+		local schemaVersion = getSchemaVersion()
+		for i = 1, #archive.order do
+			local record = archive.raids[archive.order[i]]
+			local state = record and record.state or nil
+			local storedSchemaVersion = type(state) == "table" and tonumber(state.schemaVersion) or nil
+			if storedSchemaVersion and storedSchemaVersion > schemaVersion then
+				return nil, "unsupported raid schema", i
 			end
 		end
-		return raids
-	end
-
-	function module:CaptureRaidInsertionState()
-		local raids = ensureRaidsTable()
-		return { raids = deepCopy(raids), nextRaidNid = storeState.nextRaidNid }
+		return archive
 	end
 
 	local function restoreCapturedRaids(snapshot)
@@ -1751,21 +1549,17 @@ do
 			return false
 		end
 		local restored = deepCopy(snapshot.raids)
-		local raids = ensureRaidsTable()
-		for key in pairs(raids) do
-			raids[key] = nil
+		local archive = ensureRaidsTable()
+		for key in pairs(archive) do
+			archive[key] = nil
 		end
 		for key, value in pairs(restored) do
-			raids[key] = value
+			archive[key] = value
 		end
 		storeState.nextRaidNid = snapshot.nextRaidNid
 		markRaidNidIndexDirty()
 		rebuildRaidNidIndex()
 		return true
-	end
-
-	function module:RestoreRaidInsertionState(snapshot)
-		return false, "LEGACY_SYNC_DISABLED"
 	end
 
 	local function copyRaidHistoryValue(value, seen)
@@ -1789,14 +1583,11 @@ do
 	end
 
 	function module:RestoreRaidHistoryState(snapshot)
-		local current = ensureRaidsTable()
-		if isRaidArchive(current) then
-			local valid, reason = requireValidArchive()
-			if not valid then
-				return false, reason
-			end
+		local validArchive, reason = requireValidArchive()
+		if not validArchive then
+			return false, reason
 		end
-		if type(snapshot) == "table" and isRaidArchive(snapshot.raids) then
+		if type(snapshot) == "table" and type(snapshot.raids) == "table" then
 			local validSnapshot, snapshotReason = getValidator():ValidateArchive(snapshot.raids)
 			if not validSnapshot then
 				return false, snapshotReason
@@ -1853,12 +1644,9 @@ do
 	function module:CommitRaidHistoryMutation(raid, stagedRaid, opts, verify)
 		-- A successful commit replaces nested rows. Callers must re-resolve row aliases from the canonical raid.
 		opts = opts or {}
-		local root = ensureRaidsTable()
-		if isRaidArchive(root) then
-			local validArchive, archiveReason = requireValidArchive()
-			if not validArchive then
-				return false, archiveReason
-			end
+		local validArchive, archiveReason = requireValidArchive()
+		if not validArchive then
+			return false, archiveReason
 		end
 		if type(raid) ~= "table" or type(stagedRaid) ~= "table" then
 			return false, "INVALID_RAID"
@@ -1883,38 +1671,7 @@ do
 			return false, "ACTIVE_RAID_REQUIRES_EVENT"
 		end
 		if not record then
-			local canonicalFound = false
-			local legacyRaids = ensureRaidsTable()
-			for i = 1, #legacyRaids do
-				if legacyRaids[i] == raid then
-					canonicalFound = true
-					break
-				end
-			end
-			if not canonicalFound then
-				return false, "CONFLICT"
-			end
-			local legacyValid, legacyReason = validateRaidHistory(stagedRaid)
-			if not legacyValid then
-				return false, legacyReason
-			end
-			if type(verify) == "function" then
-				local verifyOk, verified, verifyError = pcall(verify, stagedRaid)
-				if not verifyOk then
-					return false, "VERIFY_FAILED"
-				end
-				if verified ~= true then
-					return false, verifyError or "VERIFY_FAILED"
-				end
-			end
-			for key in pairs(raid) do
-				raid[key] = nil
-			end
-			for key, value in pairs(copyRaidHistoryValue(stagedRaid)) do
-				raid[key] = value
-			end
-			stagedMutationBase[stagedRaid] = nil
-			return true, raid
+			return false, "CONFLICT"
 		end
 		local valid, validationError = validateRaidHistory(stagedRaid)
 		if not valid then
@@ -1960,205 +1717,117 @@ do
 	end
 
 	function module:CommitRaidHistoryCleanup(plan, currentRaidIdentity)
-		local root = ensureRaidsTable()
-		if isRaidArchive(root) then
-			if type(plan) ~= "table" or plan.protectedArchiveKey ~= currentRaidIdentity then
-				return nil, "CONFLICT"
-			end
-			local validRoot, rootReason = requireValidArchive()
-			if not validRoot then
-				return nil, rootReason
-			end
-			if root.activeRaidUid ~= currentRaidIdentity then
-				return nil, "CONFLICT"
-			end
-			local raidCandidates = type(plan.raidCandidates) == "table" and plan.raidCandidates or {}
-			local lootCandidates = type(plan.lootCandidates) == "table" and plan.lootCandidates or {}
-			if #raidCandidates == 0 and #lootCandidates == 0 then
-				return {
-					raidsRemoved = 0,
-					lootRemoved = 0,
-					removedRaidNids = {},
-					affectedRaidNids = {},
-					removedArchiveKeys = {},
-					affectedArchiveKeys = {},
-				}
-			end
-			local candidate = copyRaidHistoryValue(root)
-			local deleteSet, lootDeleteSet = {}, {}
-			for i = 1, #raidCandidates do
-				local entry = raidCandidates[i]
-				local archiveKey = type(entry) == "table" and entry.archiveKey or nil
-				local record = archiveKey and candidate.raids[archiveKey] or nil
-				if
-					type(archiveKey) ~= "string"
-					or archiveKey == candidate.activeRaidUid
-					or not record
-					or record.digest ~= entry.baseDigest
-					or deleteSet[archiveKey]
-				then
-					return nil, "CONFLICT"
-				end
-				deleteSet[archiveKey] = true
-			end
-			for i = 1, #lootCandidates do
-				local entry = lootCandidates[i]
-				local archiveKey = type(entry) == "table" and entry.archiveKey or nil
-				local record = archiveKey and candidate.raids[archiveKey] or nil
-				local loot
-				if record and record.digest == entry.baseDigest and not deleteSet[archiveKey] then
-					for lootIndex = 1, #(record.state.loot or {}) do
-						local row = record.state.loot[lootIndex]
-						if tonumber(row and row.lootNid) == tonumber(entry.lootNid) then
-							if loot then
-								return nil, "CONFLICT"
-							end
-							loot = row
-						end
-					end
-				end
-				if
-					not loot
-					or tonumber(loot.itemId) ~= entry.itemId
-					or loot.itemLink ~= entry.itemLink
-					or tonumber(loot.bossNid) ~= entry.bossNid
-				then
-					return nil, "CONFLICT"
-				end
-				lootDeleteSet[archiveKey] = lootDeleteSet[archiveKey] or {}
-				if lootDeleteSet[archiveKey][entry.lootNid] then
-					return nil, "CONFLICT"
-				end
-				lootDeleteSet[archiveKey][entry.lootNid] = true
-			end
-			local removedRaidNids, affectedRaidNids = {}, {}
-			local removedArchiveKeys, affectedArchiveKeys = {}, {}
-			local raidsRemoved, lootRemoved = 0, 0
-			for orderIndex = #candidate.order, 1, -1 do
-				local archiveKey = candidate.order[orderIndex]
-				local record = candidate.raids[archiveKey]
-				if deleteSet[archiveKey] then
-					candidate.raids[archiveKey] = nil
-					tremove(candidate.order, orderIndex)
-					raidsRemoved = raidsRemoved + 1
-					removedArchiveKeys[#removedArchiveKeys + 1] = archiveKey
-					removedRaidNids[#removedRaidNids + 1] = tonumber(record.state.raidNid)
-				elseif lootDeleteSet[archiveKey] then
-					for lootIndex = #record.state.loot, 1, -1 do
-						if lootDeleteSet[archiveKey][tonumber(record.state.loot[lootIndex].lootNid)] then
-							tremove(record.state.loot, lootIndex)
-							lootRemoved = lootRemoved + 1
-						end
-					end
-					record.digest = RaidEvents.DigestState(record.state)
-					local recordValid, recordReason = getValidator():ValidateRecord(record)
-					if not recordValid then
-						return nil, recordReason
-					end
-					affectedArchiveKeys[#affectedArchiveKeys + 1] = archiveKey
-					affectedRaidNids[#affectedRaidNids + 1] = tonumber(record.state.raidNid)
-				end
-			end
-			local archiveValid, archiveReason = getValidator():ValidateArchive(candidate)
-			if not archiveValid then
-				return nil, archiveReason
-			end
-			SavedVariables.ReplaceRaids(candidate)
-			validatedArchive = candidate
-			markRaidNidIndexDirty()
-			return {
-				raidsRemoved = raidsRemoved,
-				lootRemoved = lootRemoved,
-				removedRaidNids = removedRaidNids,
-				affectedRaidNids = affectedRaidNids,
-				removedArchiveKeys = removedArchiveKeys,
-				affectedArchiveKeys = affectedArchiveKeys,
-			}
+		local root, rootReason = requireValidArchive()
+		if not root then
+			return nil, rootReason
 		end
-		local currentRaidNid = currentRaidIdentity
-		if type(plan) ~= "table" or tonumber(plan.protectedRaidNid) ~= tonumber(currentRaidNid) then
+		if type(plan) ~= "table" or plan.protectedArchiveKey ~= currentRaidIdentity then
 			return nil, "CONFLICT"
 		end
-		if #plan.raidCandidates == 0 and #plan.lootCandidates == 0 then
+		if root.activeRaidUid ~= currentRaidIdentity then
+			return nil, "CONFLICT"
+		end
+		local raidCandidates = type(plan.raidCandidates) == "table" and plan.raidCandidates or {}
+		local lootCandidates = type(plan.lootCandidates) == "table" and plan.lootCandidates or {}
+		if #raidCandidates == 0 and #lootCandidates == 0 then
 			return {
 				raidsRemoved = 0,
 				lootRemoved = 0,
 				removedRaidNids = {},
 				affectedRaidNids = {},
+				removedArchiveKeys = {},
+				affectedArchiveKeys = {},
 			}
 		end
 		local candidate = copyRaidHistoryValue(root)
-		local byNid, deleteSet, lootDeleteSet = {}, {}, {}
-		for i = 1, #candidate do
-			byNid[tonumber(candidate[i].raidNid)] = candidate[i]
-		end
-		for i = 1, #plan.raidCandidates do
-			local entry = plan.raidCandidates[i]
-			local raid = byNid[entry.raidNid]
+		local deleteSet, lootDeleteSet = {}, {}
+		for i = 1, #raidCandidates do
+			local entry = raidCandidates[i]
+			local archiveKey = type(entry) == "table" and entry.archiveKey or nil
+			local record = archiveKey and candidate.raids[archiveKey] or nil
 			if
-				entry.raidNid == tonumber(currentRaidNid)
-				or not raid
-				or self:GetStateDigest(raid) ~= entry.baseDigest
+				type(archiveKey) ~= "string"
+				or archiveKey == candidate.activeRaidUid
+				or not record
+				or record.digest ~= entry.baseDigest
+				or deleteSet[archiveKey]
 			then
 				return nil, "CONFLICT"
 			end
-			deleteSet[entry.raidNid] = true
+			deleteSet[archiveKey] = true
 		end
-		for i = 1, #plan.lootCandidates do
-			local entry = plan.lootCandidates[i]
-			local raid = byNid[entry.raidNid]
-			local runtime = raid and self:EnsureRaidRuntime(raid) or nil
-			local loot = runtime and runtime.lootByNid and runtime.lootByNid[entry.lootNid] or nil
+		for i = 1, #lootCandidates do
+			local entry = lootCandidates[i]
+			local archiveKey = type(entry) == "table" and entry.archiveKey or nil
+			local record = archiveKey and candidate.raids[archiveKey] or nil
+			local loot
+			if record and record.digest == entry.baseDigest and not deleteSet[archiveKey] then
+				for lootIndex = 1, #(record.state.loot or {}) do
+					local row = record.state.loot[lootIndex]
+					if tonumber(row and row.lootNid) == tonumber(entry.lootNid) then
+						if loot then
+							return nil, "CONFLICT"
+						end
+						loot = row
+					end
+				end
+			end
 			if
-				not raid
-				or not loot
-				or self:GetStateDigest(raid) ~= entry.baseDigest
+				not loot
 				or tonumber(loot.itemId) ~= entry.itemId
 				or loot.itemLink ~= entry.itemLink
 				or tonumber(loot.bossNid) ~= entry.bossNid
 			then
 				return nil, "CONFLICT"
 			end
-			lootDeleteSet[entry.raidNid] = lootDeleteSet[entry.raidNid] or {}
-			lootDeleteSet[entry.raidNid][entry.lootNid] = true
+			lootDeleteSet[archiveKey] = lootDeleteSet[archiveKey] or {}
+			if lootDeleteSet[archiveKey][entry.lootNid] then
+				return nil, "CONFLICT"
+			end
+			lootDeleteSet[archiveKey][entry.lootNid] = true
 		end
 		local removedRaidNids, affectedRaidNids = {}, {}
+		local removedArchiveKeys, affectedArchiveKeys = {}, {}
 		local raidsRemoved, lootRemoved = 0, 0
-		for i = #candidate, 1, -1 do
-			local raid = candidate[i]
-			local raidNid = tonumber(raid.raidNid)
-			if deleteSet[raidNid] then
-				tremove(candidate, i)
+		for orderIndex = #candidate.order, 1, -1 do
+			local archiveKey = candidate.order[orderIndex]
+			local record = candidate.raids[archiveKey]
+			if deleteSet[archiveKey] then
+				candidate.raids[archiveKey] = nil
+				tremove(candidate.order, orderIndex)
 				raidsRemoved = raidsRemoved + 1
-				removedRaidNids[#removedRaidNids + 1] = raidNid
-			elseif lootDeleteSet[raidNid] then
-				for lootIndex = #raid.loot, 1, -1 do
-					if lootDeleteSet[raidNid][tonumber(raid.loot[lootIndex].lootNid)] then
-						tremove(raid.loot, lootIndex)
+				removedArchiveKeys[#removedArchiveKeys + 1] = archiveKey
+				removedRaidNids[#removedRaidNids + 1] = tonumber(record.state.raidNid)
+			elseif lootDeleteSet[archiveKey] then
+				for lootIndex = #record.state.loot, 1, -1 do
+					if lootDeleteSet[archiveKey][tonumber(record.state.loot[lootIndex].lootNid)] then
+						tremove(record.state.loot, lootIndex)
 						lootRemoved = lootRemoved + 1
 					end
 				end
-				local valid, reason = validateRaidHistory(raid)
-				if not valid then
-					return nil, reason
+				record.digest = RaidEvents.DigestState(record.state)
+				local recordValid, recordReason = getValidator():ValidateRecord(record)
+				if not recordValid then
+					return nil, recordReason
 				end
-				self:EnsureRaidRuntime(raid)
-				affectedRaidNids[#affectedRaidNids + 1] = raidNid
+				affectedArchiveKeys[#affectedArchiveKeys + 1] = archiveKey
+				affectedRaidNids[#affectedRaidNids + 1] = tonumber(record.state.raidNid)
 			end
 		end
-		for i = #root, 1, -1 do
-			root[i] = nil
+		local archiveValid, archiveReason = getValidator():ValidateArchive(candidate)
+		if not archiveValid then
+			return nil, archiveReason
 		end
-		for i = 1, #candidate do
-			root[i] = candidate[i]
-		end
+		SavedVariables.ReplaceRaids(candidate)
+		validatedArchive = candidate
 		markRaidNidIndexDirty()
-		rebuildRaidNidIndex()
 		return {
 			raidsRemoved = raidsRemoved,
 			lootRemoved = lootRemoved,
 			removedRaidNids = removedRaidNids,
 			affectedRaidNids = affectedRaidNids,
+			removedArchiveKeys = removedArchiveKeys,
+			affectedArchiveKeys = affectedArchiveKeys,
 		}
 	end
 
@@ -2186,28 +1855,15 @@ do
 	end
 
 	function module:DeleteRaid(raidNid)
-		local root = ensureRaidsTable()
-		if isRaidArchive(root) then
-			local archive, archiveReason = requireValidArchive()
-			if not archive then
-				return false, nil, archiveReason
-			end
-			local archiveKey, _, resolveReason = resolveDeletableArchiveKeyByRaidNid(archive, raidNid)
-			if not archiveKey then
-				return false, nil, resolveReason
-			end
-			return self:DeleteRaidByArchiveKey(archiveKey)
+		local archive, archiveReason = requireValidArchive()
+		if not archive then
+			return false, nil, archiveReason
 		end
-		local raid, idx = self:EnsureRaidByNid(raidNid)
-		if not (raid and idx) then
-			return false, nil
+		local archiveKey, _, resolveReason = resolveDeletableArchiveKeyByRaidNid(archive, raidNid)
+		if not archiveKey then
+			return false, nil, resolveReason
 		end
-
-		local raids = ensureRaidsTable()
-		tremove(raids, idx)
-		markRaidNidIndexDirty()
-		rebuildRaidNidIndex()
-		return true, idx
+		return self:DeleteRaidByArchiveKey(archiveKey)
 	end
 
 	function module:DeleteRaidByArchiveKey(archiveKey)
@@ -2312,74 +1968,45 @@ do
 		if type(raidNids) ~= "table" then
 			return 0, {}
 		end
-		opts = type(opts) == "table" and opts or {}
 		local requestedNids = {}
 		local seenNids = {}
+		local protectedRaidNid = tonumber(type(opts) == "table" and opts.protectedRaidNid)
 		for i = 1, #raidNids do
 			local raidNid = tonumber(raidNids[i])
-			if raidNid and raidNid > 0 and not seenNids[raidNid] then
+			if raidNid and raidNid > 0 and raidNid ~= protectedRaidNid and not seenNids[raidNid] then
 				seenNids[raidNid] = true
 				requestedNids[#requestedNids + 1] = raidNid
 			end
 		end
-		local raids = ensureRaidsTable()
-		if isRaidArchive(raids) then
-			local archive, archiveReason = requireValidArchive()
-			if not archive then
-				return 0, {}, archiveReason
-			end
-			local archiveKeys = {}
-			local raidNidByArchiveKey = {}
-			for i = 1, #requestedNids do
-				local raidNid = requestedNids[i]
-				local archiveKey, _, resolveReason = resolveDeletableArchiveKeyByRaidNid(archive, raidNid)
-				if resolveReason then
-					return 0, {}, resolveReason
-				end
-				if archiveKey then
-					archiveKeys[#archiveKeys + 1] = archiveKey
-					raidNidByArchiveKey[archiveKey] = raidNid
-				end
-			end
-			local removed, removedKeys, deleteReason = self:DeleteRaidsByArchiveKey(archiveKeys, archive.activeRaidUid)
-			local removedRaidNids = {}
-			for i = 1, #removedKeys do
-				removedRaidNids[i] = raidNidByArchiveKey[removedKeys[i]]
-			end
-			return removed, removedRaidNids, deleteReason
+		local archive, archiveReason = requireValidArchive()
+		if not archive then
+			return 0, {}, archiveReason
 		end
-		local protectedRaidNid = tonumber(opts.protectedRaidNid)
-		local deleteSet = {}
+		local archiveKeys = {}
+		local raidNidByArchiveKey = {}
 		for i = 1, #requestedNids do
 			local raidNid = requestedNids[i]
-			if raidNid ~= protectedRaidNid then
-				deleteSet[raidNid] = true
+			local archiveKey, _, resolveReason = resolveDeletableArchiveKeyByRaidNid(archive, raidNid)
+			if resolveReason then
+				return 0, {}, resolveReason
+			end
+			if archiveKey then
+				archiveKeys[#archiveKeys + 1] = archiveKey
+				raidNidByArchiveKey[archiveKey] = raidNid
 			end
 		end
-		local removed = 0
+		local removed, removedKeys, deleteReason = self:DeleteRaidsByArchiveKey(archiveKeys, archive.activeRaidUid)
 		local removedRaidNids = {}
-		for i = #raids, 1, -1 do
-			local raidNid = tonumber(raids[i] and raids[i].raidNid)
-			if raidNid and deleteSet[raidNid] then
-				tremove(raids, i)
-				removed = removed + 1
-				removedRaidNids[#removedRaidNids + 1] = raidNid
-			end
+		for i = 1, #removedKeys do
+			removedRaidNids[i] = raidNidByArchiveKey[removedKeys[i]]
 		end
-		if removed > 0 then
-			markRaidNidIndexDirty()
-			rebuildRaidNidIndex()
-		end
-		return removed, removedRaidNids
+		return removed, removedRaidNids, deleteReason
 	end
 
 	function module:DeleteLootByNid(raidNid, lootNids, reason)
-		local root = ensureRaidsTable()
-		if isRaidArchive(root) then
-			local valid, archiveReason = requireValidArchive()
-			if not valid then
-				return 0, archiveReason
-			end
+		local archive, archiveReason = requireValidArchive()
+		if not archive then
+			return 0, archiveReason
 		end
 		local raid = self:EnsureRaidByNid(raidNid)
 		if not (raid and type(raid.loot) == "table" and type(lootNids) == "table") then

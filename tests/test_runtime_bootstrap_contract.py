@@ -154,6 +154,20 @@ class RuntimeBootstrapContractTest(unittest.TestCase):
             entries.index(r"Database\DBRaidStore.lua"),
         )
 
+    def test_raid_store_has_one_canonical_archive_root(self) -> None:
+        store = (ADDON / "Database" / "DBRaidStore.lua").read_text(encoding="utf-8")
+        db = (ADDON / "Database" / "DB.lua").read_text(encoding="utf-8")
+        for retired in (
+            "isRaid" + "Archive",
+            "buildRaidNid" + "IndexSignature",
+            "hasRawRaid" + "Nid",
+            "legacy" + "Raids",
+            "CaptureRaid" + "InsertionState",
+            "RestoreRaid" + "InsertionState",
+        ):
+            self.assertNotIn(retired, store)
+        self.assertNotIn("function Database." + "Ensure" + "Archive", db)
+
     def test_cross_expansion_duplicates_use_later_dataset_precedence(self) -> None:
         self.assertEqual({"naxxramas", "onyxia's lair"}, duplicate_raid_names())
         source = LOOT_SOURCE_DATA.read_text(encoding="utf-8")

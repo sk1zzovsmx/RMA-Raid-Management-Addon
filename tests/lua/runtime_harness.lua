@@ -185,10 +185,14 @@ local function newSyncCommunicationsFixture()
 	}
 
 	function fixture:NormalizeSender(sender)
-		if type(sender) ~= "string" then return nil end
+		if type(sender) ~= "string" then
+			return nil
+		end
 		local short = string.match(sender, "^([^%-]+)") or sender
 		short = string.match(short, "^%s*(.-)%s*$")
-		if short == "" then return nil end
+		if short == "" then
+			return nil
+		end
 		return string.upper(string.sub(short, 1, 1)) .. string.sub(short, 2)
 	end
 
@@ -202,13 +206,17 @@ local function newSyncCommunicationsFixture()
 		local found, matchCount
 		for i = 1, #self.roster do
 			local rosterRaw = string.lower(string.match(tostring(self.roster[i].name or ""), "^%s*(.-)%s*$"))
-			if rosterRaw == raw then return self.roster[i] end
+			if rosterRaw == raw then
+				return self.roster[i]
+			end
 			if self:NormalizeSender(rosterRaw) == normalized then
 				found = self.roster[i]
 				matchCount = (matchCount or 0) + 1
 			end
 		end
-		if matchCount and matchCount > 1 then return nil, "short_name_collision" end
+		if matchCount and matchCount > 1 then
+			return nil, "short_name_collision"
+		end
 		return found
 	end
 
@@ -323,10 +331,16 @@ local function newSyncCommunicationsFixture()
 	end
 
 	local function encodeDeterministic(value)
-		if type(value) ~= "table" then return tostring(value) end
+		if type(value) ~= "table" then
+			return tostring(value)
+		end
 		local keys = {}
-		for key in pairs(value) do keys[#keys + 1] = key end
-		table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+		for key in pairs(value) do
+			keys[#keys + 1] = key
+		end
+		table.sort(keys, function(a, b)
+			return tostring(a) < tostring(b)
+		end)
 		local encoded = {}
 		for i = 1, #keys do
 			local key = keys[i]
@@ -359,15 +373,8 @@ local function newSyncCommunicationsFixture()
 			for index = first, math.min(first + chunkSize - 1, #values) do
 				rows[#rows + 1] = deepCopy(values[index])
 			end
-			chunks[#chunks + 1] = self:BuildChunk(
-				kind,
-				request,
-				encodeDeterministic(rows),
-				#chunks + 1,
-				total,
-				rawSender,
-				target
-			)
+			chunks[#chunks + 1] =
+				self:BuildChunk(kind, request, encodeDeterministic(rows), #chunks + 1, total, rawSender, target)
 		end
 		return chunks
 	end
@@ -440,22 +447,41 @@ local function newRaidRecordingFixture(addon)
 	function fixture.store:CommitAuthoritativeEvent(raidUid, eventType, payload)
 		local raidNid = tonumber(string.match(tostring(raidUid), "(%d+)$"))
 		local raid = self:GetRaidByNid(raidNid)
-		if not raid then return nil, "RAID_NOT_ACTIVE" end
+		if not raid then
+			return nil, "RAID_NOT_ACTIVE"
+		end
 		local function upsert(collection, field, entity)
 			for i = 1, #collection do
-				if tonumber(collection[i][field]) == tonumber(entity[field]) then collection[i] = deepCopy(entity); return end
+				if tonumber(collection[i][field]) == tonumber(entity[field]) then
+					collection[i] = deepCopy(entity)
+					return
+				end
 			end
 			collection[#collection + 1] = deepCopy(entity)
 		end
-		if eventType == "PLAYER_UPDATED" then upsert(raid.players, "playerNid", payload.player)
+		if eventType == "PLAYER_UPDATED" then
+			upsert(raid.players, "playerNid", payload.player)
 		elseif eventType == "PLAYER_DEPARTED" then
-			for i = 1, #raid.players do if raid.players[i].playerNid == payload.playerNid then raid.players[i].leave = payload.leave end end
-		elseif eventType == "ATTENDANCE_UPDATED" then upsert(raid.attendance, "playerNid", payload.attendance)
-		elseif eventType == "BOSS_UPDATED" then upsert(raid.bossKills, "bossNid", payload.boss)
-		elseif eventType == "LOOT_ADDED" or eventType == "LOOT_UPDATED" then upsert(raid.loot, "lootNid", payload.loot)
+			for i = 1, #raid.players do
+				if raid.players[i].playerNid == payload.playerNid then
+					raid.players[i].leave = payload.leave
+				end
+			end
+		elseif eventType == "ATTENDANCE_UPDATED" then
+			upsert(raid.attendance, "playerNid", payload.attendance)
+		elseif eventType == "BOSS_UPDATED" then
+			upsert(raid.bossKills, "bossNid", payload.boss)
+		elseif eventType == "LOOT_ADDED" or eventType == "LOOT_UPDATED" then
+			upsert(raid.loot, "lootNid", payload.loot)
 		elseif eventType == "LOOT_DELETED" then
-			for i = #raid.loot, 1, -1 do if raid.loot[i].lootNid == payload.lootNid then table.remove(raid.loot, i) end end
-		else return nil, "UNSUPPORTED_EVENT_TYPE" end
+			for i = #raid.loot, 1, -1 do
+				if raid.loot[i].lootNid == payload.lootNid then
+					table.remove(raid.loot, i)
+				end
+			end
+		else
+			return nil, "UNSUPPORTED_EVENT_TYPE"
+		end
 		semanticSequence[raidNid] = (semanticSequence[raidNid] or 1) + 1
 		revisions[raidNid] = (revisions[raidNid] or 0) + 1
 		fullSyncRevisions[raidNid] = revisions[raidNid]
@@ -481,16 +507,26 @@ local function newRaidRecordingFixture(addon)
 		return staged
 	end
 	function fixture.store:CommitAttendanceMutation(raid, staged, reason)
-		if self:GetRaidSyncRevision(raid) ~= staged._fixtureBaseRevision then return false, "CONFLICT" end
+		if self:GetRaidSyncRevision(raid) ~= staged._fixtureBaseRevision then
+			return false, "CONFLICT"
+		end
 		staged._fixtureBaseRevision = nil
 		local before = deepCopy(raid)
 		local revisionBefore = self:GetRaidSyncRevision(raid)
-		for key in pairs(raid) do raid[key] = nil end
-		for key, value in pairs(deepCopy(staged)) do raid[key] = value end
+		for key in pairs(raid) do
+			raid[key] = nil
+		end
+		for key, value in pairs(deepCopy(staged)) do
+			raid[key] = value
+		end
 		local ok, revision = pcall(self.TouchRaidSyncRevision, self, raid, reason)
 		if not ok or type(revision) ~= "number" then
-			for key in pairs(raid) do raid[key] = nil end
-			for key, value in pairs(before) do raid[key] = value end
+			for key in pairs(raid) do
+				raid[key] = nil
+			end
+			for key, value in pairs(before) do
+				raid[key] = value
+			end
 			self:SetRaidSyncRevision(raid, revisionBefore)
 			return false, "COMMIT_FAILED"
 		end
@@ -507,16 +543,24 @@ local function newRaidRecordingFixture(addon)
 				break
 			end
 		end
-		if not player then return nil, "missing inspect player" end
+		if not player then
+			return nil, "missing inspect player"
+		end
 		local previous = deepCopy(player.inspect)
 		local comparable = deepCopy(snapshot)
-		if previous then previous.inspectedAt = nil end
+		if previous then
+			previous.inspectedAt = nil
+		end
 		comparable.inspectedAt = nil
-		if previous and deepEqual(previous, comparable) then return false end
+		if previous and deepEqual(previous, comparable) then
+			return false
+		end
 		local candidate = deepCopy(player)
 		candidate.inspect = deepCopy(snapshot)
 		local event = self:CommitAuthoritativeEvent(self:GetRaidUid(raid), "PLAYER_UPDATED", { player = candidate })
-		if not event then return nil end
+		if not event then
+			return nil
+		end
 		raid.inspect = raid.inspect or { players = {} }
 		raid.inspect.players = raid.inspect.players or {}
 		raid.inspect.players[playerNid] = deepCopy(snapshot)
@@ -588,13 +632,21 @@ local function newRaidRecordingFixture(addon)
 	_G.GetNumRaidMembers = function()
 		return #fixture.roster
 	end
-	_G.GetNumPartyMembers = function() return 0 end
+	_G.GetNumPartyMembers = function()
+		return 0
+	end
 	_G.GetRaidRosterInfo = function(index)
 		local member = fixture.roster[index]
 		if not member then
 			return nil
 		end
-		return member.name, member.rank, member.subgroup, member.level, member.class, string.upper(member.class), nil,
+		return member.name,
+			member.rank,
+			member.subgroup,
+			member.level,
+			member.class,
+			string.upper(member.class),
+			nil,
 			member.online
 	end
 	_G.UnitName = function(unit)
@@ -608,6 +660,155 @@ local function newRaidRecordingFixture(addon)
 	return fixture
 end
 
+local function installCanonicalRaidStoreFixture(addon, fixture, activeRaidNid)
+	local function adler32(text)
+		local a, b = 1, 0
+		for i = 1, #text do
+			a = (a + string.byte(text, i)) % 65521
+			b = (b + a) % 65521
+		end
+		return b * 65536 + a
+	end
+
+	_G.LibStub = function(name)
+		assertEqual("LibDeflate", name)
+		return {
+			Adler32 = function(_, text)
+				return adler32(text)
+			end,
+		}
+	end
+	_G.GetTime = _G.GetTime or function()
+		return fixture.now
+	end
+	_G.UnitFullName = _G.UnitFullName or function()
+		return "Tester", "Test Realm"
+	end
+
+	local sourceRaids = deepCopy(fixture.raids)
+	local archive = { formatVersion = 1, activeRaidUid = nil, order = {}, raids = {} }
+	local function syncOrderedRaids()
+		for key in pairs(fixture.raids) do
+			fixture.raids[key] = nil
+		end
+		for i = 1, #archive.order do
+			local record = archive.raids[archive.order[i]]
+			fixture.raids[i] = record and record.state or nil
+		end
+		return fixture.raids
+	end
+
+	addon.Database.SavedVariables = {
+		GetRaids = function()
+			return archive
+		end,
+		ReplaceRaids = function(value)
+			archive = value
+			fixture.archive = archive
+			syncOrderedRaids()
+			return archive
+		end,
+		GetRaidArchiveError = function()
+			return nil
+		end,
+	}
+	addon.IgnoredMobs = addon.IgnoredMobs or {
+		IsTrashMobName = function()
+			return false
+		end,
+	}
+	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidEvents.lua")
+	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidValidator.lua")
+	addon.Database.GetRaidValidator = function()
+		return addon.DB.RaidValidator
+	end
+	local triggerEvent = addon.Bus.TriggerEvent
+	addon.Bus.TriggerEvent = function() end
+	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidStore.lua")
+	addon.Bus.TriggerEvent = triggerEvent
+	local store = addon.DB.RaidStore
+	assertTrue(
+		store:SetAuthorityGuard(function()
+			return true
+		end),
+		"canonical fixture authority guard failed"
+	)
+
+	local archiveKeyByRaidNid = {}
+	local function createSeedRaid(state, active)
+		local raid, _, archiveKey = assert(store:CreateActiveRaid({
+			authorityKey = "Tester-TestRealm",
+			serverTime = state.startTime,
+			raidNid = state.raidNid,
+			realm = state.realm,
+			zone = state.zone,
+			size = state.size,
+			difficulty = state.difficulty,
+			players = state.players,
+			bossKills = state.bossKills,
+			loot = state.loot,
+			attendance = state.attendance,
+			nextPlayerNid = state.nextPlayerNid,
+			nextBossNid = state.nextBossNid,
+			nextLootNid = state.nextLootNid,
+		}))
+		archiveKeyByRaidNid[raid.raidNid] = archiveKey
+		if not active then
+			assert(
+				store:ConcludeActiveRaid(archiveKey, math.max(fixture.now, tonumber(state.startTime) or fixture.now))
+			)
+		end
+	end
+
+	for i = 1, #sourceRaids do
+		if tonumber(sourceRaids[i].raidNid) ~= tonumber(activeRaidNid) then
+			createSeedRaid(sourceRaids[i], false)
+		end
+	end
+	for i = 1, #sourceRaids do
+		if tonumber(sourceRaids[i].raidNid) == tonumber(activeRaidNid) then
+			createSeedRaid(sourceRaids[i], true)
+		end
+	end
+	for i = 1, #sourceRaids do
+		archive.order[i] = archiveKeyByRaidNid[sourceRaids[i].raidNid]
+	end
+
+	fixture.archive = archive
+	fixture.archiveKeyByRaidNid = archiveKeyByRaidNid
+	fixture.GetRaids = syncOrderedRaids
+	fixture.GetRaid = function(_, index)
+		return syncOrderedRaids()[index]
+	end
+	fixture.RefreshRaidRecord = function(_, raid)
+		local archiveKey = store:GetRaidUid(raid)
+		local record = archiveKey and archive.raids[archiveKey] or nil
+		assertTrue(record ~= nil, "canonical fixture raid record is missing")
+		record.digest = assert(addon.DB.RaidEvents.DigestState(record.state))
+		if record.status == "active" and #record.events == 1 and record.events[1].eventType == "RAID_CREATED" then
+			record.events[1].payload.state = deepCopy(record.state)
+			record.events[1].resultDigest = record.digest
+		end
+		assertTrue(addon.Database.GetRaidValidator():ValidateRecord(record), "canonical fixture record refresh failed")
+		return record
+	end
+	fixture.store = store
+	addon.Database.GetRaidStore = function()
+		return store
+	end
+	addon.Database.EnsureRaidByIndex = function(index)
+		return store:EnsureRaidByIndex(index)
+	end
+	addon.Database.EnsureRaidByNid = function(raidNid)
+		return store:EnsureRaidByNid(raidNid)
+	end
+	syncOrderedRaids()
+	for i = #fixture.events, 1, -1 do
+		fixture.events[i] = nil
+	end
+	return store
+end
+
 local function installRealAttendanceFixture(addon, fixture)
 	local callbacks = {}
 	_G.strlower = string.lower
@@ -617,19 +818,29 @@ local function installRealAttendanceFixture(addon, fixture)
 	fixture.store:SetRaidSyncRevision(fixture.raids[2], 0)
 	fixture.roster = { { name = "Beta", rank = 0, subgroup = 1, level = 80, class = "Priest", online = true } }
 
-	addon.Events = { Internal = {
-		RaidAttendanceChanged = "RaidAttendanceChanged",
-		RaidRosterDelta = "RaidRosterDelta",
-		RaidCreate = "RaidCreate",
-	} }
+	addon.Events = {
+		Internal = {
+			RaidAttendanceChanged = "RaidAttendanceChanged",
+			RaidRosterDelta = "RaidRosterDelta",
+			RaidCreate = "RaidCreate",
+		},
+	}
 	addon.Services = {
 		EnsureNamespace = function(name)
 			addon.Services[name] = addon.Services[name] or {}
 		end,
 	}
-	addon.Time = { GetCurrentTime = function() return fixture.now end }
-	addon.Database.EnsureRaidByIndex = function(index) return fixture.raids[index] end
-	addon.Database.EnsureRaidSchema = function(raid) return raid end
+	addon.Time = {
+		GetCurrentTime = function()
+			return fixture.now
+		end,
+	}
+	addon.Database.EnsureRaidByIndex = function(index)
+		return fixture.raids[index]
+	end
+	addon.Database.EnsureRaidSchema = function(raid)
+		return raid
+	end
 	addon.Bus.RegisterCallback = function(eventName, callback)
 		callbacks[eventName] = callback
 	end
@@ -645,50 +856,119 @@ local function installRaidCreationFixture(addon, failureMode)
 	fixture.currentRaid = 1
 	fixture.raids[1].attendance = { { playerNid = 11, segments = { { startTime = 900 } } } }
 	fixture.order = {}
-	_G.table.wipe = _G.table.wipe or function(target) for key in pairs(target) do target[key] = nil end return target end
-	_G.UnitRace = function() return "Human", "Human" end
-	_G.UnitExists = function() return true end
-	_G.UnitGUID = function() return nil end
-	_G.UnitIsDead = function() return false end
-	_G.GetInstanceInfo = function() return "Ulduar", "raid", 2 end
+	_G.table.wipe = _G.table.wipe
+		or function(target)
+			for key in pairs(target) do
+				target[key] = nil
+			end
+			return target
+		end
+	_G.UnitRace = function()
+		return "Human", "Human"
+	end
+	_G.UnitExists = function()
+		return true
+	end
+	_G.UnitGUID = function()
+		return nil
+	end
+	_G.UnitIsDead = function()
+		return false
+	end
+	_G.GetInstanceInfo = function()
+		return "Ulduar", "raid", 2
+	end
 	_G.UNKNOWNOBJECT = "Unknown"
 	addon.L = { RaidZones = {} }
 	addon.Diag = { I = { LogRaidCreated = "%d %s %d %d", LogRaidEnded = "%d %s %d %d %d %d" } }
 	addon.C = {}
 	addon.State = { currentRaid = 1, raid = { numRaid = 7, marker = "old" }, raidStore = {} }
 	addon.DB = {}
-	addon.Strings = { TrimText = function(value) return value end }
-	addon.Time = { GetCurrentTime = function() return fixture.now end }
+	addon.Strings = {
+		TrimText = function(value)
+			return value
+		end,
+	}
+	addon.Time = {
+		GetCurrentTime = function()
+			return fixture.now
+		end,
+	}
 	addon.Base64, addon.LootSources, addon.LootSourceCandidates = {}, {}, {}
-	addon.Options = { IsDebugEnabled = function() return false end }
-	addon.Events = { Internal = {
-		RaidCreate = "RaidCreate",
-		RaidAttendanceChanged = "RaidAttendanceChanged",
-		RaidAuthorityRecoveryFinished = "RaidAuthorityRecoveryFinished",
-		RaidReentryRecoveryReady = "RaidReentryRecoveryReady",
-		RaidReentryDecisionRequired = "RaidReentryDecisionRequired",
-		RaidReentryDecisionResolved = "RaidReentryDecisionResolved",
-	} }
+	addon.Options = {
+		IsDebugEnabled = function()
+			return false
+		end,
+	}
+	addon.Events = {
+		Internal = {
+			RaidCreate = "RaidCreate",
+			RaidAttendanceChanged = "RaidAttendanceChanged",
+			RaidAuthorityRecoveryFinished = "RaidAuthorityRecoveryFinished",
+			RaidReentryRecoveryReady = "RaidReentryRecoveryReady",
+			RaidReentryDecisionRequired = "RaidReentryDecisionRequired",
+			RaidReentryDecisionResolved = "RaidReentryDecisionResolved",
+		},
+	}
 	addon.Bus.RegisterCallback = function(eventName, callback)
 		callbacks[eventName] = callbacks[eventName] or {}
 		callbacks[eventName][#callbacks[eventName] + 1] = callback
 	end
-	addon.Services = { EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} end,
-		Loot = { _State = { SetField = function() end, SetActive = function() end, SyncActive = function() end,
-			Reset = function() end },
-			_Sessions = {}, _Snapshots = {}, _Context = {} } }
-	addon.IsInRaid = function() return true end
-	addon.Group = {
-		GetTypeAndCount = function() return "raid", 1, #fixture.roster end,
-		GetNumMembers = function() return #fixture.roster end,
+	addon.Services = {
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+		end,
+		Loot = {
+			_State = {
+				SetField = function() end,
+				SetActive = function() end,
+				SyncActive = function() end,
+				Reset = function() end,
+			},
+			_Sessions = {},
+			_Snapshots = {},
+			_Context = {},
+		},
 	}
-	addon.Database.GetRealmName = function() return "Test Realm" end
+	addon.IsInRaid = function()
+		return true
+	end
+	addon.Group = {
+		GetTypeAndCount = function()
+			return "raid", 1, #fixture.roster
+		end,
+		GetNumMembers = function()
+			return #fixture.roster
+		end,
+	}
+	addon.Database.GetRealmName = function()
+		return "Test Realm"
+	end
+	addon.Database.GetPlayerName = function()
+		return "Tester"
+	end
+	addon.Database.GetCurrentRaid = function()
+		return addon.State.currentRaid
+	end
+	addon.Database.SetCurrentRaid = function(value)
+		addon.State.currentRaid = value
+		return value
+	end
+	addon.Database.GetLastBoss = function()
+		return addon.State.lastBoss
+	end
+	addon.Database.SetLastBoss = function(value)
+		addon.State.lastBoss = value
+		return value
+	end
 	addon.info = function() end
-	addon.Database.IsBossFightRecord = function() return true end
-	addon.Database.GetRaidSchemaVersion = function() return 6 end
-	addon.Database.SavedVariables = { GetRaids = function() return fixture.raids end }
-	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidStore.lua")
-	fixture.store = addon.DB.RaidStore
+	addon.Database.IsBossFightRecord = function()
+		return true
+	end
+	addon.Database.GetRaidSchemaVersion = function()
+		return 6
+	end
+	installCanonicalRaidStoreFixture(addon, fixture, 41)
 	local syncSequenceByRaid = setmetatable({}, { __mode = "k" })
 	function fixture.store:GetRaidSyncRevision(raid)
 		return tonumber(raid and syncSequenceByRaid[raid]) or 0
@@ -715,7 +995,6 @@ local function installRaidCreationFixture(addon, failureMode)
 	function fixture.store:RequiresFullSyncSince(raid, sequence)
 		return self:GetRaidSyncRevision(raid) > (tonumber(sequence) or 0)
 	end
-	addon.Database.GetRaidStore = function() return fixture.store end
 	local captureHistory = fixture.store.CaptureRaidHistoryState
 	local restoreHistory = fixture.store.RestoreRaidHistoryState
 	fixture.store.CaptureRaidHistoryState = function(self)
@@ -724,38 +1003,69 @@ local function installRaidCreationFixture(addon, failureMode)
 	end
 	fixture.store.RestoreRaidHistoryState = function(self, snapshot)
 		fixture.historyRestores = (fixture.historyRestores or 0) + 1
-		return restoreHistory(self, snapshot)
+		local restored, reason = restoreHistory(self, snapshot)
+		fixture:GetRaids()
+		return restored, reason
 	end
 	fixture.store:EnsureRaidByIndex(1)
 	fixture.store:EnsureRaidByIndex(2)
-	local realCreate = fixture.store.CreateRaidRecord
-	local realInsert = fixture.store.InsertRaid
-	local realDelete = fixture.store.DeleteRaid
-	if failureMode == "create_nil" then
-		fixture.store.CreateRaidRecord = function() return nil end
-	elseif failureMode == "create_throw" then
-		fixture.store.CreateRaidRecord = function() error("create failure") end
-	end
-	fixture.store.InsertRaid = function(self, raid)
-		fixture.candidateRaidNid = raid.raidNid
-		local inserted, index = realInsert(self, raid)
+	local realCreateActive = fixture.store.CreateActiveRaid
+	local realConcludeActive = fixture.store.ConcludeActiveRaid
+	fixture.store.CreateActiveRaid = function(self, args)
+		fixture.candidateRaidNid = args and args.raidNid
+		local inserted, index, archiveKey = realCreateActive(self, args)
 		fixture.candidateRaidNid = inserted and inserted.raidNid or fixture.candidateRaidNid
-		if failureMode == "insert_nil" then return nil, nil end
-		if failureMode == "insert_throw" then error("insert failure") end
-		if not failureMode then
+		fixture:GetRaids()
+		if inserted then
 			fixture.order[#fixture.order + 1] = "insert"
 		end
-		return inserted, index
+		return inserted, index, archiveKey
 	end
-	if failureMode == "delete_false" then fixture.store.DeleteRaid = function() return false end end
-	if failureMode == "delete_throw" then fixture.store.DeleteRaid = function() error("delete failure") end end
-	fixture.realCreate, fixture.realInsert, fixture.realDelete = realCreate, realInsert, realDelete
+	fixture.store.ConcludeActiveRaid = function(self, ...)
+		local event, state = realConcludeActive(self, ...)
+		fixture:GetRaids()
+		return event, state
+	end
+	if failureMode == "create_nil" then
+		fixture.store.CreateActiveRaid = function(_, args)
+			fixture.candidateRaidNid = args and args.raidNid
+			return nil
+		end
+	elseif failureMode == "create_throw" then
+		fixture.store.CreateActiveRaid = function(_, args)
+			fixture.candidateRaidNid = args and args.raidNid
+			error("create failure")
+		end
+	elseif failureMode == "conclude_nil" then
+		fixture.store.ConcludeActiveRaid = function()
+			return nil
+		end
+	elseif failureMode == "conclude_throw" then
+		fixture.store.ConcludeActiveRaid = function()
+			error("conclusion failure")
+		end
+	end
+	if failureMode == "delete_false" then
+		fixture.store.DeleteRaid = function()
+			return false
+		end
+	end
+	if failureMode == "delete_throw" then
+		fixture.store.DeleteRaid = function()
+			error("delete failure")
+		end
+	end
+	fixture.realCreateActive, fixture.realConcludeActive = realCreateActive, realConcludeActive
 	addon.Bus.TriggerEvent = function(eventName, ...)
 		fixture.events[#fixture.events + 1] = { name = eventName, args = { ... } }
 		fixture.order[#fixture.order + 1] = eventName
-		if eventName == "RaidAttendanceChanged" then fixture.attendanceEventCurrentRaid = addon.Database.GetCurrentRaid() end
+		if eventName == "RaidAttendanceChanged" then
+			fixture.attendanceEventCurrentRaid = addon.Database.GetCurrentRaid()
+		end
 		local listeners = callbacks[eventName] or {}
-		for i = 1, #listeners do listeners[i](eventName, ...) end
+		for i = 1, #listeners do
+			listeners[i](eventName, ...)
+		end
 	end
 	fixture.callbacks = callbacks
 	addon.Services.EnsureNamespace("Raid")
@@ -785,7 +1095,9 @@ local function installRaidCreationFixture(addon, failureMode)
 	function raid:CloseAttendanceForRaid(record, currentTime, reason, deferPublication)
 		record.attendance[1].segments[1].endTime = currentTime
 		fixture.store:TouchRaidSyncRevision(record)
-		if not deferPublication then addon.Bus.TriggerEvent("RaidAttendanceChanged", record.raidNid, reason) end
+		if not deferPublication then
+			addon.Bus.TriggerEvent("RaidAttendanceChanged", record.raidNid, reason)
+		end
 		return true, record.raidNid
 	end
 	return fixture, raid
@@ -802,7 +1114,11 @@ local function installRaidReplicationEventFixture(addon)
 	end
 	_G.LibStub = function(name)
 		assertEqual("LibDeflate", name)
-		return { Adler32 = function(_, text) return adler32(text) end }
+		return {
+			Adler32 = function(_, text)
+				return adler32(text)
+			end,
+		}
 	end
 	addon.DB = addon.DB or {}
 	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidEvents.lua")
@@ -823,12 +1139,13 @@ local function installLootHardeningRollsFixture(addon)
 	_G.GetTime = function()
 		return now
 	end
-	_G.table.wipe = _G.table.wipe or function(target)
-		for key in pairs(target) do
-			target[key] = nil
+	_G.table.wipe = _G.table.wipe
+		or function(target)
+			for key in pairs(target) do
+				target[key] = nil
+			end
+			return target
 		end
-		return target
-	end
 
 	addon.C = {
 		rollTypes = { MAINSPEC = 1, OFFSPEC = 2, RESERVED = 3, FREE = 4, MANUAL = 5 },
@@ -840,8 +1157,16 @@ local function installLootHardeningRollsFixture(addon)
 	})
 	addon.L.ChatCountdownTic = "%d"
 	addon.L.ChatCountdownEnd = "end"
-	addon.Diag = { D = setmetatable({}, { __index = function() return "%s %s %s %s %s %s" end }) }
-	addon.Diag.W = setmetatable({}, { __index = function() return "%s %s %s %s %s %s" end })
+	addon.Diag = { D = setmetatable({}, {
+		__index = function()
+			return "%s %s %s %s %s %s"
+		end,
+	}) }
+	addon.Diag.W = setmetatable({}, {
+		__index = function()
+			return "%s %s %s %s %s %s"
+		end,
+	})
 	addon.Options = {
 		RegisterNamespace = function() end,
 		GetValue = function(_, key)
@@ -907,8 +1232,12 @@ local function installLootHardeningRollsFixture(addon)
 		},
 		Raid = {
 			LootBans = {
-				IsActive = function() return false end,
-				Get = function() return false end,
+				IsActive = function()
+					return false
+				end,
+				Get = function()
+					return false
+				end,
 			},
 			GetUnitID = function(_, name)
 				return name and "raid1" or "none"
@@ -983,25 +1312,57 @@ local function installLootHardeningMasterFixture(addon, options)
 	}
 	fixture.lootState = lootState
 	local noop = function() end
-	local dummyController = setmetatable({}, { __index = function() return noop end })
+	local dummyController = setmetatable({}, {
+		__index = function()
+			return noop
+		end,
+	})
 	dummyController.HasInFlightAward = function()
 		return fixture.tradeInFlight == true
 	end
 	fixture.tradeController = dummyController
 	local frameApi = {
-		GetRef = function() return nil end,
+		GetRef = function()
+			return nil
+		end,
 		SetScriptSafely = noop,
-		BindModuleFrame = function() return "RMAMaster" end,
-		MakeModuleFrameGetter = function() return function() return nil end end,
+		BindModuleFrame = function()
+			return "RMAMaster"
+		end,
+		MakeModuleFrameGetter = function()
+			return function()
+				return nil
+			end
+		end,
 		SetFrameTitle = noop,
 	}
 
-	_G.table.wipe = _G.table.wipe or function(target) for key in pairs(target) do target[key] = nil end return target end
-	_G.CreateFrame = function() return setmetatable({}, { __index = function() return noop end }) end
-	_G.UnitName = function() return "Tester" end
-	_G.GetMasterLootCandidate = function() return "Winner" end
-	_G.GetRaidRosterInfo = function() return "Winner", 0, 1, 80, "Warrior", "WARRIOR" end
-	_G.GetLootSlotInfo = function() return nil, "Test Item", 1, 4 end
+	_G.table.wipe = _G.table.wipe
+		or function(target)
+			for key in pairs(target) do
+				target[key] = nil
+			end
+			return target
+		end
+	_G.CreateFrame = function()
+		return setmetatable({}, {
+			__index = function()
+				return noop
+			end,
+		})
+	end
+	_G.UnitName = function()
+		return "Tester"
+	end
+	_G.GetMasterLootCandidate = function()
+		return "Winner"
+	end
+	_G.GetRaidRosterInfo = function()
+		return "Winner", 0, 1, 80, "Warrior", "WARRIOR"
+	end
+	_G.GetLootSlotInfo = function()
+		return nil, "Test Item", 1, 4
+	end
 	_G.GiveMasterLoot = function()
 		fixture.assignments = fixture.assignments + 1
 		if fixture.throwGiveMasterLoot then
@@ -1012,7 +1373,9 @@ local function installLootHardeningMasterFixture(addon, options)
 		end
 	end
 	_G.UIDropDownMenu_AddButton = noop
-	_G.UIDropDownMenu_CreateInfo = function() return {} end
+	_G.UIDropDownMenu_CreateInfo = function()
+		return {}
+	end
 	_G.UIDropDownMenu_Initialize = noop
 	_G.UIDropDownMenu_JustifyText = noop
 	_G.UIDropDownMenu_SetButtonWidth = noop
@@ -1020,16 +1383,24 @@ local function installLootHardeningMasterFixture(addon, options)
 	_G.UIDropDownMenu_SetText = noop
 	_G.UIDropDownMenu_SetWidth = noop
 	_G.ClearCursor = noop
-	_G.CursorHasItem = function() return false end
+	_G.CursorHasItem = function()
+		return false
+	end
 	_G.GetCursorInfo = noop
 	_G.GetContainerItemInfo = noop
 	_G.GetContainerItemLink = noop
 	_G.InitiateTrade = noop
 	_G.PickupContainerItem = noop
 	_G.SetRaidTarget = noop
-	_G.CheckInteractDistance = function() return true end
+	_G.CheckInteractDistance = function()
+		return true
+	end
 
-	addon.L = setmetatable({}, { __index = function(_, key) return key .. " %s %s %s %s %s %s" end })
+	addon.L = setmetatable({}, {
+		__index = function(_, key)
+			return key .. " %s %s %s %s %s %s"
+		end,
+	})
 	addon.L.WarnMLAwardConfirmationUncertain = "uncertain %s %s %s"
 	addon.L.WarnMLAwardConfirmationUnresolved = "unresolved %s %s"
 	addon.L.WarnMLLootAttributionFailed = "attribution %s"
@@ -1039,60 +1410,148 @@ local function installLootHardeningMasterFixture(addon, options)
 	addon.L.ChatAward = "%s won %s"
 	addon.L.ChatAwardMutiple = "%s won %s"
 	addon.Diag = {
-		D = setmetatable({}, { __index = function() return "%s %s %s %s %s %s" end }),
-		E = setmetatable({}, { __index = function() return "%s %s %s %s %s %s" end }),
-		I = setmetatable({}, { __index = function() return "%s %s %s %s %s %s" end }),
-		W = setmetatable({}, { __index = function() return "%s %s %s %s %s %s" end }),
+		D = setmetatable({}, {
+			__index = function()
+				return "%s %s %s %s %s %s"
+			end,
+		}),
+		E = setmetatable({}, {
+			__index = function()
+				return "%s %s %s %s %s %s"
+			end,
+		}),
+		I = setmetatable({}, {
+			__index = function()
+				return "%s %s %s %s %s %s"
+			end,
+		}),
+		W = setmetatable({}, {
+			__index = function()
+				return "%s %s %s %s %s %s"
+			end,
+		}),
 	}
 	addon.EntryPoints = { Debug = { RegisterCommand = noop } }
 	addon.UI = {
 		Frames = frameApi,
 		Tooltips = { Bind = noop, Hide = noop },
 		Lists = {
-			CreateController = function() return dummyController end,
-			CreateRowRenderer = function() return noop end,
-			MakeIndexedRowName = function() return "Row" end,
+			CreateController = function()
+				return dummyController
+			end,
+			CreateRowRenderer = function()
+				return noop
+			end,
+			MakeIndexedRowName = function()
+				return "Row"
+			end,
 		},
-		Primitives = setmetatable({}, { __index = function() return noop end }),
-		Rows = setmetatable({}, { __index = function() return noop end }),
-		Popups = { Define = function() return true end, IsDefined = function() return true end, Show = noop, ShowConfirm = noop },
-		ModuleState = { Ensure = function() return {} end },
+		Primitives = setmetatable({}, {
+			__index = function()
+				return noop
+			end,
+		}),
+		Rows = setmetatable({}, {
+			__index = function()
+				return noop
+			end,
+		}),
+		Popups = {
+			Define = function()
+				return true
+			end,
+			IsDefined = function()
+				return true
+			end,
+			Show = noop,
+			ShowConfirm = noop,
+		},
+		ModuleState = {
+			Ensure = function()
+				return {}
+			end,
+		},
 		Scaffold = { DefineModule = noop },
 		EditBoxes = { SetValue = noop },
 	}
-	addon.Item = { GetItemStringFromLink = function() return "item:19019" end }
+	addon.Item = {
+		GetItemStringFromLink = function()
+			return "item:19019"
+		end,
+	}
 	addon.Group = addon.Group or {}
-	addon.Group.IterateUnits = function() return function() return nil end end
+	addon.Group.IterateUnits = function()
+		return function()
+			return nil
+		end
+	end
 	addon.Colors = {}
-	addon.Comms = { SendWhisper = function()
-		fixture.whisperCalls = (fixture.whisperCalls or 0) + 1
-		return true
-	end }
+	addon.Comms = {
+		SendWhisper = function()
+			fixture.whisperCalls = (fixture.whisperCalls or 0) + 1
+			return true
+		end,
+	}
 	addon.Events = {
-		Internal = setmetatable({}, { __index = function(_, key) return key end }),
-		ResolveWowForwardedName = function(name) return name end,
+		Internal = setmetatable({}, {
+			__index = function(_, key)
+				return key
+			end,
+		}),
+		ResolveWowForwardedName = function(name)
+			return name
+		end,
 	}
 	addon.C = setmetatable({
-		rollTypes = { MAINSPEC = 1, OFFSPEC = 2, RESERVED = 3, FREE = 4, MANUAL = 5, HOLD = 6, BANK = 7, DISENCHANT = 8 },
+		rollTypes = {
+			MAINSPEC = 1,
+			OFFSPEC = 2,
+			RESERVED = 3,
+			FREE = 4,
+			MANUAL = 5,
+			HOLD = 6,
+			BANK = 7,
+			DISENCHANT = 8,
+		},
 		ML_AWARD_CONFIRM_TIMEOUT_SECONDS = 4,
 		ML_MULTI_AWARD_TIMEOUT_SECONDS = 4,
 		ML_MULTI_AWARD_DELAY = 0,
-	}, { __index = function() return 30 end })
+	}, {
+		__index = function()
+			return 30
+		end,
+	})
 	addon.Database = {
-		EnsureLootRuntimeState = function() return {}, lootState, {} end,
+		EnsureLootRuntimeState = function()
+			return {}, lootState, {}
+		end,
 		RequireServiceMethod = function(_, owner, method)
 			return function(target, ...)
 				return owner[method](target, ...)
 			end
 		end,
-		GetCurrentRaid = function() return 1 end,
-		GetPlayerName = function() return "Tester" end,
-		GetRaidStore = function() return { EnsureRaidByIndex = function() return {} end } end,
+		GetCurrentRaid = function()
+			return 1
+		end,
+		GetPlayerName = function()
+			return "Tester"
+		end,
+		GetRaidStore = function()
+			return {
+				EnsureRaidByIndex = function()
+					return {}
+				end,
+			}
+		end,
 	}
 	addon.Options = {
-		IsDebugEnabled = function() return false end,
+		IsDebugEnabled = function()
+			return false
+		end,
 		RegisterNamespace = noop,
-		GetValue = function(_, key) return key == "announceOnWin" and fixture.announceOnWin == true end,
+		GetValue = function(_, key)
+			return key == "announceOnWin" and fixture.announceOnWin == true
+		end,
 	}
 	addon.Bus = {
 		TriggerEvent = function(eventName)
@@ -1112,8 +1571,16 @@ local function installLootHardeningMasterFixture(addon, options)
 	addon.Widgets = {
 		RaidGrid = { Hide = noop },
 		LootHints = { ApplyLootFrameReserveHints = noop, ClearLootFrameReserveHints = noop },
-		TradeMenu = setmetatable({}, { __index = function() return noop end }),
-		ItemSelection = { CreateController = function() return dummyController end },
+		TradeMenu = setmetatable({}, {
+			__index = function()
+				return noop
+			end,
+		}),
+		ItemSelection = {
+			CreateController = function()
+				return dummyController
+			end,
+		},
 	}
 	addon.Timer = {
 		BindMixin = function(target)
@@ -1144,7 +1611,9 @@ local function installLootHardeningMasterFixture(addon, options)
 	}
 	function fixture.activeTimerCount()
 		local count = 0
-		for _ in pairs(fixture.activeTimerHandles) do count = count + 1 end
+		for _ in pairs(fixture.activeTimerHandles) do
+			count = count + 1
+		end
 		return count
 	end
 	function fixture.runScheduledTimers()
@@ -1160,7 +1629,9 @@ local function installLootHardeningMasterFixture(addon, options)
 	addon.warn = function(_, message)
 		fixture.warningCount = fixture.warningCount + 1
 		fixture.lastWarning = message
-		if type(fixture.onWarn) == "function" then fixture.onWarn() end
+		if type(fixture.onWarn) == "function" then
+			fixture.onWarn()
+		end
 	end
 	addon.info = noop
 	addon.debug = noop
@@ -1170,12 +1641,18 @@ local function installLootHardeningMasterFixture(addon, options)
 			addon.Services[name] = addon.Services[name] or {}
 			return addon.Services[name]
 		end,
-		Chat = { Announce = function()
-			fixture.announcementCalls = (fixture.announcementCalls or 0) + 1
-			if fixture.throwAnnouncement then error("announcement exploded") end
-			if fixture.rejectAnnouncement then return nil, "send_failed" end
-			return true
-		end },
+		Chat = {
+			Announce = function()
+				fixture.announcementCalls = (fixture.announcementCalls or 0) + 1
+				if fixture.throwAnnouncement then
+					error("announcement exploded")
+				end
+				if fixture.rejectAnnouncement then
+					return nil, "send_failed"
+				end
+				return true
+			end,
+		},
 		Logger = { Actions = {} },
 		Loot = {
 			DistributionSession = {
@@ -1196,7 +1673,10 @@ local function installLootHardeningMasterFixture(addon, options)
 					fixture.publicationOrder[#fixture.publicationOrder + 1] = "ITEM_DONE"
 					return fixture.rejectDistribution ~= true
 				end,
-				PublishItemCancelled = function() fixture.cancelledPublications = (fixture.cancelledPublications or 0) + 1 return true end,
+				PublishItemCancelled = function()
+					fixture.cancelledPublications = (fixture.cancelledPublications or 0) + 1
+					return true
+				end,
 				PublishRollEnd = function(_, _, _, reason)
 					fixture.rollEndCalls = (fixture.rollEndCalls or 0) + 1
 					fixture.lastPublishedReason = reason
@@ -1205,7 +1685,9 @@ local function installLootHardeningMasterFixture(addon, options)
 				end,
 			},
 			Inventory = {
-				FindLootSlotIndex = function() return 1 end,
+				FindLootSlotIndex = function()
+					return 1
+				end,
 				ValidateLootSlot = function()
 					if fixture.slotValidationResult == nil and fixture.slotValidationReason then
 						return nil, fixture.slotValidationReason
@@ -1218,21 +1700,45 @@ local function installLootHardeningMasterFixture(addon, options)
 				end,
 			},
 			AwardPlanner = {
-				BuildAwardTargetPlan = function() return { target = 1, available = 1 } end,
-				BuildMultiAwardWinnersPlan = function(opts) return { winners = opts.pickedWinners } end,
+				BuildAwardTargetPlan = function()
+					return { target = 1, available = 1 }
+				end,
+				BuildMultiAwardWinnersPlan = function(opts)
+					return { winners = opts.pickedWinners }
+				end,
 				BuildMultiAwardState = function(opts)
-					return { state = { active = true, itemLink = opts.itemLink, winners = opts.winners, total = #opts.winners, pos = 2, rollType = opts.rollType, itemKey = "item:19019", lastCount = opts.available, announceOnWin = opts.announceOnWin } }
+					return {
+						state = {
+							active = true,
+							itemLink = opts.itemLink,
+							winners = opts.winners,
+							total = #opts.winners,
+							pos = 2,
+							rollType = opts.rollType,
+							itemKey = "item:19019",
+							lastCount = opts.available,
+							announceOnWin = opts.announceOnWin,
+						},
+					}
 				end,
 			},
 			LootAttribution = {
-				ConfirmProvisional = function() return true end,
+				ConfirmProvisional = function()
+					return true
+				end,
 				IsMasterLootAwardFailureMessage = function(message)
 					return message == "Inventory is full"
 				end,
 			},
-			GetItemLink = function() return "item:19019" end,
-			GetCurrentItemCount = function() return 1 end,
-			FetchLoot = function() fixture.fetchCalls = (fixture.fetchCalls or 0) + 1 end,
+			GetItemLink = function()
+				return "item:19019"
+			end,
+			GetCurrentItemCount = function()
+				return 1
+			end,
+			FetchLoot = function()
+				fixture.fetchCalls = (fixture.fetchCalls or 0) + 1
+			end,
 			GetLootWindowItemCountByKey = function()
 				fixture.lootCountScans = fixture.lootCountScans + 1
 				return fixture.windowItemCount or 1
@@ -1253,42 +1759,83 @@ local function installLootHardeningMasterFixture(addon, options)
 			end,
 		},
 		Raid = {
-			LootBans = { Get = function()
-				fixture.lootBanChecks = (fixture.lootBanChecks or 0) + 1
-				return fixture.lootBanAtCheck == fixture.lootBanChecks, "changed ban"
-			end },
+			LootBans = {
+				Get = function()
+					fixture.lootBanChecks = (fixture.lootBanChecks or 0) + 1
+					return fixture.lootBanAtCheck == fixture.lootBanChecks, "changed ban"
+				end,
+			},
 			Debug = {},
 			AddPlayerCountForRollType = function()
 				fixture.counterCalls = fixture.counterCalls + 1
 				return fixture.rejectCounter ~= true
 			end,
-			GetRosterVersion = function() return 1 end,
-			RequestMasterLootCandidateRefresh = noop,
-			FindMasterLootCandidateIndex = function()
-				if fixture.candidateUnavailable then return nil end
+			GetRosterVersion = function()
 				return 1
 			end,
-			CanResolveMasterLootCandidates = function() return true end,
-			CanUseCapability = function() return true end,
-			EnsureMasterOnlyAccess = function() return true end,
-			IsMasterLooter = function() return fixture.permissionDenied ~= true end,
-			IsRaidLeader = function() return options.canonicalAuthority ~= false end,
-			CanCommitRaidHistory = function() return options.canonicalAuthority ~= false end,
+			RequestMasterLootCandidateRefresh = noop,
+			FindMasterLootCandidateIndex = function()
+				if fixture.candidateUnavailable then
+					return nil
+				end
+				return 1
+			end,
+			CanResolveMasterLootCandidates = function()
+				return true
+			end,
+			CanUseCapability = function()
+				return true
+			end,
+			EnsureMasterOnlyAccess = function()
+				return true
+			end,
+			IsMasterLooter = function()
+				return fixture.permissionDenied ~= true
+			end,
+			IsRaidLeader = function()
+				return options.canonicalAuthority ~= false
+			end,
+			CanCommitRaidHistory = function()
+				return options.canonicalAuthority ~= false
+			end,
 		},
 		Rolls = {
-			GetRollSession = function() return { id = "RS:1" } end,
-			GetDisplayModel = function() return { resolution = {}, requiredWinnerCount = 1, winner = "Winner", rows = { { name = "Winner", roll = 90 } } } end,
-			BeginTieReroll = function() return false end,
-			IsCountdownRunning = function() return false end,
+			GetRollSession = function()
+				return { id = "RS:1" }
+			end,
+			GetDisplayModel = function()
+				return {
+					resolution = {},
+					requiredWinnerCount = 1,
+					winner = "Winner",
+					rows = { { name = "Winner", roll = 90 } },
+				}
+			end,
+			BeginTieReroll = function()
+				return false
+			end,
+			IsCountdownRunning = function()
+				return false
+			end,
 			StopCountdown = noop,
-			ShouldUseTieReroll = function() return false end,
-			FreezeRollIntake = function() return { resolution = {}, requiredWinnerCount = 1, winner = "Winner", rollWinner = "Winner" }, "award" end,
-			GetHighestRoll = function() return 90 end,
+			ShouldUseTieReroll = function()
+				return false
+			end,
+			FreezeRollIntake = function()
+				return { resolution = {}, requiredWinnerCount = 1, winner = "Winner", rollWinner = "Winner" }, "award"
+			end,
+			GetHighestRoll = function()
+				return 90
+			end,
 			ValidateWinner = function()
 				return fixture.winnerIneligible and { ok = false, warnMessage = "ineligible" } or { ok = true }
 			end,
-			EnsureLootRollSession = function() return { id = "RS:1" } end,
-			ClearRolls = function() fixture.rollClearCalls = (fixture.rollClearCalls or 0) + 1 end,
+			EnsureLootRollSession = function()
+				return { id = "RS:1" }
+			end,
+			ClearRolls = function()
+				fixture.rollClearCalls = (fixture.rollClearCalls or 0) + 1
+			end,
 			SetRollRecordingEnabled = noop,
 			SetExpectedWinners = noop,
 			FinalizeRollSession = noop,
@@ -1303,44 +1850,84 @@ local function installLootHardeningMasterFixture(addon, options)
 		lootState.currentItemIndex = 0
 		addon.C.itemColors = { [5] = "ffff8000" }
 		addon.C.RESERVES_ITEM_FALLBACK_ICON = "texture"
-		_G.GetLootThreshold = function() return 2 end
-		_G.GetNumLootItems = function() return 0 end
-		_G.GetTime = function() return 10 end
+		_G.GetLootThreshold = function()
+			return 2
+		end
+		_G.GetNumLootItems = function()
+			return 0
+		end
+		_G.GetTime = function()
+			return 10
+		end
 		_G.GetItemInfo = function()
 			return "Thunderfury", nil, 5, nil, nil, "Weapon", nil, nil, nil, "texture"
 		end
-		addon.Deformat = function() return nil end
-		addon.Strings = { NormalizeName = function(value) return value end }
-		addon.Time = { GetCurrentTime = function() return 10 end }
-		addon.Item.GetItemIdFromLink = function() return 19019 end
-		addon.Item.GetItemKey = function() return "item:19019" end
-		addon.Options.NormalizeLoggerLootQualityThreshold = function(value) return tonumber(value) or 2 end
-		addon.Database.EnsureLootRuntimeState = function() return {}, lootState, {}, {} end
+		addon.Deformat = function()
+			return nil
+		end
+		addon.Strings = {
+			NormalizeName = function(value)
+				return value
+			end,
+		}
+		addon.Time = {
+			GetCurrentTime = function()
+				return 10
+			end,
+		}
+		addon.Item.GetItemIdFromLink = function()
+			return 19019
+		end
+		addon.Item.GetItemKey = function()
+			return "item:19019"
+		end
+		addon.Options.NormalizeLoggerLootQualityThreshold = function(value)
+			return tonumber(value) or 2
+		end
+		addon.Database.EnsureLootRuntimeState = function()
+			return {}, lootState, {}, {}
+		end
 		addon.Database.GetRaidQueries = function()
-			return { ResolveLootLooterName = function() return "Winner" end }
+			return {
+				ResolveLootLooterName = function()
+					return "Winner"
+				end,
+			}
 		end
 		fixture.lootStore = {
-			EnsureRaidByIndex = function() return fixture.raid end,
-			GetRaidUid = function() return "fixture-loot" end,
+			EnsureRaidByIndex = function()
+				return fixture.raid
+			end,
+			GetRaidUid = function()
+				return "fixture-loot"
+			end,
 			CommitAuthoritativeEvent = function(_, _, eventType, payload)
 				if eventType == "LOOT_ADDED" then
 					fixture.raid.loot[#fixture.raid.loot + 1] = deepCopy(payload.loot)
 				elseif eventType == "LOOT_UPDATED" then
 					for i = 1, #fixture.raid.loot do
-						if fixture.raid.loot[i].lootNid == payload.loot.lootNid then fixture.raid.loot[i] = deepCopy(payload.loot) end
+						if fixture.raid.loot[i].lootNid == payload.loot.lootNid then
+							fixture.raid.loot[i] = deepCopy(payload.loot)
+						end
 					end
 				end
 				fixture.lootRevision = fixture.lootRevision + 1
 				return { eventType = eventType, sequence = fixture.lootRevision }, fixture.raid
 			end,
-			GetRaidSyncRevision = function() return fixture.lootRevision end,
+			GetRaidSyncRevision = function()
+				return fixture.lootRevision
+			end,
 			MarkLootSyncRevision = function()
 				fixture.lootRevision = fixture.lootRevision + 1
 				return fixture.lootRevision
 			end,
-			UpsertLootIndex = function() return true end,
+			UpsertLootIndex = function()
+				return true
+			end,
 		}
-		addon.Database.GetRaidStore = function() return fixture.lootStore end
+		addon.Database.GetRaidStore = function()
+			return fixture.lootStore
+		end
 		addon.Bus.TriggerEvent = function(eventName)
 			if eventName == "RaidLootUpdate" then
 				fixture.raidLootUpdateCount = (fixture.raidLootUpdateCount or 0) + 1
@@ -1350,15 +1937,33 @@ local function installLootHardeningMasterFixture(addon, options)
 				end
 			end
 		end
-		addon.Services.Raid.EnsureRaidPlayerNid = function(_, name) return 1, name end
-		addon.Services.Raid.FindOrCreateBossNidForLoot = function() return 1 end
-		addon.Services.Raid.GetActiveLootSource = function() return nil end
-		local noopLootOwner = setmetatable({}, { __index = function() return function() end end })
+		addon.Services.Raid.EnsureRaidPlayerNid = function(_, name)
+			return 1, name
+		end
+		addon.Services.Raid.FindOrCreateBossNidForLoot = function()
+			return 1
+		end
+		addon.Services.Raid.GetActiveLootSource = function()
+			return nil
+		end
+		local noopLootOwner = setmetatable({}, {
+			__index = function()
+				return function() end
+			end,
+		})
 		addon.Services.Loot._PassiveGroupLoot = setmetatable({
-			IsPassiveGroupLootMethod = function() return false end,
-			IsPassiveLootWinnerMessage = function() return false end,
-			ParseGroupLootWinner = function() return nil end,
-			GetPassiveLootRollItemKey = function(link) return link end,
+			IsPassiveGroupLootMethod = function()
+				return false
+			end,
+			IsPassiveLootWinnerMessage = function()
+				return false
+			end,
+			ParseGroupLootWinner = function()
+				return nil
+			end,
+			GetPassiveLootRollItemKey = function(link)
+				return link
+			end,
 		}, getmetatable(noopLootOwner))
 		addon.Services.Loot._Tracking = noopLootOwner
 		addon.Services.Loot._Workflow = setmetatable({
@@ -1368,12 +1973,24 @@ local function installLootHardeningMasterFixture(addon, options)
 			SelectItem = function() end,
 		}, getmetatable(noopLootOwner))
 		addon.Services.Loot._Rules = {
-			_IsIgnoredItem = function() return false end,
-			GetItemSuggestion = function() return nil end,
+			_IsIgnoredItem = function()
+				return false
+			end,
+			GetItemSuggestion = function()
+				return nil
+			end,
 		}
-		addon.Services.Loot._Context = { ResolveRaidRecord = function() return 1, fixture.raid end }
-		addon.Services.Loot.DistributionSession.BeginWindow = function() return 1 end
-		addon.Services.Loot.DistributionSession.PublishWindowItems = function() return true end
+		addon.Services.Loot._Context = {
+			ResolveRaidRecord = function()
+				return 1, fixture.raid
+			end,
+		}
+		addon.Services.Loot.DistributionSession.BeginWindow = function()
+			return 1
+		end
+		addon.Services.Loot.DistributionSession.PublishWindowItems = function()
+			return true
+		end
 		loadAddonFile(addon, "Raid Management Addon/Services/Loot/LootAttribution.lua")
 		loadAddonFile(addon, "Raid Management Addon/Services/Loot/Recording.lua")
 		local addAttribution = addon.Services.Loot.LootAttribution.Add
@@ -1412,27 +2029,57 @@ local function installLootHardeningMasterFixture(addon, options)
 		Mode = { AUTO = "AUTO" },
 		CreateController = function()
 			return {
-				BuildModel = function() return addon.Services.Rolls:GetDisplayModel() end,
-				GetSelectedCount = function() return 0 end,
-				GetSelectedWinnersOrdered = function() return {} end,
+				BuildModel = function()
+					return addon.Services.Rolls:GetDisplayModel()
+				end,
+				GetSelectedCount = function()
+					return 0
+				end,
+				GetSelectedWinnersOrdered = function()
+					return {}
+				end,
 				ResetSelection = noop,
 				ClearAnchor = noop,
-				CopyVisibleRows = function() return {} end,
-				GetFocusedRowId = function() return nil end,
+				CopyVisibleRows = function()
+					return {}
+				end,
+				GetFocusedRowId = function()
+					return nil
+				end,
 			}
 		end,
 	}
-	addon.Services.Master.Assignment = { BuildCandidateRows = function() return {} end }
-	addon.Services.Master.Messages = { BuildAssignMessages = function() return "award output", "award whisper" end }
+	addon.Services.Master.Assignment = {
+		BuildCandidateRows = function()
+			return {}
+		end,
+	}
+	addon.Services.Master.Messages = {
+		BuildAssignMessages = function()
+			return "award output", "award whisper"
+		end,
+	}
 	addon.Services.Master.Trade = {
-		ApplyAccept = function() return nil end,
-		CancelClose = function() return false end,
-		HasClosePending = function() return false end,
-		IsFailureMessage = function() return false end,
+		ApplyAccept = function()
+			return nil
+		end,
+		CancelClose = function()
+			return false
+		end,
+		HasClosePending = function()
+			return false
+		end,
+		IsFailureMessage = function()
+			return false
+		end,
 		Reset = noop,
 		SettleClose = noop,
 	}
-	addon.Services.Master.TradeExecution = { CreateController = function() return dummyController end }
+	addon.Services.Master.TradeExecution = {
+		CreateController = function()
+			return dummyController
+		end,
+	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Master/ButtonState.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Master/AwardSequence.lua")
 	local realCreate = addon.Services.Master.AwardSequence.CreateController
@@ -1457,7 +2104,9 @@ local function installLootHardeningMasterFixture(addon, options)
 	end
 	fixture.master.RequestRefresh = function()
 		fixture.refreshCalls = fixture.refreshCalls + 1
-		if fixture.throwRefresh then error("refresh exploded") end
+		if fixture.throwRefresh then
+			error("refresh exploded")
+		end
 		return true
 	end
 	fixture.lootState = lootState
@@ -1476,8 +2125,14 @@ local function createDistributionSessionFixture(addon)
 		sent = {},
 		events = {},
 	}
-	_G.GetTime = function() return fixture.now end
-	addon.Database = { GetPlayerName = function() return "Tester" end }
+	_G.GetTime = function()
+		return fixture.now
+	end
+	addon.Database = {
+		GetPlayerName = function()
+			return "Tester"
+		end,
+	}
 	addon.Diag = {}
 	addon.Events = { Internal = { LootDistributionSessionChanged = "LootDistributionSessionChanged" } }
 	addon.Bus = {
@@ -1491,7 +2146,9 @@ local function createDistributionSessionFixture(addon)
 	}
 	local function splitFields(text, sep, out)
 		out = out or {}
-		for key in pairs(out) do out[key] = nil end
+		for key in pairs(out) do
+			out[key] = nil
+		end
 		local start = 1
 		while true do
 			local index = string.find(text or "", sep, start, true)
@@ -1506,16 +2163,24 @@ local function createDistributionSessionFixture(addon)
 	end
 	addon.Comms = {
 		Payload = {
-			EncodeText = function(value) return tostring(value or "") end,
-			DecodeText = function(value) return value end,
+			EncodeText = function(value)
+				return tostring(value or "")
+			end,
+			DecodeText = function(value)
+				return value
+			end,
 			PackFields = function(sep, ...)
 				local values = { ... }
-				for i = 1, #values do values[i] = tostring(values[i]) end
+				for i = 1, #values do
+					values[i] = tostring(values[i])
+				end
 				return table.concat(values, sep)
 			end,
 			SplitFields = splitFields,
 		},
-		RegisterPrefixIfAvailable = function() return true end,
+		RegisterPrefixIfAvailable = function()
+			return true
+		end,
 		Sync = function(prefix, message)
 			local fields = splitFields(message, "|", {})
 			local kind = fields[1]
@@ -1523,22 +2188,39 @@ local function createDistributionSessionFixture(addon)
 			if kind == fixture.failKind and fixture.kindAttempts[kind] == fixture.failOccurrence then
 				return false
 			end
-			fixture.sent[#fixture.sent + 1] = { prefix = prefix, message = message, kind = kind, fields = deepCopy(fields) }
+			fixture.sent[#fixture.sent + 1] =
+				{ prefix = prefix, message = message, kind = kind, fields = deepCopy(fields) }
 			return true
 		end,
-		QueueAddonMessage = function() return true end,
+		QueueAddonMessage = function()
+			return true
+		end,
 	}
-	addon.Item = { GetItemKey = function(value) return value and tostring(value) or nil end }
-	addon.Strings = { NormalizeText = function(value) return value and value ~= "" and tostring(value) or nil end }
+	addon.Item = {
+		GetItemKey = function(value)
+			return value and tostring(value) or nil
+		end,
+	}
+	addon.Strings = {
+		NormalizeText = function(value)
+			return value and value ~= "" and tostring(value) or nil
+		end,
+	}
 	addon.Services = {
 		EnsureNamespace = function(name)
 			addon.Services[name] = addon.Services[name] or {}
 			return addon.Services[name]
 		end,
 		Raid = {
-			IsGroupMember = function() return true end,
-			IsLootAuthority = function(_, sender) return sender == fixture.authority end,
-			CanUseCapability = function() return true end,
+			IsGroupMember = function()
+				return true
+			end,
+			IsLootAuthority = function(_, sender)
+				return sender == fixture.authority
+			end,
+			CanUseCapability = function()
+				return true
+			end,
 		},
 		Loot = {},
 	}
@@ -1549,7 +2231,11 @@ local function createDistributionSessionFixture(addon)
 	end
 	function fixture:CountSent(kind)
 		local count = 0
-		for i = 1, #self.sent do if self.sent[i].kind == kind then count = count + 1 end end
+		for i = 1, #self.sent do
+			if self.sent[i].kind == kind then
+				count = count + 1
+			end
+		end
 		return count
 	end
 	return fixture
@@ -1591,11 +2277,15 @@ function cases.loot_distribution_window_sender_is_atomic(addon)
 	fixture.failKind = nil
 	local retryRevision, retryReason = owner.BeginWindow(3)
 	assertEqual(revision, retryRevision, retryReason or "retry consumed the failed revision")
-	assertEqual(true, owner.PublishWindowItems({
-		distributionItem("item:1", 1),
-		distributionItem("item:2", 2),
-		distributionItem("item:3", 3),
-	}, retryRevision), "complete same-revision retry must commit")
+	assertEqual(
+		true,
+		owner.PublishWindowItems({
+			distributionItem("item:1", 1),
+			distributionItem("item:2", 2),
+			distributionItem("item:3", 3),
+		}, retryRevision),
+		"complete same-revision retry must commit"
+	)
 	assertEqual(1, fixture:CountSent("WINDOW_END"), "same-revision retry must end once")
 
 	revision, reason = owner.BeginWindow(0)
@@ -1667,7 +2357,10 @@ function cases.loot_distribution_window_receiver_is_session_scoped(addon)
 
 	fixture.authority = "LeaderB"
 	fixture:Deliver("WINDOW_BEGIN|2|LeaderB:1:30|1|1", "LeaderB")
-	assertTrue(owner._streams["LeaderB|LeaderB:1:30"] and owner._streams["LeaderB|LeaderB:1:30"].window, "new authority begin was rejected")
+	assertTrue(
+		owner._streams["LeaderB|LeaderB:1:30"] and owner._streams["LeaderB|LeaderB:1:30"].window,
+		"new authority begin was rejected"
+	)
 	fixture:Deliver("WINDOW_ITEM|2|LeaderB:1:30|1|item:b|1|4|item:b|B|texture|1", "LeaderB")
 	assertEqual(1, #owner._streams["LeaderB|LeaderB:1:30"].window.order, "new authority row was rejected")
 	fixture:Deliver("WINDOW_END|2|LeaderB:1:30|1", "LeaderB")
@@ -1704,7 +2397,17 @@ function cases.loot_distribution_clear_requires_ordered_owner_transition(addon)
 	local owner = fixture.owner
 	local function commit(sessionId, revision, itemKey)
 		fixture:Deliver("WINDOW_BEGIN|2|" .. sessionId .. "|" .. revision .. "|1")
-		fixture:Deliver("WINDOW_ITEM|2|" .. sessionId .. "|" .. revision .. "|" .. itemKey .. "|1|4|" .. itemKey .. "|Item|texture|1")
+		fixture:Deliver(
+			"WINDOW_ITEM|2|"
+				.. sessionId
+				.. "|"
+				.. revision
+				.. "|"
+				.. itemKey
+				.. "|1|4|"
+				.. itemKey
+				.. "|Item|texture|1"
+		)
 		fixture:Deliver("WINDOW_END|2|" .. sessionId .. "|" .. revision)
 	end
 	commit("LeaderA:3:30", 1, "item:c")
@@ -1732,7 +2435,17 @@ function cases.loot_distribution_generated_session_order_is_validated(addon)
 	fixture.authority = "Authority"
 	local function commit(sessionId, revision, itemKey)
 		fixture:Deliver("WINDOW_BEGIN|2|" .. sessionId .. "|" .. revision .. "|1")
-		fixture:Deliver("WINDOW_ITEM|2|" .. sessionId .. "|" .. revision .. "|" .. itemKey .. "|1|4|" .. itemKey .. "|Item|texture|1")
+		fixture:Deliver(
+			"WINDOW_ITEM|2|"
+				.. sessionId
+				.. "|"
+				.. revision
+				.. "|"
+				.. itemKey
+				.. "|1|4|"
+				.. itemKey
+				.. "|Item|texture|1"
+		)
 		fixture:Deliver("WINDOW_END|2|" .. sessionId .. "|" .. revision)
 	end
 	commit("Authority:1:100", 1, "item:current")
@@ -1751,13 +2464,22 @@ function cases.loot_distribution_generated_session_order_is_validated(addon)
 		local sessionId = rejected[i]
 		fixture:Deliver("WINDOW_BEGIN|2|" .. sessionId .. "|1|0")
 		fixture:Deliver("WINDOW_END|2|" .. sessionId .. "|1")
-		assertTrue(deepEqual(current, owner.GetDisplayModel()), "invalid generated window replaced current session: " .. sessionId)
+		assertTrue(
+			deepEqual(current, owner.GetDisplayModel()),
+			"invalid generated window replaced current session: " .. sessionId
+		)
 		fixture:Deliver("CLEAR|2|" .. sessionId)
-		assertTrue(deepEqual(current, owner.GetDisplayModel()), "invalid generated CLEAR replaced current session: " .. sessionId)
+		assertTrue(
+			deepEqual(current, owner.GetDisplayModel()),
+			"invalid generated CLEAR replaced current session: " .. sessionId
+		)
 	end
 	fixture.authority = "NextAuthority"
 	fixture:Deliver("CLEAR|2|Other:1:101", "NextAuthority")
-	assertTrue(deepEqual(current, owner.GetDisplayModel()), "new authority admitted a session ID owned by another sender")
+	assertTrue(
+		deepEqual(current, owner.GetDisplayModel()),
+		"new authority admitted a session ID owned by another sender"
+	)
 	fixture.authority = "Authority"
 
 	fixture:Deliver("CLEAR|2|Authority:2:101")
@@ -1766,7 +2488,11 @@ function cases.loot_distribution_generated_session_order_is_validated(addon)
 	fixture:Deliver("CLEAR|2|Authority:1:101")
 	assertTrue(deepEqual(newer, owner.GetDisplayModel()), "lower ordinal replaced session at the same timestamp")
 	fixture:Deliver("CLEAR|2|Authority:3:101")
-	assertEqual("Authority:3:101", owner.GetDisplayModel().sessionId, "higher ordinal did not replace session at the same timestamp")
+	assertEqual(
+		"Authority:3:101",
+		owner.GetDisplayModel().sessionId,
+		"higher ordinal did not replace session at the same timestamp"
+	)
 	print("PASS loot_distribution_generated_session_order_is_validated")
 end
 
@@ -1780,7 +2506,11 @@ function cases.loot_distribution_authority_handoff_without_provenance_is_validat
 
 	fixture.authority = "NewLeader"
 	fixture:Deliver("CLEAR|2|NewLeader:1:20", "NewLeader")
-	assertEqual("NewLeader:1:20", owner.GetDisplayModel().sessionId, "new authority CLEAR was rejected without owner provenance")
+	assertEqual(
+		"NewLeader:1:20",
+		owner.GetDisplayModel().sessionId,
+		"new authority CLEAR was rejected without owner provenance"
+	)
 	fixture:Deliver("WINDOW_BEGIN|2|NewLeader:2:30|1|1", "NewLeader")
 	fixture:Deliver("WINDOW_ITEM|2|NewLeader:2:30|1|item:new|1|4|item:new|New|texture|1", "NewLeader")
 	fixture:Deliver("WINDOW_END|2|NewLeader:2:30|1", "NewLeader")
@@ -1822,63 +2552,126 @@ function cases.loot_fetch_propagates_distribution_failure(addon)
 	local beginResult, beginReason = nil, "window_begin_send_failed"
 	local publishResult, publishReason = nil, "window_item_send_failed"
 	local publishCalls = 0
-	_G.table.wipe = _G.table.wipe or function(target) for key in pairs(target) do target[key] = nil end return target end
-	_G.GetLootThreshold = function() return 2 end
-	_G.GetNumLootItems = function() return 0 end
+	_G.table.wipe = _G.table.wipe
+		or function(target)
+			for key in pairs(target) do
+				target[key] = nil
+			end
+			return target
+		end
+	_G.GetLootThreshold = function()
+		return 2
+	end
+	_G.GetNumLootItems = function()
+		return 0
+	end
 	addon.C = { itemColors = {}, rollTypes = {}, RESERVES_ITEM_FALLBACK_ICON = "fallback" }
 	addon.L = {}
-	addon.Diag = { D = setmetatable({}, { __index = function() return "%s %s %s %s" end }) }
-	addon.Events = { Internal = {
-		RaidLootUpdate = "RaidLootUpdate",
-		SetItem = "SetItem",
-		LootDistributionSessionChanged = "LootDistributionSessionChanged",
-	} }
+	addon.Diag = { D = setmetatable({}, {
+		__index = function()
+			return "%s %s %s %s"
+		end,
+	}) }
+	addon.Events = {
+		Internal = {
+			RaidLootUpdate = "RaidLootUpdate",
+			SetItem = "SetItem",
+			LootDistributionSessionChanged = "LootDistributionSessionChanged",
+		},
+	}
 	addon.Bus = { TriggerEvent = function() end, RegisterCallback = function() end }
 	addon.Deformat = function() end
 	addon.Options = {
-		GetValue = function() return false end,
-		NormalizeLoggerLootQualityThreshold = function(value) return tonumber(value) or 2 end,
+		GetValue = function()
+			return false
+		end,
+		NormalizeLoggerLootQualityThreshold = function(value)
+			return tonumber(value) or 2
+		end,
 	}
-	addon.Strings = { NormalizeName = function(value) return value end }
-	addon.Time = { GetCurrentTime = function() return 10 end }
+	addon.Strings = {
+		NormalizeName = function(value)
+			return value
+		end,
+	}
+	addon.Time = {
+		GetCurrentTime = function()
+			return 10
+		end,
+	}
 	addon.Timer = {
 		BindMixin = function(target)
-			function target:ScheduleTimer() return {} end
-			function target:CancelTimer() return true end
+			function target:ScheduleTimer()
+				return {}
+			end
+			function target:CancelTimer()
+				return true
+			end
 		end,
 	}
 	addon.Item = {
-		GetItemStringFromLink = function(value) return value end,
-		GetItemIdFromLink = function() return 1 end,
-		GetItemKey = function(value) return value end,
+		GetItemStringFromLink = function(value)
+			return value
+		end,
+		GetItemIdFromLink = function()
+			return 1
+		end,
+		GetItemKey = function(value)
+			return value
+		end,
 	}
 	addon.Database = {
-		EnsureLootRuntimeState = function() return {}, lootState, itemInfo, raidState end,
-		GetCurrentRaid = function() return 1 end,
-		GetPlayerName = function() return "Tester" end,
-		GetRaidQueries = function() return { ResolveLootLooterName = function() end } end,
+		EnsureLootRuntimeState = function()
+			return {}, lootState, itemInfo, raidState
+		end,
+		GetCurrentRaid = function()
+			return 1
+		end,
+		GetPlayerName = function()
+			return "Tester"
+		end,
+		GetRaidQueries = function()
+			return { ResolveLootLooterName = function() end }
+		end,
 	}
-	local noopOwner = setmetatable({}, { __index = function() return function() end end })
+	local noopOwner = setmetatable({}, {
+		__index = function()
+			return function() end
+		end,
+	})
 	local distribution = {
-		BeginWindow = function() return beginResult, beginReason end,
+		BeginWindow = function()
+			return beginResult, beginReason
+		end,
 		PublishWindowItems = function()
 			publishCalls = publishCalls + 1
 			return publishResult, publishReason
 		end,
 	}
 	addon.Services = {
-		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} return addon.Services[name] end,
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+			return addon.Services[name]
+		end,
 		Loot = {
 			LootAttribution = noopOwner,
 			_PassiveGroupLoot = noopOwner,
 			_Tracking = noopOwner,
 			_Workflow = setmetatable({ BeginLootWindow = function() end }, getmetatable(noopOwner)),
 			_Recording = noopOwner,
-			_Rules = { _IsIgnoredItem = function() return false end },
+			_Rules = {
+				_IsIgnoredItem = function()
+					return false
+				end,
+			},
 			AwardPlanner = noopOwner,
 			Inventory = noopOwner,
 			DistributionSession = distribution,
-			_Context = { ResolveRaidRecord = function() return nil end },
+			_Context = {
+				ResolveRaidRecord = function()
+					return nil
+				end,
+			},
 		},
 	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Loot/Service.lua")
@@ -1898,30 +2691,76 @@ end
 
 function cases.loot_distribution_done_retries_wire_without_duplicate_state(addon)
 	local events, sends = {}, 0
-	_G.GetTime = function() return 10 end
-	addon.Database = { GetPlayerName = function() return "Tester" end }
+	_G.GetTime = function()
+		return 10
+	end
+	addon.Database = {
+		GetPlayerName = function()
+			return "Tester"
+		end,
+	}
 	addon.Diag = {}
 	addon.Events = { Internal = { LootDistributionSessionChanged = "LootDistributionSessionChanged" } }
-	addon.Bus = { TriggerEvent = function(_, reason, row) events[#events + 1] = { reason = reason, row = row } end }
+	addon.Bus = {
+		TriggerEvent = function(_, reason, row)
+			events[#events + 1] = { reason = reason, row = row }
+		end,
+	}
 	addon.Comms = {
 		Payload = {
-			EncodeText = function(value) return tostring(value or "") end,
-			DecodeText = function(value) return value end,
-			PackFields = function(sep, ...) local values = { ... } for i = 1, #values do values[i] = tostring(values[i]) end return table.concat(values, sep) end,
-			SplitFields = function() return {} end,
+			EncodeText = function(value)
+				return tostring(value or "")
+			end,
+			DecodeText = function(value)
+				return value
+			end,
+			PackFields = function(sep, ...)
+				local values = { ... }
+				for i = 1, #values do
+					values[i] = tostring(values[i])
+				end
+				return table.concat(values, sep)
+			end,
+			SplitFields = function()
+				return {}
+			end,
 		},
-		RegisterPrefixIfAvailable = function() return true end,
-		Sync = function() sends = sends + 1 return sends > 1 end,
-		QueueAddonMessage = function() return true end,
+		RegisterPrefixIfAvailable = function()
+			return true
+		end,
+		Sync = function()
+			sends = sends + 1
+			return sends > 1
+		end,
+		QueueAddonMessage = function()
+			return true
+		end,
 	}
-	addon.Item = { GetItemKey = function(value) return value end }
-	addon.Strings = { NormalizeText = function(value) return value and tostring(value) or nil end }
+	addon.Item = {
+		GetItemKey = function(value)
+			return value
+		end,
+	}
+	addon.Strings = {
+		NormalizeText = function(value)
+			return value and tostring(value) or nil
+		end,
+	}
 	addon.Services = {
-		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} return addon.Services[name] end,
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+			return addon.Services[name]
+		end,
 		Raid = {
-			IsGroupMember = function() return true end,
-			IsLootAuthority = function() return true end,
-			CanUseCapability = function() return true end,
+			IsGroupMember = function()
+				return true
+			end,
+			IsLootAuthority = function()
+				return true
+			end,
+			CanUseCapability = function()
+				return true
+			end,
 		},
 		Loot = {},
 	}
@@ -1967,8 +2806,12 @@ function cases.loot_distribution_remote_final_award_is_complete_and_idempotent(a
 	doneEvents = 0
 	local replayEvents = 0
 	for i = 1, #fixture.events do
-		if fixture.events[i].reason == "item_done" then doneEvents = doneEvents + 1 end
-		if fixture.events[i].reason == "item_done_replay" then replayEvents = replayEvents + 1 end
+		if fixture.events[i].reason == "item_done" then
+			doneEvents = doneEvents + 1
+		end
+		if fixture.events[i].reason == "item_done_replay" then
+			replayEvents = replayEvents + 1
+		end
 	end
 	assertEqual(1, doneEvents, "duplicate remote ITEM_DONE repeated final state")
 	assertEqual(1, replayEvents, "duplicate remote ITEM_DONE did not expose a retry-safe final fact")
@@ -1990,8 +2833,10 @@ function cases.loot_master_split_authority_publishes_final_facts_without_local_w
 			and string.find(fixture.lastPublishedReason, "master_loot:AT:", 1, true) == 1,
 		"master-loot award did not publish a transaction identity"
 	)
-	assertTrue(deepEqual({ "ITEM", "ROLL_START", "ROLL_END", "ITEM_DONE" }, fixture.publicationOrder),
-		"confirmed award fact order differs")
+	assertTrue(
+		deepEqual({ "ITEM", "ROLL_START", "ROLL_END", "ITEM_DONE" }, fixture.publicationOrder),
+		"confirmed award fact order differs"
+	)
 	assertEqual(0, fixture.counterCalls, "non-authoritative master looter mutated the canonical counter")
 	print("PASS loot_master_split_authority_publishes_final_facts_without_local_writes")
 end
@@ -2028,7 +2873,9 @@ function cases.loot_master_split_authority_cancels_local_delayed_attribution(add
 		realLootFlow = true,
 		canonicalAuthority = false,
 	})
-	nonRaid.addon.Database.GetCurrentRaid = function() return nil end
+	nonRaid.addon.Database.GetCurrentRaid = function()
+		return nil
+	end
 	assertTrue(nonRaid.awardSequence:TrySingleCopy("item:19019", "Winner"), "non-raid real award did not start")
 	assertTrue(nonRaid.master._awardConfirmation:Confirm(1), "non-raid real award did not confirm")
 	assertEqual(1, nonRaid.realProvisionalConfirmCalls or 0, "non-raid award lost local provisional attribution")
@@ -2055,23 +2902,33 @@ function cases.loot_award_attempt_checkpoints_are_retry_safe(addon)
 		onConfirm = function()
 			confirmCalls = confirmCalls + 1
 			if confirmCalls == 1 then
-				assertEqual(true, attempt:RunCheckpoint("publish", function()
-					publishCalls = publishCalls + 1
-					return true
-				end), "successful checkpoint must commit")
+				assertEqual(
+					true,
+					attempt:RunCheckpoint("publish", function()
+						publishCalls = publishCalls + 1
+						return true
+					end),
+					"successful checkpoint must commit"
+				)
 				reentrantConfirm = attempt:Confirm()
 				reentrantFail = attempt:Fail("reentrant")
 				return nil, "confirmation_rejected"
 			end
-			assertEqual(true, attempt:RunCheckpoint("publish", function()
-				publishCalls = publishCalls + 1
-				return true
-			end), "retry must accept completed checkpoint")
+			assertEqual(
+				true,
+				attempt:RunCheckpoint("publish", function()
+					publishCalls = publishCalls + 1
+					return true
+				end),
+				"retry must accept completed checkpoint"
+			)
 			return true
 		end,
 	})
 
-	local throwOk, throwReason = attempt:RunCheckpoint("throw", function() error("checkpoint exploded") end)
+	local throwOk, throwReason = attempt:RunCheckpoint("throw", function()
+		error("checkpoint exploded")
+	end)
 	assertEqual(nil, throwOk, "throwing checkpoint must reject")
 	assertTrue(tostring(throwReason):find("checkpoint exploded", 1, true) ~= nil, "throw reason must be stable")
 	local rejectCalls = 0
@@ -2107,7 +2964,10 @@ function cases.loot_award_attempt_checkpoints_are_retry_safe(addon)
 	})
 	local failedOk, failedReason = failed:Fail("execution_failed")
 	assertEqual(nil, failedOk, "throwing failure callback must be contained")
-	assertTrue(tostring(failedReason):find("failure callback exploded", 1, true) ~= nil, "failure callback reason missing")
+	assertTrue(
+		tostring(failedReason):find("failure callback exploded", 1, true) ~= nil,
+		"failure callback reason missing"
+	)
 	assertEqual("failed", failed:GetState().state, "failure must commit terminal state before callback")
 	assertEqual(nil, failReentry, "failure callback must not reenter")
 	assertEqual(false, failed:Fail("duplicate"), "failure must be terminal once")
@@ -2147,7 +3007,13 @@ function cases.loot_award_attempt_snapshots_supported_fields_only(addon)
 	})
 	source.slot = 9
 	context.slotId = 8
-	assertEqual(true, attempt:RunCheckpoint("publish", function() return true end), "checkpoint must complete")
+	assertEqual(
+		true,
+		attempt:RunCheckpoint("publish", function()
+			return true
+		end),
+		"checkpoint must complete"
+	)
 	local exposed = attempt:GetState()
 	exposed.source.slot = 12
 	exposed.executorContext.slotId = 13
@@ -2180,7 +3046,9 @@ function cases.loot_award_confirmation_retains_uncertain_effect(addon)
 	local effect = addon.Services.Master.AwardAttempt.CreateExecuting({
 		onConfirm = function()
 			confirmCalls = confirmCalls + 1
-			if confirmCalls == 1 then return nil, "effect_rejected" end
+			if confirmCalls == 1 then
+				return nil, "effect_rejected"
+			end
 			return true
 		end,
 	})
@@ -2190,19 +3058,34 @@ function cases.loot_award_confirmation_retains_uncertain_effect(addon)
 			scheduled[#scheduled + 1] = callback
 			return callback
 		end,
-		cancelTimer = function() cancelled = cancelled + 1 end,
-		requestRefresh = function() refreshes = refreshes + 1 end,
-		warnFailure = function() warnings = warnings + 1 end,
-		warnUncertain = function() warnings = warnings + 1 end,
-		warnTimeout = function() warnings = warnings + 1 end,
-		warnUnresolved = function() warnings = warnings + 1 end,
+		cancelTimer = function()
+			cancelled = cancelled + 1
+		end,
+		requestRefresh = function()
+			refreshes = refreshes + 1
+		end,
+		warnFailure = function()
+			warnings = warnings + 1
+		end,
+		warnUncertain = function()
+			warnings = warnings + 1
+		end,
+		warnTimeout = function()
+			warnings = warnings + 1
+		end,
+		warnUnresolved = function()
+			warnings = warnings + 1
+		end,
 		onUnresolved = function() end,
 		confirmProvisional = function()
 			provisionalCalls = provisionalCalls + 1
 			return true
 		end,
 	})
-	assertTrue(confirmation:Queue({ itemLink = "item:19019", itemIndex = 1, playerName = "Winner", effect = effect }), "confirmation must queue")
+	assertTrue(
+		confirmation:Queue({ itemLink = "item:19019", itemIndex = 1, playerName = "Winner", effect = effect }),
+		"confirmation must queue"
+	)
 	assertEqual(1, #scheduled, "queue must schedule one timer")
 	assertEqual(nil, confirmation:Confirm(1), "rejected effect must remain unresolved")
 	assertEqual(true, confirmation:HasInFlight(), "rejected effect must retain ownership")
@@ -2220,8 +3103,15 @@ function cases.loot_award_confirmation_retains_uncertain_effect(addon)
 	assertEqual(1, warnings, "successful retry must not duplicate warning")
 	assertEqual(1, refreshes, "successful retry must not duplicate recovery refresh")
 
-	local timeoutEffect = addon.Services.Master.AwardAttempt.CreateExecuting({ onConfirm = function() return true end })
-	assertTrue(confirmation:Queue({ itemLink = "item:2", itemIndex = 2, playerName = "Runner", effect = timeoutEffect }), "timeout confirmation must queue")
+	local timeoutEffect = addon.Services.Master.AwardAttempt.CreateExecuting({
+		onConfirm = function()
+			return true
+		end,
+	})
+	assertTrue(
+		confirmation:Queue({ itemLink = "item:2", itemIndex = 2, playerName = "Runner", effect = timeoutEffect }),
+		"timeout confirmation must queue"
+	)
 	assertEqual(2, #scheduled, "second entry must own one timer")
 	scheduled[2]()
 	assertEqual("uncertain", timeoutEffect:GetState().state, "timeout must become uncertain")
@@ -2297,8 +3187,12 @@ function cases.raid_replication_reducers(addon)
 	local events = addon.DB.RaidEvents
 	local state = { loot = {}, players = {}, bossKills = {}, attendance = {}, nextLootNid = 1 }
 	local event = {
-		raidUid = "r1", authorityEpoch = 1, sequence = 1, eventUid = "r1:1:1",
-		eventType = "LOOT_ADDED", payload = { loot = { lootNid = 1, itemLink = "item:19019" } },
+		raidUid = "r1",
+		authorityEpoch = 1,
+		sequence = 1,
+		eventUid = "r1:1:1",
+		eventType = "LOOT_ADDED",
+		payload = { loot = { lootNid = 1, itemLink = "item:19019" } },
 	}
 	local nextState = assert(events.Apply(state, event))
 	assertEqual("item:19019", nextState.loot[1].itemLink)
@@ -2324,14 +3218,16 @@ function cases.raid_replication_distribution_award_is_atomic(addon)
 			sequence = sequence,
 			eventUid = "r1:1:" .. sequence,
 			eventType = "LOOT_ADDED",
-			payload = { loot = {
-				lootNid = sequence,
-				itemLink = "item:19019",
-				itemCount = 2,
-				looterNid = looterNid,
-				rollType = rollType or 1,
-				source = "DISTRIBUTION_AWARD",
-			} },
+			payload = {
+				loot = {
+					lootNid = sequence,
+					itemLink = "item:19019",
+					itemCount = 2,
+					looterNid = looterNid,
+					rollType = rollType or 1,
+					source = "DISTRIBUTION_AWARD",
+				},
+			},
 		}
 	end
 
@@ -2385,65 +3281,131 @@ end
 function cases.raid_replication_all_event_reducers(addon)
 	installRaidReplicationEventFixture(addon)
 	local events = addon.DB.RaidEvents
-	local state = assert(events.Apply({}, buildRaidReplicationEvent("RAID_CREATED", {
-		state = {
-			zone = "ICC", players = {}, bossKills = {}, attendance = {}, loot = {},
-			nextPlayerNid = 1, nextBossNid = 1, nextLootNid = 1,
-		},
-	})))
-	state = assert(events.Apply(state, buildRaidReplicationEvent("RAID_METADATA_UPDATED", {
-		metadata = { zone = "Ulduar", difficulty = 4 },
-	}, 2)))
-	state = assert(events.Apply(state, buildRaidReplicationEvent("PLAYER_UPDATED", {
-		player = { playerNid = 1, name = "Alpha" },
-	}, 3)))
-	state = assert(events.Apply(state, buildRaidReplicationEvent("PLAYER_UPDATED", {
-		player = { playerNid = 1, name = "Alpha", class = "Priest" },
-	}, 4)))
+	local state = assert(events.Apply(
+		{},
+		buildRaidReplicationEvent("RAID_CREATED", {
+			state = {
+				zone = "ICC",
+				players = {},
+				bossKills = {},
+				attendance = {},
+				loot = {},
+				nextPlayerNid = 1,
+				nextBossNid = 1,
+				nextLootNid = 1,
+			},
+		})
+	))
+	state = assert(events.Apply(
+		state,
+		buildRaidReplicationEvent("RAID_METADATA_UPDATED", {
+			metadata = { zone = "Ulduar", difficulty = 4 },
+		}, 2)
+	))
+	state = assert(events.Apply(
+		state,
+		buildRaidReplicationEvent("PLAYER_UPDATED", {
+			player = { playerNid = 1, name = "Alpha" },
+		}, 3)
+	))
+	state = assert(events.Apply(
+		state,
+		buildRaidReplicationEvent("PLAYER_UPDATED", {
+			player = { playerNid = 1, name = "Alpha", class = "Priest" },
+		}, 4)
+	))
 	assertEqual("Priest", state.players[1].class, "player update must upsert existing stable NID")
-	state = assert(events.Apply(state, buildRaidReplicationEvent("PLAYER_DEPARTED", {
-		playerNid = 1, leave = 1721120100,
-	}, 5)))
-	assertEqual(nil, events.Apply(state, buildRaidReplicationEvent("PLAYER_DEPARTED", {
-		playerNid = 99, leave = 1721120100,
-	}, 6)))
+	state = assert(events.Apply(
+		state,
+		buildRaidReplicationEvent("PLAYER_DEPARTED", {
+			playerNid = 1,
+			leave = 1721120100,
+		}, 5)
+	))
+	assertEqual(
+		nil,
+		events.Apply(
+			state,
+			buildRaidReplicationEvent("PLAYER_DEPARTED", {
+				playerNid = 99,
+				leave = 1721120100,
+			}, 6)
+		)
+	)
 
-	state = assert(events.Apply(state, buildRaidReplicationEvent("BOSS_UPDATED", {
-		boss = { bossNid = 1, name = "The Lich King" },
-	}, 7)))
+	state = assert(events.Apply(
+		state,
+		buildRaidReplicationEvent("BOSS_UPDATED", {
+			boss = { bossNid = 1, name = "The Lich King" },
+		}, 7)
+	))
 	assertEqual("The Lich King", state.bossKills[1].name, "boss update must upsert a missing stable NID")
-	state = assert(events.Apply(state, buildRaidReplicationEvent("BOSS_UPDATED", {
-		boss = { bossNid = 1, name = "The Lich King", difficulty = 4 },
-	}, 8)))
+	state = assert(events.Apply(
+		state,
+		buildRaidReplicationEvent("BOSS_UPDATED", {
+			boss = { bossNid = 1, name = "The Lich King", difficulty = 4 },
+		}, 8)
+	))
 	assertEqual(4, state.bossKills[1].difficulty, "boss update must replace an existing stable NID")
 
-	state = assert(events.Apply(state, buildRaidReplicationEvent("ATTENDANCE_UPDATED", {
-		attendance = { playerNid = 1, segments = {} },
-	}, 9)))
+	state = assert(events.Apply(
+		state,
+		buildRaidReplicationEvent("ATTENDANCE_UPDATED", {
+			attendance = { playerNid = 1, segments = {} },
+		}, 9)
+	))
 	assertEqual(1, state.attendance[1].playerNid, "attendance update must upsert a missing stable NID")
-	state = assert(events.Apply(state, buildRaidReplicationEvent("ATTENDANCE_UPDATED", {
-		attendance = { playerNid = 1, segments = { { startTime = 1721120000, subgroup = 1 } } },
-	}, 10)))
+	state = assert(events.Apply(
+		state,
+		buildRaidReplicationEvent("ATTENDANCE_UPDATED", {
+			attendance = { playerNid = 1, segments = { { startTime = 1721120000, subgroup = 1 } } },
+		}, 10)
+	))
 	assertEqual(1, #state.attendance[1].segments, "attendance update must replace an existing stable NID")
 
-	state = assert(events.Apply(state, buildRaidReplicationEvent("LOOT_ADDED", {
-		loot = { lootNid = 1, itemLink = "item:19019" },
-	}, 11)))
-	assertEqual(nil, events.Apply(state, buildRaidReplicationEvent("LOOT_ADDED", {
-		loot = { lootNid = 1, itemLink = "item:19019" },
-	}, 12)))
-	state = assert(events.Apply(state, buildRaidReplicationEvent("LOOT_UPDATED", {
-		loot = { lootNid = 1, itemLink = "item:19019", looterNid = 1 },
-	}, 13)))
-	assertEqual(nil, events.Apply(state, buildRaidReplicationEvent("LOOT_UPDATED", {
-		loot = { lootNid = 99, itemLink = "item:1" },
-	}, 14)))
+	state = assert(events.Apply(
+		state,
+		buildRaidReplicationEvent("LOOT_ADDED", {
+			loot = { lootNid = 1, itemLink = "item:19019" },
+		}, 11)
+	))
+	assertEqual(
+		nil,
+		events.Apply(
+			state,
+			buildRaidReplicationEvent("LOOT_ADDED", {
+				loot = { lootNid = 1, itemLink = "item:19019" },
+			}, 12)
+		)
+	)
+	state = assert(events.Apply(
+		state,
+		buildRaidReplicationEvent("LOOT_UPDATED", {
+			loot = { lootNid = 1, itemLink = "item:19019", looterNid = 1 },
+		}, 13)
+	))
+	assertEqual(
+		nil,
+		events.Apply(
+			state,
+			buildRaidReplicationEvent("LOOT_UPDATED", {
+				loot = { lootNid = 99, itemLink = "item:1" },
+			}, 14)
+		)
+	)
 	state = assert(events.Apply(state, buildRaidReplicationEvent("LOOT_DELETED", { lootNid = 1 }, 15)))
 	assertEqual(nil, events.Apply(state, buildRaidReplicationEvent("LOOT_DELETED", { lootNid = 1 }, 16)))
 	state = assert(events.Apply(state, buildRaidReplicationEvent("RAID_CONCLUDED", { endTime = 1721120200 }, 17)))
-	assertEqual(nil, events.Apply(state, buildRaidReplicationEvent("PLAYER_UPDATED", {
-		player = { playerNid = 2, name = "Beta" },
-	}, 18)), "concluded raid accepted a mutation")
+	assertEqual(
+		nil,
+		events.Apply(
+			state,
+			buildRaidReplicationEvent("PLAYER_UPDATED", {
+				player = { playerNid = 2, name = "Beta" },
+			}, 18)
+		),
+		"concluded raid accepted a mutation"
+	)
 	print("PASS raid_replication_all_event_reducers")
 end
 
@@ -2451,28 +3413,60 @@ function cases.raid_replication_lifecycle_guards(addon)
 	installRaidReplicationEventFixture(addon)
 	local events = addon.DB.RaidEvents
 	local protectedKeys = {
-		"realm", "startTime", "endTime", "raidUid", "raidNid", "status", "authorityEpoch", "sequence", "digest",
-		"checkpointSequence", "events", "players", "bossKills", "attendance", "loot",
-		"nextPlayerNid", "nextBossNid", "nextLootNid", "unknownField",
+		"realm",
+		"startTime",
+		"endTime",
+		"raidUid",
+		"raidNid",
+		"status",
+		"authorityEpoch",
+		"sequence",
+		"digest",
+		"checkpointSequence",
+		"events",
+		"players",
+		"bossKills",
+		"attendance",
+		"loot",
+		"nextPlayerNid",
+		"nextBossNid",
+		"nextLootNid",
+		"unknownField",
 	}
 	for i = 1, #protectedKeys do
 		local state = {
-			zone = "ICC", players = {}, bossKills = {}, attendance = {}, loot = {},
-			nextPlayerNid = 3, nextBossNid = 4, nextLootNid = 5,
+			zone = "ICC",
+			players = {},
+			bossKills = {},
+			attendance = {},
+			loot = {},
+			nextPlayerNid = 3,
+			nextBossNid = 4,
+			nextLootNid = 5,
 		}
 		local key = protectedKeys[i]
 		local metadata = { zone = "Ulduar" }
 		metadata[key] = key == "players" and {} or "forbidden"
 		local before = deepCopy(state)
-		assertEqual(nil, events.Apply(state, buildRaidReplicationEvent("RAID_METADATA_UPDATED", {
-			metadata = metadata,
-		}, i)), "metadata accepted protected key " .. key)
+		assertEqual(
+			nil,
+			events.Apply(
+				state,
+				buildRaidReplicationEvent("RAID_METADATA_UPDATED", {
+					metadata = metadata,
+				}, i)
+			),
+			"metadata accepted protected key " .. key
+		)
 		assertTrue(deepEqual(before, state), "metadata failure mutated input for " .. key)
 	end
 	local state = { zone = "ICC", players = {}, bossKills = {}, attendance = {}, loot = {} }
-	local updated = assert(events.Apply(state, buildRaidReplicationEvent("RAID_METADATA_UPDATED", {
-		metadata = { zone = "Ulduar", size = 25, difficulty = 4 },
-	}, 30)))
+	local updated = assert(events.Apply(
+		state,
+		buildRaidReplicationEvent("RAID_METADATA_UPDATED", {
+			metadata = { zone = "Ulduar", size = 25, difficulty = 4 },
+		}, 30)
+	))
 	assertEqual("Ulduar", updated.zone)
 	print("PASS raid_replication_lifecycle_guards")
 end
@@ -2488,12 +3482,14 @@ function cases.raid_replication_malformed_conclusion(addon)
 	for i = 1, #malformedStates do
 		local state = malformedStates[i]
 		local before = deepCopy(state)
-		local ok, result, reason = pcall(events.Apply, state,
-			buildRaidReplicationEvent("RAID_CONCLUDED", { endTime = 1721120200 }, i))
+		local ok, result, reason =
+			pcall(events.Apply, state, buildRaidReplicationEvent("RAID_CONCLUDED", { endTime = 1721120200 }, i))
 		assertEqual(true, ok, "malformed conclusion threw")
 		assertEqual(nil, result, "malformed conclusion was accepted")
-		assertTrue(type(reason) == "string" and string.match(reason, "^[A-Z][A-Z_]+$") ~= nil,
-			"malformed conclusion did not return an upper-snake reason")
+		assertTrue(
+			type(reason) == "string" and string.match(reason, "^[A-Z][A-Z_]+$") ~= nil,
+			"malformed conclusion did not return an upper-snake reason"
+		)
 		assertTrue(deepEqual(before, state), "malformed conclusion mutated input")
 	end
 	print("PASS raid_replication_malformed_conclusion")
@@ -2507,8 +3503,15 @@ function cases.raid_replication_event_digest_validation(addon)
 	}, 1, "deadbeef:1")
 	assertEqual(true, events.ValidateEvent(valid))
 	local invalidDigests = {
-		"deadbee:1", "deadbeef0:1", "DEADBEEF:1", "deadbeef", "deadbeef:0",
-		"deadbeef:-1", "deadbeef:01", "deadbeef:1000000000", "deadbeef:99999999999999999999",
+		"deadbee:1",
+		"deadbeef0:1",
+		"DEADBEEF:1",
+		"deadbeef",
+		"deadbeef:0",
+		"deadbeef:-1",
+		"deadbeef:01",
+		"deadbeef:1000000000",
+		"deadbeef:99999999999999999999",
 	}
 	for i = 1, #invalidDigests do
 		local event = deepCopy(valid)
@@ -2538,23 +3541,37 @@ local function installRaidArchiveFixture(addon)
 	installRaidReplicationEventFixture(addon)
 	local now = 1721120000
 	local committedTypes = {}
-	_G.GetTime = function() return 123.456 end
-	_G.UnitFullName = function() return "Leader", "Realm" end
-	addon.Time = { GetCurrentTime = function() return now end }
+	_G.GetTime = function()
+		return 123.456
+	end
+	_G.UnitFullName = function()
+		return "Leader", "Realm"
+	end
+	addon.Time = {
+		GetCurrentTime = function()
+			return now
+		end,
+	}
 	addon.Events.Internal = { RaidReplicationCommitted = "RaidReplicationCommitted" }
 	addon.Bus.TriggerEvent = function(_, event)
 		if type(event) == "table" and type(event.eventType) == "string" then
 			committedTypes[#committedTypes + 1] = event.eventType
 		end
 	end
-	addon.IgnoredMobs = { IsTrashMobName = function() return false end }
+	addon.IgnoredMobs = {
+		IsTrashMobName = function()
+			return false
+		end,
+	}
 	loadAddonFile(addon, "Raid Management Addon/Database/DB.lua")
 	addon.Services.Reserves = { Save = function() end }
 	loadAddonFile(addon, "Raid Management Addon/Database/SavedVariables.lua")
 	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidValidator.lua")
 	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidStore.lua")
 	local store = addon.Database.GetRaidStore()
-	assert(store:SetAuthorityGuard(function() return true end))
+	assert(store:SetAuthorityGuard(function()
+		return true
+	end))
 	local createActiveRaid = store.CreateActiveRaid
 	store.CreateActiveRaid = function(self, first, initialState, serverTime, authorityEpoch)
 		if type(first) == "table" then
@@ -2581,13 +3598,21 @@ local function installRaidArchiveFixture(addon)
 		local record = raidUid and self:GetRecord(raidUid) or nil
 		return record and record.events[1] or nil, state
 	end
-	return store, function(value) now = value end, committedTypes
+	return store, function(value)
+		now = value
+	end, committedTypes
 end
 
 local function newReplicationState()
 	return {
-		zone = "ICC", players = {}, bossKills = {}, attendance = {}, loot = {},
-		nextPlayerNid = 1, nextBossNid = 1, nextLootNid = 1,
+		zone = "ICC",
+		players = {},
+		bossKills = {},
+		attendance = {},
+		loot = {},
+		nextPlayerNid = 1,
+		nextBossNid = 1,
+		nextLootNid = 1,
 	}
 end
 
@@ -2635,25 +3660,46 @@ local function installRaidAuthorityRecoveryStateFixture(addon)
 		return true
 	end))
 
-	_G.table.wipe = _G.table.wipe or function(target)
-		for key in pairs(target) do target[key] = nil end
-		return target
+	_G.table.wipe = _G.table.wipe
+		or function(target)
+			for key in pairs(target) do
+				target[key] = nil
+			end
+			return target
+		end
+	_G.UnitExists = function()
+		return true
 	end
-	_G.UnitExists = function() return true end
-	_G.UnitGUID = function() return nil end
-	_G.UnitIsDead = function() return false end
-	_G.UnitIsConnected = function() return true end
+	_G.UnitGUID = function()
+		return nil
+	end
+	_G.UnitIsDead = function()
+		return false
+	end
+	_G.UnitIsConnected = function()
+		return true
+	end
 	_G.UnitName = function(unit)
 		local index = tonumber(string.match(tostring(unit), "^raid(%d+)$"))
 		return index and fixture.roster[index] and fixture.roster[index].name or nil
 	end
-	_G.UnitRace = function() return "Human", "Human" end
-	_G.GetInstanceInfo = function() return "Icecrown Citadel", "raid", 4 end
-	_G.GetNumRaidMembers = function() return #fixture.roster end
-	_G.GetNumPartyMembers = function() return 0 end
+	_G.UnitRace = function()
+		return "Human", "Human"
+	end
+	_G.GetInstanceInfo = function()
+		return "Icecrown Citadel", "raid", 4
+	end
+	_G.GetNumRaidMembers = function()
+		return #fixture.roster
+	end
+	_G.GetNumPartyMembers = function()
+		return 0
+	end
 	_G.GetRaidRosterInfo = function(index)
 		local member = fixture.roster[index]
-		if not member then return nil end
+		if not member then
+			return nil
+		end
 		return member.name, member.rank, member.subgroup, 80, member.class, member.class, nil, true
 	end
 	_G.UNKNOWNOBJECT = "Unknown"
@@ -2671,31 +3717,63 @@ local function installRaidAuthorityRecoveryStateFixture(addon)
 		D = {},
 	}
 	addon.Strings = {
-		TrimText = function(value) return value end,
-		NormalizeName = function(value) return value end,
-		NormalizeLower = function(value) return value and string.lower(value) or nil end,
+		TrimText = function(value)
+			return value
+		end,
+		NormalizeName = function(value)
+			return value
+		end,
+		NormalizeLower = function(value)
+			return value and string.lower(value) or nil
+		end,
 	}
-	addon.Base64 = { Encode = function(value) return tostring(value) end }
+	addon.Base64 = {
+		Encode = function(value)
+			return tostring(value)
+		end,
+	}
 	addon.IgnoredMobs = {
-		IsTrashMobName = function() return false end,
-		GetTrashMobName = function() return "Trash" end,
-		Contains = function() return false end,
+		IsTrashMobName = function()
+			return false
+		end,
+		GetTrashMobName = function()
+			return "Trash"
+		end,
+		Contains = function()
+			return false
+		end,
 	}
 	addon.LootSources = {}
 	addon.LootSourceCandidates = {}
-	addon.Options = { IsDebugEnabled = function() return false end }
+	addon.Options = {
+		IsDebugEnabled = function()
+			return false
+		end,
+	}
 	addon.info = function() end
 	addon.debug = function() end
-	addon.IsInRaid = function() return true end
-	addon.IsInGroup = function() return true end
-	addon.GetGroupTypeAndCount = function() return "raid", #fixture.roster end
-	addon.GetNumGroupMembers = function() return #fixture.roster end
-	addon.GetCreatureId = function() return nil end
+	addon.IsInRaid = function()
+		return true
+	end
+	addon.IsInGroup = function()
+		return true
+	end
+	addon.GetGroupTypeAndCount = function()
+		return "raid", #fixture.roster
+	end
+	addon.GetNumGroupMembers = function()
+		return #fixture.roster
+	end
+	addon.GetCreatureId = function()
+		return nil
+	end
 	addon.UnitIterator = function()
 		local index = 0
 		return function()
 			index = index + 1
-			if fixture.roster[index] then return "raid" .. tostring(index) end
+			if fixture.roster[index] then
+				return "raid" .. tostring(index)
+			end
 		end
 	end
 	addon.Services.EnsureNamespace = function(name)
@@ -2703,8 +3781,12 @@ local function installRaidAuthorityRecoveryStateFixture(addon)
 	end
 	addon.Services.Loot = {
 		_State = {
-			SetField = function(_, _, value) return value end,
-			SetActive = function(_, value) return value end,
+			SetField = function(_, _, value)
+				return value
+			end,
+			SetActive = function(_, value)
+				return value
+			end,
 			SyncActive = function() end,
 			Reset = function() end,
 		},
@@ -2730,7 +3812,9 @@ local function installRaidAuthorityRecoveryStateFixture(addon)
 	end
 	addon.Bus.TriggerEvent = function(eventName, ...)
 		local callbacks = fixture.callbacks[eventName] or {}
-		for i = 1, #callbacks do callbacks[i](eventName, ...) end
+		for i = 1, #callbacks do
+			callbacks[i](eventName, ...)
+		end
 	end
 	addon.DB.Syncer = {
 		IsAuthorityRecovering = function(_, candidateRaidUid)
@@ -2750,7 +3834,9 @@ local function installRaidAuthorityRecoveryStateFixture(addon)
 	function raid:GetPlayerID(name, candidateRaidIndex)
 		local players = self:GetPlayers(candidateRaidIndex)
 		for i = #players, 1, -1 do
-			if players[i].name == name then return tonumber(players[i].playerNid) or 0 end
+			if players[i].name == name then
+				return tonumber(players[i].playerNid) or 0
+			end
 		end
 		return 0
 	end
@@ -2772,7 +3858,9 @@ local function installRaidAuthorityRecoveryStateFixture(addon)
 	local concludeActiveRaid = store.ConcludeActiveRaid
 	store.ConcludeActiveRaid = function(self, candidateRaidUid, endTime)
 		local event, result = concludeActiveRaid(self, candidateRaidUid, endTime)
-		if event then fixture.replayOrder[#fixture.replayOrder + 1] = "conclusion" end
+		if event then
+			fixture.replayOrder[#fixture.replayOrder + 1] = "conclusion"
+		end
 		return event, result
 	end
 
@@ -2782,7 +3870,9 @@ local function installRaidAuthorityRecoveryStateFixture(addon)
 			self.recovering = false
 		end
 		addon.Bus.TriggerEvent("RaidAuthorityRecoveryFinished", self.raidUid, succeeded, reason)
-		if not succeeded then self.recovering = false end
+		if not succeeded then
+			self.recovering = false
+		end
 	end
 
 	function fixture:SetNow(value)
@@ -2812,8 +3902,11 @@ function cases.raid_handover_replays_raid_facts_after_snapshot(addon)
 	local ended, endReason = raid:End(true)
 	assertEqual(false, ended, "automatic conclusion committed during recovery")
 	assertEqual("AUTHORITY_RECOVERING", endReason, "automatic conclusion recovery reason differs")
-	assertEqual(sequenceBefore, fixture.store:GetRecord(fixture.raidUid).sequence,
-		"recovery observation changed canonical sequence")
+	assertEqual(
+		sequenceBefore,
+		fixture.store:GetRecord(fixture.raidUid).sequence,
+		"recovery observation changed canonical sequence"
+	)
 
 	fixture:FinishRecovery(true)
 	local recovered = fixture.store:GetRecord(fixture.raidUid)
@@ -2824,7 +3917,9 @@ function cases.raid_handover_replays_raid_facts_after_snapshot(addon)
 	local boss = recovered.state.bossKills[1]
 	assertTrue(boss ~= nil, "pending boss was not replayed")
 	local attendeeNids = {}
-	for i = 1, #(boss.players or {}) do attendeeNids[boss.players[i]] = true end
+	for i = 1, #(boss.players or {}) do
+		attendeeNids[boss.players[i]] = true
+	end
 	assertTrue(attendeeNids[2] == true, "boss attendance omitted recovered Luca NID")
 	assertTrue(attendeeNids[marcoNid] == true, "boss attendance omitted final Marco NID")
 	assertEqual("roster", fixture.replayOrder[1], "roster did not replay first")
@@ -2843,13 +3938,22 @@ function cases.raid_handover_discards_raid_facts_on_failure(addon)
 	assertEqual(0, bossNid, "recovering boss observation returned a canonical NID")
 	assertEqual("AUTHORITY_RECOVERING", reason, "recovering boss observation reason differs")
 	fixture:FinishRecovery(false, "DIGEST_CONFLICT")
-	assertEqual(sequenceBefore, fixture.store:GetRecord(fixture.raidUid).sequence,
-		"failed recovery mutated canonical sequence")
+	assertEqual(
+		sequenceBefore,
+		fixture.store:GetRecord(fixture.raidUid).sequence,
+		"failed recovery mutated canonical sequence"
+	)
 	raid:_ReplayAuthorityRecovery(fixture.raidUid, true)
-	assertEqual(sequenceBefore, fixture.store:GetRecord(fixture.raidUid).sequence,
-		"discarded boss fact replayed after failed recovery")
-	assertEqual(0, #fixture.store:GetRecord(fixture.raidUid).state.bossKills,
-		"failed recovery retained a pending boss mutation")
+	assertEqual(
+		sequenceBefore,
+		fixture.store:GetRecord(fixture.raidUid).sequence,
+		"discarded boss fact replayed after failed recovery"
+	)
+	assertEqual(
+		0,
+		#fixture.store:GetRecord(fixture.raidUid).state.bossKills,
+		"failed recovery retained a pending boss mutation"
+	)
 	print("PASS raid_handover_discards_raid_facts_on_failure")
 end
 
@@ -2860,10 +3964,12 @@ function cases.raid_handover_recovery_dedupe_is_temporal(addon)
 	assertEqual(0, raid:AddBoss("Lord Marrowgar", nil, nil, 36612))
 	fixture:FinishRecovery(true)
 	local recovered = fixture.store:GetRecord(fixture.raidUid)
-	assertEqual(1, #recovered.state.bossKills,
-		"recent same-key observation was lost after the older fact expired")
-	assertEqual(fixture.now, recovered.state.bossKills[1].time,
-		"replayed boss did not retain the recent observation time")
+	assertEqual(1, #recovered.state.bossKills, "recent same-key observation was lost after the older fact expired")
+	assertEqual(
+		fixture.now,
+		recovered.state.bossKills[1].time,
+		"replayed boss did not retain the recent observation time"
+	)
 	print("PASS raid_handover_recovery_dedupe_is_temporal")
 end
 
@@ -2875,8 +3981,10 @@ function cases.raid_handover_recovery_gate_precedes_schema_mutation(addon)
 	assertEqual(0, bossNid, "recovering boss observation returned a canonical NID")
 	assertEqual("AUTHORITY_RECOVERING", reason, "recovering boss observation reason differs")
 	assertEqual(0, fixture.schemaCalls, "recovery gate ran after schema normalization")
-	assertTrue(deepEqual(recordBefore, fixture.store:GetRecord(fixture.raidUid)),
-		"recovery observation mutated schema, NIDs, digest, or sequence")
+	assertTrue(
+		deepEqual(recordBefore, fixture.store:GetRecord(fixture.raidUid)),
+		"recovery observation mutated schema, NIDs, digest, or sequence"
+	)
 	print("PASS raid_handover_recovery_gate_precedes_schema_mutation")
 end
 
@@ -2897,28 +4005,43 @@ function cases.raid_handover_recovery_fact_bounds_and_invalid_success(addon)
 	fixture.refreshMarco = false
 	local initialSequence = fixture.store:GetRecord(fixture.raidUid).sequence
 	assertEqual(0, raid:AddBoss("Mismatched Raid Boss", nil, nil, 40001))
-	assertEqual(false, raid:_ReplayAuthorityRecovery("wrong-raid", true),
-		"mismatched success replay was accepted")
-	assertEqual(initialSequence, fixture.store:GetRecord(fixture.raidUid).sequence,
-		"mismatched success mutated canonical sequence")
+	assertEqual(false, raid:_ReplayAuthorityRecovery("wrong-raid", true), "mismatched success replay was accepted")
+	assertEqual(
+		initialSequence,
+		fixture.store:GetRecord(fixture.raidUid).sequence,
+		"mismatched success mutated canonical sequence"
+	)
 	fixture.recovering = false
-	function raid:IsRaidLeader() return true end
-	assertEqual(true, raid:_ReplayAuthorityRecovery(fixture.raidUid, true),
-		"post-mismatch empty replay failed")
-	assertEqual(0, #fixture.store:GetRecord(fixture.raidUid).state.bossKills,
-		"mismatched success retained pending boss facts")
+	function raid:IsRaidLeader()
+		return true
+	end
+	assertEqual(true, raid:_ReplayAuthorityRecovery(fixture.raidUid, true), "post-mismatch empty replay failed")
+	assertEqual(
+		0,
+		#fixture.store:GetRecord(fixture.raidUid).state.bossKills,
+		"mismatched success retained pending boss facts"
+	)
 
 	fixture.recovering = true
 	assertEqual(0, raid:AddBoss("Lost Authority Boss", nil, nil, 50001))
 	fixture.recovering = false
-	function raid:IsRaidLeader() return false end
-	assertEqual(false, raid:_ReplayAuthorityRecovery(fixture.raidUid, true),
-		"authority-loss success replay was accepted")
-	function raid:IsRaidLeader() return true end
-	assertEqual(true, raid:_ReplayAuthorityRecovery(fixture.raidUid, true),
-		"post-authority-loss empty replay failed")
-	assertEqual(0, #fixture.store:GetRecord(fixture.raidUid).state.bossKills,
-		"authority-loss success retained pending boss facts")
+	function raid:IsRaidLeader()
+		return false
+	end
+	assertEqual(
+		false,
+		raid:_ReplayAuthorityRecovery(fixture.raidUid, true),
+		"authority-loss success replay was accepted"
+	)
+	function raid:IsRaidLeader()
+		return true
+	end
+	assertEqual(true, raid:_ReplayAuthorityRecovery(fixture.raidUid, true), "post-authority-loss empty replay failed")
+	assertEqual(
+		0,
+		#fixture.store:GetRecord(fixture.raidUid).state.bossKills,
+		"authority-loss success retained pending boss facts"
+	)
 
 	fixture.recovering = true
 	fixture.refreshMarco = true
@@ -2933,8 +4056,11 @@ function cases.raid_handover_recovery_fact_bounds_and_invalid_success(addon)
 	local record = fixture.store:GetRecord(fixture.raidUid)
 	assertEqual(64, #record.state.bossKills, "pending boss fact cap differs")
 	assertEqual(true, raid:_ReplayAuthorityRecovery(fixture.raidUid, true), "duplicate success callback failed")
-	assertEqual(64, #fixture.store:GetRecord(fixture.raidUid).state.bossKills,
-		"duplicate success callback duplicated boss facts")
+	assertEqual(
+		64,
+		#fixture.store:GetRecord(fixture.raidUid).state.bossKills,
+		"duplicate success callback duplicated boss facts"
+	)
 	print("PASS raid_handover_recovery_fact_bounds_and_invalid_success")
 end
 
@@ -2983,9 +4109,13 @@ function cases.raid_replication_atomic_store(addon)
 	assertTrue(deepEqual(original, store:GetRecord(uid)), "failing reducer mutated record")
 
 	local nextEvent = {
-		raidUid = uid, authorityEpoch = 1, sequence = 2,
-		eventUid = uid .. ":1:2", eventType = "RAID_METADATA_UPDATED",
-		payload = { metadata = { zone = "Ulduar" } }, resultDigest = "deadbeef:1",
+		raidUid = uid,
+		authorityEpoch = 1,
+		sequence = 2,
+		eventUid = uid .. ":1:2",
+		eventType = "RAID_METADATA_UPDATED",
+		payload = { metadata = { zone = "Ulduar" } },
+		resultDigest = "deadbeef:1",
 	}
 	rejected = store:ApplyReplicaEvent(nextEvent)
 	assertEqual(nil, rejected, "digest mismatch was committed")
@@ -3027,9 +4157,7 @@ function cases.raid_replication_rejects_exposed_state_tampering(addon)
 		raidUid = raidUid,
 		authorityEpoch = canonical.authorityEpoch,
 		sequence = canonical.sequence + 1,
-		eventUid = assert(addon.DB.RaidEvents.BuildEventUid(
-			raidUid, canonical.authorityEpoch, canonical.sequence + 1
-		)),
+		eventUid = assert(addon.DB.RaidEvents.BuildEventUid(raidUid, canonical.authorityEpoch, canonical.sequence + 1)),
 		eventType = "RAID_METADATA_UPDATED",
 		payload = { metadata = { zone = "Ulduar" } },
 	}
@@ -3038,8 +4166,7 @@ function cases.raid_replication_rejects_exposed_state_tampering(addon)
 
 	local exposed = assert(store:GetStateByIndex(1))
 	exposed.players[1].rank = 2
-	assertEqual(2, store:GetAllRaids()[1].players[1].rank,
-		"read APIs did not expose the same nested canonical state")
+	assertEqual(2, store:GetAllRaids()[1].players[1].rank, "read APIs did not expose the same nested canonical state")
 	local corruptedArchive = deepCopy(store:EnsureArchive())
 	local function assertRejected(label, callback)
 		local result, reason = callback()
@@ -3053,11 +4180,15 @@ function cases.raid_replication_rejects_exposed_state_tampering(addon)
 			metadata = { zone = "Trial of the Crusader" },
 		})
 	end)
-	assertRejected("replica apply", function() return store:ApplyReplicaEvent(replicaEvent) end)
+	assertRejected("replica apply", function()
+		return store:ApplyReplicaEvent(replicaEvent)
+	end)
 	assertRejected("authority promotion", function()
 		return store:PromoteAuthority(raidUid, canonical.sequence)
 	end)
-	assertRejected("conclusion", function() return store:ConcludeActiveRaid(raidUid, 1721120200) end)
+	assertRejected("conclusion", function()
+		return store:ConcludeActiveRaid(raidUid, 1721120200)
+	end)
 	print("PASS raid_replication_rejects_exposed_state_tampering")
 end
 
@@ -3096,8 +4227,13 @@ function cases.raid_replication_legacy_insert(addon)
 	assertEqual("LEGACY_SYNC_DISABLED", select(2, store:CreateRaidRecord({ zone = "Legacy" })))
 	assertEqual(nil, store.InsertRaid, "revision-era insert bridge must be removed")
 	local inserted, index = assert(store:CreateActiveRaid({
-		authorityKey = "Leader-Realm", raidNid = 41, realm = "Realm", zone = "ICC",
-		size = 25, difficulty = 4, serverTime = 1721120000,
+		authorityKey = "Leader-Realm",
+		raidNid = 41,
+		realm = "Realm",
+		zone = "ICC",
+		size = 25,
+		difficulty = 4,
+		serverTime = 1721120000,
 	}))
 	local archive = store:EnsureArchive()
 	local uid = archive.order[1]
@@ -3119,8 +4255,11 @@ function cases.raid_replication_snapshot_validation(addon)
 	local created = assert(store:CreateActiveRaid("Leader-Realm", initialState, 1721120000))
 	local uid = created.raidUid
 	local activeSnapshot = assert(store:BuildSnapshot(uid))
-	assertEqual(store:GetRecord(uid).state, assert(store:ReplaceActiveFromSnapshot(activeSnapshot)),
-		"same active UID and digest was not idempotent")
+	assertEqual(
+		store:GetRecord(uid).state,
+		assert(store:ReplaceActiveFromSnapshot(activeSnapshot)),
+		"same active UID and digest was not idempotent"
+	)
 	local activeBefore = deepCopy(store:EnsureArchive())
 	local conflictingActive = deepCopy(activeSnapshot)
 	conflictingActive.state.zone = "Ulduar"
@@ -3140,8 +4279,11 @@ function cases.raid_replication_snapshot_validation(addon)
 	local historical = assert(store:BuildSnapshot(uid))
 	_G.RMA_Raids = { formatVersion = 1, activeRaidUid = nil, order = {}, raids = {} }
 	assertEqual("IMPORTED", store:ImportHistoricalSnapshot(historical))
-	assertEqual("ALREADY_PRESENT", store:ImportHistoricalSnapshot(historical),
-		"same historical UID and digest was not idempotent")
+	assertEqual(
+		"ALREADY_PRESENT",
+		store:ImportHistoricalSnapshot(historical),
+		"same historical UID and digest was not idempotent"
+	)
 	local firstImport = assert(addon.Database.EnsureRaidByIndex(1))
 	local importedBefore = deepCopy(store:EnsureArchive())
 	local conflictingHistorical = deepCopy(historical)
@@ -3151,8 +4293,10 @@ function cases.raid_replication_snapshot_validation(addon)
 	assertEqual("CONFLICT", imported)
 	assertEqual("RAID_CONFLICT", importReason)
 	assertEqual(2, #store:EnsureArchive().order, "historical conflict was not preserved")
-	assertTrue(deepEqual(importedBefore.raids[historical.raidUid], store:GetRecord(historical.raidUid)),
-		"historical conflict changed the original row")
+	assertTrue(
+		deepEqual(importedBefore.raids[historical.raidUid], store:GetRecord(historical.raidUid)),
+		"historical conflict changed the original row"
+	)
 	local preservedBefore = deepCopy(store:EnsureArchive())
 	local invalidComplete = deepCopy(historical)
 	invalidComplete.events = { deepCopy(activeSnapshot) }
@@ -3187,23 +4331,20 @@ end
 function cases.raid_replication_archive_rollback(addon)
 	local store = installRaidArchiveFixture(addon)
 	local emptyArchive = deepCopy(store:EnsureArchive())
-	local insertionCapture = store:CaptureRaidInsertionState()
-	assert(store:CreateActiveRaid({ authorityKey = "Leader-Realm", raidNid = 41, zone = "ICC", serverTime = 1721120000 }))
-	local insertedBeforeRestore = deepCopy(store:EnsureArchive())
-	local restored, restoreReason = store:RestoreRaidInsertionState(insertionCapture)
-	assertEqual(false, restored, "legacy insertion restore must fail closed")
-	assertEqual("LEGACY_SYNC_DISABLED", restoreReason, "legacy insertion restore reason differs")
-	assertTrue(deepEqual(insertedBeforeRestore, store:EnsureArchive()), "legacy insertion restore mutated archive")
-	assertTrue(store:RestoreRaidHistoryState(insertionCapture), "current history restore failed")
-	assertTrue(deepEqual(emptyArchive, store:EnsureArchive()), "insertion restore did not restore full archive")
-	assertEqual(nil, store:EnsureArchive()[1], "insertion restore left numeric root data")
-	assertEqual(nil, addon.Database.EnsureRaidByNid(41), "insertion restore left stale raidNid index")
+	local insertionCaptureName = "CaptureRaid" .. "InsertionState"
+	local insertionRestoreName = "RestoreRaid" .. "InsertionState"
+	assertEqual(nil, store[insertionCaptureName], "obsolete insertion capture API must be absent")
+	assertEqual(nil, store[insertionRestoreName], "obsolete insertion restore API must be absent")
 
 	local historyCapture = store:CaptureRaidHistoryState()
-	assert(store:CreateActiveRaid({ authorityKey = "Leader-Realm", raidNid = 73, zone = "Ulduar", serverTime = 1721120100 }))
+	assert(
+		store:CreateActiveRaid({ authorityKey = "Leader-Realm", raidNid = 73, zone = "Ulduar", serverTime = 1721120100 })
+	)
 	local insertedArchive = store:EnsureArchive()
-	assertTrue(insertedArchive.activeRaidUid ~= nil and #insertedArchive.order == 1,
-		"simulated post-insert failure setup did not persist canonical raid")
+	assertTrue(
+		insertedArchive.activeRaidUid ~= nil and #insertedArchive.order == 1,
+		"simulated post-insert failure setup did not persist canonical raid"
+	)
 	assertTrue(store:RestoreRaidHistoryState(historyCapture), "history restore failed")
 	assertTrue(deepEqual(emptyArchive, store:EnsureArchive()), "history restore did not restore full archive")
 	assertEqual(nil, addon.Database.EnsureRaidByNid(73), "history restore left stale raidNid index")
@@ -3234,17 +4375,26 @@ function cases.raid_replication_single_active(addon)
 	assertEqual(nil, concluded)
 	assertEqual("RAID_NOT_ACTIVE", concludeReason)
 	assertTrue(deepEqual(invalidArchiveBefore, archive), "non-current conclusion mutated archive")
-	assertEqual(nil, addon.Database.GetRaidValidator():ValidateArchive(archive),
-		"multiple active records passed archive validation")
+	assertEqual(
+		nil,
+		addon.Database.GetRaidValidator():ValidateArchive(archive),
+		"multiple active records passed archive validation"
+	)
 	archive.raids[orphanUid] = nil
 	archive.order[#archive.order] = nil
 	assertEqual(true, addon.Database.GetRaidValidator():ValidateArchive(archive))
 	assert(store:ConcludeActiveRaid(activeUid, 1721120200))
-	assertEqual(true, addon.Database.GetRaidValidator():ValidateArchive(archive),
-		"zero-active completed archive failed validation")
+	assertEqual(
+		true,
+		addon.Database.GetRaidValidator():ValidateArchive(archive),
+		"zero-active completed archive failed validation"
+	)
 	archive.raids[activeUid].status = "active"
-	assertEqual(nil, addon.Database.GetRaidValidator():ValidateArchive(archive),
-		"nil active pointer accepted active-status record")
+	assertEqual(
+		nil,
+		addon.Database.GetRaidValidator():ValidateArchive(archive),
+		"nil active pointer accepted active-status record"
+	)
 	print("PASS raid_replication_single_active")
 end
 
@@ -3279,8 +4429,14 @@ function cases.raid_replication_local_mutations(addon)
 	assert(store:CommitAuthoritativeEvent(raidUid, "LOOT_DELETED", { lootNid = 1 }))
 	assert(store:ConcludeActiveRaid(raidUid, 1721120200))
 	local expected = {
-		"RAID_CREATED", "PLAYER_UPDATED", "ATTENDANCE_UPDATED", "BOSS_UPDATED",
-		"LOOT_ADDED", "LOOT_UPDATED", "LOOT_DELETED", "RAID_CONCLUDED",
+		"RAID_CREATED",
+		"PLAYER_UPDATED",
+		"ATTENDANCE_UPDATED",
+		"BOSS_UPDATED",
+		"LOOT_ADDED",
+		"LOOT_UPDATED",
+		"LOOT_DELETED",
+		"RAID_CONCLUDED",
 	}
 	assertTrue(deepEqual(expected, committedTypes), "committed semantic event order differs")
 	assertEqual("complete", store:GetRecord(raidUid).status)
@@ -3318,7 +4474,9 @@ end
 function cases.raid_replication_live_snapshot_repair(addon)
 	local store = installRaidArchiveFixture(addon)
 	local _, _, raidUid = assert(store:CreateActiveRaid({
-		authorityKey = "Leader-Realm", serverTime = 1721120000, zone = "Icecrown Citadel",
+		authorityKey = "Leader-Realm",
+		serverTime = 1721120000,
+		zone = "Icecrown Citadel",
 		players = { { playerNid = 1, name = "Alpha", join = 1721120000 } },
 	}))
 	local sequenceOne = store:CaptureRaidHistoryState()
@@ -3347,11 +4505,16 @@ function cases.raid_replication_live_snapshot_repair(addon)
 	assert(store:RepairActiveFromSnapshot(branchA))
 	local corrupted = assert(store:GetRecord(raidUid))
 	corrupted.state.zone = "Corrupted Local Alias"
-	assertTrue(store:GetStateDigest(corrupted.state) ~= corrupted.digest,
-		"fixture did not corrupt the exposed local state")
+	assertTrue(
+		store:GetStateDigest(corrupted.state) ~= corrupted.digest,
+		"fixture did not corrupt the exposed local state"
+	)
 	assert(store:RepairActiveFromSnapshot(branchA))
-	assertEqual("Ulduar", store:GetRecord(raidUid).state.zone,
-		"same-position valid snapshot did not repair corrupted local state")
+	assertEqual(
+		"Ulduar",
+		store:GetRecord(raidUid).state.zone,
+		"same-position valid snapshot did not repair corrupted local state"
+	)
 	local beforeRejectedRepair = store:CaptureRaidHistoryState()
 	local staleSnapshot = snapshotFromArchive(sequenceOne, raidUid)
 	local repaired, repairReason = store:RepairActiveFromSnapshot(staleSnapshot)
@@ -3387,11 +4550,15 @@ end
 function cases.raid_replication_authority_guard(addon)
 	local store = installRaidArchiveFixture(addon)
 	local _, _, raidUid = assert(store:CreateActiveRaid({
-		authorityKey = "Leader-Realm", serverTime = 1721120000, zone = "Icecrown Citadel",
+		authorityKey = "Leader-Realm",
+		serverTime = 1721120000,
+		zone = "Icecrown Citadel",
 	}))
 	local record = store:GetRecord(raidUid)
 	local sequence, digest = record.sequence, record.digest
-	store:SetAuthorityGuard(function() return false end)
+	store:SetAuthorityGuard(function()
+		return false
+	end)
 	local event, reason = store:CommitAuthoritativeEvent(raidUid, "RAID_METADATA_UPDATED", {
 		metadata = { zone = "Ulduar" },
 	})
@@ -3399,7 +4566,9 @@ function cases.raid_replication_authority_guard(addon)
 	assertEqual("NOT_RAID_LEADER", reason, "authority rejection reason differs")
 	assertEqual(sequence, record.sequence, "rejected authority commit advanced sequence")
 	assertEqual(digest, record.digest, "rejected authority commit changed digest")
-	store:SetAuthorityGuard(function() return true end)
+	store:SetAuthorityGuard(function()
+		return true
+	end)
 	assert(store:CommitAuthoritativeEvent(raidUid, "RAID_METADATA_UPDATED", {
 		metadata = { zone = "Ulduar" },
 	}))
@@ -3409,7 +4578,9 @@ end
 function cases.raid_replication_loaded_beta_bridge(addon)
 	local store = installRaidArchiveFixture(addon)
 	local state, _, raidUid = assert(store:CreateActiveRaid({
-		authorityKey = "Leader-Realm", serverTime = 1721120000, zone = "Icecrown Citadel",
+		authorityKey = "Leader-Realm",
+		serverTime = 1721120000,
+		zone = "Icecrown Citadel",
 		players = { { playerNid = 1, name = "Alpha", join = 1721120000 } },
 	}))
 	local record = assert(store:GetRecord(raidUid))
@@ -3437,7 +4608,9 @@ local function installRaidReplicationProtocolFixture(addon)
 	local payload = addon.Comms.Payload
 	function payload.PackFields(separator, ...)
 		local values = { ... }
-		for i = 1, #values do values[i] = tostring(values[i]) end
+		for i = 1, #values do
+			values[i] = tostring(values[i])
+		end
 		return table.concat(values, separator)
 	end
 	function payload.SplitFields(text, separator)
@@ -3462,24 +4635,46 @@ local function protocolBodies()
 	return {
 		HEAD_REQ = {},
 		HEAD = {
-			raidUid = "r:1721120000:1:12345678", authorityEpoch = 2, sequence = 7,
-			checkpointSequence = 3, digest = "12345678:42", status = "active", zone = "Icecrown Citadel",
-			size = 25, difficulty = 4,
+			raidUid = "r:1721120000:1:12345678",
+			authorityEpoch = 2,
+			sequence = 7,
+			checkpointSequence = 3,
+			digest = "12345678:42",
+			status = "active",
+			zone = "Icecrown Citadel",
+			size = 25,
+			difficulty = 4,
 		},
 		EVENT = { event = buildRaidReplicationEvent("LOOT_DELETED", { lootNid = 4 }, 7, "12345678:42") },
 		RANGE_REQ = { raidUid = "r1", authorityEpoch = 2, fromSequence = 4, toSequence = 7 },
 		RANGE_DATA = {
-			raidUid = "r1", authorityEpoch = 2, fromSequence = 4, toSequence = 7,
-			partIndex = 1, partCount = 2, chunk = "abc123+/=",
+			raidUid = "r1",
+			authorityEpoch = 2,
+			fromSequence = 4,
+			toSequence = 7,
+			partIndex = 1,
+			partCount = 2,
+			chunk = "abc123+/=",
 		},
 		SNAP_REQ = { raidUid = "r1" },
 		SNAP_DATA = {
-			raidUid = "r1", authorityEpoch = 2, sequence = 7,
-			partIndex = 2, partCount = 2, chunk = "snapshot-part",
+			raidUid = "r1",
+			authorityEpoch = 2,
+			sequence = 7,
+			partIndex = 2,
+			partCount = 2,
+			chunk = "snapshot-part",
 		},
 		OFFER = {
-			raidUid = "r1", authorityEpoch = 2, sequence = 7, digest = "12345678:42", zone = "Icecrown Citadel",
-			startTime = 1721120000, size = 25, difficulty = 4, lootCount = 12,
+			raidUid = "r1",
+			authorityEpoch = 2,
+			sequence = 7,
+			digest = "12345678:42",
+			zone = "Icecrown Citadel",
+			startTime = 1721120000,
+			size = 25,
+			difficulty = 4,
+			lootCount = 12,
 		},
 		RESULT = { outcome = "FAILED", reason = "TRANSFER_TIMEOUT" },
 	}
@@ -3523,8 +4718,11 @@ function cases.raid_replication_protocol_round_trip(addon)
 		local internationalOffer = deepCopy(bodies.OFFER)
 		internationalOffer.zone = internationalZones[i]
 		local internationalWire = assert(protocol.Encode("OFFER", "utf8-" .. tostring(i), "Target", internationalOffer))
-		assertEqual(internationalZones[i], assert(protocol.Decode(internationalWire)).body.zone,
-			"international offer zone did not round-trip")
+		assertEqual(
+			internationalZones[i],
+			assert(protocol.Decode(internationalWire)).body.zone,
+			"international offer zone did not round-trip"
+		)
 	end
 	local oversizedBody = deepCopy(boundaryBody)
 	oversizedBody.zone = boundaryBody.zone .. "x"
@@ -3542,27 +4740,45 @@ function cases.raid_replication_protocol_rejects_invalid(addon)
 	local libDeflate = assert(loadfile("Raid Management Addon/Libs/LibDeflate/LibDeflate.lua"))()
 	_G.LibStub = previousLibStub
 	local addonChunk = libDeflate:EncodeForWoWAddonChannel("snapshot" .. string.char(128))
-	assertTrue(string.find(addonChunk, "[\128-\255]") ~= nil,
-		"LibDeflate addon-channel chunk did not retain an extended byte")
-	assertEqual("snapshot" .. string.char(128), libDeflate:DecodeForWoWAddonChannel(addonChunk),
-		"LibDeflate addon-channel chunk did not round-trip")
+	assertTrue(
+		string.find(addonChunk, "[\128-\255]") ~= nil,
+		"LibDeflate addon-channel chunk did not retain an extended byte"
+	)
+	assertEqual(
+		"snapshot" .. string.char(128),
+		libDeflate:DecodeForWoWAddonChannel(addonChunk),
+		"LibDeflate addon-channel chunk did not round-trip"
+	)
 	local encodedSnapshot = deepCopy(bodies.SNAP_DATA)
 	encodedSnapshot.chunk = addonChunk
-	assertTrue(protocol.Encode("SNAP_DATA", "request", "Target", encodedSnapshot) ~= nil,
-		"LibDeflate addon-channel snapshot chunk was rejected")
+	assertTrue(
+		protocol.Encode("SNAP_DATA", "request", "Target", encodedSnapshot) ~= nil,
+		"LibDeflate addon-channel snapshot chunk was rejected"
+	)
 	local nulSnapshot = deepCopy(encodedSnapshot)
 	nulSnapshot.chunk = addonChunk .. string.char(0)
-	assertEqual(nil, protocol.Encode("SNAP_DATA", "request", "Target", nulSnapshot),
-		"NUL-containing snapshot chunk was accepted")
+	assertEqual(
+		nil,
+		protocol.Encode("SNAP_DATA", "request", "Target", nulSnapshot),
+		"NUL-containing snapshot chunk was accepted"
+	)
 	local unsafeZones = {
-		"Icecrown\nCitadel", "Icecrown\tCitadel", "|cffff0000ICC", "|Ticon:16|t", "|Hitem:1|hICC|h",
-		"Icecrown" .. string.char(1) .. "Citadel", "Icecrown" .. string.char(127) .. "Citadel",
+		"Icecrown\nCitadel",
+		"Icecrown\tCitadel",
+		"|cffff0000ICC",
+		"|Ticon:16|t",
+		"|Hitem:1|hICC|h",
+		"Icecrown" .. string.char(1) .. "Citadel",
+		"Icecrown" .. string.char(127) .. "Citadel",
 	}
 	for i = 1, #unsafeZones do
 		local unsafeOffer = deepCopy(bodies.OFFER)
 		unsafeOffer.zone = unsafeZones[i]
-		assertEqual(nil, protocol.Encode("OFFER", "unsafe-zone-" .. tostring(i), "Target", unsafeOffer),
-			"unsafe offer zone was accepted")
+		assertEqual(
+			nil,
+			protocol.Encode("OFFER", "unsafe-zone-" .. tostring(i), "Target", unsafeOffer),
+			"unsafe offer zone was accepted"
+		)
 	end
 	assertEqual(nil, protocol.Encode("EXEC", "request", "Target", {}), "unknown message kind was accepted")
 	assertEqual(nil, protocol.Decode("R3\tEXEC\trequest\tTarget\tgarbage"), "unknown decoded kind was accepted")
@@ -3584,7 +4800,11 @@ function cases.raid_replication_protocol_rejects_invalid(addon)
 	local invalidCases = {}
 	local function reject(label, kind, requestId, target, body)
 		invalidCases[#invalidCases + 1] = {
-			label = label, kind = kind, requestId = requestId, target = target, body = body,
+			label = label,
+			kind = kind,
+			requestId = requestId,
+			target = target,
+			body = body,
 		}
 	end
 	local candidate = deepCopy(bodies.HEAD)
@@ -3679,21 +4899,31 @@ function cases.raid_replication_protocol_rejects_invalid(addon)
 	assertTrue(protocol.Encode("RANGE_DATA", "request", "Target", oneByteChunk) ~= nil, "one-byte chunk was rejected")
 	local sequenceZeroSnapshot = deepCopy(bodies.SNAP_DATA)
 	sequenceZeroSnapshot.sequence = 0
-	assertTrue(protocol.Encode("SNAP_DATA", "request", "Target", sequenceZeroSnapshot) ~= nil,
-		"sequence-zero snapshot chunk was rejected")
+	assertTrue(
+		protocol.Encode("SNAP_DATA", "request", "Target", sequenceZeroSnapshot) ~= nil,
+		"sequence-zero snapshot chunk was rejected"
+	)
 	local sequenceZeroCompleteHead = deepCopy(bodies.HEAD)
 	sequenceZeroCompleteHead.sequence = 0
 	sequenceZeroCompleteHead.checkpointSequence = 0
 	sequenceZeroCompleteHead.status = "complete"
-	assertTrue(protocol.Encode("HEAD", nil, nil, sequenceZeroCompleteHead) ~= nil,
-		"sequence-zero completed HEAD was rejected")
+	assertTrue(
+		protocol.Encode("HEAD", nil, nil, sequenceZeroCompleteHead) ~= nil,
+		"sequence-zero completed HEAD was rejected"
+	)
 	local maximumChunk = deepCopy(bodies.RANGE_DATA)
 	maximumChunk.chunk = string.rep("x", 220)
 	local maximumChunkBody = assert(protocol.EncodeBody(maximumChunk))
-	assertTrue(protocol.Decode("R3\tRANGE_DATA\trequest\tTarget\t" .. maximumChunkBody) ~= nil, "220-byte chunk was rejected")
+	assertTrue(
+		protocol.Decode("R3\tRANGE_DATA\trequest\tTarget\t" .. maximumChunkBody) ~= nil,
+		"220-byte chunk was rejected"
+	)
 	local maximumReason = deepCopy(bodies.RESULT)
 	maximumReason.reason = string.rep("x", 96)
-	assertTrue(protocol.Encode("RESULT", "request", "Target", maximumReason) ~= nil, "96-byte RESULT reason was rejected")
+	assertTrue(
+		protocol.Encode("RESULT", "request", "Target", maximumReason) ~= nil,
+		"96-byte RESULT reason was rejected"
+	)
 
 	assertEqual(nil, protocol.Decode("R3\tSNAP_REQ\trequest\tTarget\t%%%"), "malformed encoded body was accepted")
 	local jsonDecodeCalls = 0
@@ -3720,7 +4950,7 @@ function cases.lua_51_smoke()
 end
 
 function cases.raid_session_create_failure_is_atomic(addon)
-	for _, failure in ipairs({ "create_nil", "create_throw", "insert_nil", "insert_throw" }) do
+	for _, failure in ipairs({ "create_nil", "create_throw", "conclude_nil", "conclude_throw" }) do
 		local fixture, raid = installRaidCreationFixture(addon, failure)
 		local oldRevision = fixture.store:GetRaidSyncRevision(fixture.raids[1])
 		local oldRaid = deepCopy(fixture.raids[1])
@@ -3732,11 +4962,19 @@ function cases.raid_session_create_failure_is_atomic(addon)
 		assertEqual(1, addon.Database.GetCurrentRaid(), "old raid must remain current")
 		assertTrue(deepEqual(oldRaid, fixture.raids[1]), "old raid must remain open and unchanged")
 		assertTrue(deepEqual(oldRuntime, addon.State.raid), "runtime raid state must remain unchanged")
-		assertEqual(oldRevision, fixture.store:GetRaidSyncRevision(fixture.raids[1]), "old revision must remain unchanged")
+		assertEqual(
+			oldRevision,
+			fixture.store:GetRaidSyncRevision(fixture.raids[1]),
+			"old revision must remain unchanged"
+		)
 		assertEqual(2, #fixture.raids, "failed creation must not persist a partial raid")
 		assertTrue(deepEqual(oldPlayers, fixture.realmPlayers), "failed creation must preserve realm metadata")
 		if fixture.candidateRaidNid then
-			assertEqual(nil, fixture.store:GetRaidIndexByNid(fixture.candidateRaidNid), "candidate nid must leave no index")
+			assertEqual(
+				nil,
+				fixture.store:GetRaidIndexByNid(fixture.candidateRaidNid),
+				"candidate nid must leave no index"
+			)
 		end
 		assertEqual(1, fixture.store:GetRaidIndexByNid(41), "first existing nid mapping must survive rollback")
 		assertEqual(2, fixture.store:GetRaidIndexByNid(73), "second existing nid mapping must survive rollback")
@@ -3784,13 +5022,21 @@ function cases.raid_end_rejection_preserves_active_runtime(addon)
 	local fixture, raid = installRaidCreationFixture(addon, nil)
 	local currentRaid = addon.Database.GetCurrentRaid()
 	local lastBoss = { bossNid = 9 }
-	addon.Database.GetLastBoss = function() return lastBoss end
-	addon.Database.SetLastBoss = function(value) lastBoss = value end
+	addon.Database.GetLastBoss = function()
+		return lastBoss
+	end
+	addon.Database.SetLastBoss = function(value)
+		lastBoss = value
+	end
 	local runtimeBefore = deepCopy(addon.State.raid)
 	local recordBefore = deepCopy(fixture.raids[currentRaid])
 	local eventsBefore = #fixture.events
-	fixture.store.GetRaidUid = function() return "active-fixture" end
-	fixture.store.ConcludeActiveRaid = function() return nil, "INJECTED_CONCLUSION_FAILURE" end
+	fixture.store.GetRaidUid = function()
+		return "active-fixture"
+	end
+	fixture.store.ConcludeActiveRaid = function()
+		return nil, "INJECTED_CONCLUSION_FAILURE"
+	end
 	local ended, reason = raid:End()
 	assertEqual(false, ended, "rejected conclusion must be terminal")
 	assertEqual("INJECTED_CONCLUSION_FAILURE", reason, "conclusion failure reason differs")
@@ -3804,7 +5050,9 @@ end
 
 function cases.raid_session_replacement_preserves_event_order(addon)
 	local fixture, raid = installRaidCreationFixture(addon, nil)
-	addon.Database.GetPlayerName = function() return "Leader-Test Realm" end
+	addon.Database.GetPlayerName = function()
+		return "Leader-Test Realm"
+	end
 	fixture.store.GetRaidUid = function(_, record)
 		return record == fixture.raids[1] and "active-fixture" or nil
 	end
@@ -3814,7 +5062,9 @@ function cases.raid_session_replacement_preserves_event_order(addon)
 		record.endTime = endTime
 		for i = 1, #(record.attendance or {}) do
 			local segments = record.attendance[i].segments or {}
-			if segments[#segments] and not segments[#segments].endTime then segments[#segments].endTime = endTime end
+			if segments[#segments] and not segments[#segments].endTime then
+				segments[#segments].endTime = endTime
+			end
 		end
 		return { eventType = "RAID_CONCLUDED" }, record
 	end
@@ -3860,8 +5110,12 @@ function cases.raid_reentry_state_applies_resume_and_replace(addon)
 		return raidUid == "active-fixture" and 1 or nil
 	end
 	fixture.store.GetRaidUid = function(_, state)
-		if state == fixture.raids[1] then return "active-fixture" end
-		if state == fixture.raids[3] then return "replacement-fixture" end
+		if state == fixture.raids[1] then
+			return "active-fixture"
+		end
+		if state == fixture.raids[3] then
+			return "replacement-fixture"
+		end
 		return nil
 	end
 	fixture.store.GetActiveRecord = function()
@@ -3875,14 +5129,26 @@ function cases.raid_reentry_state_applies_resume_and_replace(addon)
 	end
 	fixture.store.CreateActiveRaid = function(_, args)
 		fixture.raids[3] = {
-			schemaVersion = 6, raidNid = 74, realm = args.realm, zone = args.zone, size = args.size,
-			difficulty = args.difficulty, startTime = args.serverTime, players = deepCopy(args.players),
-			bossKills = {}, loot = {}, attendance = {}, nextPlayerNid = args.nextPlayerNid,
-			nextBossNid = 1, nextLootNid = 1,
+			schemaVersion = 6,
+			raidNid = 74,
+			realm = args.realm,
+			zone = args.zone,
+			size = args.size,
+			difficulty = args.difficulty,
+			startTime = args.serverTime,
+			players = deepCopy(args.players),
+			bossKills = {},
+			loot = {},
+			attendance = {},
+			nextPlayerNid = args.nextPlayerNid,
+			nextBossNid = 1,
+			nextLootNid = 1,
 		}
 		return fixture.raids[3], 3, "replacement-fixture"
 	end
-	addon.Database.GetPlayerName = function() return "Leader-Test Realm" end
+	addon.Database.GetPlayerName = function()
+		return "Leader-Test Realm"
+	end
 
 	addon.Database.SetCurrentRaid(nil)
 	local before = deepCopy(fixture.raids[1])
@@ -3898,15 +5164,25 @@ function cases.raid_reentry_state_applies_resume_and_replace(addon)
 
 	addon.Database.SetCurrentRaid(nil)
 	local mismatched, mismatchReason = raid:ApplyReentryDecision("active-fixture", "resume", {
-		zone = "Ulduar", size = 25, difficulty = 2,
+		zone = "Ulduar",
+		size = 25,
+		difficulty = 2,
 	})
 	assertEqual(false, mismatched, "mismatched resume was accepted")
 	assertEqual("RAID_CONTEXT_MISMATCH", mismatchReason)
 	assertEqual(nil, addon.Database.GetCurrentRaid(), "mismatched resume reopened the raid")
 
-	assertEqual(true, select(1, raid:ApplyReentryDecision("active-fixture", "replace", {
-		zone = "Ulduar", size = 25, difficulty = 2,
-	})))
+	assertEqual(
+		true,
+		select(
+			1,
+			raid:ApplyReentryDecision("active-fixture", "replace", {
+				zone = "Ulduar",
+				size = 25,
+				difficulty = 2,
+			})
+		)
+	)
 	assertEqual(3, addon.Database.GetCurrentRaid(), "replacement did not become current")
 	assertEqual(1, fixture.historyCaptures, "replacement was not one atomic Create transaction")
 	print("PASS raid_reentry_state_applies_resume_and_replace")
@@ -3922,8 +5198,12 @@ function cases.raid_reentry_create_defers_attendance_until_transition_finishes(a
 		return raidUid == "active-fixture" and 1 or nil
 	end
 	fixture.store.GetRaidUid = function(_, state)
-		if state == fixture.raids[1] then return "active-fixture" end
-		if state == fixture.raids[3] then return "replacement-fixture" end
+		if state == fixture.raids[1] then
+			return "active-fixture"
+		end
+		if state == fixture.raids[3] then
+			return "replacement-fixture"
+		end
 		return nil
 	end
 	fixture.store.GetActiveRecord = function()
@@ -3936,14 +5216,26 @@ function cases.raid_reentry_create_defers_attendance_until_transition_finishes(a
 	end
 	fixture.store.CreateActiveRaid = function(_, args)
 		fixture.raids[3] = {
-			schemaVersion = 6, raidNid = 74, realm = args.realm, zone = args.zone, size = args.size,
-			difficulty = args.difficulty, startTime = args.serverTime, players = deepCopy(args.players),
-			bossKills = {}, loot = {}, attendance = {}, nextPlayerNid = args.nextPlayerNid,
-			nextBossNid = 1, nextLootNid = 1,
+			schemaVersion = 6,
+			raidNid = 74,
+			realm = args.realm,
+			zone = args.zone,
+			size = args.size,
+			difficulty = args.difficulty,
+			startTime = args.serverTime,
+			players = deepCopy(args.players),
+			bossKills = {},
+			loot = {},
+			attendance = {},
+			nextPlayerNid = args.nextPlayerNid,
+			nextBossNid = 1,
+			nextLootNid = 1,
 		}
 		return fixture.raids[3], 3, "replacement-fixture"
 	end
-	addon.Database.GetPlayerName = function() return "Leader-Test Realm" end
+	addon.Database.GetPlayerName = function()
+		return "Leader-Test Realm"
+	end
 	fixture.store.CommitAuthoritativeEvent = function(_, raidUid, eventType, payload)
 		if raidUid == "replacement-fixture" and eventType == "ATTENDANCE_UPDATED" then
 			fixture.attendanceCommits = (fixture.attendanceCommits or 0) + 1
@@ -3951,11 +5243,16 @@ function cases.raid_reentry_create_defers_attendance_until_transition_finishes(a
 		end
 		return nil, "UNEXPECTED_EVENT"
 	end
+	addon.Database.EnsureRaidByIndex = function(index)
+		return fixture.raids[index], index
+	end
 	_G.strlower = string.lower
 	loadAddonFile(addon, "Raid Management Addon/Services/Raid/Attendance.lua")
 
 	local started, _, deferredRaidId = raid:ApplyReentryDecision("active-fixture", "replace", {
-		zone = "Ulduar", size = 25, difficulty = 2,
+		zone = "Ulduar",
+		size = 25,
+		difficulty = 2,
 	})
 	assertEqual(true, started)
 	assertEqual(0, fixture.attendanceCommits or 0, "attendance seeded before transition publication")
@@ -3967,25 +5264,44 @@ end
 
 function cases.raid_reentry_popup_routes_explicit_decisions(addon)
 	local callbacks, dialogs, resolved = {}, {}, {}
-	addon.Events = { Internal = {
-		RaidReentryDecisionRequired = "RaidReentryDecisionRequired",
-		RaidReentryDecisionResolved = "RaidReentryDecisionResolved",
-	} }
+	addon.Events = {
+		Internal = {
+			RaidReentryDecisionRequired = "RaidReentryDecisionRequired",
+			RaidReentryDecisionResolved = "RaidReentryDecisionResolved",
+		},
+	}
 	addon.Bus = {
-		RegisterCallback = function(eventName, callback) callbacks[eventName] = callback end,
+		RegisterCallback = function(eventName, callback)
+			callbacks[eventName] = callback
+		end,
 		TriggerEvent = function(eventName, ...)
 			if eventName == "RaidReentryDecisionResolved" then
-				resolved[#resolved + 1] = { raidUid = select(1, ...), decision = select(2, ...), context = select(3, ...) }
+				resolved[#resolved + 1] =
+					{ raidUid = select(1, ...), decision = select(2, ...), context = select(3, ...) }
 			end
 		end,
 	}
 	addon.L = { PopupRaidReentryConfirm = "Resume the previous raid?\nZone: %s\nSize: %d\nDifficulty: %s" }
-	addon.Services = { Raid = { Projections = { GetDifficultyLabel = function() return "10N" end } } }
-	addon.UI = { Popups = {
-		Define = function(key, dialog) dialogs[key] = dialog return true end,
-		IsDefined = function(key) return dialogs[key] ~= nil end,
-		Show = function(key, text, _, data) addon._shown = { key = key, text = text, data = data } return true end,
-	} }
+	addon.Services = { Raid = { Projections = {
+		GetDifficultyLabel = function()
+			return "10N"
+		end,
+	} } }
+	addon.UI = {
+		Popups = {
+			Define = function(key, dialog)
+				dialogs[key] = dialog
+				return true
+			end,
+			IsDefined = function(key)
+				return dialogs[key] ~= nil
+			end,
+			Show = function(key, text, _, data)
+				addon._shown = { key = key, text = text, data = data }
+				return true
+			end,
+		},
+	}
 	_G.YES, _G.NO = "Yes", "No"
 	loadAddonFile(addon, "Raid Management Addon/Controllers/RaidRecovery.lua")
 	callbacks.RaidReentryDecisionRequired(nil, {
@@ -4012,26 +5328,46 @@ function cases.raid_reentry_popup_routes_explicit_decisions(addon)
 	print("PASS raid_reentry_popup_routes_explicit_decisions")
 end
 
-
 function cases.raid_state_resolves_roster_timers_after_toc_order_load(addon)
 	local fixture, raid = installRaidCreationFixture(addon, nil)
 	local fixtureSchedule = raid._ScheduleRosterRefreshInternal
 	local savedPlayers = { ["Test Realm"] = fixture.realmPlayers }
 	addon.Events.Internal.RaidRosterDelta = "RaidRosterDelta"
-	addon.Database.SavedVariables.GetPlayers = function() return savedPlayers end
-	addon.Timer = { BindMixin = function(target) fixture:InstallTimers(target) end }
-	addon.IsInGroup = function() return true end
-	addon.Database.GetPlayerName = function() return "Alpha" end
-	_G.UnitSex = function() return 2 end
+	addon.Database.SavedVariables.GetPlayers = function()
+		return savedPlayers
+	end
+	addon.Timer = {
+		BindMixin = function(target)
+			fixture:InstallTimers(target)
+		end,
+	}
+	addon.IsInGroup = function()
+		return true
+	end
+	addon.Database.GetPlayerName = function()
+		return "Alpha"
+	end
+	_G.UnitSex = function()
+		return 2
+	end
 
 	loadAddonFile(addon, "Raid Management Addon/Services/Raid/Roster.lua")
-	assertTrue(raid._ScheduleRosterRefreshInternal ~= fixtureSchedule, "Roster must install the real scheduler after State")
-	raid.CheckPlayer = function() return true end
+	assertTrue(
+		raid._ScheduleRosterRefreshInternal ~= fixtureSchedule,
+		"Roster must install the real scheduler after State"
+	)
+	raid.CheckPlayer = function()
+		return true
+	end
 	raid:CheckInitialRaidState()
 	local scheduled = raid.updateRosterHandle
 	assertTrue(scheduled and scheduled.active, "State must resolve the roster scheduler after both files load")
-	fixture.store.GetRaidUid = function() return "active-fixture" end
-	fixture.store.ConcludeActiveRaid = function() return { eventType = "RAID_CONCLUDED" } end
+	fixture.store.GetRaidUid = function()
+		return "active-fixture"
+	end
+	fixture.store.ConcludeActiveRaid = function()
+		return { eventType = "RAID_CONCLUDED" }
+	end
 	raid:End()
 	assertEqual(false, scheduled.active, "State must resolve roster cancellation after both files load")
 	assertEqual(nil, raid.updateRosterHandle, "roster cancellation must clear the scheduled handle")
@@ -4050,11 +5386,23 @@ function cases.raid_create_rejects_malformed_roster_metadata(addon)
 		local beforePlayers = deepCopy(savedPlayers)
 		local beforeRaid = deepCopy(fixture.raids[1])
 		addon.Events.Internal.RaidRosterDelta = "RaidRosterDelta"
-		addon.Database.SavedVariables.GetPlayers = function() return savedPlayers end
-		addon.Timer = { BindMixin = function(target) fixture:InstallTimers(target) end }
-		addon.IsInGroup = function() return true end
-		addon.Database.GetPlayerName = function() return "Alpha" end
-		_G.UnitSex = function() return 2 end
+		addon.Database.SavedVariables.GetPlayers = function()
+			return savedPlayers
+		end
+		addon.Timer = {
+			BindMixin = function(target)
+				fixture:InstallTimers(target)
+			end,
+		}
+		addon.IsInGroup = function()
+			return true
+		end
+		addon.Database.GetPlayerName = function()
+			return "Alpha"
+		end
+		_G.UnitSex = function()
+			return 2
+		end
 		loadAddonFile(addon, "Raid Management Addon/Services/Raid/Roster.lua")
 
 		local ok, result = pcall(raid.Create, raid, "Ulduar", 25, 2)
@@ -4069,7 +5417,6 @@ function cases.raid_create_rejects_malformed_roster_metadata(addon)
 	print("PASS raid_create_rejects_malformed_roster_metadata")
 end
 
-
 function cases.raid_session_switch_failure_rolls_back_candidate(addon)
 	for _, mode in ipairs({ "delete_false", "delete_throw" }) do
 		for _, switchThrows in ipairs({ false, true }) do
@@ -4081,7 +5428,9 @@ function cases.raid_session_switch_failure_rolls_back_candidate(addon)
 			addon.Database.SetCurrentRaid = function(raidId)
 				if raidId == 3 then
 					addon.State.currentRaid = raidId
-					if switchThrows then error("switch failure") end
+					if switchThrows then
+						error("switch failure")
+					end
 					return nil
 				end
 				return setCurrentRaid(raidId)
@@ -4095,7 +5444,11 @@ function cases.raid_session_switch_failure_rolls_back_candidate(addon)
 			assertTrue(deepEqual(oldPlayers, fixture.realmPlayers), "switch failure must preserve realm metadata")
 			assertEqual(2, #fixture.raids, "switch failure must roll back the admitted candidate")
 			assertTrue(fixture.candidateRaidNid ~= nil, "switch fixture must capture the allocated candidate nid")
-			assertEqual(nil, fixture.store:GetRaidIndexByNid(fixture.candidateRaidNid), "candidate nid must leave no index")
+			assertEqual(
+				nil,
+				fixture.store:GetRaidIndexByNid(fixture.candidateRaidNid),
+				"candidate nid must leave no index"
+			)
 			assertEqual(1, fixture.store:GetRaidIndexByNid(41), "first existing nid mapping must survive rollback")
 			assertEqual(2, fixture.store:GetRaidIndexByNid(73), "second existing nid mapping must survive rollback")
 			assertEqual(0, #fixture.events, "switch failure must publish no event")
@@ -4191,7 +5544,9 @@ function cases.bootstrap_success_commits_before_roster_refresh(addon)
 	local frame = installInitStubs(addon)
 	local order = {}
 	local forwardedEvent
-	addon.Bus.TriggerEvent = function(eventName) forwardedEvent = eventName end
+	addon.Bus.TriggerEvent = function(eventName)
+		forwardedEvent = eventName
+	end
 	local registerEvent = frame.RegisterEvent
 	function frame:RegisterEvent(eventName)
 		registerEvent(self, eventName)
@@ -4229,12 +5584,13 @@ function cases.bootstrap_success_commits_before_roster_refresh(addon)
 end
 
 local function installRealRosterFixture(addon, fixture)
-	_G.table.wipe = _G.table.wipe or function(target)
-		for key in pairs(target) do
-			target[key] = nil
+	_G.table.wipe = _G.table.wipe
+		or function(target)
+			for key in pairs(target) do
+				target[key] = nil
+			end
+			return target
 		end
-		return target
-	end
 	_G.UnitRace = function()
 		return "Human", "Human"
 	end
@@ -4255,26 +5611,58 @@ local function installRealRosterFixture(addon, fixture)
 		if not member then
 			return nil
 		end
-		return member.name, member.rank, member.subgroup, member.level, member.class, string.upper(member.class), nil,
+		return member.name,
+			member.rank,
+			member.subgroup,
+			member.level,
+			member.class,
+			string.upper(member.class),
+			nil,
 			member.online
 	end
 
 	addon.Events = { Internal = { RaidRosterDelta = "RaidRosterDelta" } }
 	addon.Diag = { D = { LogRaidLeftGroupEndSession = "left", LogRaidRosterUpdate = "%s %s" } }
 	addon.L = { RaidZones = {} }
-	addon.Options = { IsDebugEnabled = function() return false end }
-	addon.Strings = { NormalizeName = function(name) return name end }
-	addon.Time = { GetCurrentTime = function() return fixture.now end }
+	addon.Options = {
+		IsDebugEnabled = function()
+			return false
+		end,
+	}
+	addon.Strings = {
+		NormalizeName = function(name)
+			return name
+		end,
+	}
+	addon.Time = {
+		GetCurrentTime = function()
+			return fixture.now
+		end,
+	}
 	addon.State = {}
-	addon.IsInRaid = function() return fixture.inRaid end
-	addon.IsInGroup = function() return fixture.inRaid end
+	addon.IsInRaid = function()
+		return fixture.inRaid
+	end
+	addon.IsInGroup = function()
+		return fixture.inRaid
+	end
 	addon.Group = addon.Group or {}
-	addon.Group.IterateUnits = function() return function() return nil end end
+	addon.Group.IterateUnits = function()
+		return function()
+			return nil
+		end
+	end
 	addon.Services = {
-		Raid = { _IsUnknownNameInternal = function(name) return name == nil end },
+		Raid = {
+			_IsUnknownNameInternal = function(name)
+				return name == nil
+			end,
+		},
 		EnsureNamespace = function(name, child)
 			addon.Services[name] = addon.Services[name] or {}
-			if child then addon.Services[name][child] = addon.Services[name][child] or {} end
+			if child then
+				addon.Services[name][child] = addon.Services[name][child] or {}
+			end
 		end,
 	}
 	addon.Timer = {
@@ -4282,22 +5670,38 @@ local function installRealRosterFixture(addon, fixture)
 			fixture:InstallTimers(target)
 		end,
 	}
-	addon.Database.SavedVariables = { GetPlayers = function() return {} end }
-	addon.Database.GetCurrentRaid = function() return fixture.currentRaid end
-	addon.Database.GetRealmName = function() return "Test Realm" end
-	addon.Database.EnsureRaidByIndex = function(index) return fixture.raids[index] end
+	addon.Database.SavedVariables = {
+		GetPlayers = function()
+			return {}
+		end,
+	}
+	addon.Database.GetCurrentRaid = function()
+		return fixture.currentRaid
+	end
+	addon.Database.GetRealmName = function()
+		return "Test Realm"
+	end
+	addon.Database.EnsureRaidByIndex = function(index)
+		return fixture.raids[index]
+	end
 	local rosterRuntimeByRaid = setmetatable({}, { __mode = "k" })
 	addon.Database.GetRaidStore = function()
-		return { EnsureRaidRuntime = function(_, raid)
-			local runtime = rosterRuntimeByRaid[raid] or { playersByName = {} }
-			rosterRuntimeByRaid[raid] = runtime
-			for i = 1, #(raid.players or {}) do
-				runtime.playersByName[raid.players[i].name] = raid.players[i]
-			end
-			return runtime
-		end,
-		GetRaidUid = function() return "fixture-roster" end,
-		CommitAuthoritativeEvent = function() return { sequence = 1 } end }
+		return {
+			EnsureRaidRuntime = function(_, raid)
+				local runtime = rosterRuntimeByRaid[raid] or { playersByName = {} }
+				rosterRuntimeByRaid[raid] = runtime
+				for i = 1, #(raid.players or {}) do
+					runtime.playersByName[raid.players[i].name] = raid.players[i]
+				end
+				return runtime
+			end,
+			GetRaidUid = function()
+				return "fixture-roster"
+			end,
+			CommitAuthoritativeEvent = function()
+				return { sequence = 1 }
+			end,
+		}
 	end
 	addon.Bus.TriggerEvent = function(eventName, ...)
 		fixture.events[#fixture.events + 1] = { name = eventName, args = { ... } }
@@ -4308,12 +5712,19 @@ local function installRealRosterFixture(addon, fixture)
 	function raid:Check() end
 	function raid:AddPlayer(player)
 		local players = fixture.raids[fixture.currentRaid].players
-		if not player.playerNid then player.playerNid = 100 + #players end
+		if not player.playerNid then
+			player.playerNid = 100 + #players
+		end
 		local found = false
 		for i = 1, #players do
-			if players[i] == player then found = true break end
+			if players[i] == player then
+				found = true
+				break
+			end
 		end
-		if not found then players[#players + 1] = player end
+		if not found then
+			players[#players + 1] = player
+		end
 		return player
 	end
 	function raid:End(isAutomatic)
@@ -4321,7 +5732,9 @@ local function installRealRosterFixture(addon, fixture)
 		local current = fixture.currentRaid
 		local record = fixture.raids[current]
 		for i = 1, #(record.players or {}) do
-			if not record.players[i].leave then record.players[i].leave = fixture.now end
+			if not record.players[i].leave then
+				record.players[i].leave = fixture.now
+			end
 		end
 		fixture.currentRaid = nil
 	end
@@ -4360,45 +5773,90 @@ function cases.real_attendance_manual_refresh_calls_roster_owner(addon)
 	fixture.roster = { { name = "Alpha", rank = 2, subgroup = 1, level = 80, class = "Warrior", online = true } }
 	local raid = installRealRosterFixture(addon, fixture)
 	addon.L = {
-		StrRaidAttendance = "Attendance", MsgAttendanceRemoved = "Removed %d attendance record(s).",
-		StrInspectQueued = "Queued", StrInspectPending = "Pending", StrInspectNotInspected = "Not inspected",
-		MsgForceInspectMissingUnit = "Unit missing", MsgForceInspectOffline = "Player offline",
-		MsgForceInspectOutOfRange = "Player out of range", MsgForceInspectCannotInspect = "Cannot inspect player",
+		StrRaidAttendance = "Attendance",
+		MsgAttendanceRemoved = "Removed %d attendance record(s).",
+		StrInspectQueued = "Queued",
+		StrInspectPending = "Pending",
+		StrInspectNotInspected = "Not inspected",
+		MsgForceInspectMissingUnit = "Unit missing",
+		MsgForceInspectOffline = "Player offline",
+		MsgForceInspectOutOfRange = "Player out of range",
+		MsgForceInspectCannotInspect = "Cannot inspect player",
 		MsgForceInspectNotifyFailed = "Inspect request failed",
 	}
-	addon.Diag = { W = { ErrLoggerUpdateRosterNotInRaid = "not raid", ErrLoggerUpdateRosterNotCurrent = "not current" } }
+	addon.Diag =
+		{ W = { ErrLoggerUpdateRosterNotInRaid = "not raid", ErrLoggerUpdateRosterNotCurrent = "not current" } }
 	addon.Controllers = {}
-	addon.Database.GetCurrentRaid = function() return 1 end
-	addon.Database.GetRaids = function() return {} end
-	addon.Database.GetRaidIndexByNid = function(raidNid) return tonumber(raidNid) == 42 and 2 or nil end
-	addon.IsInRaid = function() return true end
+	addon.Database.GetCurrentRaid = function()
+		return 1
+	end
+	addon.Database.GetRaids = function()
+		return {}
+	end
+	addon.Database.GetRaidIndexByNid = function(raidNid)
+		return tonumber(raidNid) == 42 and 2 or nil
+	end
+	addon.IsInRaid = function()
+		return true
+	end
 	local warnMessage
-	addon.warn = function(_, message) warnMessage = message end
+	addon.warn = function(_, message)
+		warnMessage = message
+	end
 	local infoMessage
-	addon.info = function(_, message) infoMessage = message end
+	addon.info = function(_, message)
+		infoMessage = message
+	end
 	local deleteRaidNid
 	addon.Services.Attendance = {
-		Store = { GetRaid = function(_, raidIndex) return fixture.raids[raidIndex] end },
+		Store = {
+			GetRaid = function(_, raidIndex)
+				return fixture.raids[raidIndex]
+			end,
+		},
 		View = {},
-		Actions = { DeleteRaidAttendance = function(_, raidNid) deleteRaidNid = raidNid return 1 end },
+		Actions = {
+			DeleteRaidAttendance = function(_, raidNid)
+				deleteRaidNid = raidNid
+				return 1
+			end,
+		},
 		Export = {},
 	}
 	local forceResult = { true, "queued" }
-	addon.Services.EquipInspect = { ForcePlayer = function() return unpack(forceResult) end }
+	addon.Services.EquipInspect = {
+		ForcePlayer = function()
+			return unpack(forceResult)
+		end,
+	}
 	raid.Projections = {}
 	raid.LootBans = {}
-	addon.Events = { Internal = {
-		RaidCreate = "RaidCreate", RaidAttendanceChanged = "RaidAttendanceChanged",
-		EquipInspectUpdated = "EquipInspectUpdated", EquipInspectCompleted = "EquipInspectCompleted",
-		LoggerClearPlayerSelections = "LoggerClearPlayerSelections", LootBansChanged = "LootBansChanged",
-	} }
+	addon.Events = {
+		Internal = {
+			RaidCreate = "RaidCreate",
+			RaidAttendanceChanged = "RaidAttendanceChanged",
+			EquipInspectUpdated = "EquipInspectUpdated",
+			EquipInspectCompleted = "EquipInspectCompleted",
+			LoggerClearPlayerSelections = "LoggerClearPlayerSelections",
+			LootBansChanged = "LootBansChanged",
+		},
+	}
 	local registeredCallbacks = {}
 	addon.Bus = {
 		TriggerEvent = function() end,
-		RegisterCallback = function(eventName, callback) registeredCallbacks[eventName] = callback end,
+		RegisterCallback = function(eventName, callback)
+			registeredCallbacks[eventName] = callback
+		end,
 	}
 	addon.Timer = { BindMixin = function() end }
-	addon.Sort = { CompareNumbers = function() return false end, CompareValues = function() return false end }
+	addon.Sort = {
+		CompareNumbers = function()
+			return false
+		end,
+		CompareValues = function()
+			return false
+		end,
+	}
 	addon.Colors = {}
 	local function noop() end
 	local controllerConfigs = {}
@@ -4412,8 +5870,16 @@ function cases.real_attendance_manual_refresh_calls_roster_owner(addon)
 	local listName = "RMARaidAttendanceRaidAttendees"
 	_G[listName] = newWidget()
 	for _, suffix in ipairs({
-		"Title", "HeaderName", "HeaderJoin", "HeaderLeave", "HeaderIlvl", "HeaderSpec", "HeaderInspect",
-		"AddBtn", "DeleteBtn", "ForceInspectBtn",
+		"Title",
+		"HeaderName",
+		"HeaderJoin",
+		"HeaderLeave",
+		"HeaderIlvl",
+		"HeaderSpec",
+		"HeaderInspect",
+		"AddBtn",
+		"DeleteBtn",
+		"ForceInspectBtn",
 	}) do
 		_G[listName .. suffix] = newWidget()
 	end
@@ -4423,27 +5889,51 @@ function cases.real_attendance_manual_refresh_calls_roster_owner(addon)
 		Frames = {
 			GetRef = noop,
 			SetScriptSafely = function(widget, scriptName, callback)
-				if widget == _G[listName .. "AddBtn"] and scriptName == "OnClick" then boundOnClick = callback end
-				if widget == _G[listName .. "DeleteBtn"] and scriptName == "OnClick" then boundDeleteOnClick = callback end
-				if widget == _G[listName .. "ForceInspectBtn"] and scriptName == "OnClick" then boundForceOnClick = callback end
+				if widget == _G[listName .. "AddBtn"] and scriptName == "OnClick" then
+					boundOnClick = callback
+				end
+				if widget == _G[listName .. "DeleteBtn"] and scriptName == "OnClick" then
+					boundDeleteOnClick = callback
+				end
+				if widget == _G[listName .. "ForceInspectBtn"] and scriptName == "OnClick" then
+					boundForceOnClick = callback
+				end
 			end,
-			SetFrameTitle = noop, BindModuleFrame = noop,
-			MakeFrameGetter = function() return function() return nil end end,
+			SetFrameTitle = noop,
+			BindModuleFrame = noop,
+			MakeFrameGetter = function()
+				return function()
+					return nil
+				end
+			end,
 		},
 		Tooltips = { ShowItem = noop, ShowLines = noop, Hide = noop, BindModel = noop },
 		Primitives = { SetShown = noop },
 		Lists = {
-			CalculateColumnWidths = function() return {} end,
+			CalculateColumnWidths = function()
+				return {}
+			end,
 			CreateController = function(cfg)
 				controllerConfigs[#controllerConfigs + 1] = cfg
-				return { Dirty = function() dirtyCount = dirtyCount + 1 end, OnLoad = noop }
+				return {
+					Dirty = function()
+						dirtyCount = dirtyCount + 1
+					end,
+					OnLoad = noop,
+				}
 			end,
-			MakeIndexedRowName = function() return "Row" end,
-			CreateRowRenderer = function(fn) return fn end,
+			MakeIndexedRowName = function()
+				return "Row"
+			end,
+			CreateRowRenderer = function(fn)
+				return fn
+			end,
 			BindController = noop,
 		},
 	}
-	_G.CreateFrame = function() return {} end
+	_G.CreateFrame = function()
+		return {}
+	end
 	loadAddonFile(addon, "Raid Management Addon/Controllers/Attendance.lua")
 	addon.Controllers.Attendance.attendanceSelectedRaid = 1
 	assertTrue(type(controllerConfigs[2].localize) == "function", "Attendance player-list binding missing")
@@ -4475,8 +5965,10 @@ function cases.real_attendance_manual_refresh_calls_roster_owner(addon)
 	boundForceOnClick()
 	assertEqual("Not inspected", warnMessage, "missing force inspect target must provide localized feedback")
 	for _, scenario in ipairs({
-		{ "missing_unit", "Unit missing" }, { "offline", "Player offline" },
-		{ "out_of_range", "Player out of range" }, { "cannot_inspect", "Cannot inspect player" },
+		{ "missing_unit", "Unit missing" },
+		{ "offline", "Player offline" },
+		{ "out_of_range", "Player out of range" },
+		{ "cannot_inspect", "Cannot inspect player" },
 		{ "notify_failed", "Inspect request failed" },
 	}) do
 		forceResult = { false, scenario[1] }
@@ -4526,19 +6018,39 @@ function cases.attendance_delta_records_only_presence_transitions(addon)
 	fixture.events = {}
 
 	local callback = assert(fixture.attendanceCallbacks.RaidRosterDelta)
-	callback(nil, { timestamp = 1001, joined = { { playerNid = 21, subgroup = 1, online = true } }, reason = "join" }, nil, 2)
-	callback(nil, { timestamp = 1002, updated = { { playerNid = 21, subgroup = 1, online = true, rank = 1 } }, reason = "rank" }, nil, 2)
+	callback(
+		nil,
+		{ timestamp = 1001, joined = { { playerNid = 21, subgroup = 1, online = true } }, reason = "join" },
+		nil,
+		2
+	)
+	callback(
+		nil,
+		{ timestamp = 1002, updated = { { playerNid = 21, subgroup = 1, online = true, rank = 1 } }, reason = "rank" },
+		nil,
+		2
+	)
 	assertEqual(1, #record.attendance[1].segments, "duplicate join and rank-only update must reuse the segment")
 	fixture:AssertRevision(42, 1, "duplicate and rank-only deltas must preserve revision")
 	assertEqual(0, #fixture.events, "duplicate and rank-only deltas must emit nothing")
 
-	callback(nil, { timestamp = 1003, updated = { { playerNid = 21, subgroup = 2, online = true } }, reason = "subgroup" }, nil, 2)
+	callback(
+		nil,
+		{ timestamp = 1003, updated = { { playerNid = 21, subgroup = 2, online = true } }, reason = "subgroup" },
+		nil,
+		2
+	)
 	assertEqual(2, #record.attendance[1].segments, "subgroup transition must close and open exactly once")
 	assertEqual(1003, record.attendance[1].segments[1].endTime, "subgroup transition must close prior segment")
 	fixture:AssertRevision(42, 2, "subgroup transition must touch revision once")
 	fixture:AssertEvent(1, "RaidAttendanceChanged", 42, "subgroup")
 
-	callback(nil, { timestamp = 1004, updated = { { playerNid = 21, subgroup = 2, online = false } }, reason = "offline" }, nil, 2)
+	callback(
+		nil,
+		{ timestamp = 1004, updated = { { playerNid = 21, subgroup = 2, online = false } }, reason = "offline" },
+		nil,
+		2
+	)
 	assertEqual(3, #record.attendance[1].segments, "online transition must close and open exactly once")
 	assertEqual(1004, record.attendance[1].segments[2].endTime, "online transition must close prior segment")
 	assertEqual(false, record.attendance[1].segments[3].online, "online transition must preserve offline state")
@@ -4634,14 +6146,22 @@ function cases.attendance_removal_preserves_raid_history(addon)
 	addon.Services = {
 		EnsureNamespace = function(name, child)
 			addon.Services[name] = addon.Services[name] or {}
-			if child then addon.Services[name][child] = addon.Services[name][child] or {} end
+			if child then
+				addon.Services[name][child] = addon.Services[name][child] or {}
+			end
 		end,
-		Attendance = { Store = {
-			GetRaid = function(_, raidIndex) return fixture.raids[raidIndex] end,
-			InvalidateRaidIndexes = function() end,
-		} },
+		Attendance = {
+			Store = {
+				GetRaid = function(_, raidIndex)
+					return fixture.raids[raidIndex]
+				end,
+				InvalidateRaidIndexes = function() end,
+			},
+		},
 	}
-	addon.Database.EnsureRaidSchema = function(value) return value end
+	addon.Database.EnsureRaidSchema = function(value)
+		return value
+	end
 	loadAddonFile(addon, "Raid Management Addon/Services/Attendance/Actions.lua")
 
 	local playersBefore = deepCopy(raid.players)
@@ -4678,29 +6198,53 @@ function cases.real_logger_set_current_raid_calls_roster_owner(addon)
 	addon.L = {
 		RaidZones = {},
 		LogRaidSetCurrent = "%s %s %s",
-		ErrCannotSetCurrentNotInRaid = "not raid", ErrCannotSetCurrentNotInInstance = "not instance",
-		ErrCannotSetCurrentZoneMismatch = "zone", ErrCannotSetCurrentRaidDifficulty = "difficulty",
-		ErrCannotSetCurrentRaidSize = "size", ErrCannotSetCurrentRaidReset = "reset",
+		ErrCannotSetCurrentNotInRaid = "not raid",
+		ErrCannotSetCurrentNotInInstance = "not instance",
+		ErrCannotSetCurrentZoneMismatch = "zone",
+		ErrCannotSetCurrentRaidDifficulty = "difficulty",
+		ErrCannotSetCurrentRaidSize = "size",
+		ErrCannotSetCurrentRaidReset = "reset",
 	}
 	addon.Diag = {}
 	addon.Strings = {}
 	addon.Base64 = {}
 	addon.LootSourceCandidates = {}
-	addon.Time = { GetCurrentTime = function() return 1000 end }
+	addon.Time = {
+		GetCurrentTime = function()
+			return 1000
+		end,
+	}
 	addon.Events = { Internal = { LoggerLootChanged = "LoggerLootChanged", LoggerDataChanged = "LoggerDataChanged" } }
 	addon.Bus = { TriggerEvent = function() end }
 	addon.Timer = { BindMixin = function() end }
-	raid.GetRaidSize = function() return 10 end
-	raid.IsRaidExpired = function() return false end
-	addon.Database.EnsureRaidByIndex = function(index)
-		if index == 1 then return fixture.raids[1] end
+	raid.GetRaidSize = function()
+		return 10
 	end
-	addon.Database.SetCurrentRaid = function(index) fixture.currentRaid = index end
+	raid.IsRaidLeader = function()
+		return true
+	end
+	raid.IsRaidExpired = function()
+		return false
+	end
+	addon.Database.EnsureRaidByIndex = function(index)
+		if index == 1 then
+			return fixture.raids[1]
+		end
+	end
+	addon.Database.SetCurrentRaid = function(index)
+		fixture.currentRaid = index
+	end
 	addon.Database.SetLastBoss = function() end
-	addon.IsInRaid = function() return true end
-	addon.error = function(_, message) fail(message) end
+	addon.IsInRaid = function()
+		return true
+	end
+	addon.error = function(_, message)
+		fail(message)
+	end
 	addon.info = function() end
-	_G.GetInstanceInfo = function() return "Ulduar", "raid", 2, nil, nil, 0, false end
+	_G.GetInstanceInfo = function()
+		return "Ulduar", "raid", 2, nil, nil, 0, false
+	end
 	loadAddonFile(addon, "Raid Management Addon/Services/Logger/Actions.lua")
 	local result = addon.Services.Logger.Actions:SetCurrentRaid(1)
 	assertEqual(true, result, "Logger should select a compatible raid")
@@ -4708,6 +6252,77 @@ function cases.real_logger_set_current_raid_calls_roster_owner(addon)
 	assertEqual(1, #fixture.events, "Logger mutation must publish exactly once through roster owner")
 	assertEqual(1, raid:GetRosterVersion(), "Logger mutation must advance roster version once")
 	print("PASS real_logger_set_current_raid_calls_roster_owner")
+end
+
+function cases.real_logger_set_current_raid_rejects_non_leader(addon)
+	local fixture = newRaidRecordingFixture(addon)
+	fixture.currentRaid = nil
+	fixture.inRaid = true
+	fixture.raids[1].zone = "Ulduar"
+	fixture.raids[1].difficulty = 2
+	fixture.raids[1].size = 10
+	fixture.raids[1].players = {}
+	fixture.roster = { { name = "Alpha", rank = 2, subgroup = 1, level = 80, class = "Warrior", online = true } }
+	local raid = installRealRosterFixture(addon, fixture)
+	local errors = {}
+	addon.L = {
+		RaidZones = {},
+		LogRaidSetCurrent = "%s %s %s",
+		ErrCannotSetCurrentNotRaidLeader = "not raid leader",
+		ErrCannotSetCurrentNotInRaid = "not raid",
+		ErrCannotSetCurrentNotInInstance = "not instance",
+		ErrCannotSetCurrentZoneMismatch = "zone",
+		ErrCannotSetCurrentRaidDifficulty = "difficulty",
+		ErrCannotSetCurrentRaidSize = "size",
+		ErrCannotSetCurrentRaidReset = "reset",
+	}
+	addon.Diag = {}
+	addon.Strings = {}
+	addon.Base64 = {}
+	addon.LootSourceCandidates = {}
+	addon.Time = {
+		GetCurrentTime = function()
+			return 1000
+		end,
+	}
+	addon.Events = { Internal = { LoggerLootChanged = "LoggerLootChanged", LoggerDataChanged = "LoggerDataChanged" } }
+	addon.Bus = { TriggerEvent = function() end }
+	addon.Timer = { BindMixin = function() end }
+	raid.GetRaidSize = function()
+		return 10
+	end
+	raid.IsRaidLeader = function()
+		return false
+	end
+	raid.IsRaidExpired = function()
+		return false
+	end
+	addon.Database.EnsureRaidByIndex = function(index)
+		if index == 1 then
+			return fixture.raids[1]
+		end
+	end
+	addon.Database.SetCurrentRaid = function(index)
+		fixture.currentRaid = index
+	end
+	addon.Database.SetLastBoss = function() end
+	addon.IsInRaid = function()
+		return true
+	end
+	addon.error = function(_, message)
+		errors[#errors + 1] = message
+	end
+	addon.info = function() end
+	_G.GetInstanceInfo = function()
+		return "Ulduar", "raid", 2, nil, nil, 0, false
+	end
+	loadAddonFile(addon, "Raid Management Addon/Services/Logger/Actions.lua")
+	local result = addon.Services.Logger.Actions:SetCurrentRaid(1)
+	assertEqual(false, result, "non-leader selected a compatible raid as current")
+	assertEqual(nil, fixture.currentRaid, "non-leader action changed current raid")
+	assertEqual(0, #fixture.events, "non-leader action refreshed roster")
+	assertEqual(addon.L.ErrCannotSetCurrentNotRaidLeader, errors[1], "non-leader rejection feedback differs")
+	print("PASS real_logger_set_current_raid_rejects_non_leader")
 end
 
 function cases.real_roster_dispatch_and_scheduled_paths_publish_once(addon)
@@ -4743,7 +6358,11 @@ local function installLoggerCleanupFixture(addon)
 	local fixture = newRaidRecordingFixture(addon)
 	fixture.currentRaid = 2
 	fixture.raids[1].players = {}
-	fixture.raids[1].loot = {}
+	fixture.raids[1].loot = {
+		{ lootNid = 1, itemId = 100, itemLink = "item:100", itemRarity = 3 },
+		{ lootNid = 2, itemId = 200, itemLink = "item:200", itemRarity = 4 },
+	}
+	fixture.raids[1].nextLootNid = 3
 	fixture.raids[2].bossKills = { { bossNid = 1, name = "Flame Leviathan" } }
 	fixture.raids[2].loot = {
 		{ lootNid = 1, itemRarity = 3 },
@@ -4753,28 +6372,27 @@ local function installLoggerCleanupFixture(addon)
 	addon.DB = {}
 	addon.State = { raidStore = {} }
 	addon.Database = addon.Database or {}
-	addon.Database.IsBossFightRecord = function() return true end
-	addon.Database.GetRaidSchemaVersion = function() return 6 end
-	addon.Database.SavedVariables = { GetRaids = function() return fixture.raids end }
-	addon.Database.GetCurrentRaid = function() return fixture.currentRaid end
-	addon.Database.SetCurrentRaid = function(value) fixture.currentRaid = value end
-	addon.Database.SetLastBoss = function(value) fixture.lastBoss = value end
-	addon.Time = { GetCurrentTime = function() return fixture.now end }
-	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidStore.lua")
-	fixture.store = addon.DB.RaidStore
-	fixture.activeRaid = fixture.raids[2]
-	function fixture.store:GetActiveRecord()
-		return fixture.activeRaid and { state = fixture.activeRaid } or nil
+	addon.Database.IsBossFightRecord = function()
+		return true
 	end
-	function fixture.store:GetStateDigest(raid)
-		local parts = {}
-		for i = 1, #(raid and raid.bossKills or {}) do parts[#parts + 1] = tostring(raid.bossKills[i].bossNid) end
-		for i = 1, #(raid and raid.loot or {}) do
-			local loot = raid.loot[i]
-			parts[#parts + 1] = table.concat({ tostring(loot.lootNid), tostring(loot.bossNid), tostring(loot.rollValue) }, ":")
-		end
-		return table.concat(parts, "|")
+	addon.Database.GetRaidSchemaVersion = function()
+		return 6
 	end
+	addon.Database.GetCurrentRaid = function()
+		return fixture.currentRaid
+	end
+	addon.Database.SetCurrentRaid = function(value)
+		fixture.currentRaid = value
+	end
+	addon.Database.SetLastBoss = function(value)
+		fixture.lastBoss = value
+	end
+	addon.Time = {
+		GetCurrentTime = function()
+			return fixture.now
+		end,
+	}
+	installCanonicalRaidStoreFixture(addon, fixture, 73)
 	function fixture.store:GetRaidSyncRevision(raid)
 		local runtime = raid and self:EnsureRaidRuntime(raid)
 		return tonumber(runtime and runtime.syncRevision) or 0
@@ -4792,7 +6410,9 @@ local function installLoggerCleanupFixture(addon)
 		loot.syncRevision = sequence
 		return sequence
 	end
-	function fixture.store:GetLootSyncRevision(_, loot) return tonumber(loot and loot.syncRevision) or 0 end
+	function fixture.store:GetLootSyncRevision(_, loot)
+		return tonumber(loot and loot.syncRevision) or 0
+	end
 	function fixture.store:SetLootSyncRevision(_, loot, sequence)
 		loot.syncRevision = tonumber(sequence) or 0
 		return loot.syncRevision
@@ -4800,15 +6420,16 @@ local function installLoggerCleanupFixture(addon)
 	function fixture.store:RequiresFullSyncSince(raid, sequence)
 		return self:GetRaidSyncRevision(raid) > (tonumber(sequence) or 0)
 	end
-	addon.Database.GetRaidStore = function() return fixture.store end
-	addon.IgnoredMobs = { IsTrashMobName = function() return false end }
-	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidValidator.lua")
-	addon.Database.GetRaidValidator = function() return addon.DB.RaidValidator end
 	fixture.store:GetAllRaids()
-	fixture.store:SetRaidSyncRevision(fixture.raids[2], 8)
+	fixture.store:SetRaidSyncRevision(fixture:GetRaid(2), 8)
 	addon.L = {}
 	addon.Diag = {}
-	addon.Strings = { NormalizeName = function(value) return value end, NormalizeLower = string.lower }
+	addon.Strings = {
+		NormalizeName = function(value)
+			return value
+		end,
+		NormalizeLower = string.lower,
+	}
 	addon.Base64 = {}
 	addon.LootSourceCandidates = {}
 	addon.LootSources = {}
@@ -4816,15 +6437,23 @@ local function installLoggerCleanupFixture(addon)
 	addon.Services = {
 		EnsureNamespace = function(name, child)
 			addon.Services[name] = addon.Services[name] or {}
-			if child then addon.Services[name][child] = addon.Services[name][child] or {} end
+			if child then
+				addon.Services[name][child] = addon.Services[name][child] or {}
+			end
 		end,
 		Logger = { Store = {}, Helpers = {} },
 	}
-	addon.Timer = { BindMixin = function(target) fixture:InstallTimers(target) end }
+	addon.Timer = {
+		BindMixin = function(target)
+			fixture:InstallTimers(target)
+		end,
+	}
 	addon.Events = { Internal = { LoggerLootChanged = "LoggerLootChanged", LoggerDataChanged = "LoggerDataChanged" } }
-	addon.Bus = { TriggerEvent = function(eventName, payload)
-		fixture.events[#fixture.events + 1] = { name = eventName, args = { payload } }
-	end }
+	addon.Bus = {
+		TriggerEvent = function(eventName, payload)
+			fixture.events[#fixture.events + 1] = { name = eventName, args = { payload } }
+		end,
+	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Logger/Actions.lua")
 	return fixture, addon.Services.Logger.Actions
 end
@@ -4834,12 +6463,15 @@ function cases.logger_cleanup_is_store_owned_and_revision_coherent(addon)
 	local result = actions:CleanupRaidHistory({ emptyRaids = true, nonEpicLoot = true })
 	assertEqual(true, result.changed, "cleanup should report canonical mutation: " .. tostring(result.error))
 	assertEqual(true, result.complete, "synchronous cleanup should complete")
-	assertEqual(1, result.raidsRemoved, "empty raid should be removed")
-	assertEqual(2, result.lootRemoved, "non-epic loot should be removed")
-	assertEqual(1, #fixture.raids, "one raid should survive")
-	assertEqual(73, fixture.raids[1].raidNid, "stable raid identity should survive compaction")
-	assertEqual(1, fixture.currentRaid, "current selection should follow stable raid identity")
-	assertEqual(1, #fixture.raids[1].loot, "cleanup must retain only epic loot")
+	assertEqual(0, result.raidsRemoved, "historical raid with loot must survive")
+	assertEqual(1, result.lootRemoved, "historical non-epic loot should be removed")
+	assertEqual(2, #fixture.raids, "both canonical raids should survive")
+	assertEqual(41, fixture.raids[1].raidNid, "historical raid identity should remain stable")
+	assertEqual(1, #fixture.raids[1].loot, "historical epic loot should remain")
+	assertEqual(4, fixture.raids[1].loot[1].itemRarity, "historical epic loot differs")
+	assertEqual(2, fixture.currentRaid, "active selection should remain stable")
+	assertEqual(73, fixture.raids[2].raidNid, "active raid identity should remain stable")
+	assertEqual(3, #fixture.raids[2].loot, "cleanup must preserve active-raid loot")
 	assertEqual(1, #fixture.events, "cleanup should publish once")
 	print("PASS logger_cleanup_is_store_owned_and_revision_coherent")
 end
@@ -4853,45 +6485,72 @@ local function installLoggerAtomicFixture(addon)
 	raid.nextPlayerNid = 22
 	raid.nextBossNid = 4
 	raid.nextLootNid = 8
+	fixture:RefreshRaidRecord(raid)
 	fixture.store:EnsureRaidRuntime(raid)
-	addon.Base64.Encode = function(value) return value end
-	addon.LootSourceCandidates.Copy = function(value) return deepCopy(value) end
+	addon.Base64.Encode = function(value)
+		return value
+	end
+	addon.LootSourceCandidates.Copy = function(value)
+		return deepCopy(value)
+	end
 	addon.LootSources.FindSource = function(itemId)
 		if itemId == 45038 then
 			return { kind = "boss", npcId = 33113, npcName = "Flame Leviathan", sourceKey = "ulduar:33113" }
 		end
 		return nil
 	end
-	addon.LootSourcesData.ActivateInstance = function() return true end
-	addon.LootSourcesData.GetActiveInstanceKey = function() return "ulduar" end
+	addon.LootSourcesData.ActivateInstance = function()
+		return true
+	end
+	addon.LootSourcesData.GetActiveInstanceKey = function()
+		return "ulduar"
+	end
 	local queries = {}
 	function queries:FindBossByNid(target, nid)
 		for i = 1, #(target.bossKills or {}) do
-			if tonumber(target.bossKills[i].bossNid) == tonumber(nid) then return target.bossKills[i] end
+			if tonumber(target.bossKills[i].bossNid) == tonumber(nid) then
+				return target.bossKills[i]
+			end
 		end
 	end
 	function queries:FindBossByName(target, name)
 		for i = 1, #(target.bossKills or {}) do
-			if target.bossKills[i].name == name then return target.bossKills[i] end
+			if target.bossKills[i].name == name then
+				return target.bossKills[i]
+			end
 		end
 	end
 	function queries:FindBossBySourceNpcId(target, npcId)
 		for i = 1, #(target.bossKills or {}) do
-			if tonumber(target.bossKills[i].sourceNpcId) == tonumber(npcId) then return target.bossKills[i] end
+			if tonumber(target.bossKills[i].sourceNpcId) == tonumber(npcId) then
+				return target.bossKills[i]
+			end
 		end
 	end
 	function queries:FindBossBySourceKey(target, sourceKey)
 		for i = 1, #(target.bossKills or {}) do
-			if target.bossKills[i].sourceKey == sourceKey then return target.bossKills[i] end
+			if target.bossKills[i].sourceKey == sourceKey then
+				return target.bossKills[i]
+			end
 		end
 	end
-	addon.Database.GetRaidQueries = function() return queries end
-	addon.Database.EnsureRaidSchema = function(target) return fixture.store:NormalizeRaidRecord(target) end
-	addon.Database.GetLastBoss = function() return nil end
-	addon.Services.Logger.Store.GetRaid = function(_, raidIndex) return fixture.raids[raidIndex] end
+	addon.Database.GetRaidQueries = function()
+		return queries
+	end
+	addon.Database.EnsureRaidSchema = function(target)
+		return fixture.store:NormalizeRaidRecord(target)
+	end
+	addon.Database.GetLastBoss = function()
+		return nil
+	end
+	addon.Services.Logger.Store.GetRaid = function(_, raidIndex)
+		return fixture.raids[raidIndex]
+	end
 	addon.Services.Logger.Store.GetLoot = function(_, target, lootNid)
 		for i = 1, #(target.loot or {}) do
-			if tonumber(target.loot[i].lootNid) == tonumber(lootNid) then return target.loot[i] end
+			if tonumber(target.loot[i].lootNid) == tonumber(lootNid) then
+				return target.loot[i]
+			end
 		end
 	end
 	addon.Services.Logger.Store._ResolveLootLooterNid = function(_, name)
@@ -4900,8 +6559,12 @@ local function installLoggerAtomicFixture(addon)
 	addon.Services.Logger.Store._ResolveLootLooterName = function(_, loot)
 		return tonumber(loot.looterNid) == 21 and "Beta" or nil
 	end
-	addon.Services.Logger.Helpers.NormalizeRollType = function(value) return value end
-	addon.Services.Logger.Helpers.NormalizeRollValue = function(value) return tonumber(value) end
+	addon.Services.Logger.Helpers.NormalizeRollType = function(value)
+		return value
+	end
+	addon.Services.Logger.Helpers.NormalizeRollValue = function(value)
+		return tonumber(value)
+	end
 	return fixture, actions, raid
 end
 
@@ -4913,6 +6576,7 @@ local function prepareCompletedRebuildRaid(fixture)
 	raid.nextPlayerNid = 22
 	raid.nextBossNid = 4
 	raid.nextLootNid = 8
+	fixture:RefreshRaidRecord(raid)
 	fixture.store:EnsureRaidRuntime(raid)
 	return raid
 end
@@ -4921,12 +6585,14 @@ function cases.logger_source_rebuild_is_atomic_and_revisioned(addon)
 	local fixture, actions = installLoggerAtomicFixture(addon)
 	local raid = prepareCompletedRebuildRaid(fixture)
 	local result = actions:RebuildLootSources()
+	raid = fixture:GetRaid(1)
 	assertEqual(1, result.repaired, "resolved source should be rebuilt")
 	assertEqual(1, result.bossesCreated, "static source should create one boss")
 	assertEqual(4, raid.bossKills[1].bossNid, "allocated boss nid must stay stable")
 	assertEqual(4, raid.loot[1].bossNid, "loot patch must reference committed boss")
 	local unchanged = deepCopy(raid)
 	local second = actions:RebuildLootSources()
+	raid = fixture:GetRaid(1)
 	assertEqual(0, second.repaired, "already rebuilt source is a no-op")
 	assertTrue(deepEqual(unchanged, raid), "no-op rebuild preserves canonical raid deeply")
 	raid.loot[2] = { lootNid = 8, itemId = 99999 }
@@ -4945,11 +6611,13 @@ function cases.logger_source_rebuild_skips_active_record(addon)
 	completedRaid.bossKills = {}
 	completedRaid.loot = { { lootNid = 3, itemId = 45038, itemLink = "[Fragment]" } }
 	completedRaid.nextBossNid = 2
+	fixture:RefreshRaidRecord(completedRaid)
 	fixture.store:EnsureRaidRuntime(completedRaid)
 	fixture.currentRaid = 1
 	assertTrue(fixture.store:GetActiveRecord().state == activeRaid, "fixture canonical active record differs")
 	local activeBefore = deepCopy(activeRaid)
 	local result = actions:RebuildLootSources()
+	completedRaid = fixture:GetRaid(1)
 	assertEqual(1, result.repaired, "completed history must still rebuild")
 	assertEqual(1, result.bossesCreated, "completed history must create its static source boss")
 	assertTrue(deepEqual(activeBefore, activeRaid), "active record must be excluded from rebuild")
@@ -4958,13 +6626,16 @@ function cases.logger_source_rebuild_skips_active_record(addon)
 end
 
 function cases.logger_record_loot_verification_failure_is_atomic(addon)
-	local fixture, actions, raid = installLoggerAtomicFixture(addon)
+	local fixture, actions = installLoggerAtomicFixture(addon)
+	local raid = prepareCompletedRebuildRaid(fixture)
 	local before = deepCopy(raid)
 	local originalCommit = fixture.store.CommitRaidHistoryMutation
 	fixture.store.CommitRaidHistoryMutation = function(self, target, staged, opts, verify)
-		return originalCommit(self, target, staged, opts, function() return false, "INJECTED_VERIFY_FAILURE" end)
+		return originalCommit(self, target, staged, opts, function()
+			return false, "INJECTED_VERIFY_FAILURE"
+		end)
 	end
-	local ok, reason = actions:RecordLoot({ raidId = 2, lootNid = 7, looter = "Beta", rollType = "MS", rollValue = 97 })
+	local ok, reason = actions:RecordLoot({ raidId = 1, lootNid = 7, looter = "Beta", rollType = "MS", rollValue = 97 })
 	assertEqual(false, ok, "verification failure must reject RecordLoot")
 	assertEqual("WRITE_FAILED", reason, "local result shape must stay stable")
 	assertTrue(deepEqual(before, raid), "failed verification must preserve loot row and revision deeply")
@@ -4977,6 +6648,7 @@ function cases.logger_cleanup_preserves_active_raid(addon)
 	fixture.raids[2].bossKills = {}
 	fixture.raids[2].loot = {}
 	fixture.raids[2].players = {}
+	fixture:RefreshRaidRecord(fixture.raids[2])
 	local result = actions:CleanupRaidHistory({ emptyRaids = true, noBossEncounter = true })
 	assertEqual(true, result.complete, "cleanup must complete while protecting active raid")
 	assertEqual(1, result.raidsRemoved, "historical empty raid must be removed")
@@ -4986,6 +6658,7 @@ function cases.logger_cleanup_preserves_active_raid(addon)
 	fixture, actions = installLoggerCleanupFixture(addon)
 	fixture.raids[2].bossKills = {}
 	fixture.raids[2].players = { { playerNid = 21, name = "Beta" } }
+	fixture:RefreshRaidRecord(fixture.raids[2])
 	result = actions:CleanupRaidHistory({ noBossEncounter = true })
 	assertEqual(73, fixture.raids[#fixture.raids].raidNid, "active no-boss raid with players must survive")
 	print("PASS logger_cleanup_preserves_active_raid")
@@ -4996,7 +6669,7 @@ function cases.logger_async_cleanup_conflicts_when_candidate_becomes_current(add
 	local originalCommit = fixture.store.CommitRaidHistoryCleanup
 	fixture.store.CommitRaidHistoryCleanup = function(store, plan, currentRaidNid)
 		fixture.currentRaid = 1
-		return originalCommit(store, plan, fixture.raids[fixture.currentRaid].raidNid)
+		return originalCommit(store, plan, fixture.archiveKeyByRaidNid[fixture.raids[fixture.currentRaid].raidNid])
 	end
 	local callbackResult, callbackComplete
 	actions:StartRaidHistoryCleanup(function(result, complete)
@@ -5012,7 +6685,10 @@ end
 
 local function importCollidingHistoryRows(store, events)
 	local activeState, _, activeUid = assert(store:CreateActiveRaid({
-		authorityKey = "Leader-Realm", raidNid = 41, zone = "Active", serverTime = 1721120000,
+		authorityKey = "Leader-Realm",
+		raidNid = 41,
+		zone = "Active",
+		serverTime = 1721120000,
 	}))
 	local completedState = deepCopy(activeState)
 	completedState.zone = "History A"
@@ -5053,10 +6729,18 @@ function cases.raid_archive_row_identity_collision(addon)
 	assertEqual("Active", active.zone, "colliding history replaced active state")
 	addon.Services.EnsureNamespace = function(name, child)
 		addon.Services[name] = addon.Services[name] or {}
-		if child then addon.Services[name][child] = addon.Services[name][child] or {} end
+		if child then
+			addon.Services[name][child] = addon.Services[name][child] or {}
+		end
 	end
-	table.wipe = table.wipe or function(target) for key in pairs(target) do target[key] = nil end end
-	_G.date = _G.date or function() return "date" end
+	table.wipe = table.wipe or function(target)
+		for key in pairs(target) do
+			target[key] = nil
+		end
+	end
+	_G.date = _G.date or function()
+		return "date"
+	end
 	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidQueries.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Raid/Projections.lua")
 	local rows = {}
@@ -5082,7 +6766,10 @@ end
 function cases.raid_archive_legacy_nid_delete_is_fail_closed(addon)
 	local store = installRaidArchiveFixture(addon)
 	local activeState, _, activeUid = assert(store:CreateActiveRaid({
-		authorityKey = "Leader-Realm", raidNid = 41, zone = "Active", serverTime = 1721120000,
+		authorityKey = "Leader-Realm",
+		raidNid = 41,
+		zone = "Active",
+		serverTime = 1721120000,
 	}))
 	local completedTemplate = deepCopy(activeState)
 	completedTemplate.startTime = 1721110000
@@ -5136,8 +6823,10 @@ function cases.raid_archive_legacy_nid_delete_is_fail_closed(addon)
 	assertEqual(true, store:DeleteRaid(42), "unique historical single delete failed")
 	assertEqual(nil, store:GetRecord(uniqueSingleKey), "unique historical single record survived")
 	assertTrue(store:GetRecord(activeUid) ~= nil, "unique historical single delete removed active record")
-	assertTrue(store:GetRecord(ambiguousAKey) ~= nil and store:GetRecord(ambiguousBKey) ~= nil,
-		"unique historical single delete changed ambiguous records")
+	assertTrue(
+		store:GetRecord(ambiguousAKey) ~= nil and store:GetRecord(ambiguousBKey) ~= nil,
+		"unique historical single delete changed ambiguous records"
+	)
 	removed, removedNids, batchReason = store:DeleteRaidsByNid({ 44 })
 	assertEqual(1, removed, "unique historical batch delete count differs")
 	assertEqual(44, removedNids[1], "unique historical batch delete identity differs")
@@ -5197,6 +6886,68 @@ function cases.raid_archive_invalid_load_quarantine(addon)
 	print("PASS raid_archive_invalid_load_quarantine")
 end
 
+function cases.raid_archive_quarantined_reads_fail_closed(addon)
+	local store = installRaidArchiveFixture(addon)
+	local activeRaid, _, raidUid = assert(store:CreateActiveRaid({
+		authorityKey = "Leader",
+		serverTime = 1721120000,
+		raidNid = 41,
+		zone = "Icecrown Citadel",
+	}))
+	local validArchive = deepCopy(store:EnsureArchive())
+	local invalidArchives = {}
+
+	local badDigest = deepCopy(validArchive)
+	badDigest.raids[raidUid].digest = "deadbeef:1"
+	invalidArchives[#invalidArchives + 1] = { name = "bad digest", archive = badDigest }
+
+	local futureSchema = deepCopy(validArchive)
+	futureSchema.raids[raidUid].state.schemaVersion = addon.Database.GetRaidSchemaVersion() + 1
+	futureSchema.raids[raidUid].digest = assert(addon.DB.RaidEvents.DigestState(futureSchema.raids[raidUid].state))
+	invalidArchives[#invalidArchives + 1] = { name = "future schema", archive = futureSchema }
+
+	local invalidActivePointer = deepCopy(validArchive)
+	invalidActivePointer.activeRaidUid = "missing-active-record"
+	invalidArchives[#invalidArchives + 1] = { name = "invalid active pointer", archive = invalidActivePointer }
+
+	for i = 1, #invalidArchives do
+		local variant = invalidArchives[i]
+		local invalid = variant.archive
+		local canonicalState = invalid.raids[raidUid].state
+		_G.RMA_Raids = invalid
+		local loaded, reason = addon.Database.SavedVariables.NormalizeAfterLoad()
+		assertEqual(nil, loaded, variant.name .. " archive load was accepted")
+		assertTrue(type(reason) == "string", variant.name .. " archive did not quarantine")
+
+		local readsOk, raids = pcall(function()
+			return store:GetAllRaids()
+		end)
+		assertTrue(readsOk, variant.name .. " quarantined reads must not throw")
+		assertEqual(0, #raids, variant.name .. " quarantined feature reads must be empty")
+		assertEqual(nil, store:GetRecord(raidUid), variant.name .. " record read must fail closed")
+		assertEqual(nil, store:EnsureArchive(), variant.name .. " archive read must fail closed")
+		assertEqual(nil, store:GetActiveRecord(), variant.name .. " active record read must fail closed")
+		assertEqual(nil, store:GetStateByIndex(1), variant.name .. " state index read must fail closed")
+		assertEqual(nil, store:GetArchiveKeyByIndex(1), variant.name .. " archive key read must fail closed")
+		assertEqual(nil, store:GetIndexByArchiveKey(raidUid), variant.name .. " archive index read must fail closed")
+		assertEqual(nil, store:GetIndexByUid(raidUid), variant.name .. " UID index read must fail closed")
+		assertEqual(nil, store:GetRaidUid(canonicalState), variant.name .. " state identity read must fail closed")
+		assertEqual(nil, store:EnsureRaidByIndex(1), variant.name .. " raid index lookup must fail closed")
+		assertEqual(nil, store:EnsureRaidByNid(activeRaid.raidNid), variant.name .. " NID lookup must fail closed")
+		assertEqual(nil, store:GetRaidNidByIndex(1), variant.name .. " index-to-NID read must fail closed")
+		assertEqual(
+			nil,
+			store:GetRaidIndexByNid(activeRaid.raidNid),
+			variant.name .. " NID-to-index read must fail closed"
+		)
+
+		local rawRaids = store:GetRawRaids()
+		assertEqual(1, #rawRaids, variant.name .. " raw diagnostic projection must retain canonical rows")
+		assertTrue(rawRaids[1] == canonicalState, variant.name .. " raw diagnostic row must remain canonical")
+	end
+	print("PASS raid_archive_quarantined_reads_fail_closed")
+end
+
 function cases.raid_archive_cleanup_exact_identity(addon)
 	local store = installRaidArchiveFixture(addon)
 	local activeUid = importCollidingHistoryRows(store, addon.DB.RaidEvents)
@@ -5214,10 +6965,16 @@ function cases.raid_archive_cleanup_exact_identity(addon)
 	local plan = {
 		protectedArchiveKey = activeUid,
 		raidCandidates = { { archiveKey = deleteKey, baseDigest = archive.raids[deleteKey].digest } },
-		lootCandidates = { {
-			archiveKey = editKey, baseDigest = editRecord.digest, lootNid = 1,
-			itemId = 100, itemLink = "item:100", bossNid = nil,
-		} },
+		lootCandidates = {
+			{
+				archiveKey = editKey,
+				baseDigest = editRecord.digest,
+				lootNid = 1,
+				itemId = 100,
+				itemLink = "item:100",
+				bossNid = nil,
+			},
+		},
 	}
 	local result = assert(store:CommitRaidHistoryCleanup(plan, activeUid))
 	archive = store:EnsureArchive()
@@ -5240,14 +6997,21 @@ end
 function cases.raid_runtime_indexes_are_store_owned(addon)
 	local store = installRaidArchiveFixture(addon)
 	local state, _, raidUid = assert(store:CreateActiveRaid({
-		authorityKey = "Leader-Realm", raidNid = 41, zone = "ICC", serverTime = 1721120000,
+		authorityKey = "Leader-Realm",
+		raidNid = 41,
+		zone = "ICC",
+		serverTime = 1721120000,
 	}))
 	local record = assert(store:GetRecord(raidUid))
 	local digestBefore = assert(addon.DB.RaidEvents.DigestState(state))
 	local runtimeBefore = assert(store:EnsureRaidRuntime(state))
 	assertEqual(nil, state._runtime, "runtime cache entered canonical state")
 	assertEqual(digestBefore, addon.DB.RaidEvents.DigestState(state), "runtime query changed canonical digest")
-	assertEqual(true, addon.Database.GetRaidValidator():ValidateRecord(record), "runtime query invalidated record digest")
+	assertEqual(
+		true,
+		addon.Database.GetRaidValidator():ValidateRecord(record),
+		"runtime query invalidated record digest"
+	)
 	local snapshot = assert(store:BuildSnapshot(raidUid))
 	assertEqual(nil, snapshot.state._runtime, "snapshot carried runtime cache")
 	assertEqual(nil, _G.RMA_Raids.raids[raidUid].state._runtime, "SavedVariables carried runtime cache")
@@ -5331,7 +7095,9 @@ local function installEquipInspectFixture(addon)
 		end,
 		Raid = {
 			GetUnitByPlayerNid = function(_, raidIndex, playerNid)
-				if tonumber(raidIndex) ~= tonumber(fixture.currentRaid) then return nil end
+				if tonumber(raidIndex) ~= tonumber(fixture.currentRaid) then
+					return nil
+				end
 				return tonumber(playerNid) == 21 and "raid1" or "raid2"
 			end,
 		},
@@ -5348,51 +7114,97 @@ local function installEquipInspectFixture(addon)
 			EquipInspectUpdated = "EquipInspectUpdated",
 			RaidCreate = "RaidCreate",
 		},
-		ResolveWowForwardedName = function(name) return name end,
+		ResolveWowForwardedName = function(name)
+			return name
+		end,
 	}
 	addon.Bus = {
 		TriggerEvent = function(eventName, ...)
 			fixture.events[#fixture.events + 1] = { name = eventName, args = { ... } }
-			if fixture.onEvent then fixture.onEvent(eventName, ...) end
+			if fixture.onEvent then
+				fixture.onEvent(eventName, ...)
+			end
 		end,
-		RegisterCallback = function(eventName, callback) callbacks[eventName] = callback end,
+		RegisterCallback = function(eventName, callback)
+			callbacks[eventName] = callback
+		end,
 	}
-	addon.Timer = { BindMixin = function(target) fixture:InstallTimers(target) end }
-	addon.Time = { GetCurrentTime = function() return 1700000000 + fixture.now end }
+	addon.Timer = {
+		BindMixin = function(target)
+			fixture:InstallTimers(target)
+		end,
+	}
+	addon.Time = {
+		GetCurrentTime = function()
+			return 1700000000 + fixture.now
+		end,
+	}
 	addon.Strings = {}
-	addon.Database.GetCurrentRaid = function() return fixture.currentRaid end
-	addon.Database.GetRaidStore = function() return fixture.store end
-	addon.Database.EnsureRaidByIndex = function(index) return fixture.raids[index] end
+	addon.Database.GetCurrentRaid = function()
+		return fixture.currentRaid
+	end
+	addon.Database.GetRaidStore = function()
+		return fixture.store
+	end
+	addon.Database.EnsureRaidByIndex = function(index)
+		return fixture.raids[index]
+	end
 	addon.Database.EnsureRaidByNid = function(raidNid)
 		for i = 1, #fixture.raids do
-			if tonumber(fixture.raids[i].raidNid) == tonumber(raidNid) then return fixture.raids[i], i end
+			if tonumber(fixture.raids[i].raidNid) == tonumber(raidNid) then
+				return fixture.raids[i], i
+			end
 		end
 	end
 	addon.Database.GetRaidIndexByNid = function(raidNid)
 		local _, index = addon.Database.EnsureRaidByNid(raidNid)
 		return index
 	end
-	_G.UnitGUID = function(unit) return "guid-" .. tostring(unit) end
-	_G.UnitExists = function() return fixture.unitExists end
-	_G.UnitIsConnected = function() return fixture.unitConnected end
-	_G.CanInspect = function() return fixture.canInspect end
-	_G.CheckInteractDistance = function() return fixture.unitInRange end
-	_G.ClearInspectPlayer = function() fixture.clearInspectCount = fixture.clearInspectCount + 1 end
-	_G.UnitAffectingCombat = function() return fixture.inCombat end
-	_G.GetInventoryItemLink = function(_, slot) return fixture.itemLinks[slot] end
-	_G.GetInventoryItemTexture = function(_, slot) return fixture.itemTextures[slot] end
-	_G.GetInventoryItemQuality = function() return nil end
+	_G.UnitGUID = function(unit)
+		return "guid-" .. tostring(unit)
+	end
+	_G.UnitExists = function()
+		return fixture.unitExists
+	end
+	_G.UnitIsConnected = function()
+		return fixture.unitConnected
+	end
+	_G.CanInspect = function()
+		return fixture.canInspect
+	end
+	_G.CheckInteractDistance = function()
+		return fixture.unitInRange
+	end
+	_G.ClearInspectPlayer = function()
+		fixture.clearInspectCount = fixture.clearInspectCount + 1
+	end
+	_G.UnitAffectingCombat = function()
+		return fixture.inCombat
+	end
+	_G.GetInventoryItemLink = function(_, slot)
+		return fixture.itemLinks[slot]
+	end
+	_G.GetInventoryItemTexture = function(_, slot)
+		return fixture.itemTextures[slot]
+	end
+	_G.GetInventoryItemQuality = function()
+		return nil
+	end
 	_G.GetItemInfo = function(itemRef)
 		local itemId = tonumber(itemRef)
 		if not itemId and type(itemRef) == "string" then
 			itemId = tonumber(string.match(itemRef, "item:(%d+)"))
 		end
 		local itemLevel = itemId and fixture.itemInfo[itemId] or nil
-		if not itemLevel then return nil end
+		if not itemLevel then
+			return nil
+		end
 		return "Item " .. tostring(itemId), nil, nil, itemLevel
 	end
 	_G.NotifyInspect = function(unit)
-		if fixture.notifyFails then error("notify failed") end
+		if fixture.notifyFails then
+			error("notify failed")
+		end
 		fixture.inspectRequests[#fixture.inspectRequests + 1] = unit
 	end
 	loadAddonFile(addon, "Raid Management Addon/Services/InspectCoordinator.lua")
@@ -5428,9 +7240,16 @@ end
 
 function cases.inspect_coordinator_serializes_global_ownership(addon)
 	local callbacks, timers, nowValue, clears, combat = {}, {}, 0, 0, false
-	addon.Events = { Internal = {}, ResolveWowForwardedName = function(name) return name end }
+	addon.Events = {
+		Internal = {},
+		ResolveWowForwardedName = function(name)
+			return name
+		end,
+	}
 	addon.Bus = {
-		RegisterCallback = function(name, callback) callbacks[name] = callback end,
+		RegisterCallback = function(name, callback)
+			callbacks[name] = callback
+		end,
 	}
 	addon.Timer = {
 		BindMixin = function(module)
@@ -5439,25 +7258,64 @@ function cases.inspect_coordinator_serializes_global_ownership(addon)
 				timers[#timers + 1] = handle
 				return handle
 			end
-			function module:CancelTimer(handle) handle.cancelled = true end
+			function module:CancelTimer(handle)
+				handle.cancelled = true
+			end
 		end,
 	}
-	addon.Services = { EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} end }
-	_G.GetTime = function() return nowValue end
-	_G.UnitAffectingCombat = function() return combat end
-	_G.ClearInspectPlayer = function() clears = clears + 1 end
+	addon.Services = {
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+		end,
+	}
+	_G.GetTime = function()
+		return nowValue
+	end
+	_G.UnitAffectingCombat = function()
+		return combat
+	end
+	_G.ClearInspectPlayer = function()
+		clears = clears + 1
+	end
 	loadAddonFile(addon, "Raid Management Addon/Services/InspectCoordinator.lua")
 	local coordinator = addon.Services.InspectCoordinator
 	local starts, finishes = {}, {}
-	assertEqual("active", select(2, coordinator:Request("equipment", "raid1", "guid-1", function() starts[#starts + 1] = "equipment" end, function(reason) finishes[#finishes + 1] = reason end)), "equipment owns first target")
-	assertEqual("queued", select(2, coordinator:Request("talents", "raid2", "guid-2", function() starts[#starts + 1] = "talents" end, function(reason) finishes[#finishes + 1] = reason end)), "talents queue behind equipment")
+	assertEqual(
+		"active",
+		select(
+			2,
+			coordinator:Request("equipment", "raid1", "guid-1", function()
+				starts[#starts + 1] = "equipment"
+			end, function(reason)
+				finishes[#finishes + 1] = reason
+			end)
+		),
+		"equipment owns first target"
+	)
+	assertEqual(
+		"queued",
+		select(
+			2,
+			coordinator:Request("talents", "raid2", "guid-2", function()
+				starts[#starts + 1] = "talents"
+			end, function(reason)
+				finishes[#finishes + 1] = reason
+			end)
+		),
+		"talents queue behind equipment"
+	)
 	assertEqual(false, coordinator:Release("equipment", "wrong-guid"), "mismatched ready cannot release owner")
 	assertEqual(0, clears, "mismatched ready cannot clear target")
 	assertEqual(true, coordinator:Release("equipment", "guid-1"), "matching owner releases")
 	assertEqual(1, clears, "only released owner clears")
 	assertEqual(nil, starts[2], "global throttle delays the next NotifyInspect owner")
 	nowValue = 1.75
-	for i = 1, #timers do if not timers[i].cancelled and timers[i].deadline <= nowValue then timers[i].cancelled = true; timers[i].callback() end end
+	for i = 1, #timers do
+		if not timers[i].cancelled and timers[i].deadline <= nowValue then
+			timers[i].cancelled = true
+			timers[i].callback()
+		end
+	end
 	assertEqual("talents", starts[2], "queued talent request progresses after global throttle")
 	assertEqual(false, coordinator:Release("equipment", "guid-1"), "old owner cannot clear new target")
 	assertEqual(1, clears, "old owner leaves talent target intact")
@@ -5465,7 +7323,9 @@ function cases.inspect_coordinator_serializes_global_ownership(addon)
 	assertEqual(2, clears, "cancel clears its own target once")
 	local cancelledStarts, cancelledFinishes = 0, 0
 	coordinator:Request("blocker", "raid1", "guid-block", function() end)
-	coordinator:Request("cancel-me", "raid2", "guid-cancel", function() cancelledStarts = cancelledStarts + 1 end, function(reason)
+	coordinator:Request("cancel-me", "raid2", "guid-cancel", function()
+		cancelledStarts = cancelledStarts + 1
+	end, function(reason)
 		assertEqual("cancelled", reason, "queued cancellation has stable reason")
 		cancelledFinishes = cancelledFinishes + 1
 	end)
@@ -5473,19 +7333,44 @@ function cases.inspect_coordinator_serializes_global_ownership(addon)
 	assertEqual(0, cancelledStarts, "cancelled queued work never starts")
 	assertEqual(1, cancelledFinishes, "cancelled queued callback fires once")
 	nowValue = 3.5
-	for i = 1, #timers do if not timers[i].cancelled and timers[i].deadline <= nowValue then timers[i].cancelled = true; timers[i].callback() end end
+	for i = 1, #timers do
+		if not timers[i].cancelled and timers[i].deadline <= nowValue then
+			timers[i].cancelled = true
+			timers[i].callback()
+		end
+	end
 	coordinator:Release("blocker", "guid-block")
 
 	combat = true
-	assertEqual("queued", select(2, coordinator:Request("equipment", "raid1", "guid-3", function() starts[#starts + 1] = "combat" end, function(reason) finishes[#finishes + 1] = reason end)), "combat defers inspect")
+	assertEqual(
+		"queued",
+		select(
+			2,
+			coordinator:Request("equipment", "raid1", "guid-3", function()
+				starts[#starts + 1] = "combat"
+			end, function(reason)
+				finishes[#finishes + 1] = reason
+			end)
+		),
+		"combat defers inspect"
+	)
 	assertEqual(nil, starts[3], "combat request has not started")
 	combat = false
 	callbacks.PLAYER_REGEN_ENABLED()
 	nowValue = 5.25
-	for i = 1, #timers do if not timers[i].cancelled and timers[i].deadline <= nowValue then timers[i].cancelled = true; timers[i].callback() end end
+	for i = 1, #timers do
+		if not timers[i].cancelled and timers[i].deadline <= nowValue then
+			timers[i].cancelled = true
+			timers[i].callback()
+		end
+	end
 	assertEqual("combat", starts[3], "regen starts deferred request")
 	nowValue = 13.5
-	for i = 1, #timers do if not timers[i].cancelled and timers[i].deadline <= nowValue then timers[i].callback() end end
+	for i = 1, #timers do
+		if not timers[i].cancelled and timers[i].deadline <= nowValue then
+			timers[i].callback()
+		end
+	end
 	assertEqual("timeout", finishes[#finishes], "deadline completes once with timeout")
 	assertEqual(4, clears, "timeout clears only current owner")
 
@@ -5519,9 +7404,17 @@ function cases.inspect_coordinator_serializes_global_ownership(addon)
 	assertEqual(1, combatFinishes, "timeout must begin at activation and finish once")
 	combat = true
 	for i = 1, 40 do
-		assertEqual(true, coordinator:Request("cap-" .. tostring(i), "raid1", "guid-cap", function() end), "bounded queue accepts capacity")
+		assertEqual(
+			true,
+			coordinator:Request("cap-" .. tostring(i), "raid1", "guid-cap", function() end),
+			"bounded queue accepts capacity"
+		)
 	end
-	assertEqual("queue_full", select(2, coordinator:Request("cap-overflow", "raid1", "guid-cap", function() end)), "bounded queue rejects overflow")
+	assertEqual(
+		"queue_full",
+		select(2, coordinator:Request("cap-overflow", "raid1", "guid-cap", function() end)),
+		"bounded queue rejects overflow"
+	)
 	print("PASS inspect_coordinator_serializes_global_ownership")
 end
 
@@ -5532,10 +7425,17 @@ function cases.equip_and_talent_refresh_share_global_inspect_owner(addon)
 	assertEqual("pending", select(2, inspect:ForcePlayer(2, 21)), "equipment starts first")
 	local coordinator = addon.Services.InspectCoordinator
 	local talentStarts = 0
-	assertEqual("queued", select(2, coordinator:Request("talents", "raid2", "guid-raid2", function()
-		talentStarts = talentStarts + 1
-		NotifyInspect("raid2")
-	end)), "talent refresh queues behind equipment")
+	assertEqual(
+		"queued",
+		select(
+			2,
+			coordinator:Request("talents", "raid2", "guid-raid2", function()
+				talentStarts = talentStarts + 1
+				NotifyInspect("raid2")
+			end)
+		),
+		"talent refresh queues behind equipment"
+	)
 	fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid2")
 	assertEqual(nil, fixture.raids[2].inspect, "mismatched talent ready cannot finalize equipment")
 	assertEqual(0, fixture.clearInspectCount, "mismatched ready cannot clear equipment owner")
@@ -5557,48 +7457,109 @@ function cases.spec_inspect_correlates_lgt_completion_by_guid(addon)
 	local fixture = newRaidRecordingFixture(addon)
 	local busCallbacks, lgtCallbacks, resolved, refreshCalls, equipmentStarts = {}, {}, false, 0, 0
 	addon.Services = {
-		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} end,
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+		end,
 		Raid = {
-			GetUnitID = function(_, name) return name == "Alpha" and "raid1" or "none" end,
-			GetPlayers = function() return { { name = "Alpha" } } end,
-			GetPlayerClass = function() return "PRIEST" end,
+			GetUnitID = function(_, name)
+				return name == "Alpha" and "raid1" or "none"
+			end,
+			GetPlayers = function()
+				return { { name = "Alpha" } }
+			end,
+			GetPlayerClass = function()
+				return "PRIEST"
+			end,
 		},
 	}
-	addon.Database.GetCurrentRaid = function() return 1 end
-	addon.Strings = { NormalizeName = function(value) return value end }
+	addon.Database.GetCurrentRaid = function()
+		return 1
+	end
+	addon.Strings = {
+		NormalizeName = function(value)
+			return value
+		end,
+	}
 	addon.Events = {
 		Internal = { SpecInspectUpdated = "SpecInspectUpdated" },
-		ResolveWowForwardedName = function(name) return name end,
+		ResolveWowForwardedName = function(name)
+			return name
+		end,
 	}
 	addon.Bus = {
 		TriggerEvent = function() end,
-		RegisterCallback = function(name, callback) busCallbacks[name] = callback end,
+		RegisterCallback = function(name, callback)
+			busCallbacks[name] = callback
+		end,
 	}
-	addon.Timer = { BindMixin = function(target) fixture:InstallTimers(target) end }
-	_G.GetTime = function() return fixture.now end
-	_G.UnitAffectingCombat = function() return false end
-	_G.ClearInspectPlayer = function() fixture.clearInspectCount = (fixture.clearInspectCount or 0) + 1 end
-	_G.UnitGUID = function(unit) return unit == "raid1" and "guid-alpha" or "guid-other" end
+	addon.Timer = {
+		BindMixin = function(target)
+			fixture:InstallTimers(target)
+		end,
+	}
+	_G.GetTime = function()
+		return fixture.now
+	end
+	_G.UnitAffectingCombat = function()
+		return false
+	end
+	_G.ClearInspectPlayer = function()
+		fixture.clearInspectCount = (fixture.clearInspectCount or 0) + 1
+	end
+	_G.UnitGUID = function(unit)
+		return unit == "raid1" and "guid-alpha" or "guid-other"
+	end
 	local lgt = {
 		CheckInspectQueue = function() end,
-		RegisterCallback = function(_, name, callback) lgtCallbacks[name] = callback end,
-		RefreshTalentsByUnit = function(_, unit) assertEqual("raid1", unit, "SpecInspect refreshes requested unit"); refreshCalls = refreshCalls + 1 end,
-		GetNumTalentGroups = function() return 1 end,
-		GetActiveTalentGroup = function() return 1 end,
-		GetUnitTalentSpec = function() if resolved then return "Discipline", 57, 14, 0 end end,
-		GetGUIDTalentSpec = function(_, guid) if resolved and guid == "guid-alpha" then return "Discipline", 57, 14, 0 end end,
-		GetTalentTabInfo = function() return "Discipline", "spec-icon" end,
-		GetUnitRole = function() return "healer" end,
+		RegisterCallback = function(_, name, callback)
+			lgtCallbacks[name] = callback
+		end,
+		RefreshTalentsByUnit = function(_, unit)
+			assertEqual("raid1", unit, "SpecInspect refreshes requested unit")
+			refreshCalls = refreshCalls + 1
+		end,
+		GetNumTalentGroups = function()
+			return 1
+		end,
+		GetActiveTalentGroup = function()
+			return 1
+		end,
+		GetUnitTalentSpec = function()
+			if resolved then
+				return "Discipline", 57, 14, 0
+			end
+		end,
+		GetGUIDTalentSpec = function(_, guid)
+			if resolved and guid == "guid-alpha" then
+				return "Discipline", 57, 14, 0
+			end
+		end,
+		GetTalentTabInfo = function()
+			return "Discipline", "spec-icon"
+		end,
+		GetUnitRole = function()
+			return "healer"
+		end,
 	}
-	_G.LibStub = function(name) if name == "LibGroupTalents-1.0" or name == "LibTalentQuery-1.0" then return lgt end end
+	_G.LibStub = function(name)
+		if name == "LibGroupTalents-1.0" or name == "LibTalentQuery-1.0" then
+			return lgt
+		end
+	end
 	loadAddonFile(addon, "Raid Management Addon/Services/InspectCoordinator.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/SpecInspect.lua")
 	local spec = addon.Services.SpecInspect
 	assertEqual(true, spec:RefreshPlayer("Alpha", { force = true }), "production SpecInspect queues LGT refresh")
 	assertEqual(1, refreshCalls, "LGT refresh starts through coordinator")
 	lgtCallbacks.LibGroupTalents_UpdateComplete(nil, "guid-other")
-	assertEqual(true, addon.Services.InspectCoordinator:IsCategoryOwner("talents"), "unrelated UpdateComplete cannot release talent owner")
-	addon.Services.InspectCoordinator:Request("equipment-after-spec", "raid2", "guid-other", function() equipmentStarts = equipmentStarts + 1 end, nil, "equipment")
+	assertEqual(
+		true,
+		addon.Services.InspectCoordinator:IsCategoryOwner("talents"),
+		"unrelated UpdateComplete cannot release talent owner"
+	)
+	addon.Services.InspectCoordinator:Request("equipment-after-spec", "raid2", "guid-other", function()
+		equipmentStarts = equipmentStarts + 1
+	end, nil, "equipment")
 	assertEqual(0, equipmentStarts, "equipment remains queued behind unresolved talent operation")
 	resolved = true
 	lgtCallbacks.LibGroupTalents_Update(nil, "guid-alpha", "raid1")
@@ -5607,13 +7568,17 @@ function cases.spec_inspect_correlates_lgt_completion_by_guid(addon)
 	assertEqual(1, equipmentStarts, "matching GUID terminal data releases the talent owner")
 	addon.Services.InspectCoordinator:Release("equipment-after-spec", "guid-other")
 	local scheduleTimer = addon.Services.InspectCoordinator.ScheduleTimer
-	addon.Services.InspectCoordinator.ScheduleTimer = function() return nil end
+	addon.Services.InspectCoordinator.ScheduleTimer = function()
+		return nil
+	end
 	local timerOk, timerReason = spec:RefreshPlayer("Alpha", { force = true })
 	assertEqual(false, timerOk, "SpecInspect reports coordinator timer failure")
 	assertEqual("inspect_timer_failed", timerReason, "SpecInspect exposes stable timer failure")
 	addon.Services.InspectCoordinator.ScheduleTimer = scheduleTimer
 	local request = addon.Services.InspectCoordinator.Request
-	addon.Services.InspectCoordinator.Request = function() return false, "queue_full" end
+	addon.Services.InspectCoordinator.Request = function()
+		return false, "queue_full"
+	end
 	local queueOk, queueReason = spec:RefreshPlayer("Alpha", { force = true })
 	assertEqual(false, queueOk, "SpecInspect reports coordinator queue exhaustion")
 	assertEqual("inspect_queue_full", queueReason, "queue exhaustion remains distinct")
@@ -5628,12 +7593,18 @@ function cases.equip_inspect_throttle_timer_failure_is_terminal(addon)
 	raidA.players[1].inspect = raidA.inspect.players[11]
 	fixture.itemLinks[1], fixture.itemInfo[1001] = itemLink(1001), 251
 	local coordinator = addon.Services.InspectCoordinator
-	assertEqual("active", select(2, coordinator:Request("talent-blocker", "raid1", "talent-guid", function() end, nil, "talents")), "talent flow owns active target")
+	assertEqual(
+		"active",
+		select(2, coordinator:Request("talent-blocker", "raid1", "talent-guid", function() end, nil, "talents")),
+		"talent flow owns active target"
+	)
 	fixture.currentRaid = 1
 	assertEqual("queued", select(2, inspect:ForcePlayer(1, 11)), "raid A replacement queues")
 	local scheduleTimer = coordinator.ScheduleTimer
 	coordinator.ScheduleTimer = function(self, callback, delay)
-		if delay == 1.75 then return nil end
+		if delay == 1.75 then
+			return nil
+		end
 		return scheduleTimer(self, callback, delay)
 	end
 	assertEqual(true, coordinator:Release("talent-blocker", "talent-guid"), "talent owner releases")
@@ -5660,7 +7631,8 @@ function cases.equip_inspect_initial_timer_failure_preserves_reentrant_replaceme
 	local terminalUpdates = 0
 	local replacementAccepted, replacementStatus
 	fixture.onEvent = function(eventName, raidNid, playerNid, snapshot)
-		if eventName == "EquipInspectUpdated"
+		if
+			eventName == "EquipInspectUpdated"
 			and raidNid == 73
 			and playerNid == 21
 			and snapshot
@@ -5680,7 +7652,11 @@ function cases.equip_inspect_initial_timer_failure_preserves_reentrant_replaceme
 	assertEqual(1, terminalUpdates, "initial timer failure must emit one terminal update")
 	assertEqual(true, replacementAccepted, "terminal subscriber must enqueue replacement work")
 	assertEqual("queued", replacementStatus, "replacement must retain coordinator admission")
-	assertEqual("pending", inspect:GetSnapshot(fixture.raids[2], 21).status, "stale rejection must preserve replacement status")
+	assertEqual(
+		"pending",
+		inspect:GetSnapshot(fixture.raids[2], 21).status,
+		"stale rejection must preserve replacement status"
+	)
 	assertEqual(0, #fixture.inspectRequests, "replacement must respect the global minimum interval")
 	fixture:AdvanceTime(1.75)
 	assertEqual(1, #fixture.inspectRequests, "replacement must reach NotifyInspect once")
@@ -5698,7 +7674,8 @@ function cases.equip_inspect_own_timer_failures_are_terminal(addon)
 		for i = 1, #fixture.events do
 			local event = fixture.events[i]
 			local snapshot = event.args[3]
-			if event.name == "EquipInspectUpdated"
+			if
+				event.name == "EquipInspectUpdated"
 				and event.args[1] == raidNid
 				and event.args[2] == playerNid
 				and snapshot
@@ -5726,14 +7703,17 @@ function cases.equip_inspect_own_timer_failures_are_terminal(addon)
 		coordinator.ScheduleTimer = function(self, callback, delay)
 			if delay == 1.75 and not injected then
 				injected = true
-				if failureMode == "throw" then error("injected InspectCoordinator handoff timer failure") end
+				if failureMode == "throw" then
+					error("injected InspectCoordinator handoff timer failure")
+				end
 				return nil
 			end
 			return scheduleTimer(self, callback, delay)
 		end
 		local reentered = false
 		fixture.onEvent = function(eventName, raidNid, playerNid, snapshot)
-			if eventName == "EquipInspectUpdated"
+			if
+				eventName == "EquipInspectUpdated"
 				and raidNid == 41
 				and playerNid == 11
 				and snapshot
@@ -5745,7 +7725,11 @@ function cases.equip_inspect_own_timer_failures_are_terminal(addon)
 		fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
 		local replacement = inspect:GetSnapshot(raidA, 11)
 		assertEqual("pending", replacement.status, failureMode .. " reentrant replacement owns runtime status")
-		assertEqual("old-guid", inspect:GetPersistedSnapshot(raidA, 11).guid, failureMode .. " handoff preserves last good snapshot")
+		assertEqual(
+			"old-guid",
+			inspect:GetPersistedSnapshot(raidA, 11).guid,
+			failureMode .. " handoff preserves last good snapshot"
+		)
 		assertEqual(1, countTerminalUpdates(fixture, 41, 11), failureMode .. " handoff finalizes once")
 		assertEqual(true, reentered, failureMode .. " terminal callback may safely enqueue replacement work")
 		assertEqual(1, #fixture.inspectRequests, failureMode .. " reentrant work respects coordinator throttle")
@@ -5771,7 +7755,9 @@ function cases.equip_inspect_own_timer_failures_are_terminal(addon)
 		assertEqual("pending", select(2, inspect:ForcePlayer(2, 21)), failureMode .. " cold item inspect starts")
 		local scheduleTimer = inspect.ScheduleTimer
 		inspect.ScheduleTimer = function()
-			if failureMode == "throw" then error("injected EquipInspect item timer failure") end
+			if failureMode == "throw" then
+				error("injected EquipInspect item timer failure")
+			end
 			return nil
 		end
 		local callbackOk = pcall(fixture.inspectCallbacks.INSPECT_TALENT_READY, nil, "guid-raid1")
@@ -5796,54 +7782,142 @@ function cases.vendored_lgt_respects_equipment_inspect_guard(addon)
 	_G.strmatch = string.match
 	_G.format = string.format
 	_G.TALENT_ACTIVATION_SPELLS = {}
-	_G.IsLoggedIn = function() return true end
-	_G.GetTime = function() return nowValue end
-	_G.GetNumRaidMembers = function() return 1 end
-	_G.GetNumPartyMembers = function() return 0 end
-	_G.UnitName = function(unit) if unit == "raid1" or unit == "Alpha" then return "Alpha", "Realm" end return "Player", "Realm" end
-	_G.UnitGUID = function(unit) if unit == "raid1" or unit == "Alpha-Realm" or unit == "Alpha" then return "guid-alpha" end return "guid-player" end
-	_G.UnitExists = function(unit) return unit == "raid1" or unit == "Alpha-Realm" or unit == "player" end
-	_G.UnitIsPlayer = function() return true end
-	_G.UnitIsVisible = function() return true end
-	_G.UnitIsConnected = function() return true end
-	_G.UnitCanAttack = function() return false end
-	_G.UnitClass = function() return "Priest", "PRIEST" end
-	_G.UnitLevel = function() return 80 end
-	_G.UnitIsUnit = function(a, b) return a == b end
-	_G.UnitInRaid = function() return 1 end
-	_G.UnitInParty = function() return false end
-	_G.CanInspect = function() return true end
-	_G.CheckInteractDistance = function() return true end
-	_G.GetActiveTalentGroup = function() return 1 end
-	_G.GetNumTalentGroups = function() return 1 end
-	_G.GetNumTalentTabs = function() return 3 end
-	_G.GetTalentTabInfo = function(tab) return ({ "Discipline", "Holy", "Shadow" })[tab], "icon" .. tostring(tab), ({ 57, 14, 0 })[tab] end
-	_G.GetNumTalents = function() return 1 end
-	_G.GetTalentInfo = function(tab) return "Talent" .. tostring(tab), "talent-icon", 1, 1, ({ 5, 1, 0 })[tab], 5 end
-	_G.GetUnspentTalentPoints = function() return 0 end
-	_G.GetSpellInfo = function(id) return "Spell" .. tostring(id) end
-	_G.GetGlyphSocketInfo = function() return nil end
+	_G.IsLoggedIn = function()
+		return true
+	end
+	_G.GetTime = function()
+		return nowValue
+	end
+	_G.GetNumRaidMembers = function()
+		return 1
+	end
+	_G.GetNumPartyMembers = function()
+		return 0
+	end
+	_G.UnitName = function(unit)
+		if unit == "raid1" or unit == "Alpha" then
+			return "Alpha", "Realm"
+		end
+		return "Player", "Realm"
+	end
+	_G.UnitGUID = function(unit)
+		if unit == "raid1" or unit == "Alpha-Realm" or unit == "Alpha" then
+			return "guid-alpha"
+		end
+		return "guid-player"
+	end
+	_G.UnitExists = function(unit)
+		return unit == "raid1" or unit == "Alpha-Realm" or unit == "player"
+	end
+	_G.UnitIsPlayer = function()
+		return true
+	end
+	_G.UnitIsVisible = function()
+		return true
+	end
+	_G.UnitIsConnected = function()
+		return true
+	end
+	_G.UnitCanAttack = function()
+		return false
+	end
+	_G.UnitClass = function()
+		return "Priest", "PRIEST"
+	end
+	_G.UnitLevel = function()
+		return 80
+	end
+	_G.UnitIsUnit = function(a, b)
+		return a == b
+	end
+	_G.UnitInRaid = function()
+		return 1
+	end
+	_G.UnitInParty = function()
+		return false
+	end
+	_G.CanInspect = function()
+		return true
+	end
+	_G.CheckInteractDistance = function()
+		return true
+	end
+	_G.GetActiveTalentGroup = function()
+		return 1
+	end
+	_G.GetNumTalentGroups = function()
+		return 1
+	end
+	_G.GetNumTalentTabs = function()
+		return 3
+	end
+	_G.GetTalentTabInfo = function(tab)
+		return ({ "Discipline", "Holy", "Shadow" })[tab], "icon" .. tostring(tab), ({ 57, 14, 0 })[tab]
+	end
+	_G.GetNumTalents = function()
+		return 1
+	end
+	_G.GetTalentInfo = function(tab)
+		return "Talent" .. tostring(tab), "talent-icon", 1, 1, ({ 5, 1, 0 })[tab], 5
+	end
+	_G.GetUnspentTalentPoints = function()
+		return 0
+	end
+	_G.GetSpellInfo = function(id)
+		return "Spell" .. tostring(id)
+	end
+	_G.GetGlyphSocketInfo = function()
+		return nil
+	end
 	_G.SendAddonMessage = function() end
 	_G.RegisterAddonMessagePrefix = function() end
-	_G.strsplit = function(_, value) local a, b = string.match(value, "^([^-]+)%-?(.*)$"); return a, b ~= "" and b or nil end
-	_G.wipe = function(t) for key in pairs(t) do t[key] = nil end return t end
-	_G.geterrorhandler = function() return function(err) error(err) end end
-	_G.securecall = function(func, ...) return func(...) end
+	_G.strsplit = function(_, value)
+		local a, b = string.match(value, "^([^-]+)%-?(.*)$")
+		return a, b ~= "" and b or nil
+	end
+	_G.wipe = function(t)
+		for key in pairs(t) do
+			t[key] = nil
+		end
+		return t
+	end
+	_G.geterrorhandler = function()
+		return function(err)
+			error(err)
+		end
+	end
+	_G.securecall = function(func, ...)
+		return func(...)
+	end
 	_G.CreateFrame = function(_, name)
 		local frame = { shown = false }
 		function frame:UnregisterAllEvents() end
 		function frame:RegisterEvent() end
-		function frame:SetScript(kind, callback) self[kind] = callback end
-		function frame:Show() self.shown = true end
-		function frame:Hide() self.shown = false end
-		function frame:IsShown() return self.shown end
+		function frame:SetScript(kind, callback)
+			self[kind] = callback
+		end
+		function frame:Show()
+			self.shown = true
+		end
+		function frame:Hide()
+			self.shown = false
+		end
+		function frame:IsShown()
+			return self.shown
+		end
 		frames[name] = frame
 		return frame
 	end
-	_G.NotifyInspect = function() notifyCount = notifyCount + 1 end
+	_G.NotifyInspect = function()
+		notifyCount = notifyCount + 1
+	end
 	_G.hooksecurefunc = function(name, hook)
 		local original = _G[name]
-		_G[name] = function(...) local values = { original(...) }; hook(...); return unpack(values) end
+		_G[name] = function(...)
+			local values = { original(...) }
+			hook(...)
+			return unpack(values)
+		end
 	end
 	loadAddonFile(addon, "Raid Management Addon/Libs/LibStub/LibStub.lua")
 	loadAddonFile(addon, "Raid Management Addon/Libs/CallbackHandler-1.0/CallbackHandler-1.0.lua")
@@ -5852,19 +7926,60 @@ function cases.vendored_lgt_respects_equipment_inspect_guard(addon)
 	local lgt = LibStub("LibGroupTalents-1.0")
 	local ltq, terminalReady = LibStub("LibTalentQuery-1.0"), 0
 	local terminalOwner = {}
-	ltq.RegisterCallback(terminalOwner, "TalentQuery_Ready", function() terminalReady = terminalReady + 1 end)
+	ltq.RegisterCallback(terminalOwner, "TalentQuery_Ready", function()
+		terminalReady = terminalReady + 1
+	end)
 	lgt.roster["guid-alpha"] = { unit = "raid1", name = "Alpha", realm = "Realm", class = "PRIEST", level = 80 }
 	addon.Services = {
-		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} end,
-		Raid = { GetUnitID = function() return "raid1" end, GetPlayers = function() return { { name = "Alpha" } } end, GetPlayerClass = function() return "PRIEST" end },
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+		end,
+		Raid = {
+			GetUnitID = function()
+				return "raid1"
+			end,
+			GetPlayers = function()
+				return { { name = "Alpha" } }
+			end,
+			GetPlayerClass = function()
+				return "PRIEST"
+			end,
+		},
 	}
-	addon.Database = { GetCurrentRaid = function() return 1 end }
-	addon.Strings = { NormalizeName = function(value) return value end }
-	addon.Events = { Internal = { SpecInspectUpdated = "SpecInspectUpdated" }, ResolveWowForwardedName = function(name) return name end }
+	addon.Database = {
+		GetCurrentRaid = function()
+			return 1
+		end,
+	}
+	addon.Strings = {
+		NormalizeName = function(value)
+			return value
+		end,
+	}
+	addon.Events = {
+		Internal = { SpecInspectUpdated = "SpecInspectUpdated" },
+		ResolveWowForwardedName = function(name)
+			return name
+		end,
+	}
 	local callbacks = {}
-	addon.Bus = { RegisterCallback = function(name, callback) callbacks[name] = callback end, TriggerEvent = function() end }
-	addon.Timer = { BindMixin = function(target) target.ScheduleTimer = function() return {} end; target.CancelTimer = function() end end }
-	_G.UnitAffectingCombat = function() return false end
+	addon.Bus = {
+		RegisterCallback = function(name, callback)
+			callbacks[name] = callback
+		end,
+		TriggerEvent = function() end,
+	}
+	addon.Timer = {
+		BindMixin = function(target)
+			target.ScheduleTimer = function()
+				return {}
+			end
+			target.CancelTimer = function() end
+		end,
+	}
+	_G.UnitAffectingCombat = function()
+		return false
+	end
 	_G.ClearInspectPlayer = function() end
 	loadAddonFile(addon, "Raid Management Addon/Services/InspectCoordinator.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/SpecInspect.lua")
@@ -5917,7 +8032,9 @@ function cases.equip_inspect_cancels_cold_item_work_when_raid_disappears(addon)
 	inspect:ProcessQueue(73)
 	local activeTimers = 0
 	for i = 1, #fixture.timers do
-		if fixture.timers[i].active then activeTimers = activeTimers + 1 end
+		if fixture.timers[i].active then
+			activeTimers = activeTimers + 1
+		end
 	end
 	assertEqual(0, activeTimers, "raid cancellation removes item-info retry and timeout timers")
 	fixture.itemInfo[1003] = 251
@@ -5959,7 +8076,9 @@ function cases.equip_inspect_failed_item_event_keeps_original_deadline(addon)
 	local function activeTimerCount()
 		local count = 0
 		for i = 1, #fixture.timers do
-			if fixture.timers[i].active then count = count + 1 end
+			if fixture.timers[i].active then
+				count = count + 1
+			end
 		end
 		return count
 	end
@@ -5979,10 +8098,22 @@ function cases.raid_inspect_persistence_compacts_only_on_explicit_save(addon)
 	installRaidDatabaseStubs(addon)
 	local raid = canonicalRaidFixture()
 	raid.inspect = {
-		startedAt = 51, completedAt = 52, mode = "auto", transient = "discard",
+		startedAt = 51,
+		completedAt = 52,
+		mode = "auto",
+		transient = "discard",
 		players = {
-			[11] = { status = "ready", playerNid = 11, name = "Alpha", specName = "Holy", avgIlvl = 226,
-				inspectedAt = 12345, reason = "stale", items = { [1] = { itemId = 1 } }, transient = true },
+			[11] = {
+				status = "ready",
+				playerNid = 11,
+				name = "Alpha",
+				specName = "Holy",
+				avgIlvl = 226,
+				inspectedAt = 12345,
+				reason = "stale",
+				items = { [1] = { itemId = 1 } },
+				transient = true,
+			},
 			[12] = { status = "timeout", playerNid = 12, name = "Beta", specName = "Shadow", avgIlvl = 200 },
 			[13] = { status = "failed", playerNid = 13, name = "Gamma" },
 		},
@@ -6024,14 +8155,19 @@ function cases.raid_store_inspect_commit_restores_partial_revision_failures(addo
 	for _, failureMode in ipairs({ "throw", "invalid" }) do
 		store.TouchRaidSyncRevision = function(self, target, reason)
 			originalTouch(self, target, reason)
-			if failureMode == "throw" then error("touch failed after advance") end
+			if failureMode == "throw" then
+				error("touch failed after advance")
+			end
 			return false
 		end
 		local changed, err = store:CommitRaidInspectSnapshot(raid, 1, replacement)
 		assertEqual(nil, changed, failureMode .. " must reject inspect commit")
 		assertTrue(type(err) == "string", failureMode .. " must return stable error text")
 		assertTrue(deepEqual(beforeInspect, raid.inspect), failureMode .. " restores canonical inspect")
-		assertTrue(deepEqual(beforeRuntime, store:EnsureRaidRuntime(raid)), failureMode .. " restores complete sync runtime")
+		assertTrue(
+			deepEqual(beforeRuntime, store:EnsureRaidRuntime(raid)),
+			failureMode .. " restores complete sync runtime"
+		)
 	end
 	store.TouchRaidSyncRevision = originalTouch
 	local changed = store:CommitRaidInspectSnapshot(raid, 1, replacement)
@@ -6067,7 +8203,11 @@ function cases.equip_inspect_ready_persistence_is_atomic_revisioned_full_sync(ad
 	assertEqual(true, inspect:ForcePlayer(2, 21), "identical ready inspect starts")
 	fixture:AdvanceTime(1.75)
 	fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
-	assertEqual(initialRevision + 1, fixture.store:GetRaidSyncRevision(raid), "identical ready snapshot is revision no-op")
+	assertEqual(
+		initialRevision + 1,
+		fixture.store:GetRaidSyncRevision(raid),
+		"identical ready snapshot is revision no-op"
+	)
 	assertTrue(deepEqual(canonical, raid.inspect), "identical ready snapshot is canonical no-op")
 	assertEqual(updatedEventCount, countReadyUpdatedEvents(), "identical ready emits no canonical data update")
 
@@ -6107,8 +8247,10 @@ function cases.equip_inspect_semantic_store_failure_is_atomic(addon)
 	assertTrue(deepEqual(before, raid), "failed inspect commit mutated canonical raid")
 	for i = 1, #fixture.events do
 		local event = fixture.events[i]
-		assertTrue(not (event.name == "EquipInspectUpdated" and event.args[3]
-			and event.args[3].status == "ready"), "failed inspect commit published ready canonical data")
+		assertTrue(
+			not (event.name == "EquipInspectUpdated" and event.args[3] and event.args[3].status == "ready"),
+			"failed inspect commit published ready canonical data"
+		)
 	end
 	print("PASS equip_inspect_semantic_store_failure_is_atomic")
 end
@@ -6138,7 +8280,10 @@ function cases.equip_inspect_preserves_ready_snapshot_after_terminal_attempts(ad
 	assertEqual(false, ok, "out-of-range attempt is terminal")
 	assertEqual("out_of_range", reason, "out-of-range reason propagates")
 	assertTrue(deepEqual(canonical, raid.inspect.players[21]), "skipped attempt must preserve last known good snapshot")
-	assertTrue(deepEqual(canonicalInspect, raid.inspect), "skipped attempt must preserve canonical inspect state deeply")
+	assertTrue(
+		deepEqual(canonicalInspect, raid.inspect),
+		"skipped attempt must preserve canonical inspect state deeply"
+	)
 	assertEqual("skipped", inspect:GetSnapshot(raid, 21).status, "UI query must expose latest skipped attempt")
 	assertEqual("out_of_range", inspect:GetSnapshot(raid, 21).reason, "UI query must expose skipped reason")
 	fixture:AssertRevision(73, revision, "skipped attempt must not advance canonical revision")
@@ -6176,7 +8321,9 @@ function cases.equip_inspect_persists_truncated_item_level_with_reload_stable_di
 	local committedPayload
 	local originalCommit = fixture.store.CommitAuthoritativeEvent
 	fixture.store.CommitAuthoritativeEvent = function(self, raidUid, eventType, payload)
-		if eventType == "PLAYER_UPDATED" then committedPayload = deepCopy(payload) end
+		if eventType == "PLAYER_UPDATED" then
+			committedPayload = deepCopy(payload)
+		end
 		return originalCommit(self, raidUid, eventType, payload)
 	end
 
@@ -6184,17 +8331,22 @@ function cases.equip_inspect_persists_truncated_item_level_with_reload_stable_di
 	fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
 	local persisted = assert(raid.players[1].inspect)
 	assertEqual(243, persisted.avgIlvl, "persisted average must truncate toward zero")
-	assertEqual(243, assert(raid.inspect.players[21]).avgIlvl,
-		"canonical inspect mirror must use the truncated average")
-	assertEqual(243, assert(committedPayload).player.inspect.avgIlvl,
-		"PLAYER_UPDATED must carry the truncated average")
+	assertEqual(
+		243,
+		assert(raid.inspect.players[21]).avgIlvl,
+		"canonical inspect mirror must use the truncated average"
+	)
+	assertEqual(243, assert(committedPayload).player.inspect.avgIlvl, "PLAYER_UPDATED must carry the truncated average")
 
 	local digestBeforeReload = assert(addon.DB.RaidEvents.DigestState(raid))
 	local reloaded = deepCopy(raid)
 	reloaded.players[1].inspect.avgIlvl = tonumber(string.format("%.15g", persisted.avgIlvl))
 	reloaded.inspect.players[21].avgIlvl = tonumber(string.format("%.15g", persisted.avgIlvl))
-	assertEqual(digestBeforeReload, addon.DB.RaidEvents.DigestState(reloaded),
-		"SavedVariables numeric reload must preserve the raid digest")
+	assertEqual(
+		digestBeforeReload,
+		addon.DB.RaidEvents.DigestState(reloaded),
+		"SavedVariables numeric reload must preserve the raid digest"
+	)
 	print("PASS equip_inspect_persists_truncated_item_level_with_reload_stable_digest")
 end
 
@@ -6210,7 +8362,9 @@ function cases.equip_inspect_force_player_returns_synchronous_terminal_failure(a
 		local fixture, inspect = installEquipInspectFixture(addon)
 		local scenario = scenarios[i]
 		fixture[scenario[2]] = scenario[3] == true
-		if scenario[3] ~= true then fixture[scenario[2]] = false end
+		if scenario[3] ~= true then
+			fixture[scenario[2]] = false
+		end
 		local ok, reason = inspect:ForcePlayer(2, 21)
 		assertEqual(false, ok, scenario[1] .. " must be terminal")
 		assertEqual(scenario[1], reason, scenario[1] .. " reason must propagate")
@@ -6240,7 +8394,9 @@ function cases.equip_inspect_combat_deferral_is_coordinator_owned(addon)
 	assertEqual(0, #fixture.inspectRequests, "queued combat work must not notify before regen")
 	local activeTimers = 0
 	for i = 1, #fixture.timers do
-		if fixture.timers[i].active then activeTimers = activeTimers + 1 end
+		if fixture.timers[i].active then
+			activeTimers = activeTimers + 1
+		end
 	end
 	assertEqual(0, activeTimers, "EquipInspect must not own a combat retry timer")
 
@@ -6264,7 +8420,11 @@ function cases.equip_inspect_orphan_does_not_clear_unrelated_active_target(addon
 	local clearBaseline = fixture.clearInspectCount
 	table.remove(fixture.raids, 2)
 	inspect:ProcessQueue(73)
-	assertEqual(clearBaseline, fixture.clearInspectCount, "orphan without global target must not clear unrelated inspect")
+	assertEqual(
+		clearBaseline,
+		fixture.clearInspectCount,
+		"orphan without global target must not clear unrelated inspect"
+	)
 	fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid2")
 	assertEqual("ready", fixture.raids[1].inspect.players[11].status, "unrelated active request must still complete")
 	print("PASS equip_inspect_orphan_does_not_clear_unrelated_active_target")
@@ -6339,7 +8499,11 @@ function cases.equip_inspect_delayed_work_tracks_stable_raid_identity(addon)
 	assertEqual("timeout", inspect:GetSnapshot(raidB, 22).status, "timeout result must remain on raid B after reorder")
 	for i = 1, #fixture.events do
 		local event = fixture.events[i]
-		if event.name == "EquipInspectStarted" or event.name == "EquipInspectCompleted" or event.name == "EquipInspectUpdated" then
+		if
+			event.name == "EquipInspectStarted"
+			or event.name == "EquipInspectCompleted"
+			or event.name == "EquipInspectUpdated"
+		then
 			assertEqual(73, event.args[1], "inspect callback payload must carry stable raid NID")
 		end
 	end
@@ -6362,13 +8526,16 @@ function cases.logger_atomic_commit_failure_matrix(addon)
 	local fixture, actions, raid = installLoggerAtomicFixture(addon)
 	local before = deepCopy(raid)
 	local commitCalls = 0
-	fixture.store.GetRaidUid = function(_, target) return target == raid and "active-fixture" or nil end
 	fixture.store.CommitAuthoritativeEvent = function()
 		commitCalls = commitCalls + 1
 		return nil, "INJECTED_STORE_FAILURE"
 	end
 	local committed, reason = actions:RecordLoot({
-		raidId = 2, lootNid = 7, looter = "Beta", rollType = "MS", rollValue = 97,
+		raidId = 2,
+		lootNid = 7,
+		looter = "Beta",
+		rollType = "MS",
+		rollValue = 97,
 	})
 	assertEqual(false, committed, "semantic store failure must reject RecordLoot")
 	assertEqual("WRITE_FAILED", reason, "failed semantic edit preserves public error shape")
@@ -6379,7 +8546,8 @@ function cases.logger_atomic_commit_failure_matrix(addon)
 end
 
 function cases.logger_history_validation_is_strict_and_complete(addon)
-	local fixture, _, raid = installLoggerAtomicFixture(addon)
+	local fixture = installLoggerAtomicFixture(addon)
+	local raid = prepareCompletedRebuildRaid(fixture)
 	local function reject(mutator)
 		local staged = fixture.store:StageRaidHistoryMutation(raid)
 		mutator(staged)
@@ -6398,11 +8566,21 @@ function cases.logger_history_validation_is_strict_and_complete(addon)
 		assertEqual(expected, reason, "store and validator error differ")
 		assertTrue(deepEqual(before, raid), "rejected history must not mutate canonical data")
 	end
-	reject(function(staged) staged.players[2] = { playerNid = 21, name = "Duplicate" } end)
-	reject(function(staged) staged.loot[2] = { lootNid = 7, itemId = 1 } end)
-	reject(function(staged) staged.loot[3] = { lootNid = 9, itemId = 1 } end)
-	reject(function(staged) staged.players.hidden = { playerNid = 22, name = "Hidden" } end)
-	reject(function(staged) staged.bossKills[1] = { bossNid = 4, players = { [2] = 21 } } end)
+	reject(function(staged)
+		staged.players[2] = { playerNid = 21, name = "Duplicate" }
+	end)
+	reject(function(staged)
+		staged.loot[2] = { lootNid = 7, itemId = 1 }
+	end)
+	reject(function(staged)
+		staged.loot[3] = { lootNid = 9, itemId = 1 }
+	end)
+	reject(function(staged)
+		staged.players.hidden = { playerNid = 22, name = "Hidden" }
+	end)
+	reject(function(staged)
+		staged.bossKills[1] = { bossNid = 4, players = { [2] = 21 } }
+	end)
 	local staged = fixture.store:StageRaidHistoryMutation(raid)
 	local ok, reason = fixture.store:CommitRaidHistoryMutation(raid, staged, { lootNid = "7", reason = "test" })
 	assertEqual(false, ok, "numeric string loot scope must reject")
@@ -6411,7 +8589,8 @@ function cases.logger_history_validation_is_strict_and_complete(addon)
 end
 
 function cases.raid_store_uses_validator_first_error(addon)
-	local fixture, _, raid = installLoggerAtomicFixture(addon)
+	local fixture = installLoggerAtomicFixture(addon)
+	local raid = prepareCompletedRebuildRaid(fixture)
 	local staged = fixture.store:StageRaidHistoryMutation(raid)
 	staged.players[2] = { playerNid = staged.players[1].playerNid, name = "Duplicate" }
 	local report = addon.Database.GetRaidValidator():GetRaidRecordValidation(staged, 0, 6)
@@ -6441,9 +8620,14 @@ function cases.raid_store_rejects_malformed_validator_reports(addon)
 	}
 	for i = 1, #malformedReports do
 		local malformed = malformedReports[i]
-		local fixture, _, raid = installLoggerAtomicFixture(addon)
+		local fixture = installLoggerAtomicFixture(addon)
+		local raid = prepareCompletedRebuildRaid(fixture)
+		local realValidator = addon.Database.GetRaidValidator()
 		addon.Database.GetRaidValidator = function()
 			return {
+				ValidateArchive = function(_, archive)
+					return realValidator:ValidateArchive(archive)
+				end,
 				GetRaidRecordValidation = function()
 					return malformed.value
 				end,
@@ -6468,7 +8652,8 @@ function cases.logger_async_rebuild_outcomes_and_conflict(addon)
 		callbackResult, callbackComplete = result, complete
 	end, { chunkSize = 1, delaySeconds = 0.1 })
 	fixture:AdvanceTime(0.1)
-	local recordOk, recordReason = actions:RecordLoot({ raidId = 1, lootNid = 7, looter = "Beta", rollType = "MS", rollValue = 98 })
+	local recordOk, recordReason =
+		actions:RecordLoot({ raidId = 1, lootNid = 7, looter = "Beta", rollType = "MS", rollValue = 98 })
 	assertEqual(true, recordOk, "concurrent RecordLoot setup must commit: " .. tostring(recordReason))
 	fixture.events = {}
 	fixture:AdvanceTime(0.1)
@@ -6479,30 +8664,38 @@ function cases.logger_async_rebuild_outcomes_and_conflict(addon)
 	assertEqual(0, callbackResult.repaired, "conflicted staged repairs are not committed counters")
 	assertEqual(0, callbackResult.bossesCreated, "conflicted staged bosses are not committed counters")
 	assertEqual(0, #fixture.events, "conflicted rebuild must not publish")
+	raid = fixture:GetRaid(1)
 	assertEqual(98, raid.loot[1].rollValue, "conflicted rebuild must not overwrite concurrent RecordLoot")
 	assertEqual(false, handle:Cancel(), "conflicted handle is terminal")
 
 	fixture, actions = installLoggerAtomicFixture(addon)
 	raid = prepareCompletedRebuildRaid(fixture)
 	local changedResult, changedComplete
-	actions:StartLootSourceRebuild(function(result, complete) changedResult, changedComplete = result, complete end,
-		{ chunkSize = 20, delaySeconds = 0 })
+	actions:StartLootSourceRebuild(function(result, complete)
+		changedResult, changedComplete = result, complete
+	end, { chunkSize = 20, delaySeconds = 0 })
 	fixture:AdvanceTime(0)
 	assertEqual(true, changedComplete, "changed rebuild completes")
 	assertEqual(1, changedResult.repaired, "changed rebuild reports repair")
 	assertEqual(1, #fixture.events, "changed rebuild publishes once")
+	raid = fixture:GetRaid(1)
 	fixture.events = {}
 	local noopResult, noopComplete
-	actions:StartLootSourceRebuild(function(result, complete) noopResult, noopComplete = result, complete end,
-		{ chunkSize = 20, delaySeconds = 0 })
+	actions:StartLootSourceRebuild(function(result, complete)
+		noopResult, noopComplete = result, complete
+	end, { chunkSize = 20, delaySeconds = 0 })
 	fixture:AdvanceTime(0)
 	assertEqual(true, noopComplete, "no-op rebuild completes")
 	assertEqual(0, noopResult.repaired, "no-op rebuild reports no repair")
 	assertEqual(0, #fixture.events, "no-op rebuild does not publish")
 	raid.loot[2] = { lootNid = 8, itemId = 99999 }
+	raid.nextLootNid = 9
+	fixture:RefreshRaidRecord(raid)
 	fixture.store:EnsureRaidRuntime(raid)
 	local unresolvedResult
-	actions:StartLootSourceRebuild(function(result) unresolvedResult = result end, { chunkSize = 20, delaySeconds = 0 })
+	actions:StartLootSourceRebuild(function(result)
+		unresolvedResult = result
+	end, { chunkSize = 20, delaySeconds = 0 })
 	fixture:AdvanceTime(0)
 	assertEqual(1, unresolvedResult.unresolved, "unresolved row is reported")
 	assertEqual(0, #fixture.events, "unresolved rebuild does not publish")
@@ -6519,11 +8712,11 @@ end
 
 function cases.logger_async_cleanup_cancel_rolls_back_staged_work(addon)
 	local fixture, actions = installLoggerCleanupFixture(addon)
-	local root = fixture.store:GetRawRaids()
-	root[4] = root[2]
-	root[2] = nil
 	fixture.currentRaid = nil
-	local firstRaid, movedRaid = root[1], root[4]
+	local root = fixture.archive
+	local firstKey, secondKey = root.order[1], root.order[2]
+	local firstRecord, secondRecord = root.raids[firstKey], root.raids[secondKey]
+	local firstRaid, movedRaid = firstRecord.state, secondRecord.state
 	local firstRuntime = fixture.store:EnsureRaidRuntime(firstRaid)
 	local movedRuntime = fixture.store:EnsureRaidRuntime(movedRaid)
 	local firstRevision = firstRuntime and firstRuntime.syncRevision or nil
@@ -6548,16 +8741,37 @@ function cases.logger_async_cleanup_cancel_rolls_back_staged_work(addon)
 	assertEqual(true, handle:Cancel(), "active cleanup should cancel")
 	fixture.store.GetAllRaids = originalGetAll
 	fixture.store.CommitRaidHistoryCleanup = originalCommit
-	assertEqual(0, getAllCalls, "pre-commit cancellation must not rebuild the raid index")
+	assertEqual(1, getAllCalls, "pre-commit cancellation should build one detached ordered projection")
 	assertEqual(0, commitCalls, "pre-commit cancellation must not call the store commit")
 	assertEqual(1, callbackCount, "pre-commit cancellation callback must run once")
-	assertTrue(root == fixture.store:GetRawRaids(), "pre-commit cancellation must preserve root identity")
-	assertTrue(root[1] == firstRaid and root[4] == movedRaid, "pre-commit cancellation must preserve raid identities")
-	assertTrue(deepEqual(before, root), "cancelled staged cleanup must preserve sparse raw history exactly")
-	assertTrue(fixture.store:EnsureRaidRuntime(firstRaid) == firstRuntime, "pre-commit cancellation must preserve first runtime")
-	assertTrue(fixture.store:EnsureRaidRuntime(movedRaid) == movedRuntime, "pre-commit cancellation must preserve moved runtime")
-	assertEqual(firstRevision, firstRuntime and firstRuntime.syncRevision or nil, "pre-commit cancellation changed first revision")
-	assertEqual(movedRevision, movedRuntime and movedRuntime.syncRevision or nil, "pre-commit cancellation changed moved revision")
+	assertTrue(root == fixture.archive, "pre-commit cancellation must preserve archive identity")
+	assertTrue(
+		root.raids[firstKey] == firstRecord and root.raids[secondKey] == secondRecord,
+		"pre-commit cancellation must preserve record identities"
+	)
+	assertTrue(
+		root.raids[firstKey].state == firstRaid and root.raids[secondKey].state == movedRaid,
+		"pre-commit cancellation must preserve raid identities"
+	)
+	assertTrue(deepEqual(before, root), "cancelled staged cleanup must preserve canonical archive exactly")
+	assertTrue(
+		fixture.store:EnsureRaidRuntime(firstRaid) == firstRuntime,
+		"pre-commit cancellation must preserve first runtime"
+	)
+	assertTrue(
+		fixture.store:EnsureRaidRuntime(movedRaid) == movedRuntime,
+		"pre-commit cancellation must preserve moved runtime"
+	)
+	assertEqual(
+		firstRevision,
+		firstRuntime and firstRuntime.syncRevision or nil,
+		"pre-commit cancellation changed first revision"
+	)
+	assertEqual(
+		movedRevision,
+		movedRuntime and movedRuntime.syncRevision or nil,
+		"pre-commit cancellation changed moved revision"
+	)
 	assertEqual(false, callbackComplete, "cancel callback should report incomplete work")
 	assertEqual(true, callbackResult.cancelled, "cancel result should expose cancellation")
 	assertEqual(false, callbackResult.changed, "rolled-back cleanup should report no canonical change")
@@ -6591,7 +8805,9 @@ function cases.logger_async_cleanup_store_failure_is_atomic(addon)
 	local beforeCurrent = fixture.currentRaid
 	local callbackCount, callbackResult, callbackComplete = 0
 	local originalCommit = fixture.store.CommitRaidHistoryCleanup
-	fixture.store.CommitRaidHistoryCleanup = function() return nil, "INJECTED_FAILURE" end
+	fixture.store.CommitRaidHistoryCleanup = function()
+		return nil, "INJECTED_FAILURE"
+	end
 	local handle = actions:StartRaidHistoryCleanup(function(result, complete)
 		callbackCount = callbackCount + 1
 		callbackResult, callbackComplete = result, complete
@@ -6614,15 +8830,17 @@ end
 
 function cases.logger_cleanup_detached_failure_is_atomic(addon)
 	local fixture, actions = installLoggerCleanupFixture(addon)
-	local root = fixture.store:GetRawRaids()
+	local root = fixture.archive
 	local before = deepCopy(root)
 	local originalCommit = fixture.store.CommitRaidHistoryCleanup
-	fixture.store.CommitRaidHistoryCleanup = function() return nil, "INJECTED_FAILURE" end
+	fixture.store.CommitRaidHistoryCleanup = function()
+		return nil, "INJECTED_FAILURE"
+	end
 	local result = actions:CleanupRaidHistory({ emptyRaids = true, nonEpicLoot = true })
 	fixture.store.CommitRaidHistoryCleanup = originalCommit
 	assertEqual(true, result.failed, "store rejection must fail cleanup")
 	assertEqual("INJECTED_FAILURE", result.error)
-	assertTrue(root == fixture.store:GetRawRaids(), "cleanup must preserve root identity")
+	assertTrue(root == fixture.archive, "cleanup must preserve archive identity")
 	assertTrue(deepEqual(before, root), "failed detached commit must preserve history")
 	assertEqual(nil, result.rollbackFailed, "rollback protocol must be absent")
 	assertEqual(0, #fixture.events)
@@ -6631,11 +8849,11 @@ end
 
 function cases.logger_cleanup_planning_is_non_mutating(addon)
 	local fixture, actions = installLoggerCleanupFixture(addon)
-	local root = fixture.store:GetRawRaids()
-	root[4] = root[2]
-	root[2] = nil
 	fixture.currentRaid = nil
-	local firstRaid, movedRaid = root[1], root[4]
+	local root = fixture.archive
+	local firstKey, secondKey = root.order[1], root.order[2]
+	local firstRecord, secondRecord = root.raids[firstKey], root.raids[secondKey]
+	local firstRaid, movedRaid = firstRecord.state, secondRecord.state
 	local firstRuntime = fixture.store:EnsureRaidRuntime(firstRaid)
 	local movedRuntime = fixture.store:EnsureRaidRuntime(movedRaid)
 	local firstRevision = firstRuntime and firstRuntime.syncRevision or nil
@@ -6648,18 +8866,33 @@ function cases.logger_cleanup_planning_is_non_mutating(addon)
 		return originalGetAll(store)
 	end
 	local originalCommit = fixture.store.CommitRaidHistoryCleanup
-	fixture.store.CommitRaidHistoryCleanup = function() return nil, "INJECTED_FAILURE" end
+	fixture.store.CommitRaidHistoryCleanup = function()
+		return nil, "INJECTED_FAILURE"
+	end
 	local result = actions:CleanupRaidHistory({ emptyRaids = true, nonEpicLoot = true })
 	fixture.store.GetAllRaids = originalGetAll
 	fixture.store.CommitRaidHistoryCleanup = originalCommit
 	assertEqual(true, result.failed, "rejected cleanup must fail")
 	assertEqual("INJECTED_FAILURE", result.error, "rejected cleanup reason differs")
-	assertEqual(0, getAllCalls, "cleanup planning must not rebuild the raid index")
-	assertTrue(root == fixture.store:GetRawRaids(), "cleanup planning must preserve root identity")
-	assertTrue(root[1] == firstRaid and root[4] == movedRaid, "cleanup planning must preserve raid identities")
-	assertTrue(deepEqual(before, root), "cleanup planning must preserve sparse raw history exactly")
-	assertTrue(fixture.store:EnsureRaidRuntime(firstRaid) == firstRuntime, "cleanup planning must preserve first raid runtime")
-	assertTrue(fixture.store:EnsureRaidRuntime(movedRaid) == movedRuntime, "cleanup planning must preserve active runtime identity")
+	assertEqual(1, getAllCalls, "cleanup planning should build one detached ordered projection")
+	assertTrue(root == fixture.archive, "cleanup planning must preserve archive identity")
+	assertTrue(
+		root.raids[firstKey] == firstRecord and root.raids[secondKey] == secondRecord,
+		"cleanup planning must preserve record identities"
+	)
+	assertTrue(
+		root.raids[firstKey].state == firstRaid and root.raids[secondKey].state == movedRaid,
+		"cleanup planning must preserve raid identities"
+	)
+	assertTrue(deepEqual(before, root), "cleanup planning must preserve canonical archive exactly")
+	assertTrue(
+		fixture.store:EnsureRaidRuntime(firstRaid) == firstRuntime,
+		"cleanup planning must preserve first raid runtime"
+	)
+	assertTrue(
+		fixture.store:EnsureRaidRuntime(movedRaid) == movedRuntime,
+		"cleanup planning must preserve active runtime identity"
+	)
 	assertEqual(firstRevision, firstRuntime and firstRuntime.syncRevision or nil, "first revision changed")
 	assertEqual(movedRevision, movedRuntime and movedRuntime.syncRevision or nil, "moved revision changed")
 	assertEqual(0, #fixture.events, "rejected planning must not publish")
@@ -6668,8 +8901,10 @@ end
 
 function cases.logger_cleanup_noop_preserves_canonical_identities(addon)
 	local fixture, actions = installLoggerCleanupFixture(addon)
-	local root = fixture.store:GetRawRaids()
-	local firstRaid, secondRaid = root[1], root[2]
+	local root = fixture.archive
+	local firstKey, secondKey = root.order[1], root.order[2]
+	local firstRecord, secondRecord = root.raids[firstKey], root.raids[secondKey]
+	local firstRaid, secondRaid = firstRecord.state, secondRecord.state
 	local firstRuntime = fixture.store:EnsureRaidRuntime(firstRaid)
 	local secondRuntime = fixture.store:EnsureRaidRuntime(secondRaid)
 	local firstRevision = fixture.store:GetRaidSyncRevision(firstRaid)
@@ -6681,24 +8916,41 @@ function cases.logger_cleanup_noop_preserves_canonical_identities(addon)
 	assertEqual(0, result.raidsRemoved, "synchronous no-op cleanup removed raids")
 	assertEqual(0, result.lootRemoved, "synchronous no-op cleanup removed loot")
 	assertEqual(0, #result.affectedRaidNids, "synchronous no-op cleanup affected raids")
-	assertTrue(root == fixture.store:GetRawRaids(), "synchronous no-op must preserve root identity")
-	assertTrue(root[1] == firstRaid and root[2] == secondRaid, "synchronous no-op must preserve raid identities")
-	assertTrue(fixture.store:EnsureRaidRuntime(firstRaid) == firstRuntime, "synchronous no-op must preserve first runtime index")
-	assertTrue(fixture.store:EnsureRaidRuntime(secondRaid) == secondRuntime, "synchronous no-op must preserve second runtime index")
+	assertTrue(root == fixture.archive, "synchronous no-op must preserve archive identity")
+	assertTrue(
+		root.raids[firstKey] == firstRecord and root.raids[secondKey] == secondRecord,
+		"synchronous no-op must preserve record identities"
+	)
+	assertTrue(
+		root.raids[firstKey].state == firstRaid and root.raids[secondKey].state == secondRaid,
+		"synchronous no-op must preserve raid identities"
+	)
+	assertTrue(
+		fixture.store:EnsureRaidRuntime(firstRaid) == firstRuntime,
+		"synchronous no-op must preserve first runtime index"
+	)
+	assertTrue(
+		fixture.store:EnsureRaidRuntime(secondRaid) == secondRuntime,
+		"synchronous no-op must preserve second runtime index"
+	)
 	assertTrue(deepEqual(before, root), "synchronous no-op must preserve canonical history exactly")
 	assertEqual(firstRevision, fixture.store:GetRaidSyncRevision(firstRaid), "synchronous no-op changed first revision")
-	assertEqual(secondRevision, fixture.store:GetRaidSyncRevision(secondRaid), "synchronous no-op changed second revision")
+	assertEqual(
+		secondRevision,
+		fixture.store:GetRaidSyncRevision(secondRaid),
+		"synchronous no-op changed second revision"
+	)
 	assertEqual(0, #fixture.events, "synchronous no-op must publish no event")
 	print("PASS logger_cleanup_noop_preserves_canonical_identities")
 end
 
 function cases.logger_async_cleanup_noop_preserves_canonical_identities(addon)
 	local fixture, actions = installLoggerCleanupFixture(addon)
-	local root = fixture.store:GetRawRaids()
-	root[4] = root[2]
-	root[2] = nil
 	fixture.currentRaid = nil
-	local firstRaid, secondRaid = root[1], root[4]
+	local root = fixture.archive
+	local firstKey, secondKey = root.order[1], root.order[2]
+	local firstRecord, secondRecord = root.raids[firstKey], root.raids[secondKey]
+	local firstRaid, secondRaid = firstRecord.state, secondRecord.state
 	local firstRuntime = fixture.store:EnsureRaidRuntime(firstRaid)
 	local secondRuntime = fixture.store:EnsureRaidRuntime(secondRaid)
 	local firstRevision = fixture.store:GetRaidSyncRevision(firstRaid)
@@ -6717,7 +8969,7 @@ function cases.logger_async_cleanup_noop_preserves_canonical_identities(addon)
 	end, { chunkSize = 20, delaySeconds = 0 })
 	fixture:AdvanceTime(0)
 	fixture.store.GetAllRaids = originalGetAll
-	assertEqual(0, getAllCalls, "asynchronous no-op must not rebuild the raid index")
+	assertEqual(1, getAllCalls, "asynchronous no-op should build one detached ordered projection")
 	assertEqual(1, callbackCount, "asynchronous no-op callback must run once")
 	assertEqual(true, callbackComplete, "asynchronous no-op cleanup must complete")
 	assertEqual(true, callbackResult.complete, "asynchronous no-op result must be complete")
@@ -6725,13 +8977,34 @@ function cases.logger_async_cleanup_noop_preserves_canonical_identities(addon)
 	assertEqual(0, callbackResult.raidsRemoved, "asynchronous no-op cleanup removed raids")
 	assertEqual(0, callbackResult.lootRemoved, "asynchronous no-op cleanup removed loot")
 	assertEqual(0, #callbackResult.affectedRaidNids, "asynchronous no-op cleanup affected raids")
-	assertTrue(root == fixture.store:GetRawRaids(), "asynchronous no-op must preserve root identity")
-	assertTrue(root[1] == firstRaid and root[4] == secondRaid, "asynchronous no-op must preserve raid identities")
-	assertTrue(fixture.store:EnsureRaidRuntime(firstRaid) == firstRuntime, "asynchronous no-op must preserve first runtime index")
-	assertTrue(fixture.store:EnsureRaidRuntime(secondRaid) == secondRuntime, "asynchronous no-op must preserve second runtime index")
+	assertTrue(root == fixture.archive, "asynchronous no-op must preserve archive identity")
+	assertTrue(
+		root.raids[firstKey] == firstRecord and root.raids[secondKey] == secondRecord,
+		"asynchronous no-op must preserve record identities"
+	)
+	assertTrue(
+		root.raids[firstKey].state == firstRaid and root.raids[secondKey].state == secondRaid,
+		"asynchronous no-op must preserve raid identities"
+	)
+	assertTrue(
+		fixture.store:EnsureRaidRuntime(firstRaid) == firstRuntime,
+		"asynchronous no-op must preserve first runtime index"
+	)
+	assertTrue(
+		fixture.store:EnsureRaidRuntime(secondRaid) == secondRuntime,
+		"asynchronous no-op must preserve second runtime index"
+	)
 	assertTrue(deepEqual(before, root), "asynchronous no-op must preserve canonical history exactly")
-	assertEqual(firstRevision, fixture.store:GetRaidSyncRevision(firstRaid), "asynchronous no-op changed first revision")
-	assertEqual(secondRevision, fixture.store:GetRaidSyncRevision(secondRaid), "asynchronous no-op changed second revision")
+	assertEqual(
+		firstRevision,
+		fixture.store:GetRaidSyncRevision(firstRaid),
+		"asynchronous no-op changed first revision"
+	)
+	assertEqual(
+		secondRevision,
+		fixture.store:GetRaidSyncRevision(secondRaid),
+		"asynchronous no-op changed second revision"
+	)
 	assertEqual(0, #fixture.events, "asynchronous no-op must publish no event")
 	assertEqual(false, handle:IsCancelled(), "completed asynchronous no-op is not cancelled")
 	assertEqual(false, handle:Cancel(), "completed asynchronous no-op must be terminal")
@@ -6741,24 +9014,36 @@ end
 
 function cases.raid_store_cleanup_conflict_is_atomic(addon)
 	local fixture = installLoggerCleanupFixture(addon)
-	local root = fixture.store:GetRawRaids()
-	local firstRaid, secondRaid = root[1], root[2]
+	local root = fixture.archive
+	local firstKey, secondKey = root.order[1], root.order[2]
+	local firstRecord, secondRecord = root.raids[firstKey], root.raids[secondKey]
+	local firstRaid, secondRaid = firstRecord.state, secondRecord.state
 	local firstRuntime = fixture.store:EnsureRaidRuntime(firstRaid)
 	local secondRuntime = fixture.store:EnsureRaidRuntime(secondRaid)
 	local firstRevision = fixture.store:GetRaidSyncRevision(firstRaid)
 	local secondRevision = fixture.store:GetRaidSyncRevision(secondRaid)
 	local before = deepCopy(root)
 	local committed, reason = fixture.store:CommitRaidHistoryCleanup({
-		protectedRaidNid = secondRaid.raidNid,
-		raidCandidates = { { raidNid = firstRaid.raidNid, baseRevision = firstRevision + 1 } },
+		protectedArchiveKey = secondKey,
+		raidCandidates = { { archiveKey = firstKey, baseDigest = "stale-digest" } },
 		lootCandidates = {},
-	}, secondRaid.raidNid)
+	}, secondKey)
 	assertEqual(nil, committed, "revision conflict must reject cleanup")
 	assertEqual("CONFLICT", reason, "revision conflict reason differs")
-	assertTrue(root == fixture.store:GetRawRaids(), "conflict must preserve root identity")
-	assertTrue(root[1] == firstRaid and root[2] == secondRaid, "conflict must preserve raid identities")
+	assertTrue(root == fixture.archive, "conflict must preserve archive identity")
+	assertTrue(
+		root.raids[firstKey] == firstRecord and root.raids[secondKey] == secondRecord,
+		"conflict must preserve record identities"
+	)
+	assertTrue(
+		root.raids[firstKey].state == firstRaid and root.raids[secondKey].state == secondRaid,
+		"conflict must preserve raid identities"
+	)
 	assertTrue(fixture.store:EnsureRaidRuntime(firstRaid) == firstRuntime, "conflict must preserve first runtime index")
-	assertTrue(fixture.store:EnsureRaidRuntime(secondRaid) == secondRuntime, "conflict must preserve second runtime index")
+	assertTrue(
+		fixture.store:EnsureRaidRuntime(secondRaid) == secondRuntime,
+		"conflict must preserve second runtime index"
+	)
 	assertTrue(deepEqual(before, root), "conflict must preserve canonical history exactly")
 	assertEqual(firstRevision, fixture.store:GetRaidSyncRevision(firstRaid), "conflict changed first revision")
 	assertEqual(secondRevision, fixture.store:GetRaidSyncRevision(secondRaid), "conflict changed second revision")
@@ -6775,24 +9060,43 @@ function cases.logger_refresh_requests_coalesce_behaviorally(addon)
 	end
 	_G.CreateFrame = function()
 		defer = { shown = false }
-		function defer:Show() self.shown = true end
-		function defer:Hide() self.shown = false end
+		function defer:Show()
+			self.shown = true
+		end
+		function defer:Hide()
+			self.shown = false
+		end
 		return defer
 	end
 	addon.Diag = { E = { LogListUIError = "%s %s" }, W = { LogListUIMissingWidgets = "%s" }, D = {} }
 	addon.warn = function() end
-	addon.error = function(_, message) error(message) end
-	addon.Options = { IsDebugEnabled = function() return false end }
+	addon.error = function(_, message)
+		error(message)
+	end
+	addon.Options = {
+		IsDebugEnabled = function()
+			return false
+		end,
+	}
 	addon.UI = {
 		Frames = {
-			SetScriptSafely = function(frame, name, callback) frame[name] = callback end,
-			HookScriptSafely = function(frame, name, callback) frame[name] = callback end,
+			SetScriptSafely = function(frame, name, callback)
+				frame[name] = callback
+			end,
+			HookScriptSafely = function(frame, name, callback)
+				frame[name] = callback
+			end,
 		},
-		Rows = {}, Primitives = {},
+		Rows = {},
+		Primitives = {},
 	}
 	loadAddonFile(addon, "Raid Management Addon/Modules/UI/ListController.lua")
 	local refreshCount = 0
-	local controller = addon.UI.Lists.CreateController({ getData = function() refreshCount = refreshCount + 1 end })
+	local controller = addon.UI.Lists.CreateController({
+		getData = function()
+			refreshCount = refreshCount + 1
+		end,
+	})
 	controller.frameName = "TestList"
 	controller._active = true
 	controller:Dirty()
@@ -6805,6 +9109,11 @@ end
 
 function cases.logger_bulk_raid_delete_publishes_once(addon)
 	local fixture, actions = installLoggerCleanupFixture(addon)
+	assert(fixture.store:ConcludeActiveRaid(fixture.archive.activeRaidUid, fixture.now + 1))
+	fixture:GetRaids()
+	for i = #fixture.events, 1, -1 do
+		fixture.events[i] = nil
+	end
 	fixture.currentRaid = nil
 	local result = actions:DeleteRaidsByNid({ 41, 73 })
 	assertEqual(2, result.removed, "bulk delete should delete both raids")
@@ -6883,7 +9192,11 @@ function cases.nested_dispatch_preserves_outer_snapshot(addon)
 end
 
 function cases.localized_raid_identity_uses_instance_map_id(addon)
-	addon.LootSourceCandidates = { GetModeSignature = function() return "" end }
+	addon.LootSourceCandidates = {
+		GetModeSignature = function()
+			return ""
+		end,
+	}
 	addon.LootSourcesData = { Raw = {} }
 	loadAddonFile(addon, "Raid Management Addon/Modules/Dataset/LootSources/Vanilla.lua")
 	loadAddonFile(addon, "Raid Management Addon/Modules/Dataset/LootSources/Wrath.lua")
@@ -6927,20 +9240,38 @@ function cases.instance_datasets_share_canonical_identity(addon)
 			assertEqual(631, instanceMapId)
 			return "icecrown citadel"
 		end,
-		ActivateInstance = function(key) activated.loot = key return true end,
-		DeactivateInstance = function() activated.loot = nil end,
-		GetActiveInstanceKey = function() return activated.loot end,
-		CaptureActivationState = function() return { activeInstanceKey = activated.loot } end,
+		ActivateInstance = function(key)
+			activated.loot = key
+			return true
+		end,
+		DeactivateInstance = function()
+			activated.loot = nil
+		end,
+		GetActiveInstanceKey = function()
+			return activated.loot
+		end,
+		CaptureActivationState = function()
+			return { activeInstanceKey = activated.loot }
+		end,
 		RestoreActivationState = function(snapshot)
 			activated.loot = snapshot.activeInstanceKey
 			return true
 		end,
 	}
 	addon.IgnoredMobs = {
-		ActivateInstance = function(key) activated.ignored = key return true end,
-		DeactivateInstance = function() activated.ignored = nil end,
-		GetActiveInstanceKey = function() return activated.ignored end,
-		CaptureActivationState = function() return { activeInstanceKey = activated.ignored } end,
+		ActivateInstance = function(key)
+			activated.ignored = key
+			return true
+		end,
+		DeactivateInstance = function()
+			activated.ignored = nil
+		end,
+		GetActiveInstanceKey = function()
+			return activated.ignored
+		end,
+		CaptureActivationState = function()
+			return { activeInstanceKey = activated.ignored }
+		end,
 		RestoreActivationState = function(snapshot)
 			activated.ignored = snapshot.activeInstanceKey
 			return true
@@ -6977,7 +9308,9 @@ function cases.player_entering_world_remains_registered_for_instance_entry(addon
 	local frame = installInitStubs(addon)
 	local scheduledChecks = 0
 	addon.LootSourcesData = {
-		ResolveInstanceKey = function() return nil end,
+		ResolveInstanceKey = function()
+			return nil
+		end,
 		DeactivateInstance = function() end,
 	}
 	addon.IgnoredMobs = { DeactivateInstance = function() end }
@@ -6990,13 +9323,18 @@ function cases.player_entering_world_remains_registered_for_instance_entry(addon
 		end,
 		CheckInitialRaidState = function() end,
 	}
-	_G.GetInstanceInfo = function() return "Dalaran", "none", 0, nil, 0, 0, false, 571 end
+	_G.GetInstanceInfo = function()
+		return "Dalaran", "none", 0, nil, 0, 0, false, 571
+	end
 	loadAddonFile(addon, "Raid Management Addon/Init.lua")
 	addon:RegisterEvent("PLAYER_ENTERING_WORLD")
 
 	frame.OnEvent(frame, "PLAYER_ENTERING_WORLD")
-	assertEqual(true, frame.registered.PLAYER_ENTERING_WORLD,
-		"login must keep PLAYER_ENTERING_WORLD registered for later instance transitions")
+	assertEqual(
+		true,
+		frame.registered.PLAYER_ENTERING_WORLD,
+		"login must keep PLAYER_ENTERING_WORLD registered for later instance transitions"
+	)
 	assertEqual(1, scheduledChecks, "world entry must schedule a settled-state raid check")
 	print("PASS player_entering_world_remains_registered_for_instance_entry")
 end
@@ -7009,17 +9347,37 @@ function cases.dataset_activation_requires_snapshot_contract(addon)
 	local lootKey
 	local ignoredKey
 	addon.LootSourcesData = {
-		ResolveInstanceKey = function() return "icecrown citadel" end,
-		GetActiveInstanceKey = function() return lootKey end,
-		ActivateInstance = function(key) lootKey = key return true end,
-		DeactivateInstance = function() lootKey = nil return true end,
+		ResolveInstanceKey = function()
+			return "icecrown citadel"
+		end,
+		GetActiveInstanceKey = function()
+			return lootKey
+		end,
+		ActivateInstance = function(key)
+			lootKey = key
+			return true
+		end,
+		DeactivateInstance = function()
+			lootKey = nil
+			return true
+		end,
 	}
 	addon.IgnoredMobs = {
-		GetActiveInstanceKey = function() return ignoredKey end,
-		ActivateInstance = function(key) ignoredKey = key return true end,
-		DeactivateInstance = function() ignoredKey = nil return true end,
+		GetActiveInstanceKey = function()
+			return ignoredKey
+		end,
+		ActivateInstance = function(key)
+			ignoredKey = key
+			return true
+		end,
+		DeactivateInstance = function()
+			ignoredKey = nil
+			return true
+		end,
 	}
-	_G.GetInstanceInfo = function() return "Localized", "raid", 1, nil, 10, 0, false, 631 end
+	_G.GetInstanceInfo = function()
+		return "Localized", "raid", 1, nil, 10, 0, false, 631
+	end
 	loadAddonFile(addon, "Raid Management Addon/Init.lua")
 	local ok, err = pcall(addon.ZONE_CHANGED_NEW_AREA, addon)
 	assertEqual(false, ok, "missing mandatory dataset snapshot methods must fail fast")
@@ -7031,7 +9389,9 @@ function cases.loot_dataset_build_failure_preserves_active_generation(addon)
 	local failBuild = false
 	addon.LootSourceCandidates = {
 		GetModeSignature = function()
-			if failBuild then error("injected dataset failure") end
+			if failBuild then
+				error("injected dataset failure")
+			end
 			return ""
 		end,
 	}
@@ -7052,18 +9412,31 @@ function cases.loot_dataset_build_failure_preserves_active_generation(addon)
 	assertEqual(oldInstances, data.ByInstance, "active instance root identity must remain unchanged")
 	assertEqual(oldGeneration, data.GetGeneration(), "failed build must not publish a generation")
 	assertEqual("icecrown citadel", data.GetActiveInstanceKey())
-	assertEqual(oldCandidate, data.ByItemId[50424] and data.ByItemId[50424][1], "attribution identity must remain unchanged")
+	assertEqual(
+		oldCandidate,
+		data.ByItemId[50424] and data.ByItemId[50424][1],
+		"attribution identity must remain unchanged"
+	)
 	print("PASS loot_dataset_build_failure_preserves_active_generation")
 end
 
 function cases.loot_dataset_handles_duplicate_nil_and_malformed_entries(addon)
-	addon.LootSourceCandidates = { GetModeSignature = function() return "" end }
-	addon.LootSourcesData = { Raw = {
-		{ name = "Test Raid", sources = {
-			{ npcId = 7, name = "Boss", kind = "boss", items = { { 100 }, { 100 }, nil, "bad", { nil } } },
-			{ npcId = nil, name = "Malformed", items = { { 101 } } },
-		} },
-	} }
+	addon.LootSourceCandidates = {
+		GetModeSignature = function()
+			return ""
+		end,
+	}
+	addon.LootSourcesData = {
+		Raw = {
+			{
+				name = "Test Raid",
+				sources = {
+					{ npcId = 7, name = "Boss", kind = "boss", items = { { 100 }, { 100 }, nil, "bad", { nil } } },
+					{ npcId = nil, name = "Malformed", items = { { 101 } } },
+				},
+			},
+		},
+	}
 	loadAddonFile(addon, "Raid Management Addon/Modules/Dataset/LootSourcesData.lua")
 	local data = addon.LootSourcesData
 	assertTrue(data.ActivateInstance("test raid"))
@@ -7081,31 +9454,54 @@ function cases.dataset_activation_rolls_back_cross_owner_failure(addon)
 	local lootKey = "old raid"
 	local ignoredKey = "old raid"
 	addon.LootSourcesData = {
-		ResolveInstanceKey = function() return "new raid" end,
-		GetActiveInstanceKey = function() return lootKey end,
-		ActivateInstance = function(key) lootKey = key return true end,
-		DeactivateInstance = function() lootKey = nil return true end,
-		CaptureActivationState = function() return { activeInstanceKey = lootKey } end,
+		ResolveInstanceKey = function()
+			return "new raid"
+		end,
+		GetActiveInstanceKey = function()
+			return lootKey
+		end,
+		ActivateInstance = function(key)
+			lootKey = key
+			return true
+		end,
+		DeactivateInstance = function()
+			lootKey = nil
+			return true
+		end,
+		CaptureActivationState = function()
+			return { activeInstanceKey = lootKey }
+		end,
 		RestoreActivationState = function(snapshot)
 			lootKey = snapshot.activeInstanceKey
 			return true
 		end,
 	}
 	addon.IgnoredMobs = {
-		GetActiveInstanceKey = function() return ignoredKey end,
+		GetActiveInstanceKey = function()
+			return ignoredKey
+		end,
 		ActivateInstance = function(key)
-			if key == "new raid" then error("injected ignored failure") end
+			if key == "new raid" then
+				error("injected ignored failure")
+			end
 			ignoredKey = key
 			return true
 		end,
-		DeactivateInstance = function() ignoredKey = nil return true end,
-		CaptureActivationState = function() return { activeInstanceKey = ignoredKey } end,
+		DeactivateInstance = function()
+			ignoredKey = nil
+			return true
+		end,
+		CaptureActivationState = function()
+			return { activeInstanceKey = ignoredKey }
+		end,
 		RestoreActivationState = function(snapshot)
 			ignoredKey = snapshot.activeInstanceKey
 			return true
 		end,
 	}
-	_G.GetInstanceInfo = function() return "Localized", "raid", 1, nil, 10, 0, false, 999 end
+	_G.GetInstanceInfo = function()
+		return "Localized", "raid", 1, nil, 10, 0, false, 999
+	end
 	loadAddonFile(addon, "Raid Management Addon/Init.lua")
 	local ok = pcall(addon.ZONE_CHANGED_NEW_AREA, addon)
 	assertEqual(false, ok, "activation failure must remain visible")
@@ -7123,30 +9519,55 @@ function cases.dataset_activation_rejects_false_owner_results(addon)
 	local ignoredKey = "old raid"
 	local ignoredCalls = 0
 	addon.LootSourcesData = {
-		ResolveInstanceKey = function() return "new raid" end,
-		GetActiveInstanceKey = function() return lootKey end,
-		ActivateInstance = function(key)
-			if key == "new raid" then return false, "loot-rejected" end
-			lootKey = key return true
+		ResolveInstanceKey = function()
+			return "new raid"
 		end,
-		DeactivateInstance = function() lootKey = nil return true end,
-		CaptureActivationState = function() return { activeInstanceKey = lootKey } end,
+		GetActiveInstanceKey = function()
+			return lootKey
+		end,
+		ActivateInstance = function(key)
+			if key == "new raid" then
+				return false, "loot-rejected"
+			end
+			lootKey = key
+			return true
+		end,
+		DeactivateInstance = function()
+			lootKey = nil
+			return true
+		end,
+		CaptureActivationState = function()
+			return { activeInstanceKey = lootKey }
+		end,
 		RestoreActivationState = function(snapshot)
 			lootKey = snapshot.activeInstanceKey
 			return true
 		end,
 	}
 	addon.IgnoredMobs = {
-		GetActiveInstanceKey = function() return ignoredKey end,
-		ActivateInstance = function(key) ignoredCalls = ignoredCalls + 1 ignoredKey = key return true end,
-		DeactivateInstance = function() ignoredKey = nil return true end,
-		CaptureActivationState = function() return { activeInstanceKey = ignoredKey } end,
+		GetActiveInstanceKey = function()
+			return ignoredKey
+		end,
+		ActivateInstance = function(key)
+			ignoredCalls = ignoredCalls + 1
+			ignoredKey = key
+			return true
+		end,
+		DeactivateInstance = function()
+			ignoredKey = nil
+			return true
+		end,
+		CaptureActivationState = function()
+			return { activeInstanceKey = ignoredKey }
+		end,
 		RestoreActivationState = function(snapshot)
 			ignoredKey = snapshot.activeInstanceKey
 			return true
 		end,
 	}
-	_G.GetInstanceInfo = function() return "Localized", "raid", 1, nil, 10, 0, false, 999 end
+	_G.GetInstanceInfo = function()
+		return "Localized", "raid", 1, nil, 10, 0, false, 999
+	end
 	loadAddonFile(addon, "Raid Management Addon/Init.lua")
 	local ok, err = pcall(addon.ZONE_CHANGED_NEW_AREA, addon)
 	assertEqual(false, ok)
@@ -7165,32 +9586,57 @@ function cases.dataset_activation_reports_failed_rollback(addon)
 	local lootKey = "old raid"
 	local ignoredKey = "old raid"
 	addon.LootSourcesData = {
-		ResolveInstanceKey = function() return "new raid" end,
-		GetActiveInstanceKey = function() return lootKey end,
-		ActivateInstance = function(key)
-			if key == "old raid" and lootKey == "new raid" then return false, "rollback-refused" end
-			lootKey = key return true
+		ResolveInstanceKey = function()
+			return "new raid"
 		end,
-		DeactivateInstance = function() lootKey = nil return true end,
-		CaptureActivationState = function() return { activeInstanceKey = lootKey } end,
+		GetActiveInstanceKey = function()
+			return lootKey
+		end,
+		ActivateInstance = function(key)
+			if key == "old raid" and lootKey == "new raid" then
+				return false, "rollback-refused"
+			end
+			lootKey = key
+			return true
+		end,
+		DeactivateInstance = function()
+			lootKey = nil
+			return true
+		end,
+		CaptureActivationState = function()
+			return { activeInstanceKey = lootKey }
+		end,
 		RestoreActivationState = function()
 			return false
 		end,
 	}
 	addon.IgnoredMobs = {
-		GetActiveInstanceKey = function() return ignoredKey end,
-		ActivateInstance = function(key)
-			if key == "new raid" then ignoredKey = nil return false, "ignored-rejected" end
-			ignoredKey = key return true
+		GetActiveInstanceKey = function()
+			return ignoredKey
 		end,
-		DeactivateInstance = function() ignoredKey = nil return true end,
-		CaptureActivationState = function() return { activeInstanceKey = ignoredKey } end,
+		ActivateInstance = function(key)
+			if key == "new raid" then
+				ignoredKey = nil
+				return false, "ignored-rejected"
+			end
+			ignoredKey = key
+			return true
+		end,
+		DeactivateInstance = function()
+			ignoredKey = nil
+			return true
+		end,
+		CaptureActivationState = function()
+			return { activeInstanceKey = ignoredKey }
+		end,
 		RestoreActivationState = function(snapshot)
 			ignoredKey = snapshot.activeInstanceKey
 			return true
 		end,
 	}
-	_G.GetInstanceInfo = function() return "Localized", "raid", 1, nil, 10, 0, false, 999 end
+	_G.GetInstanceInfo = function()
+		return "Localized", "raid", 1, nil, 10, 0, false, 999
+	end
 	loadAddonFile(addon, "Raid Management Addon/Init.lua")
 	local ok, err = pcall(addon.ZONE_CHANGED_NEW_AREA, addon)
 	assertEqual(false, ok)
@@ -7203,7 +9649,11 @@ end
 
 function cases.dataset_activation_snapshots_restore_exact_generation(addon)
 	addon.L = {}
-	addon.LootSourceCandidates = { GetModeSignature = function() return "" end }
+	addon.LootSourceCandidates = {
+		GetModeSignature = function()
+			return ""
+		end,
+	}
 	addon.LootSourcesData = { Raw = {} }
 	loadAddonFile(addon, "Raid Management Addon/Modules/Dataset/LootSources/Wrath.lua")
 	loadAddonFile(addon, "Raid Management Addon/Modules/Dataset/LootSourcesData.lua")
@@ -7230,8 +9680,6 @@ function cases.dataset_activation_snapshots_restore_exact_generation(addon)
 	assertEqual("icecrown citadel", ignored.GetActiveInstanceKey())
 	print("PASS dataset_activation_snapshots_restore_exact_generation")
 end
-
-
 
 function cases.error_reporting_failure_cleans_dispatch_snapshot(addon)
 	local frame = installInitStubs(addon)
@@ -7594,12 +10042,20 @@ function cases.future_raid_schema_is_preserved(addon)
 	assertEqual("SCHEMA_VERSION_FUTURE", validation.details[1].code, "validator should report future schema")
 	assertTrue(deepEqual(before, raid), "validation must preserve the future record deeply")
 
-	_G.RMA_Raids = { deepCopy(future) }
-	local allBefore = deepCopy(_G.RMA_Raids[1])
+	_G.RMA_Raids = {
+		formatVersion = 1,
+		activeRaidUid = nil,
+		order = { "future-schema" },
+		raids = { ["future-schema"] = { state = deepCopy(future) } },
+	}
+	local allBefore = deepCopy(_G.RMA_Raids.raids["future-schema"].state)
 	local prepared, prepareError = addon.DB.RaidStore:PrepareAllRaidsForSave()
 	assertEqual(nil, prepared, "bulk save preparation should report rejection")
 	assertEqual("unsupported raid schema", prepareError, "bulk save preparation should return stable error")
-	assertTrue(deepEqual(allBefore, _G.RMA_Raids[1]), "bulk save preparation must preserve future record")
+	assertTrue(
+		deepEqual(allBefore, _G.RMA_Raids.raids["future-schema"].state),
+		"bulk save preparation must preserve future record"
+	)
 	print("PASS future_raid_schema_is_preserved")
 end
 
@@ -7882,8 +10338,12 @@ function cases.raid_validator_traverses_sparse_and_mapped_data(addon)
 		assertTrue(codes[code], "sparse raw validator should report " .. code)
 	end
 
-	_G.RMA_Raids = { [2] = raid, mapped = "malformed raid" }
+	local getRawRaids = addon.DB.RaidStore.GetRawRaids
+	addon.DB.RaidStore.GetRawRaids = function()
+		return { [2] = raid, mapped = "malformed raid" }
+	end
 	local report = addon.DB.RaidValidator:ValidateAllRaids({ maxDetails = 200 })
+	addon.DB.RaidStore.GetRawRaids = getRawRaids
 	assertEqual(2, report.raids, "all-raid validation must count sparse and mapped entries")
 	local raidNotTable = false
 	local raidKeyInvalid = false
@@ -7933,29 +10393,41 @@ function cases.raid_queries_guard_malformed_collections(addon)
 	print("PASS raid_queries_guard_malformed_collections")
 end
 
+function cases.raid_queries_preserve_last_duplicate_nid_resolution(addon)
+	installRaidDatabaseStubs(addon)
+	local queries = addon.DB.RaidQueries
+	local raid = canonicalRaidFixture()
+	raid.players[3] = { playerNid = 1, name = "Gamma", class = "DRUID", join = 10, leave = 90, countMS = 0 }
+	raid.bossKills[2] = { bossNid = 1, name = "Duplicate", time = 60, players = { 2 } }
+	raid.attendance[2] = { playerNid = 1, segments = { { startTime = 20, endTime = 40 } } }
+
+	local attendance = queries:GetRaidAttendance(raid)
+	assertEqual(20, attendance[1].attendanceSeconds, "last duplicate attendance entry must win")
+
+	local bossAttendance = queries:GetBossAttendance(raid, 1)
+	assertEqual(1, #bossAttendance, "last duplicate boss entry must define attendance")
+	assertEqual("Beta", bossAttendance[1].name, "last duplicate boss attendee must win")
+
+	local loot = queries:GetLoot(raid, 1, "Gamma")
+	assertEqual(1, #loot, "last duplicate player entry must still match loot")
+	assertEqual("Gamma", loot[1].looter, "last duplicate player name must win")
+	assertEqual("DRUID", loot[1].looterClass, "last duplicate player class must win")
+	print("PASS raid_queries_preserve_last_duplicate_nid_resolution")
+end
+
 function cases.raid_read_indexes_are_fresh_and_do_not_alias(addon)
 	installRaidDatabaseStubs(addon)
 	local raid = canonicalRaidFixture()
-	addon.DB.RaidStore:EnsureRaidRuntime(raid)
-	local readIndex = addon.DB.RaidStore:GetRaidRuntimeForRead(raid)
-	assertTrue(readIndex.playerByNid == nil, "read indexes must not expose canonical player aliases")
-	assertTrue(readIndex.bossByNid == nil, "read indexes must not expose canonical boss aliases")
-	assertTrue(readIndex.lootByNid == nil, "read indexes must not expose canonical loot aliases")
-	assertTrue(readIndex.attendanceByPlayerNid == nil, "read indexes must not expose canonical attendance aliases")
-	readIndex.playerIdxByNid[1] = 999
-	assertEqual("Alpha", raid.players[1].name, "mutating a read index must not mutate canonical rows")
+	local readRuntimeName = "GetRaidRuntime" .. "ForRead"
+	assertEqual(nil, addon.DB.RaidStore[readRuntimeName], "whole-raid read index API must be absent")
 
 	local queries = addon.DB.RaidQueries
 	assertEqual(1, #queries:GetLoot(raid, 1, "Alpha"), "initial query should use current content")
 	raid.players[1].name = "Gamma"
 	raid.loot[1].looterNid = 2
 	addon.DB.RaidStore:UpsertLootIndex(raid, raid.loot[1], 1)
-	assertEqual(
-		0,
-		#queries:GetLoot(raid, 1, "Alpha"),
-		"same-length player and loot changes must invalidate read lookup"
-	)
-	assertEqual(1, #queries:GetLoot(raid, 1, "Beta"), "query must observe same-length content changes")
+	assertEqual(0, #queries:GetLoot(raid, 1, "Alpha"), "query must observe same-length player and loot changes")
+	assertEqual(1, #queries:GetLoot(raid, 1, "Beta"), "query must observe the replacement looter")
 	print("PASS raid_read_indexes_are_fresh_and_do_not_alias")
 end
 
@@ -7983,7 +10455,7 @@ function cases.raid_query_output_buffers_never_alias_canonical_data(addon)
 		},
 		{
 			collection = function(raid)
-				return raid.bossKills[1].players
+				return raid.players
 			end,
 			call = function(raid, out)
 				return queries:GetBossAttendance(raid, 1, out)
@@ -8005,21 +10477,36 @@ function cases.raid_query_output_buffers_never_alias_canonical_data(addon)
 		local spec = casesToRun[i]
 		local raid = canonicalRaidFixture()
 		local before = deepCopy(raid)
-		local canonicalOut = spec.collection(raid)
-		local rows = spec.call(raid, canonicalOut)
-		assertEqual(spec.expected, #rows, "direct canonical output alias should return complete query " .. i)
-		assertTrue(rows ~= canonicalOut, "direct canonical output alias should be replaced for query " .. i)
-		assertTrue(deepEqual(before, raid), "direct canonical output alias must preserve raid for query " .. i)
+		local rows = spec.call(raid, raid)
+		assertEqual(spec.expected, #rows, "raid-root output alias should return complete query " .. i)
+		assertTrue(rows ~= raid, "raid-root output alias should allocate a fresh output table for query " .. i)
+		assertTrue(
+			rows[1] ~= spec.collection(raid)[1],
+			"raid-root output alias should allocate fresh rows for query " .. i
+		)
+		assertTrue(deepEqual(before, raid), "raid-root output alias must preserve raid for query " .. i)
 
 		raid = canonicalRaidFixture()
 		before = deepCopy(raid)
-		local canonicalRow = raid.players[1]
-		local callerOut = { canonicalRow, { stale = true }, { stale = true } }
+		local canonicalOut = spec.collection(raid)
+		rows = spec.call(raid, canonicalOut)
+		assertEqual(spec.expected, #rows, "top-level canonical output alias should return complete query " .. i)
+		assertTrue(rows ~= canonicalOut, "top-level canonical output alias should be replaced for query " .. i)
+		assertTrue(deepEqual(before, raid), "top-level output alias must preserve raid for query " .. i)
+
+		raid = canonicalRaidFixture()
+		before = deepCopy(raid)
+		local sourceRow = spec.collection(raid)[1]
+		local sourceRowOut = { sourceRow }
+		rows = spec.call(raid, sourceRowOut)
+		assertTrue(rows == sourceRowOut, "caller-owned source-row output table should remain reusable for query " .. i)
+		assertTrue(rows[1] ~= sourceRow, "direct source-row reuse should allocate a fresh row for query " .. i)
+		assertTrue(deepEqual(before, raid), "direct source-row reuse must preserve raid for query " .. i)
+
+		raid = canonicalRaidFixture()
+		local callerOut = { { stale = true }, { stale = true }, { stale = true } }
 		rows = spec.call(raid, callerOut)
-		assertEqual(spec.expected, #rows, "canonical row-prefilled output should return complete query " .. i)
-		assertTrue(rows == callerOut, "safe caller-owned output table should remain reusable for query " .. i)
-		assertTrue(rows[1] ~= canonicalRow, "canonical row alias should be replaced for query " .. i)
-		assertTrue(deepEqual(before, raid), "canonical row-prefilled output must preserve raid for query " .. i)
+		assertTrue(rows == callerOut, "caller-owned output table should remain reusable for query " .. i)
 	end
 	print("PASS raid_query_output_buffers_never_alias_canonical_data")
 end
@@ -8050,73 +10537,114 @@ end
 
 local function installRealReservesMutationFixture(addon)
 	local fixture = { timers = {}, events = {}, diagnostics = {} }
-	table.wipe = table.wipe or function(value)
-		for key in pairs(value) do value[key] = nil end
-		return value
-	end
+	table.wipe = table.wipe
+		or function(value)
+			for key in pairs(value) do
+				value[key] = nil
+			end
+			return value
+		end
 	_G.GetItemInfo = function(itemRef)
 		return tostring(itemRef), "item:" .. tostring(itemRef), nil, nil, nil, nil, nil, nil, nil, "icon"
 	end
-	addon.L = setmetatable({ StrUnknown = "Unknown" }, { __index = function(_, key) return key end })
+	addon.L = setmetatable({ StrUnknown = "Unknown" }, {
+		__index = function(_, key)
+			return key
+		end,
+	})
 	addon.Diag = {
-		D = setmetatable({}, { __index = function() return "%s" end }),
-		E = setmetatable({}, { __index = function() return "%s" end }),
+		D = setmetatable({}, {
+			__index = function()
+				return "%s"
+			end,
+		}),
+		E = setmetatable({}, {
+			__index = function()
+				return "%s"
+			end,
+		}),
 	}
 	addon.C = { RESERVES_ITEM_FALLBACK_ICON = "fallback" }
 	addon.Events.Internal = { ReservesDataChanged = "ReservesDataChanged" }
 	addon.Bus.TriggerEvent = function(_, ...)
-		if fixture.failStage == "event" then error("injected event failure") end
+		if fixture.failStage == "event" then
+			error("injected event failure")
+		end
 		fixture.events[#fixture.events + 1] = { ... }
 	end
 	addon.debug = function()
-		if fixture.failStage == "debug" then error("injected debug failure") end
+		if fixture.failStage == "debug" then
+			error("injected debug failure")
+		end
 	end
 	addon.info = function()
-		if fixture.failStage == "info" then error("injected info failure") end
+		if fixture.failStage == "info" then
+			error("injected info failure")
+		end
 	end
 	addon.Strings = {
-		NormalizeName = function(value) return value end,
+		NormalizeName = function(value)
+			return value
+		end,
 		NormalizeLower = function(value)
-			if type(value) ~= "string" then return nil end
+			if type(value) ~= "string" then
+				return nil
+			end
 			return string.lower(value)
 		end,
-		TrimText = function(value) return value end,
+		TrimText = function(value)
+			return value
+		end,
 	}
 	addon.Item = {
-		GetItemIdFromLink = function(value) return tonumber(value) end,
+		GetItemIdFromLink = function(value)
+			return tonumber(value)
+		end,
 	}
 	addon.LootSources = {}
 	addon.Timer = {
 		BindMixin = function(target)
 			target.ScheduleTimer = function(_, callback)
 				local failure = fixture.scheduleFailures and table.remove(fixture.scheduleFailures, 1)
-				if failure == "throw" then error("injected schedule failure") end
-				if failure == "nil" then return nil end
+				if failure == "throw" then
+					error("injected schedule failure")
+				end
+				if failure == "nil" then
+					return nil
+				end
 				local timer = { callback = callback, active = true }
 				fixture.timers[#fixture.timers + 1] = timer
 				return timer
 			end
 			target.CancelTimer = function(_, timer)
-				if not timer or not timer.active then return false end
+				if not timer or not timer.active then
+					return false
+				end
 				timer.active = false
 				return true
 			end
 		end,
 	}
 	addon.Options = {
-		IsDebugEnabled = function() return fixture.failStage == "debug" end,
+		IsDebugEnabled = function()
+			return fixture.failStage == "debug"
+		end,
 		RegisterNamespace = function(_, defaults)
 			local values = deepCopy(defaults)
 			fixture.optionValues = values
 			return {
-				Get = function(_, key) return values[key] end,
+				Get = function(_, key)
+					return values[key]
+				end,
 				Set = function(_, key, value)
 					if fixture.failStage == "alias_option" and key == "nameAliases" then
 						fixture.failStage = nil
 						error("injected alias option failure")
 					end
 					local old = values[key]
-					if old == value then return true end
+					if old == value then
+						return true
+					end
 					values[key] = value
 					if key == "srImportMode" and fixture.optionObserver then
 						fixture.optionObserver(key, old, value)
@@ -8138,14 +10666,23 @@ local function installRealReservesMutationFixture(addon)
 	addon.Services.Reserves = {
 		_Aliases = {
 			CopyAliasMap = function(source)
-				local copied = {}; for key, value in pairs(source or {}) do copied[key] = value end; return copied
+				local copied = {}
+				for key, value in pairs(source or {}) do
+					copied[key] = value
+				end
+				return copied
 			end,
 			SetAlias = function(target, reserveName, raidName)
-				target[string.lower(reserveName)] = raidName; return true
+				target[string.lower(reserveName)] = raidName
+				return true
 			end,
 			ClearAlias = function(target, reserveName)
-				local key = string.lower(reserveName); if target[key] == nil then return false, "missing_alias" end
-				target[key] = nil; return true
+				local key = string.lower(reserveName)
+				if target[key] == nil then
+					return false, "missing_alias"
+				end
+				target[key] = nil
+				return true
 			end,
 			BuildAliasState = function(source)
 				local state = { reserveKeyByRaidKey = {} }
@@ -8156,11 +10693,15 @@ local function installRealReservesMutationFixture(addon)
 			end,
 			ResolveReserveKey = function(state, data, playerName)
 				local key = type(playerName) == "string" and string.lower(playerName) or nil
-				if key and data[key] then return key end
+				if key and data[key] then
+					return key
+				end
 				local reserveKey = key and state.reserveKeyByRaidKey[key] or nil
 				return reserveKey and data[reserveKey] and reserveKey or nil
 			end,
-			GetAliasMatches = function() return {} end,
+			GetAliasMatches = function()
+				return {}
+			end,
 		},
 		_Display = {
 			RebuildIndex = function(ctx)
@@ -8195,30 +10736,40 @@ local function installRealReservesMutationFixture(addon)
 				end
 				ctx.setDirty(true)
 			end,
-			GetDisplayList = function() return {} end,
+			GetDisplayList = function()
+				return {}
+			end,
 		},
 	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Reserves/Import.lua")
-	addon.Database.GetCurrentRaid = function() return nil end
+	addon.Database.GetCurrentRaid = function()
+		return nil
+	end
 	addon.Database.SavedVariables = {
 		GetReserves = function()
 			_G.RMA_Reserves = _G.RMA_Reserves or {}
 			return _G.RMA_Reserves
 		end,
 		ReplaceReserves = function(value)
-			if fixture.failReplace then error("injected reserve persistence failure") end
+			if fixture.failReplace then
+				error("injected reserve persistence failure")
+			end
 			fixture.saveCount = (fixture.saveCount or 0) + 1
 			_G.RMA_Reserves = deepCopy(value or {})
 			return _G.RMA_Reserves
 		end,
-		ClearReserves = function() _G.RMA_Reserves = nil end,
+		ClearReserves = function()
+			_G.RMA_Reserves = nil
+		end,
 	}
 	_G.RMA_Reserves = {}
 	loadAddonFile(addon, "Raid Management Addon/Services/Reserves.lua")
 	function fixture:RunTimer(index, includeCancelled)
 		local timer = self.timers[index]
 		assertTrue(timer ~= nil, "missing reserves fixture timer " .. tostring(index))
-		if not timer.active and not includeCancelled then return false end
+		if not timer.active and not includeCancelled then
+			return false
+		end
 		timer.active = false
 		timer.callback()
 		return true
@@ -8229,17 +10780,23 @@ end
 function cases.reserves_bulk_edits_are_atomic(addon)
 	local reserves, fixture = installRealReservesMutationFixture(addon)
 	local synced = {
-		alpha = { playerNameDisplay = "Alpha", reserves = {
-			{ rawID = 100, itemName = "Item", quantity = 2, plus = 3 },
-			{ rawID = 200, itemName = "Other", quantity = 1, plus = 0 },
-		} },
+		alpha = {
+			playerNameDisplay = "Alpha",
+			reserves = {
+				{ rawID = 100, itemName = "Item", quantity = 2, plus = 3 },
+				{ rawID = 200, itemName = "Other", quantity = 1, plus = 0 },
+			},
+		},
 	}
 	assertTrue(reserves:SetSyncedData(synced, { source = "Leader", checksum = "fixture", mode = "multi" }))
 	assertEqual(true, reserves:HasItemReserves(100), "synced baseline must build the item index")
 	assertEqual(true, reserves:HasItemReserves(200), "synced baseline must index every reserve item")
 	local serializationName = table.concat({ "Build", "Canonical", "Serialization" })
-	assertEqual(nil, reserves[serializationName],
-		"canonical serialization must remain a private reserve implementation detail")
+	assertEqual(
+		nil,
+		reserves[serializationName],
+		"canonical serialization must remain a private reserve implementation detail"
+	)
 	local savedBefore = deepCopy(_G.RMA_Reserves)
 	local savesBefore, eventsBefore = fixture.saveCount or 0, #fixture.events
 	local ok, reason, rowIndex = reserves:ApplyBatch({
@@ -8285,17 +10842,25 @@ function cases.reserves_bulk_edits_are_atomic(addon)
 	assertEqual(nil, ok, "detached index failure must reject the batch")
 	assertEqual("publish_failed", reason, "detached index failure reason differs")
 	assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "failed detached build must preserve SavedVariables values")
-	assertTrue(deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
-		"failed detached build must preserve runtime values")
-	assertEqual(2, reserves:GetReserveCountForItem(100, "Alpha"),
-		"derived reserve lookup must match the preserved state")
+	assertTrue(
+		deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
+		"failed detached build must preserve runtime values"
+	)
+	assertEqual(
+		2,
+		reserves:GetReserveCountForItem(100, "Alpha"),
+		"derived reserve lookup must match the preserved state"
+	)
 	assertEqual(true, reserves:HasItemReserves(100), "failed detached build must preserve the published item index")
 	assertEqual(true, reserves:GetSyncMetadata().runtime, "detached index failure must retain synced cache ownership")
 	assertEqual(savesBefore, fixture.saveCount or 0, "failed detached build must not save")
 	assertEqual(eventsBefore, #fixture.events, "failed detached build must not publish")
 
 	for _, malformed in ipairs({
-		{ [1] = { kind = "quantity", playerName = "Alpha", itemId = 100, value = 4 }, [3] = { kind = "plus", playerName = "Alpha", itemId = 200, value = 1 } },
+		{
+			[1] = { kind = "quantity", playerName = "Alpha", itemId = 100, value = 4 },
+			[3] = { kind = "plus", playerName = "Alpha", itemId = 200, value = 1 },
+		},
 		{ alpha = { kind = "quantity", playerName = "Alpha", itemId = 100, value = 4 } },
 		{ { kind = "quantity", playerName = "Alpha", itemId = "100", value = 4 } },
 		{ { kind = "quantity", playerName = "Alpha", itemId = 100, value = 4, extra = true } },
@@ -8305,7 +10870,9 @@ function cases.reserves_bulk_edits_are_atomic(addon)
 		assertEqual("invalid_input", reason, "malformed batch reason differs")
 	end
 	local oversized = {}
-	for i = 1, 501 do oversized[i] = { kind = "quantity", playerName = "Alpha", itemId = 100, value = i + 2 } end
+	for i = 1, 501 do
+		oversized[i] = { kind = "quantity", playerName = "Alpha", itemId = 100, value = i + 2 }
+	end
 	ok, reason = reserves:ApplyBatch(oversized)
 	assertEqual(nil, ok, "oversized batch must fail")
 	assertEqual("too_many_commands", reason, "oversized batch reason differs")
@@ -8331,7 +10898,11 @@ function cases.reserves_bulk_edits_are_atomic(addon)
 	assertEqual(3, summary.commands, "batch summary command count differs")
 	assertEqual(successSaves + 1, fixture.saveCount or 0, "successful batch must save once")
 	assertEqual(successEvents + 1, #fixture.events, "successful batch must publish once")
-	assertEqual(2, reserves:GetPlayerReserveEntries("Alpha")[1].quantity, "reverted quantity must retain original value")
+	assertEqual(
+		2,
+		reserves:GetPlayerReserveEntries("Alpha")[1].quantity,
+		"reverted quantity must retain original value"
+	)
 	assertEqual(5, reserves:GetPlayerReserveEntries("Alpha")[2].plus, "plus edit missing")
 	assertEqual(true, reserves:HasItemReserves(200), "successful batch must publish the detached item index")
 	assertEqual(false, reserves:GetSyncMetadata().runtime, "successful batch must promote synced cache once")
@@ -8340,32 +10911,64 @@ end
 
 function cases.reserves_single_edits_rollback_exact_state(addon)
 	local operations = {
-		{ name = "quantity", call = function(reserves) return reserves:SetPlayerReserveQuantity("Alpha", 100, 4) end },
-		{ name = "plus", call = function(reserves) return reserves:SetPlayerReservePlus("Alpha", 100, 7) end },
-		{ name = "remove", call = function(reserves) return reserves:RemovePlayerReserve("Alpha", 100) end },
+		{
+			name = "quantity",
+			call = function(reserves)
+				return reserves:SetPlayerReserveQuantity("Alpha", 100, 4)
+			end,
+		},
+		{
+			name = "plus",
+			call = function(reserves)
+				return reserves:SetPlayerReservePlus("Alpha", 100, 7)
+			end,
+		},
+		{
+			name = "remove",
+			call = function(reserves)
+				return reserves:RemovePlayerReserve("Alpha", 100)
+			end,
+		},
 	}
 	for _, operation in ipairs(operations) do
 		for _, fault in ipairs({ "replace", "index" }) do
 			local reserves, fixture = installRealReservesMutationFixture(addon)
-			local player = { playerNameDisplay = "Alpha", reserves = {
-				{ rawID = 100, itemName = "Item 100", quantity = 1, plus = 0 },
-			} }
-			assertTrue(reserves:SetSyncedData({ alpha = player },
-				{ source = "Leader", checksum = "fixture", mode = "multi" }), "synced baseline must load")
+			local player = {
+				playerNameDisplay = "Alpha",
+				reserves = {
+					{ rawID = 100, itemName = "Item 100", quantity = 1, plus = 0 },
+				},
+			}
+			assertTrue(
+				reserves:SetSyncedData({ alpha = player }, { source = "Leader", checksum = "fixture", mode = "multi" }),
+				"synced baseline must load"
+			)
 			local savedBefore = deepCopy(_G.RMA_Reserves)
 			local runtimeBefore = deepCopy(select(1, reserves._Sync:GetPayload()))
 			local eventsBefore, savesBefore = #fixture.events, fixture.saveCount or 0
-			if fault == "replace" then fixture.failReplace = true else fixture.failStage = "index" end
+			if fault == "replace" then
+				fixture.failReplace = true
+			else
+				fixture.failStage = "index"
+			end
 			local invoked, changed, reason = pcall(operation.call, reserves)
 			fixture.failReplace, fixture.failStage = nil, nil
 			assertEqual(true, invoked, operation.name .. " must contain " .. fault .. " fault")
 			assertTrue(not changed, operation.name .. " must fail on " .. fault .. " fault")
 			assertEqual("publish_failed", reason, operation.name .. " fault reason differs")
-			assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), operation.name .. " must preserve SavedVariables values")
-			assertTrue(deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
-				operation.name .. " must preserve runtime values")
-			assertEqual(1, reserves:GetReserveCountForItem(100, "Alpha"),
-				operation.name .. " derived lookup must match the preserved state")
+			assertTrue(
+				deepEqual(savedBefore, _G.RMA_Reserves),
+				operation.name .. " must preserve SavedVariables values"
+			)
+			assertTrue(
+				deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
+				operation.name .. " must preserve runtime values"
+			)
+			assertEqual(
+				1,
+				reserves:GetReserveCountForItem(100, "Alpha"),
+				operation.name .. " derived lookup must match the preserved state"
+			)
 			assertEqual(true, reserves:GetSyncMetadata().runtime, operation.name .. " must preserve cache ownership")
 			assertEqual(eventsBefore, #fixture.events, operation.name .. " fault must not publish")
 			if fault == "replace" then
@@ -8385,24 +10988,66 @@ function cases.reserves_bulk_edit_ui_retains_failed_edits(addon)
 	local deferConfirmation = false
 	addon.Widgets = {}
 	addon.L = setmetatable({
-		BtnSave = "Save", BtnCancel = "Cancel", BtnEdit = "Edit",
-		ErrReserveEditRow = "Row %d: %s", ErrReserveEditMissingItem = "missing item",
-		ErrReserveEditFailed = "failed", StrConfirmApplyReserveEdits = "Apply %d?",
-	}, { __index = function(_, key) return key end })
-	addon.Diag = { D = setmetatable({}, { __index = function() return "%s" end }) }
+		BtnSave = "Save",
+		BtnCancel = "Cancel",
+		BtnEdit = "Edit",
+		ErrReserveEditRow = "Row %d: %s",
+		ErrReserveEditMissingItem = "missing item",
+		ErrReserveEditFailed = "failed",
+		StrConfirmApplyReserveEdits = "Apply %d?",
+	}, {
+		__index = function(_, key)
+			return key
+		end,
+	})
+	addon.Diag = { D = setmetatable({}, {
+		__index = function()
+			return "%s"
+		end,
+	}) }
 	addon.C = { RESERVES_QUERY_COOLDOWN_SECONDS = 2, RESERVES_ITEM_FALLBACK_ICON = "fallback" }
-	addon.Options = { IsDebugEnabled = function() return false end, Get = function() return nil end }
+	addon.Options = {
+		IsDebugEnabled = function()
+			return false
+		end,
+		Get = function()
+			return nil
+		end,
+	}
 	addon.Events.Internal = { ReservesDataChanged = "ReservesDataChanged" }
 	addon.Bus.RegisterCallback = noop
-	addon.Colors = { GetClassColor = function() return 1, 1, 1 end }
+	addon.Colors = {
+		GetClassColor = function()
+			return 1, 1, 1
+		end,
+	}
 	addon.Services.Chat = { Announce = noop }
-	addon.Services.Raid = { GetPlayerClass = function() return nil end }
+	addon.Services.Raid = {
+		GetPlayerClass = function()
+			return nil
+		end,
+	}
 	addon.Services.Reserves = {
-		HasData = function() return true end, IsPlusSystem = function() return false end,
-		HasPendingItem = function() return false end, RemovePlayerReserve = noop,
-		ClearSavedReserves = noop, GetDisplayList = function() return {} end,
-		GetImportMode = function() return "multi" end, ParseImport = noop,
-		RequestApplyImport = noop, SetImportMode = noop,
+		HasData = function()
+			return true
+		end,
+		IsPlusSystem = function()
+			return false
+		end,
+		HasPendingItem = function()
+			return false
+		end,
+		RemovePlayerReserve = noop,
+		ClearSavedReserves = noop,
+		GetDisplayList = function()
+			return {}
+		end,
+		GetImportMode = function()
+			return "multi"
+		end,
+		ParseImport = noop,
+		RequestApplyImport = noop,
+		SetImportMode = noop,
 		ApplyBatch = function(_, commands)
 			batchCalls = batchCalls + 1
 			assertEqual(1, #commands, "UI must submit one batch command")
@@ -8415,39 +11060,74 @@ function cases.reserves_bulk_edit_ui_retains_failed_edits(addon)
 	local refreshCount = 0
 	addon.UI = {
 		Frames = {
-			MakeModuleFrameGetter = function() return function() return nil end end,
-			SetScriptSafely = function(widget, name, callback) widget[name] = callback end,
-			SetFrameTitle = noop, BindModuleFrame = noop,
+			MakeModuleFrameGetter = function()
+				return function()
+					return nil
+				end
+			end,
+			SetScriptSafely = function(widget, name, callback)
+				widget[name] = callback
+			end,
+			SetFrameTitle = noop,
+			BindModuleFrame = noop,
 		},
-		Scaffold = { DefineModule = function(config)
-			configs[#configs + 1] = config
-			config.module.RequestRefresh = function() refreshCount = refreshCount + 1 end
-		end },
+		Scaffold = {
+			DefineModule = function(config)
+				configs[#configs + 1] = config
+				config.module.RequestRefresh = function()
+					refreshCount = refreshCount + 1
+				end
+			end,
+		},
 		Popups = {
-			Define = noop, DefineConfirm = noop, IsDefined = function() return false end,
-			Show = function() return false end,
+			Define = noop,
+			DefineConfirm = noop,
+			IsDefined = function()
+				return false
+			end,
+			Show = function()
+				return false
+			end,
 			ShowConfirm = function(_, _, onAccept)
 				if deferConfirmation then
 					deferredAccept = onAccept
 					deferredAccepts[#deferredAccepts + 1] = onAccept
-				else onAccept() end
+				else
+					onAccept()
+				end
 				return true
 			end,
 		},
-		Primitives = { SetEnabled = noop }, EditBoxes = {},
+		Primitives = { SetEnabled = noop },
+		EditBoxes = {},
 		Tooltips = { Hide = noop, ShowItem = noop, Bind = noop },
-		ModuleState = { Ensure = function(module)
-			local state = moduleStates[module]
-			if not state then state = { FrameName = "RMAReserveListFrame" }; moduleStates[module] = state end
-			return state
-		end },
+		ModuleState = {
+			Ensure = function(module)
+				local state = moduleStates[module]
+				if not state then
+					state = { FrameName = "RMAReserveListFrame" }
+					moduleStates[module] = state
+				end
+				return state
+			end,
+		},
 	}
-	_G.GetTime = function() return 0 end
-	_G.GetNumRaidMembers = function() return 0 end
-	_G.UnitName = function() return "Tester" end
+	_G.GetTime = function()
+		return 0
+	end
+	_G.GetNumRaidMembers = function()
+		return 0
+	end
+	_G.UnitName = function()
+		return "Tester"
+	end
 	_G.RMAReserveListFrameSoftResStatusText = {
-		SetText = function(self, value) self.text = value end,
-		SetTextColor = function(self, r, g, b) self.color = { r, g, b } end,
+		SetText = function(self, value)
+			self.text = value
+		end,
+		SetTextColor = function(self, r, g, b)
+			self.color = { r, g, b }
+		end,
 	}
 	loadAddonFile(addon, "Raid Management Addon/Widgets/ReservesUI.lua")
 	local editButton = {}
@@ -8457,22 +11137,39 @@ function cases.reserves_bulk_edit_ui_retains_failed_edits(addon)
 	local collect
 	for i = 1, 20 do
 		local name, value = debug.getupvalue(editButton.OnClick, i)
-		if not name then break end
-		if name == "collectVisibleReserveEdits" then collect = value break end
+		if not name then
+			break
+		end
+		if name == "collectVisibleReserveEdits" then
+			collect = value
+			break
+		end
 	end
 	assertTrue(type(collect) == "function", "reserve edit collector upvalue missing")
 	local rows
 	for i = 1, 20 do
 		local name, value = debug.getupvalue(collect, i)
-		if not name then break end
-		if name == "reserveItemRows" then rows = value break end
+		if not name then
+			break
+		end
+		if name == "reserveItemRows" then
+			rows = value
+			break
+		end
 	end
 	assertTrue(type(rows) == "table", "reserve row storage upvalue missing")
 	local editBox = {
-		_RMAReserveEditBase = "2", text = "4",
-		GetText = function(self) return self.text end,
-		SetText = function(self, value) self.text = value end,
-		SetTextColor = function(self, r, g, b) self.color = { r, g, b } end,
+		_RMAReserveEditBase = "2",
+		text = "4",
+		GetText = function(self)
+			return self.text
+		end,
+		SetText = function(self, value)
+			self.text = value
+		end,
+		SetTextColor = function(self, r, g, b)
+			self.color = { r, g, b }
+		end,
 	}
 	rows[1] = { quantityEdit = editBox, _itemId = 100, _playerName = "Alpha" }
 	local pending = collect()
@@ -8495,9 +11192,14 @@ function cases.reserves_bulk_edit_ui_retains_failed_edits(addon)
 	editButton.OnClick()
 	assertTrue(type(deferredAccept) == "function", "confirmation callback must be deferred for stale-row test")
 	local reusedBox = {
-		_RMAReserveEditBase = "8", text = "9",
-		GetText = function(self) return self.text end,
-		SetTextColor = function(self, r, g, b) self.color = { r, g, b } end,
+		_RMAReserveEditBase = "8",
+		text = "9",
+		GetText = function(self)
+			return self.text
+		end,
+		SetTextColor = function(self, r, g, b)
+			self.color = { r, g, b }
+		end,
 	}
 	rows[1] = { quantityEdit = reusedBox, _itemId = 999, _playerName = "Beta" }
 	deferredAccept()
@@ -8536,10 +11238,13 @@ end
 
 function cases.reserves_async_import_snapshots_input_and_publishes_once(addon)
 	local reserves, fixture = installRealReservesMutationFixture(addon)
-	local parsed = { mode = "multi", reservesData = {
-		alpha = reserveImportPlayer("Alpha", 100),
-		beta = reserveImportPlayer("Beta", 200),
-	} }
+	local parsed = {
+		mode = "multi",
+		reservesData = {
+			alpha = reserveImportPlayer("Alpha", 100),
+			beta = reserveImportPlayer("Beta", 200),
+		},
+	}
 	local callbacks = {}
 	local opts = { chunkSize = 1, silentInfo = true, reason = "snapshotted-reason" }
 	reserves:RequestApplyImport(parsed, 7, function(...)
@@ -8573,13 +11278,33 @@ function cases.reserves_async_import_replacement_cancel_and_stale_callbacks_are_
 	local savedBefore = deepCopy(_G.RMA_Reserves)
 	local eventsBefore = #fixture.events
 	local firstResults, secondResults = {}, {}
-	local first = reserves:RequestApplyImport({ reservesData = {
-		alpha = reserveImportPlayer("Alpha", 100), beta = reserveImportPlayer("Beta", 200),
-	} }, nil, function(...) firstResults[#firstResults + 1] = { ... } end, { chunkSize = 1, silentInfo = true })
+	local first = reserves:RequestApplyImport(
+		{
+			reservesData = {
+				alpha = reserveImportPlayer("Alpha", 100),
+				beta = reserveImportPlayer("Beta", 200),
+			},
+		},
+		nil,
+		function(...)
+			firstResults[#firstResults + 1] = { ... }
+		end,
+		{ chunkSize = 1, silentInfo = true }
+	)
 	local staleTimerIndex = #fixture.timers
-	local second = reserves:RequestApplyImport({ reservesData = {
-		gamma = reserveImportPlayer("Gamma", 300), delta = reserveImportPlayer("Delta", 400),
-	} }, nil, function(...) secondResults[#secondResults + 1] = { ... } end, { chunkSize = 1, silentInfo = true })
+	local second = reserves:RequestApplyImport(
+		{
+			reservesData = {
+				gamma = reserveImportPlayer("Gamma", 300),
+				delta = reserveImportPlayer("Delta", 400),
+			},
+		},
+		nil,
+		function(...)
+			secondResults[#secondResults + 1] = { ... }
+		end,
+		{ chunkSize = 1, silentInfo = true }
+	)
 	assertEqual(1, #firstResults, "replacement must terminate prior callback exactly once")
 	assertEqual(false, firstResults[1][1], "replacement must report non-success")
 	assertEqual("cancelled", firstResults[1][2], "replacement must use stable cancelled result")
@@ -8603,14 +11328,17 @@ end
 
 function cases.reserves_async_import_failure_rolls_back_and_callbacks_are_reentrant(addon)
 	local reserves, fixture = installRealReservesMutationFixture(addon)
-	assertTrue(reserves:ApplyImport({ reservesData = { base = reserveImportPlayer("Base", 50) } }, nil,
-		{ silentInfo = true }), "baseline import must succeed")
+	assertTrue(
+		reserves:ApplyImport({ reservesData = { base = reserveImportPlayer("Base", 50) } }, nil, { silentInfo = true }),
+		"baseline import must succeed"
+	)
 	local savedBefore = deepCopy(_G.RMA_Reserves)
 	local eventsBefore = #fixture.events
 	fixture.failReplace = true
 	local failed = {}
-	reserves:RequestApplyImport({ reservesData = { alpha = reserveImportPlayer("Alpha", 100) } }, nil,
-		function(...) failed[#failed + 1] = { ... } end, { chunkSize = 1, silentInfo = true })
+	reserves:RequestApplyImport({ reservesData = { alpha = reserveImportPlayer("Alpha", 100) } }, nil, function(...)
+		failed[#failed + 1] = { ... }
+	end, { chunkSize = 1, silentInfo = true })
 	fixture:RunTimer(#fixture.timers)
 	assertEqual(1, #failed, "failed import callback must run exactly once")
 	assertEqual(false, failed[1][1], "persistence failure must report non-success")
@@ -8622,17 +11350,32 @@ function cases.reserves_async_import_failure_rolls_back_and_callbacks_are_reentr
 
 	fixture.failReplace = false
 	local nestedResults = {}
-	reserves:RequestApplyImport({ reservesData = {
-		old = reserveImportPlayer("Old", 200), extra = reserveImportPlayer("Extra", 201),
-	} }, nil, function(ok, result)
-		if not ok and result == "cancelled" then
-			reserves:RequestApplyImport({ reservesData = { newest = reserveImportPlayer("Newest", 300) } }, nil,
-				function(...) nestedResults[#nestedResults + 1] = { ... } end,
-				{ chunkSize = 1, silentInfo = true })
-		end
-	end, { chunkSize = 1, silentInfo = true })
-	reserves:RequestApplyImport({ reservesData = { outer = reserveImportPlayer("Outer", 400) } }, nil,
-		function() end, { chunkSize = 1, silentInfo = true })
+	reserves:RequestApplyImport(
+		{ reservesData = {
+			old = reserveImportPlayer("Old", 200),
+			extra = reserveImportPlayer("Extra", 201),
+		} },
+		nil,
+		function(ok, result)
+			if not ok and result == "cancelled" then
+				reserves:RequestApplyImport(
+					{ reservesData = { newest = reserveImportPlayer("Newest", 300) } },
+					nil,
+					function(...)
+						nestedResults[#nestedResults + 1] = { ... }
+					end,
+					{ chunkSize = 1, silentInfo = true }
+				)
+			end
+		end,
+		{ chunkSize = 1, silentInfo = true }
+	)
+	reserves:RequestApplyImport(
+		{ reservesData = { outer = reserveImportPlayer("Outer", 400) } },
+		nil,
+		function() end,
+		{ chunkSize = 1, silentInfo = true }
+	)
 	fixture:RunTimer(#fixture.timers)
 	assertEqual(1, #nestedResults, "reentrant replacement must remain the active import")
 	assertEqual(true, nestedResults[1][1], "reentrant replacement must complete")
@@ -8643,26 +11386,50 @@ end
 
 function cases.reserves_async_import_rejects_noncanonical_and_sparse_sources(addon)
 	local reserves, fixture = installRealReservesMutationFixture(addon)
-	assertTrue(reserves:ApplyImport({ reservesData = { base = reserveImportPlayer("Base", 50) } }, nil,
-		{ silentInfo = true }), "baseline import must succeed")
+	assertTrue(
+		reserves:ApplyImport({ reservesData = { base = reserveImportPlayer("Base", 50) } }, nil, { silentInfo = true }),
+		"baseline import must succeed"
+	)
 	local savedBefore = deepCopy(_G.RMA_Reserves)
 	local runtimeBefore = deepCopy(select(1, reserves._Sync:GetPayload()))
 	local malformed = {
-		{ reservesData = { alpha = { playerNameDisplay = "Alpha", reserves = {
-			[1] = { rawID = 100, quantity = 1, plus = 0 },
-			[3] = { rawID = 300, quantity = 1, plus = 0 },
-		} } } },
-		{ reservesData = { alpha = { playerNameDisplay = "Alpha", reserves = {
-			{ rawID = 100, quantity = 1, plus = 0, source = { mutable = true } },
-		} } } },
-		{ reservesData = { alpha = { playerNameDisplay = "Alpha", reserves = {
-			{ rawID = 100, quantity = 1, plus = 0, unknown = {} },
-		} } } },
+		{
+			reservesData = {
+				alpha = {
+					playerNameDisplay = "Alpha",
+					reserves = {
+						[1] = { rawID = 100, quantity = 1, plus = 0 },
+						[3] = { rawID = 300, quantity = 1, plus = 0 },
+					},
+				},
+			},
+		},
+		{
+			reservesData = {
+				alpha = {
+					playerNameDisplay = "Alpha",
+					reserves = {
+						{ rawID = 100, quantity = 1, plus = 0, source = { mutable = true } },
+					},
+				},
+			},
+		},
+		{
+			reservesData = {
+				alpha = {
+					playerNameDisplay = "Alpha",
+					reserves = {
+						{ rawID = 100, quantity = 1, plus = 0, unknown = {} },
+					},
+				},
+			},
+		},
 	}
 	for i = 1, #malformed do
 		local results = {}
-		reserves:RequestApplyImport(malformed[i], nil, function(...) results[#results + 1] = { ... } end,
-			{ chunkSize = 1, silentInfo = true })
+		reserves:RequestApplyImport(malformed[i], nil, function(...)
+			results[#results + 1] = { ... }
+		end, { chunkSize = 1, silentInfo = true })
 		assertEqual(1, #results, "malformed import callback must be terminal at row " .. i)
 		assertEqual(false, results[1][1], "malformed import must fail at row " .. i)
 		assertEqual("failed", results[1][2], "malformed import must use stable result at row " .. i)
@@ -8670,23 +11437,31 @@ function cases.reserves_async_import_rejects_noncanonical_and_sparse_sources(add
 	end
 	assertEqual(0, #fixture.timers, "malformed imports must not schedule work")
 	assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "malformed imports must preserve values")
-	assertTrue(deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
-		"malformed imports must preserve runtime values")
-	assertEqual(1, reserves:GetReserveCountForItem(50, "Base"),
-		"malformed imports must preserve derived reserve lookup")
+	assertTrue(
+		deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
+		"malformed imports must preserve runtime values"
+	)
+	assertEqual(
+		1,
+		reserves:GetReserveCountForItem(50, "Base"),
+		"malformed imports must preserve derived reserve lookup"
+	)
 	print("PASS reserves_async_import_rejects_noncanonical_and_sparse_sources")
 end
 
 function cases.reserves_async_import_scheduler_failures_are_terminal(addon)
 	local reserves, fixture = installRealReservesMutationFixture(addon)
-	assertTrue(reserves:ApplyImport({ reservesData = { base = reserveImportPlayer("Base", 50) } }, nil,
-		{ silentInfo = true }), "baseline import must succeed")
+	assertTrue(
+		reserves:ApplyImport({ reservesData = { base = reserveImportPlayer("Base", 50) } }, nil, { silentInfo = true }),
+		"baseline import must succeed"
+	)
 	local savedBefore = deepCopy(_G.RMA_Reserves)
 	for _, failure in ipairs({ "throw", "nil" }) do
 		fixture.scheduleFailures = { failure }
 		local results = {}
-		reserves:RequestApplyImport({ reservesData = { alpha = reserveImportPlayer("Alpha", 100) } }, nil,
-			function(...) results[#results + 1] = { ... } end, { chunkSize = 1, silentInfo = true })
+		reserves:RequestApplyImport({ reservesData = { alpha = reserveImportPlayer("Alpha", 100) } }, nil, function(...)
+			results[#results + 1] = { ... }
+		end, { chunkSize = 1, silentInfo = true })
 		assertEqual(1, #results, "initial scheduler failure must callback once for " .. failure)
 		assertEqual(false, results[1][1], "initial scheduler failure must reject for " .. failure)
 		assertEqual("failed", results[1][2], "initial scheduler result differs for " .. failure)
@@ -8695,9 +11470,19 @@ function cases.reserves_async_import_scheduler_failures_are_terminal(addon)
 	for _, failure in ipairs({ "throw", "nil" }) do
 		fixture.scheduleFailures = { false, failure }
 		local results = {}
-		reserves:RequestApplyImport({ reservesData = {
-			alpha = reserveImportPlayer("Alpha", 100), beta = reserveImportPlayer("Beta", 200),
-		} }, nil, function(...) results[#results + 1] = { ... } end, { chunkSize = 1, silentInfo = true })
+		reserves:RequestApplyImport(
+			{
+				reservesData = {
+					alpha = reserveImportPlayer("Alpha", 100),
+					beta = reserveImportPlayer("Beta", 200),
+				},
+			},
+			nil,
+			function(...)
+				results[#results + 1] = { ... }
+			end,
+			{ chunkSize = 1, silentInfo = true }
+		)
 		fixture:RunTimer(#fixture.timers)
 		assertEqual(1, #results, "interchunk scheduler failure must callback once for " .. failure)
 		assertEqual("SCHEDULE_FAILED", results[1][3], "interchunk scheduler reason differs for " .. failure)
@@ -8709,8 +11494,14 @@ end
 
 function cases.reserves_async_import_publish_faults_rollback_exact_state(addon)
 	local reserves, fixture = installRealReservesMutationFixture(addon)
-	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = { base = reserveImportPlayer("Base", 50) } }, nil,
-		{ silentInfo = true }), "baseline import must succeed")
+	assertTrue(
+		reserves:ApplyImport(
+			{ mode = "multi", reservesData = { base = reserveImportPlayer("Base", 50) } },
+			nil,
+			{ silentInfo = true }
+		),
+		"baseline import must succeed"
+	)
 	for _, stage in ipairs({ "index" }) do
 		local savedRoot = _G.RMA_Reserves
 		local savedBefore = deepCopy(savedRoot)
@@ -8718,25 +11509,40 @@ function cases.reserves_async_import_publish_faults_rollback_exact_state(addon)
 		local eventsBefore = #fixture.events
 		fixture.failStage = stage
 		local results = {}
-		reserves:RequestApplyImport({ mode = "plus", reservesData = { alpha = reserveImportPlayer("Alpha", 100) } }, nil,
-			function(...) results[#results + 1] = { ... } end, { chunkSize = 1, silentInfo = true })
+		reserves:RequestApplyImport(
+			{ mode = "plus", reservesData = { alpha = reserveImportPlayer("Alpha", 100) } },
+			nil,
+			function(...)
+				results[#results + 1] = { ... }
+			end,
+			{ chunkSize = 1, silentInfo = true }
+		)
 		fixture:RunTimer(#fixture.timers)
 		assertEqual(1, #results, "publish fault callback must run once for " .. stage)
 		assertEqual(false, results[1][1], "publish fault must fail for " .. stage)
 		assertEqual("failed", results[1][2], "publish fault result differs for " .. stage)
-		assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "publish fault must preserve SavedVariables values for " .. stage)
-		assertTrue(deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
-			"publish fault must preserve runtime values for " .. stage)
-		assertEqual(1, reserves:GetReserveCountForItem(50, "Base"),
-			"publish fault derived lookup must match preserved state for " .. stage)
+		assertTrue(
+			deepEqual(savedBefore, _G.RMA_Reserves),
+			"publish fault must preserve SavedVariables values for " .. stage
+		)
+		assertTrue(
+			deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
+			"publish fault must preserve runtime values for " .. stage
+		)
+		assertEqual(
+			1,
+			reserves:GetReserveCountForItem(50, "Base"),
+			"publish fault derived lookup must match preserved state for " .. stage
+		)
 		assertEqual("multi", reserves:GetImportMode(), "publish fault must restore mode for " .. stage)
 		assertEqual(eventsBefore, #fixture.events, "publish fault must emit no event for " .. stage)
 	end
 	for _, stage in ipairs({ "debug", "info", "event" }) do
 		fixture.failStage = stage
 		local results = {}
-		reserves:RequestApplyImport({ reservesData = { ok = reserveImportPlayer("Ok", 500) } }, nil,
-			function(...) results[#results + 1] = { ... } end, { chunkSize = 1, silentInfo = stage ~= "info" })
+		reserves:RequestApplyImport({ reservesData = { ok = reserveImportPlayer("Ok", 500) } }, nil, function(...)
+			results[#results + 1] = { ... }
+		end, { chunkSize = 1, silentInfo = stage ~= "info" })
 		fixture:RunTimer(#fixture.timers)
 		assertEqual(1, #results, "contained notification fault callback must run once for " .. stage)
 		assertEqual(true, results[1][1], "notification fault must not invalidate committed data for " .. stage)
@@ -8748,57 +11554,86 @@ end
 function cases.reserves_lookup_preserves_identity_index_fallback_and_detached_state(addon)
 	local reserves, fixture = installRealReservesMutationFixture(addon)
 	local data = {
-		alpha = { playerNameDisplay = "Alpha", reserves = {
-			{ rawID = 100, itemName = "Indexed", quantity = 2, plus = 1 },
-			{ rawID = 200, itemName = "Fallback", quantity = 3, plus = 0 },
-		} },
-		raider = { playerNameDisplay = "Raider", reserves = {
-			{ rawID = 100, itemName = "Exact", quantity = 5, plus = 0 },
-		} },
+		alpha = {
+			playerNameDisplay = "Alpha",
+			reserves = {
+				{ rawID = 100, itemName = "Indexed", quantity = 2, plus = 1 },
+				{ rawID = 200, itemName = "Fallback", quantity = 3, plus = 0 },
+			},
+		},
+		raider = {
+			playerNameDisplay = "Raider",
+			reserves = {
+				{ rawID = 100, itemName = "Exact", quantity = 5, plus = 0 },
+			},
+		},
 	}
 	fixture.skipPlayerIndexItem = 200
-	assertTrue(reserves:SetSyncedData(data, { source = "Leader", checksum = "lookup", mode = "multi" }),
-		"lookup fixture import failed")
+	assertTrue(
+		reserves:SetSyncedData(data, { source = "Leader", checksum = "lookup", mode = "multi" }),
+		"lookup fixture import failed"
+	)
 	assertTrue(reserves:SetNameAlias("Alpha", "Raider"), "lookup fixture alias failed")
-	assertEqual(5, reserves:GetReserveCountForItem(100, "Raider"),
-		"exact reserve identity must take precedence over an alias target")
+	assertEqual(
+		5,
+		reserves:GetReserveCountForItem(100, "Raider"),
+		"exact reserve identity must take precedence over an alias target"
+	)
 	assertTrue(reserves:SetNameAlias("Alpha", "AliasRaid"), "lookup alias replacement failed")
-	assertEqual(2, reserves:GetReserveCountForItem(100, "AliasRaid"),
-		"raid-name alias must resolve to the reserve owner")
+	assertEqual(
+		2,
+		reserves:GetReserveCountForItem(100, "AliasRaid"),
+		"raid-name alias must resolve to the reserve owner"
+	)
 	assertEqual(2, reserves:GetReserveCountForItem(100, "Alpha"), "indexed lookup quantity differs")
 	assertEqual(3, reserves:GetReserveCountForItem(200, "Alpha"), "fallback traversal quantity differs")
 
 	fixture.lookupProbe = { itemId = 100, playerName = "Alpha" }
-	assertTrue(reserves:ApplyBatch({
-		{ kind = "quantity", playerName = "Alpha", itemId = 100, value = 4 },
-	}), "detached publication mutation failed")
-	assertEqual(4, fixture.detachedLookupQuantity,
-		"detached publication lookup did not observe candidate state")
-	assertEqual(4, reserves:GetReserveCountForItem(100, "Alpha"),
-		"published lookup did not observe committed candidate state")
+	assertTrue(
+		reserves:ApplyBatch({
+			{ kind = "quantity", playerName = "Alpha", itemId = 100, value = 4 },
+		}),
+		"detached publication mutation failed"
+	)
+	assertEqual(4, fixture.detachedLookupQuantity, "detached publication lookup did not observe candidate state")
+	assertEqual(
+		4,
+		reserves:GetReserveCountForItem(100, "Alpha"),
+		"published lookup did not observe committed candidate state"
+	)
 	print("PASS reserves_lookup_preserves_identity_index_fallback_and_detached_state")
 end
 
 function cases.reserves_import_option_notification_is_post_commit(addon)
 	do
 		local reserves, fixture = installRealReservesMutationFixture(addon)
-		assertTrue(reserves:SetSyncedData({ base = reserveImportPlayer("Base", 50) },
-			{ source = "Leader", checksum = "fixture", mode = "multi" }))
+		assertTrue(
+			reserves:SetSyncedData(
+				{ base = reserveImportPlayer("Base", 50) },
+				{ source = "Leader", checksum = "fixture", mode = "multi" }
+			)
+		)
 		local savedBefore = deepCopy(_G.RMA_Reserves)
 		local runtimeBefore = deepCopy(reserves:GetPlayerReserveEntries("Base"))
 		local savesBefore, eventsBefore = fixture.saveCount or 0, #fixture.events
 		fixture.failReplace = true
-		local ok, reason = reserves:ApplyImport({ mode = "plus", reservesData = {
-			alpha = reserveImportPlayer("Alpha", 100),
-		} }, nil, { silentInfo = true })
+		local ok, reason = reserves:ApplyImport(
+			{ mode = "plus", reservesData = {
+				alpha = reserveImportPlayer("Alpha", 100),
+			} },
+			nil,
+			{ silentInfo = true }
+		)
 		fixture.failReplace = nil
 		assertEqual(false, ok, "reserve replacement failure must reject the import")
 		assertEqual("PUBLISH_FAILED", reason, "reserve replacement failure reason differs")
 		assertEqual(0, fixture.optionValues.srImportMode, "replacement failure must preserve the stored mode")
 		assertEqual("multi", reserves:GetImportMode(), "replacement failure must preserve the local mode")
 		assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "replacement failure must preserve SavedVariables")
-		assertTrue(deepEqual(runtimeBefore, reserves:GetPlayerReserveEntries("Base")),
-			"replacement failure must preserve runtime roots")
+		assertTrue(
+			deepEqual(runtimeBefore, reserves:GetPlayerReserveEntries("Base")),
+			"replacement failure must preserve runtime roots"
+		)
 		assertEqual(true, reserves:HasItemReserves(50), "replacement failure must preserve the old item index")
 		assertEqual(false, reserves:HasItemReserves(100), "replacement failure must not publish the candidate index")
 		assertEqual(true, reserves:GetSyncMetadata().runtime, "replacement failure must preserve cache ownership")
@@ -8810,17 +11645,30 @@ function cases.reserves_import_option_notification_is_post_commit(addon)
 	do
 		local reserves, fixture = installRealReservesMutationFixture(addon)
 		local savesBefore, eventsBefore = fixture.saveCount or 0, #fixture.events
-		fixture.optionObserver = function() error("injected OptionChanged observer failure") end
-		local ok = reserves:ApplyImport({ mode = "plus", reservesData = {
-			alpha = reserveImportPlayer("Alpha", 100),
-		} }, nil, { silentInfo = true })
+		fixture.optionObserver = function()
+			error("injected OptionChanged observer failure")
+		end
+		local ok = reserves:ApplyImport(
+			{ mode = "plus", reservesData = {
+				alpha = reserveImportPlayer("Alpha", 100),
+			} },
+			nil,
+			{ silentInfo = true }
+		)
 		assertEqual(true, ok, "OptionChanged failure must not invalidate the committed import")
 		assertEqual(1, fixture.optionValues.srImportMode, "OptionChanged failure must retain the stored mode")
 		assertEqual("plus", reserves:GetImportMode(), "OptionChanged failure must retain the local mode")
-		assertEqual(100, reserves:GetPlayerReserveEntries("Alpha")[1].rawID,
-			"OptionChanged failure must retain the published reserve roots")
+		assertEqual(
+			100,
+			reserves:GetPlayerReserveEntries("Alpha")[1].rawID,
+			"OptionChanged failure must retain the published reserve roots"
+		)
 		assertEqual(true, reserves:HasItemReserves(100), "OptionChanged failure must retain the published index")
-		assertEqual(false, reserves:GetSyncMetadata().runtime, "OptionChanged failure must retain local cache ownership")
+		assertEqual(
+			false,
+			reserves:GetSyncMetadata().runtime,
+			"OptionChanged failure must retain local cache ownership"
+		)
 		assertEqual(savesBefore + 1, fixture.saveCount or 0, "OptionChanged failure must save exactly once")
 		assertEqual(eventsBefore + 1, #fixture.events, "OptionChanged failure must publish one data event")
 		assertEqual(1, #fixture.diagnostics, "OptionChanged failure must report one contained diagnostic")
@@ -8828,9 +11676,16 @@ function cases.reserves_import_option_notification_is_post_commit(addon)
 
 	do
 		local reserves, fixture = installRealReservesMutationFixture(addon)
-		assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = {
-			base = reserveImportPlayer("Base", 50),
-		} }, nil, { silentInfo = true }), "reentrant observer baseline import must succeed")
+		assertTrue(
+			reserves:ApplyImport(
+				{ mode = "multi", reservesData = {
+					base = reserveImportPlayer("Base", 50),
+				} },
+				nil,
+				{ silentInfo = true }
+			),
+			"reentrant observer baseline import must succeed"
+		)
 		local observed = {}
 		fixture.optionObserver = function()
 			observed.mode = reserves:GetImportMode()
@@ -8839,9 +11694,13 @@ function cases.reserves_import_option_notification_is_post_commit(addon)
 			observed.rawID = reserves:GetPlayerReserveEntries("Bravo")[1].rawID
 			observed.runtime = reserves:GetSyncMetadata().runtime
 		end
-		local ok = reserves:ApplyImport({ mode = "plus", reservesData = {
-			bravo = reserveImportPlayer("Bravo", 200),
-		} }, nil, { silentInfo = true })
+		local ok = reserves:ApplyImport(
+			{ mode = "plus", reservesData = {
+				bravo = reserveImportPlayer("Bravo", 200),
+			} },
+			nil,
+			{ silentInfo = true }
+		)
 		assertEqual(true, ok, "reentrant OptionChanged observation must not reject the import")
 		assertEqual("plus", observed.mode, "OptionChanged observer must see the new local mode")
 		assertEqual(true, observed.hasNewItem, "OptionChanged observer must see the new item index")
@@ -8855,64 +11714,103 @@ end
 
 function cases.reserves_direct_import_apis_revalidate_bounded_canonical_input(addon)
 	local reserves, fixture = installRealReservesMutationFixture(addon)
-	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = { base = reserveImportPlayer("Base", 50) } }, nil,
-		{ silentInfo = true }), "baseline import must succeed")
+	assertTrue(
+		reserves:ApplyImport(
+			{ mode = "multi", reservesData = { base = reserveImportPlayer("Base", 50) } },
+			nil,
+			{ silentInfo = true }
+		),
+		"baseline import must succeed"
+	)
 	local savedBefore = deepCopy(_G.RMA_Reserves)
 	local runtimeBefore = deepCopy(select(1, reserves._Sync:GetPayload()))
 	local timersBefore, eventsBefore = #fixture.timers, #fixture.events
 	local invalid = {}
 	local tooManyPlayers = {}
-	for i = 1, 1001 do tooManyPlayers["player" .. i] = reserveImportPlayer("Player" .. i, i) end
+	for i = 1, 1001 do
+		tooManyPlayers["player" .. i] = reserveImportPlayer("Player" .. i, i)
+	end
 	invalid[#invalid + 1] = tooManyPlayers
 	local tooManyRows = { alpha = { playerNameDisplay = "Alpha", reserves = {} } }
-	for i = 1, 21 do tooManyRows.alpha.reserves[i] = { rawID = i, quantity = 1, plus = 0 } end
+	for i = 1, 21 do
+		tooManyRows.alpha.reserves[i] = { rawID = i, quantity = 1, plus = 0 }
+	end
 	invalid[#invalid + 1] = tooManyRows
 	invalid[#invalid + 1] = { alpha = { playerNameDisplay = string.rep("A", 65), reserves = { { rawID = 1 } } } }
-	invalid[#invalid + 1] = { alpha = { playerNameDisplay = "Alpha", reserves = { { rawID = 1, note = string.rep("N", 257) } } } }
-	invalid[#invalid + 1] = { alpha = { playerNameDisplay = "Alpha", reserves = { { rawID = 1, quantity = math.huge } } } }
-	invalid[#invalid + 1] = { alpha = { playerNameDisplay = "Alpha", reserves = { [1] = { rawID = 1 }, [3] = { rawID = 3 } } } }
+	invalid[#invalid + 1] =
+		{ alpha = { playerNameDisplay = "Alpha", reserves = { { rawID = 1, note = string.rep("N", 257) } } } }
+	invalid[#invalid + 1] =
+		{ alpha = { playerNameDisplay = "Alpha", reserves = { { rawID = 1, quantity = math.huge } } } }
+	invalid[#invalid + 1] =
+		{ alpha = { playerNameDisplay = "Alpha", reserves = { [1] = { rawID = 1 }, [3] = { rawID = 3 } } } }
 	invalid[#invalid + 1] = { alpha = { playerNameDisplay = "Alpha", reserves = { { rawID = 1 }, { rawID = 1 } } } }
 	invalid[#invalid + 1] = { [1] = reserveImportPlayer("Alpha", 1) }
 	invalid[#invalid + 1] = { alpha = { playerNameDisplay = "Alpha", reserves = {} } }
 	invalid[#invalid + 1] = { ["Al" .. string.char(0xc3, 0xa9)] = reserveImportPlayer("Alpha", 1) }
 	invalid[#invalid + 1] = { alpha = reserveImportPlayer("Al" .. string.char(0xc3, 0xa9), 1) }
-	invalid[#invalid + 1] = { alpha = { playerNameDisplay = "Alpha", reserves = {
-		{ rawID = 1, source = "bad\nsource" },
-	} } }
-	invalid[#invalid + 1] = { alpha = { playerNameDisplay = "Alpha", reserves = {
-		{ rawID = 1, itemName = string.char(0xc3, 0xa9) },
-	} } }
+	invalid[#invalid + 1] =
+		{ alpha = { playerNameDisplay = "Alpha", reserves = {
+			{ rawID = 1, source = "bad\nsource" },
+		} } }
+	invalid[#invalid + 1] = {
+		alpha = { playerNameDisplay = "Alpha", reserves = {
+			{ rawID = 1, itemName = string.char(0xc3, 0xa9) },
+		} },
+	}
 	for i = 1, #invalid do
-		local ok, reason = reserves:ApplyImport({ mode = "multi", reservesData = invalid[i] }, nil, { silentInfo = true })
+		local ok, reason = reserves:ApplyImport(
+			{ mode = "multi", reservesData = invalid[i] },
+			nil,
+			{ silentInfo = true }
+		)
 		assertEqual(false, ok, "sync direct import must reject invalid graph " .. i)
 		assertEqual("INVALID_IMPORT_DATA", reason, "sync rejection reason differs at " .. i)
 		local callbacks = {}
-		local handle = reserves:RequestApplyImport({ mode = "multi", reservesData = invalid[i] }, nil,
-			function(...) callbacks[#callbacks + 1] = { ... } end, { silentInfo = true })
+		local handle = reserves:RequestApplyImport({ mode = "multi", reservesData = invalid[i] }, nil, function(...)
+			callbacks[#callbacks + 1] = { ... }
+		end, { silentInfo = true })
 		assertEqual(true, handle:IsCancelled(), "invalid async request must be terminal at " .. i)
 		assertEqual(1, #callbacks, "invalid async callback must run once at " .. i)
 		assertEqual(false, callbacks[1][1], "invalid async callback must fail at " .. i)
 		assertEqual(#fixture.timers, timersBefore, "invalid async request must allocate no timer at " .. i)
 		assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "invalid import must preserve values at " .. i)
-		assertTrue(deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
-			"invalid import must preserve runtime values at " .. i)
-		assertEqual(1, reserves:GetReserveCountForItem(50, "Base"),
-			"invalid import derived lookup must match preserved state at " .. i)
+		assertTrue(
+			deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
+			"invalid import must preserve runtime values at " .. i
+		)
+		assertEqual(
+			1,
+			reserves:GetReserveCountForItem(50, "Base"),
+			"invalid import derived lookup must match preserved state at " .. i
+		)
 		assertEqual(eventsBefore, #fixture.events, "invalid import must not publish at " .. i)
 	end
 	for _, stage in ipairs({ "replace", "index" }) do
-		if stage == "replace" then fixture.failReplace = true else fixture.failStage = stage end
-		local ok, reason = reserves:ApplyImport({ mode = "plus", reservesData = {
-			alpha = reserveImportPlayer("Alpha", 100),
-		} }, nil, { silentInfo = true })
+		if stage == "replace" then
+			fixture.failReplace = true
+		else
+			fixture.failStage = stage
+		end
+		local ok, reason = reserves:ApplyImport(
+			{ mode = "plus", reservesData = {
+				alpha = reserveImportPlayer("Alpha", 100),
+			} },
+			nil,
+			{ silentInfo = true }
+		)
 		fixture.failReplace, fixture.failStage = nil, nil
 		assertEqual(false, ok, "synchronous import must contain " .. stage .. " fault")
 		assertEqual("PUBLISH_FAILED", reason, "synchronous publish reason differs for " .. stage)
 		assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "sync fault must preserve values")
-		assertTrue(deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
-			"sync fault must preserve runtime values")
-		assertEqual(1, reserves:GetReserveCountForItem(50, "Base"),
-			"sync fault derived lookup must match preserved state")
+		assertTrue(
+			deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
+			"sync fault must preserve runtime values"
+		)
+		assertEqual(
+			1,
+			reserves:GetReserveCountForItem(50, "Base"),
+			"sync fault derived lookup must match preserved state"
+		)
 		assertEqual("multi", reserves:GetImportMode(), "sync fault must restore mode")
 	end
 	local exactGraph = {}
@@ -8926,22 +11824,40 @@ function cases.reserves_direct_import_apis_revalidate_bounded_canonical_input(ad
 			reserves = rows,
 		}
 	end
-	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = exactGraph }, nil, { silentInfo = true }),
-		"exact 1000-player/5000-row bounds must succeed")
+	assertTrue(
+		reserves:ApplyImport({ mode = "multi", reservesData = exactGraph }, nil, { silentInfo = true }),
+		"exact 1000-player/5000-row bounds must succeed"
+	)
 	local exactPlayerRows = {}
-	for i = 1, 20 do exactPlayerRows[i] = { rawID = i, note = string.rep("N", 256) } end
-	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = {
-		[string.rep("k", 64)] = { playerNameDisplay = string.rep("P", 64), reserves = exactPlayerRows },
-	} }, nil, { silentInfo = true }), "exact per-player and string bounds must succeed")
+	for i = 1, 20 do
+		exactPlayerRows[i] = { rawID = i, note = string.rep("N", 256) }
+	end
+	assertTrue(
+		reserves:ApplyImport({
+			mode = "multi",
+			reservesData = {
+				[string.rep("k", 64)] = { playerNameDisplay = string.rep("P", 64), reserves = exactPlayerRows },
+			},
+		}, nil, { silentInfo = true }),
+		"exact per-player and string bounds must succeed"
+	)
 	local successSource = { alpha = reserveImportPlayer("Alpha", 100) }
-	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = successSource }, nil, { silentInfo = true }),
-		"bounded direct import must succeed")
+	assertTrue(
+		reserves:ApplyImport({ mode = "multi", reservesData = successSource }, nil, { silentInfo = true }),
+		"bounded direct import must succeed"
+	)
 	successSource.alpha.reserves[1].rawID = 999
 	successSource.alpha.reserves[1].note = "caller mutation"
-	assertEqual(100, reserves:GetPlayerReserveEntries("Alpha")[1].rawID,
-		"successful direct import must detach caller rows")
-	assertEqual(nil, reserves:GetPlayerReserveEntries("Alpha")[1].note,
-		"successful direct import must detach caller strings")
+	assertEqual(
+		100,
+		reserves:GetPlayerReserveEntries("Alpha")[1].rawID,
+		"successful direct import must detach caller rows"
+	)
+	assertEqual(
+		nil,
+		reserves:GetPlayerReserveEntries("Alpha")[1].note,
+		"successful direct import must detach caller strings"
+	)
 	print("PASS reserves_direct_import_apis_revalidate_bounded_canonical_input")
 end
 
@@ -8949,35 +11865,55 @@ function cases.reserves_add_player_reserve_is_transactional(addon)
 	for _, fault in ipairs({ "replace", "index" }) do
 		local reserves, fixture = installRealReservesMutationFixture(addon)
 		local synced = { alpha = reserveImportPlayer("Alpha", 100) }
-		assertTrue(reserves:SetSyncedData(synced, { source = "Leader", checksum = "fixture", mode = "multi" }),
-			"synced add baseline must load")
+		assertTrue(
+			reserves:SetSyncedData(synced, { source = "Leader", checksum = "fixture", mode = "multi" }),
+			"synced add baseline must load"
+		)
 		local savedBefore = deepCopy(_G.RMA_Reserves)
 		local runtimeBefore = deepCopy(select(1, reserves._Sync:GetPayload()))
 		local eventsBefore = #fixture.events
-		if fault == "replace" then fixture.failReplace = true else fixture.failStage = "index" end
+		if fault == "replace" then
+			fixture.failReplace = true
+		else
+			fixture.failStage = "index"
+		end
 		local invoked, ok, reason = pcall(reserves.AddPlayerReserve, reserves, "Alpha", 200)
 		fixture.failReplace, fixture.failStage = nil, nil
 		assertEqual(true, invoked, "add must contain " .. fault .. " fault")
 		assertEqual(false, ok, "add must fail on " .. fault .. " fault")
 		assertEqual("publish_failed", reason, "add publish reason differs")
 		assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "add fault must preserve SavedVariables values")
-		assertTrue(deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
-			"add fault must preserve runtime values")
-		assertEqual(1, reserves:GetReserveCountForItem(100, "Alpha"),
-			"add fault derived lookup must match preserved state")
+		assertTrue(
+			deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
+			"add fault must preserve runtime values"
+		)
+		assertEqual(
+			1,
+			reserves:GetReserveCountForItem(100, "Alpha"),
+			"add fault derived lookup must match preserved state"
+		)
 		assertEqual(true, reserves:GetSyncMetadata().runtime, "add fault must preserve synced cache ownership")
 		assertEqual(eventsBefore, #fixture.events, "add fault must publish no event")
 	end
 	local reserves, fixture = installRealReservesMutationFixture(addon)
-	assertTrue(reserves:SetSyncedData({ alpha = reserveImportPlayer("Alpha", 100) },
-		{ source = "Leader", checksum = "fixture", mode = "multi" }))
+	assertTrue(
+		reserves:SetSyncedData(
+			{ alpha = reserveImportPlayer("Alpha", 100) },
+			{ source = "Leader", checksum = "fixture", mode = "multi" }
+		)
+	)
 	local eventsBefore = #fixture.events
 	local ok, row = reserves:AddPlayerReserve("Alpha", 200)
 	assertEqual(true, ok, "valid add must commit")
-	assertTrue(deepEqual(row, reserves:GetPlayerReserveEntries("Alpha")[2]),
-		"successful add must return the committed reserve value")
-	assertEqual(1, reserves:GetReserveCountForItem(200, "Alpha"),
-		"successful add derived lookup must match the published candidate")
+	assertTrue(
+		deepEqual(row, reserves:GetPlayerReserveEntries("Alpha")[2]),
+		"successful add must return the committed reserve value"
+	)
+	assertEqual(
+		1,
+		reserves:GetReserveCountForItem(200, "Alpha"),
+		"successful add derived lookup must match the published candidate"
+	)
 	assertEqual(false, reserves:GetSyncMetadata().runtime, "successful add must promote the active candidate")
 	assertEqual(eventsBefore + 1, #fixture.events, "successful add must publish exactly once")
 	print("PASS reserves_add_player_reserve_is_transactional")
@@ -9025,14 +11961,54 @@ function cases.reserves_failed_synced_mutations_do_not_promote_cache(addon)
 	assertEqual(nil, reason, "accepted synced fixture must not return an error")
 
 	local failures = {
-		{ call = function() return reserves:SetPlayerReserveQuantity("Missing", 100, 4) end, reason = "invalid_player" },
-		{ call = function() return reserves:SetPlayerReserveQuantity("Alpha", 999, 4) end, reason = "missing_item" },
-		{ call = function() return reserves:SetPlayerReserveQuantity("Alpha", 100, 2) end, reason = "no_change" },
-		{ call = function() return reserves:SetPlayerReservePlus("Missing", 100, 4) end, reason = "invalid_player" },
-		{ call = function() return reserves:SetPlayerReservePlus("Alpha", 999, 4) end, reason = "missing_item" },
-		{ call = function() return reserves:SetPlayerReservePlus("Alpha", 100, 3) end, reason = "no_change" },
-		{ call = function() return reserves:RemovePlayerReserve("Missing", 100) end, reason = "invalid_player" },
-		{ call = function() return reserves:RemovePlayerReserve("Alpha", 999) end, reason = "missing_item" },
+		{
+			call = function()
+				return reserves:SetPlayerReserveQuantity("Missing", 100, 4)
+			end,
+			reason = "invalid_player",
+		},
+		{
+			call = function()
+				return reserves:SetPlayerReserveQuantity("Alpha", 999, 4)
+			end,
+			reason = "missing_item",
+		},
+		{
+			call = function()
+				return reserves:SetPlayerReserveQuantity("Alpha", 100, 2)
+			end,
+			reason = "no_change",
+		},
+		{
+			call = function()
+				return reserves:SetPlayerReservePlus("Missing", 100, 4)
+			end,
+			reason = "invalid_player",
+		},
+		{
+			call = function()
+				return reserves:SetPlayerReservePlus("Alpha", 999, 4)
+			end,
+			reason = "missing_item",
+		},
+		{
+			call = function()
+				return reserves:SetPlayerReservePlus("Alpha", 100, 3)
+			end,
+			reason = "no_change",
+		},
+		{
+			call = function()
+				return reserves:RemovePlayerReserve("Missing", 100)
+			end,
+			reason = "invalid_player",
+		},
+		{
+			call = function()
+				return reserves:RemovePlayerReserve("Alpha", 999)
+			end,
+			reason = "missing_item",
+		},
 	}
 	for i = 1, #failures do
 		local changed, mutationReason = failures[i].call()
@@ -9041,7 +12017,11 @@ function cases.reserves_failed_synced_mutations_do_not_promote_cache(addon)
 		reserves:Save("test")
 		reserves:Load()
 		assertTrue(deepEqual({}, _G.RMA_Reserves), "failed synced mutation must not persist cache at row " .. i)
-		assertEqual(true, reserves:GetSyncMetadata().runtime, "failed synced mutation must retain cache ownership at row " .. i)
+		assertEqual(
+			true,
+			reserves:GetSyncMetadata().runtime,
+			"failed synced mutation must retain cache ownership at row " .. i
+		)
 		local entries = reserves:GetPlayerReserveEntries("Alpha")
 		assertEqual(1, #entries, "synced view must survive save/reload at row " .. i)
 		assertEqual(100, entries[1].rawID, "synced item must survive save/reload at row " .. i)
@@ -9063,50 +12043,98 @@ function cases.reserves_whisper_storage_identity_resolution_is_owner_bound(addon
 		reserves:NormalizeWhisperPlayerIdentity("Al" .. string.char(0xc3, 0xa9) .. "a-Quel'Thalas-East", "Local Realm")
 	assertEqual("Al" .. string.char(0xc3, 0xa9) .. "a", normalizedCharacter, "UTF-8 character must normalize")
 	assertEqual("quelthalaseast", normalizedRealm, "internal realm punctuation must normalize")
-	assertEqual("al" .. string.char(0xc3, 0xa9) .. "a-quelthalaseast", normalizedIdentity,
-		"canonical identity must share the owner contract")
-	for _, invalid in ipairs({ "", "Bad--Realm", "Bad-Realm-", "Bad- Realm", "Bad-Realm ", "'Bad-Realm",
-		"Bad|Name-Realm", "Bad\tName-Realm", string.char(0xff) .. "Bad-Realm" }) do
-		assertEqual(nil, reserves:NormalizeWhisperPlayerIdentity(invalid, "Local Realm"),
-			"invalid owner identity must fail closed")
+	assertEqual(
+		"al" .. string.char(0xc3, 0xa9) .. "a-quelthalaseast",
+		normalizedIdentity,
+		"canonical identity must share the owner contract"
+	)
+	for _, invalid in ipairs({
+		"",
+		"Bad--Realm",
+		"Bad-Realm-",
+		"Bad- Realm",
+		"Bad-Realm ",
+		"'Bad-Realm",
+		"Bad|Name-Realm",
+		"Bad\tName-Realm",
+		string.char(0xff) .. "Bad-Realm",
+	}) do
+		assertEqual(
+			nil,
+			reserves:NormalizeWhisperPlayerIdentity(invalid, "Local Realm"),
+			"invalid owner identity must fail closed"
+		)
 	end
 
-	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = { alpha = player("Alpha") } }, nil,
-		{ silentInfo = true }), "short-name fixture must import")
+	assertTrue(
+		reserves:ApplyImport({ mode = "multi", reservesData = { alpha = player("Alpha") } }, nil, { silentInfo = true }),
+		"short-name fixture must import"
+	)
 	local target, reason = reserves:ResolveWhisperPlayerName("Alpha", "localrealm", "localrealm")
 	assertEqual("Alpha", target, "local qualified sender must reuse the existing short participant")
 	assertEqual(nil, reason, "unambiguous short participant must resolve")
 	assertTrue(reserves:AddPlayerReserve(target, 2), "resolved local participant must accept the reserve")
 	assertEqual(1, reserves:GetCounts(), "resolved local sender must not create a qualified duplicate participant")
-	assertEqual(2, #reserves:GetPlayerReserveEntries("Alpha"), "resolved reserve must update the existing short participant")
+	assertEqual(
+		2,
+		#reserves:GetPlayerReserveEntries("Alpha"),
+		"resolved reserve must update the existing short participant"
+	)
 
-	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = {
-		alpha = player("Alpha"), ["alpha-otherrealm"] = player("Alpha-otherrealm"),
-	} }, nil, { silentInfo = true }), "ambiguous fixture must import")
+	assertTrue(
+		reserves:ApplyImport({
+			mode = "multi",
+			reservesData = {
+				alpha = player("Alpha"),
+				["alpha-otherrealm"] = player("Alpha-otherrealm"),
+			},
+		}, nil, { silentInfo = true }),
+		"ambiguous fixture must import"
+	)
 	target, reason = reserves:ResolveWhisperPlayerName("Alpha", "localrealm", "localrealm")
 	assertEqual(nil, target, "short plus cross-realm candidates must fail closed")
 	assertEqual("ambiguous_player", reason, "ambiguous reason differs")
-	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = {
-		["alpha-otherrealm"] = player("Alpha-otherrealm"),
-	} }, nil, { silentInfo = true }), "cross-only fixture must import")
+	assertTrue(
+		reserves:ApplyImport(
+			{ mode = "multi", reservesData = {
+				["alpha-otherrealm"] = player("Alpha-otherrealm"),
+			} },
+			nil,
+			{ silentInfo = true }
+		),
+		"cross-only fixture must import"
+	)
 	target, reason = reserves:ResolveWhisperPlayerName("Alpha", "localrealm", "localrealm")
 	assertEqual(nil, target, "local sender must not reuse another realm's participant")
 	assertEqual("ambiguous_player", reason, "cross-realm collision reason differs")
 
-	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = {
-		alpha = player("Alpha"), ["alpha-localrealm"] = player("Alpha-localrealm"),
-		["alpha-otherrealm"] = player("Alpha-otherrealm"),
-	} }, nil, { silentInfo = true }), "qualified fixture must import")
+	assertTrue(
+		reserves:ApplyImport({
+			mode = "multi",
+			reservesData = {
+				alpha = player("Alpha"),
+				["alpha-localrealm"] = player("Alpha-localrealm"),
+				["alpha-otherrealm"] = player("Alpha-otherrealm"),
+			},
+		}, nil, { silentInfo = true }),
+		"qualified fixture must import"
+	)
 	target, reason = reserves:ResolveWhisperPlayerName("Alpha", "localrealm", "localrealm")
 	assertEqual("Alpha-localrealm", target, "exact qualified participant must take precedence")
 	assertEqual(nil, reason, "exact qualified participant must resolve")
 	target = reserves:ResolveWhisperPlayerName("Alpha", "thirdrealm", "localrealm")
 	assertEqual("Alpha-thirdrealm", target, "new cross-realm participant must remain qualified")
 
-	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = {
-		["alpha-local realm"] = player("Alpha-Local Realm"),
-		["bravo-quel'thalas-east"] = player("Bravo-Quel'Thalas-East"),
-	} }, nil, { silentInfo = true }), "punctuated realm fixture must import")
+	assertTrue(
+		reserves:ApplyImport({
+			mode = "multi",
+			reservesData = {
+				["alpha-local realm"] = player("Alpha-Local Realm"),
+				["bravo-quel'thalas-east"] = player("Bravo-Quel'Thalas-East"),
+			},
+		}, nil, { silentInfo = true }),
+		"punctuated realm fixture must import"
+	)
 	target, reason = reserves:ResolveWhisperPlayerName("Alpha", "localrealm", "localrealm")
 	assertEqual("Alpha-Local Realm", target, "normalized local realm must reuse the exact stored display")
 	assertEqual(nil, reason, "normalized local exact identity must resolve")
@@ -9114,18 +12142,29 @@ function cases.reserves_whisper_storage_identity_resolution_is_owner_bound(addon
 	assertEqual("Bravo-Quel'Thalas-East", target, "internal realm punctuation must reuse exact storage")
 	assertEqual(nil, reason, "punctuated remote exact identity must resolve")
 
-	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = {
-		["alpha-local realm"] = player("Alpha-Local Realm"),
-		["alpha-localrealm"] = player("Alpha-localrealm"),
-	} }, nil, { silentInfo = true }), "normalized collision fixture must import")
+	assertTrue(
+		reserves:ApplyImport({
+			mode = "multi",
+			reservesData = {
+				["alpha-local realm"] = player("Alpha-Local Realm"),
+				["alpha-localrealm"] = player("Alpha-localrealm"),
+			},
+		}, nil, { silentInfo = true }),
+		"normalized collision fixture must import"
+	)
 	target, reason = reserves:ResolveWhisperPlayerName("Alpha", "localrealm", "localrealm")
 	assertEqual(nil, target, "stored identities collapsing to one normalized identity must fail closed")
 	assertEqual("ambiguous_player", reason, "normalized collision reason differs")
 
-	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = {} }, nil,
-		{ silentInfo = true }), "empty fixture must import")
-	assertEqual("Alpha", reserves:ResolveWhisperPlayerName("Alpha", "localrealm", "localrealm"),
-		"new local participant must use established short-name storage")
+	assertTrue(
+		reserves:ApplyImport({ mode = "multi", reservesData = {} }, nil, { silentInfo = true }),
+		"empty fixture must import"
+	)
+	assertEqual(
+		"Alpha",
+		reserves:ResolveWhisperPlayerName("Alpha", "localrealm", "localrealm"),
+		"new local participant must use established short-name storage"
+	)
 	print("PASS reserves_whisper_storage_identity_resolution_is_owner_bound")
 end
 
@@ -9136,27 +12175,44 @@ local function installRealReservesSyncFixture(addon)
 	addon.L.MsgReservesSyncApplied = "applied:%s"
 	addon.info = function() end
 	local warnings = {}
-	addon.warn = function(_, message) warnings[#warnings + 1] = message end
+	addon.warn = function(_, message)
+		warnings[#warnings + 1] = message
+	end
 	local sent = {}
 	local function encodeText(value)
-		return (tostring(value or ""):gsub(".", function(char) return string.format("%02X", string.byte(char)) end))
+		return (
+			tostring(value or ""):gsub(".", function(char)
+				return string.format("%02X", string.byte(char))
+			end)
+		)
 	end
 	local function decodeText(value)
-		if type(value) ~= "string" or (#value % 2) ~= 0 or value:find("[^0-9A-F]") then return nil end
-		return (value:gsub("..", function(pair) return string.char(tonumber(pair, 16)) end))
+		if type(value) ~= "string" or (#value % 2) ~= 0 or value:find("[^0-9A-F]") then
+			return nil
+		end
+		return (value:gsub("..", function(pair)
+			return string.char(tonumber(pair, 16))
+		end))
 	end
 	local payload = {}
 	function payload.PackFields(separator, ...)
 		local fields = { ... }
-		for i = 1, #fields do fields[i] = tostring(fields[i] or "") end
+		for i = 1, #fields do
+			fields[i] = tostring(fields[i] or "")
+		end
 		return table.concat(fields, separator)
 	end
 	function payload.SplitFields(text, separator, destination)
-		for key in pairs(destination) do destination[key] = nil end
+		for key in pairs(destination) do
+			destination[key] = nil
+		end
 		local from = 1
 		while true do
 			local at = string.find(text, separator, from, true)
-			if not at then destination[#destination + 1] = string.sub(text, from); break end
+			if not at then
+				destination[#destination + 1] = string.sub(text, from)
+				break
+			end
 			destination[#destination + 1] = string.sub(text, from, at - 1)
 			from = at + #separator
 		end
@@ -9166,7 +12222,9 @@ local function installRealReservesSyncFixture(addon)
 	payload.DecodeText = decodeText
 	addon.Comms = {
 		Payload = payload,
-		NormalizeSender = function(value) return tostring(value or ""):match("^[^-]+") or "" end,
+		NormalizeSender = function(value)
+			return tostring(value or ""):match("^[^-]+") or ""
+		end,
 		SendAddonWhisper = function(prefix, target, message)
 			sent[#sent + 1] = { prefix = prefix, target = target, message = message }
 			return true
@@ -9176,23 +12234,37 @@ local function installRealReservesSyncFixture(addon)
 			owner[field] = (owner[field] or 0) + 1
 			return tostring(owner[field])
 		end,
-		Sync = function() return true end,
+		Sync = function()
+			return true
+		end,
 	}
 	addon.Services.Raid = {
-		GetPlayerRoleState = function() return { isLeader = true } end,
-		IsGroupMember = function() return true end,
-		IsReservesAuthority = function() return true end,
+		GetPlayerRoleState = function()
+			return { isLeader = true }
+		end,
+		IsGroupMember = function()
+			return true
+		end,
+		IsReservesAuthority = function()
+			return true
+		end,
 	}
-	_G.UnitName = function() return "Tester" end
+	_G.UnitName = function()
+		return "Tester"
+	end
 	local now = 10
-	_G.GetTime = function() return now end
+	_G.GetTime = function()
+		return now
+	end
 	loadAddonFile(addon, "Raid Management Addon/Services/Reserves/Sync.lua")
 	return {
 		reserves = reserves,
 		sync = reserves._Sync,
 		payload = payload,
 		sent = sent,
-		setNow = function(value) now = value end,
+		setNow = function(value)
+			now = value
+		end,
 		warnings = warnings,
 	}
 end
@@ -9200,19 +12272,29 @@ end
 function cases.reserves_sync_checksums_and_payloads_are_verified(addon)
 	local fixture = installRealReservesSyncFixture(addon)
 	local first = {
-		bravo = { playerNameDisplay = "Bravo", reserves = {
-			{ rawID = 202, quantity = 1, plus = 0, class = "MAGE", spec = "Arcane", note = "b", source = "csv" },
-			{ rawID = 201, quantity = 2, plus = 1, class = "MAGE", spec = "Fire", note = "a", source = "chat" },
-		} },
-		alpha = { playerNameDisplay = "Alpha", reserves = {
-			{ rawID = 101, quantity = 1, plus = 0, class = "PRIEST", spec = "Holy", note = "", source = "csv" },
-		} },
+		bravo = {
+			playerNameDisplay = "Bravo",
+			reserves = {
+				{ rawID = 202, quantity = 1, plus = 0, class = "MAGE", spec = "Arcane", note = "b", source = "csv" },
+				{ rawID = 201, quantity = 2, plus = 1, class = "MAGE", spec = "Fire", note = "a", source = "chat" },
+			},
+		},
+		alpha = {
+			playerNameDisplay = "Alpha",
+			reserves = {
+				{ rawID = 101, quantity = 1, plus = 0, class = "PRIEST", spec = "Holy", note = "", source = "csv" },
+			},
+		},
 	}
 	local reordered = {
 		alpha = deepCopy(first.alpha),
-		bravo = { playerNameDisplay = "Bravo", reserves = {
-			deepCopy(first.bravo.reserves[2]), deepCopy(first.bravo.reserves[1]),
-		} },
+		bravo = {
+			playerNameDisplay = "Bravo",
+			reserves = {
+				deepCopy(first.bravo.reserves[2]),
+				deepCopy(first.bravo.reserves[1]),
+			},
+		},
 	}
 	assertEqual(
 		fixture.reserves.BuildCanonicalChecksum(first),
@@ -9230,9 +12312,15 @@ function cases.reserves_sync_checksums_and_payloads_are_verified(addon)
 			for j = 1, #rows do
 				local row = rows[j]
 				lines[#lines + 1] = table.concat({
-					"R", i, row.rawID, row.quantity, row.plus,
-					fixture.payload.EncodeText(row.class), fixture.payload.EncodeText(row.spec),
-					fixture.payload.EncodeText(row.note), fixture.payload.EncodeText(row.source),
+					"R",
+					i,
+					row.rawID,
+					row.quantity,
+					row.plus,
+					fixture.payload.EncodeText(row.class),
+					fixture.payload.EncodeText(row.spec),
+					fixture.payload.EncodeText(row.note),
+					fixture.payload.EncodeText(row.source),
 				}, "|")
 			end
 		end
@@ -9247,34 +12335,105 @@ function cases.reserves_sync_checksums_and_payloads_are_verified(addon)
 		return originalSet(self, data, meta)
 	end
 	local function transfer(requestId, announcedChecksum, players, entries, encoded, totalChunks)
-		fixture.sync:HandleMessage("RMAResSync", table.concat({
-			"META_ACK", requestId, announcedChecksum, "multi", players, entries, "Leader", "C2",
-		}, "|"), "WHISPER", "Leader-Realm")
-		fixture.sync:HandleMessage("RMAResSync", "DATA_CHUNK|" .. requestId .. "|1|" .. tostring(totalChunks or 1) .. "|" .. encoded, "WHISPER", "Leader-Realm")
-		fixture.sync:HandleMessage("RMAResSync", "DATA_DONE|" .. requestId .. "|" .. announcedChecksum, "WHISPER", "Leader-Realm")
+		fixture.sync:HandleMessage(
+			"RMAResSync",
+			table.concat({
+				"META_ACK",
+				requestId,
+				announcedChecksum,
+				"multi",
+				players,
+				entries,
+				"Leader",
+				"C2",
+			}, "|"),
+			"WHISPER",
+			"Leader-Realm"
+		)
+		fixture.sync:HandleMessage(
+			"RMAResSync",
+			"DATA_CHUNK|" .. requestId .. "|1|" .. tostring(totalChunks or 1) .. "|" .. encoded,
+			"WHISPER",
+			"Leader-Realm"
+		)
+		fixture.sync:HandleMessage(
+			"RMAResSync",
+			"DATA_DONE|" .. requestId .. "|" .. announcedChecksum,
+			"WHISPER",
+			"Leader-Realm"
+		)
 	end
 	transfer("valid", checksum, 2, 3, fixture.payload.EncodeText(validPayload))
-	assertEqual(1, setCalls, "valid verified payload must publish once; warning=" .. tostring(fixture.warnings[#fixture.warnings]))
+	assertEqual(
+		1,
+		setCalls,
+		"valid verified payload must publish once; warning=" .. tostring(fixture.warnings[#fixture.warnings])
+	)
 	local validView = fixture.reserves:GetDisplayList()
 	local validAlphaEntries = deepCopy(fixture.reserves:GetPlayerReserveEntries("Alpha"))
 	local validMeta = deepCopy(fixture.reserves:GetSyncMetadata())
 
 	local invalid = {
-		{ id = "corrupt", checksum = checksum .. "1", players = 2, entries = 3, payload = string.gsub(validPayload, "202", "999", 1) },
-		{ id = "truncated", checksum = checksum .. "2", players = 2, entries = 3, payload = string.sub(validPayload, 1, #validPayload - 8) },
+		{
+			id = "corrupt",
+			checksum = checksum .. "1",
+			players = 2,
+			entries = 3,
+			payload = string.gsub(validPayload, "202", "999", 1),
+		},
+		{
+			id = "truncated",
+			checksum = checksum .. "2",
+			players = 2,
+			entries = 3,
+			payload = string.sub(validPayload, 1, #validPayload - 8),
+		},
 		{ id = "empty", checksum = checksum .. "3", players = 2, entries = 3, payload = "" },
 		{ id = "counts", checksum = checksum .. "4", players = 9, entries = 3, payload = validPayload },
-		{ id = "missing", checksum = checksum .. "5", players = 2, entries = 3, payload = validPayload, totalChunks = 2 },
-		{ id = "mode", checksum = checksum .. "6", players = 2, entries = 3, payload = string.gsub(validPayload, "H|multi|", "H|plus|", 1) },
+		{
+			id = "missing",
+			checksum = checksum .. "5",
+			players = 2,
+			entries = 3,
+			payload = validPayload,
+			totalChunks = 2,
+		},
+		{
+			id = "mode",
+			checksum = checksum .. "6",
+			players = 2,
+			entries = 3,
+			payload = string.gsub(validPayload, "H|multi|", "H|plus|", 1),
+		},
 	}
 	for i = 1, #invalid do
-		transfer(invalid[i].id, invalid[i].checksum, invalid[i].players, invalid[i].entries, fixture.payload.EncodeText(invalid[i].payload), invalid[i].totalChunks)
+		transfer(
+			invalid[i].id,
+			invalid[i].checksum,
+			invalid[i].players,
+			invalid[i].entries,
+			fixture.payload.EncodeText(invalid[i].payload),
+			invalid[i].totalChunks
+		)
 		assertEqual(1, setCalls, "rejected transfer must not reach SetSyncedData at row " .. i)
-		assertTrue(deepEqual(validView, fixture.reserves:GetDisplayList()), "rejected transfer changed active view at row " .. i)
-		assertTrue(deepEqual(validAlphaEntries, fixture.reserves:GetPlayerReserveEntries("Alpha")), "rejected transfer changed reserve rows at row " .. i)
-		assertTrue(deepEqual(validMeta, fixture.reserves:GetSyncMetadata()), "rejected transfer changed metadata at row " .. i)
+		assertTrue(
+			deepEqual(validView, fixture.reserves:GetDisplayList()),
+			"rejected transfer changed active view at row " .. i
+		)
+		assertTrue(
+			deepEqual(validAlphaEntries, fixture.reserves:GetPlayerReserveEntries("Alpha")),
+			"rejected transfer changed reserve rows at row " .. i
+		)
+		assertTrue(
+			deepEqual(validMeta, fixture.reserves:GetSyncMetadata()),
+			"rejected transfer changed metadata at row " .. i
+		)
 		assertEqual(nil, fixture.sync._pendingRequests[invalid[i].id], "rejected request was not cleared at row " .. i)
-		assertEqual(nil, fixture.sync._incoming["Leader:" .. invalid[i].id], "rejected chunks were not cleared at row " .. i)
+		assertEqual(
+			nil,
+			fixture.sync._incoming["Leader:" .. invalid[i].id],
+			"rejected chunks were not cleared at row " .. i
+		)
 	end
 	fixture.sync._pendingRequests.expired = { source = "Leader", checksum = "old", createdAt = 10 }
 	fixture.sync._incoming["Leader:expired"] = { total = 1, chunks = { "old" }, createdAt = 10 }
@@ -9288,26 +12447,48 @@ end
 function cases.reserves_sync_protocol_projection_and_chunks_fail_closed(addon)
 	local fixture = installRealReservesSyncFixture(addon)
 	local canonical = {
-		alpha = { playerNameDisplay = "Alpha", reserves = {
-			{ rawID = 100, quantity = 1, plus = 0, class = "MAGE", spec = "Fire", note = "", source = "csv" },
-		} },
+		alpha = {
+			playerNameDisplay = "Alpha",
+			reserves = {
+				{ rawID = 100, quantity = 1, plus = 0, class = "MAGE", spec = "Fire", note = "", source = "csv" },
+			},
+		},
 	}
 	local wireEquivalent = {
-		alpha = { playerNameDisplay = "Alpha", reserves = {
-			{ rawID = "100", quantity = nil, plus = nil, class = "MAGE", spec = "Fire", note = "", source = "csv" },
-		} },
+		alpha = {
+			playerNameDisplay = "Alpha",
+			reserves = {
+				{ rawID = "100", quantity = nil, plus = nil, class = "MAGE", spec = "Fire", note = "", source = "csv" },
+			},
+		},
 	}
 	local checksum = fixture.reserves.BuildCanonicalChecksum(canonical)
-	assertTrue(type(checksum) == "string" and checksum:match("^C2:%d+:%d+$") ~= nil, "new checksums need a tagged semantic version")
-	assertEqual(checksum, fixture.reserves.BuildCanonicalChecksum(wireEquivalent), "hashing and wire defaults must share one projection")
-	local sparse = { alpha = { playerNameDisplay = "Alpha", reserves = { [1] = canonical.alpha.reserves[1], [3] = canonical.alpha.reserves[1] } } }
+	assertTrue(
+		type(checksum) == "string" and checksum:match("^C2:%d+:%d+$") ~= nil,
+		"new checksums need a tagged semantic version"
+	)
+	assertEqual(
+		checksum,
+		fixture.reserves.BuildCanonicalChecksum(wireEquivalent),
+		"hashing and wire defaults must share one projection"
+	)
+	local sparse = {
+		alpha = {
+			playerNameDisplay = "Alpha",
+			reserves = { [1] = canonical.alpha.reserves[1], [3] = canonical.alpha.reserves[1] },
+		},
+	}
 	local sparseChecksum, sparseReason = fixture.reserves.BuildCanonicalChecksum(sparse)
 	assertEqual(nil, sparseChecksum, "sparse reserve sequences must be rejected")
 	assertEqual("invalid_reserve_sequence", sparseReason, "sparse rejection reason differs")
 
 	-- Legacy C1 metadata has no reproducible integrity digest; the new receiver fails closed without allocating state.
 	fixture.sync:HandleMessage("RMAResSync", "META_ACK|legacy|12345|multi|1|1|Leader|C1", "WHISPER", "Leader-Realm")
-	assertEqual(nil, fixture.sync._pendingRequests.legacy, "untagged legacy metadata must not start an unverifiable transfer")
+	assertEqual(
+		nil,
+		fixture.sync._pendingRequests.legacy,
+		"untagged legacy metadata must not start an unverifiable transfer"
+	)
 	-- An old receiver treats the tagged checksum as opaque and accepts a matching DATA_DONE value.
 	local oldPendingChecksum = checksum
 	assertEqual(oldPendingChecksum, checksum, "new tagged META remains opaque to an old receiver")
@@ -9327,7 +12508,12 @@ function cases.reserves_sync_protocol_projection_and_chunks_fail_closed(addon)
 		assertEqual(nil, fixture.sync._pendingRequests[id], "invalid META allocated request " .. id)
 	end
 
-	fixture.sync:HandleMessage("RMAResSync", "META_ACK|chunks|" .. checksum .. "|multi|1|1|Leader|C2", "WHISPER", "Leader-Realm")
+	fixture.sync:HandleMessage(
+		"RMAResSync",
+		"META_ACK|chunks|" .. checksum .. "|multi|1|1|Leader|C2",
+		"WHISPER",
+		"Leader-Realm"
+	)
 	fixture.sync:HandleMessage("RMAResSync", "DATA_CHUNK|chunks|1|2|AAAA", "WHISPER", "Leader-Realm")
 	fixture.sync:HandleMessage("RMAResSync", "DATA_CHUNK|chunks|1|2|AAAA", "WHISPER", "Leader-Realm")
 	assertTrue(fixture.sync._incoming["Leader:chunks"] ~= nil, "identical duplicate chunk should be idempotent")
@@ -9342,7 +12528,8 @@ function cases.reserves_sync_protocol_projection_and_chunks_fail_closed(addon)
 	}
 	for i = 1, #malformedChunks do
 		local id = malformedChunks[i]:match("DATA_CHUNK|([^|]+)")
-		fixture.sync._pendingRequests[id] = { source = "Leader", checksum = checksum, players = 1, entries = 1, createdAt = 10 }
+		fixture.sync._pendingRequests[id] =
+			{ source = "Leader", checksum = checksum, players = 1, entries = 1, createdAt = 10 }
 		fixture.sync:HandleMessage("RMAResSync", malformedChunks[i], "WHISPER", "Leader-Realm")
 		assertEqual(nil, fixture.sync._incoming["Leader:" .. id], "malformed chunk allocated assembly " .. id)
 		assertEqual(nil, fixture.sync._pendingRequests[id], "malformed chunk retained request " .. id)
@@ -9351,46 +12538,83 @@ function cases.reserves_sync_protocol_projection_and_chunks_fail_closed(addon)
 	-- A new sender keeps every old field position and serves the old noncompact DATA_REQ shape.
 	_G.RMA_Reserves = deepCopy(wireEquivalent)
 	fixture.reserves:Load()
-	for key in pairs(fixture.sent) do fixture.sent[key] = nil end
+	for key in pairs(fixture.sent) do
+		fixture.sent[key] = nil
+	end
 	fixture.sync:HandleMessage("RMAResSync", "META_REQ|old-meta", "WHISPER", "Old-Realm")
 	local metaFields = {}
 	fixture.payload.SplitFields(fixture.sent[#fixture.sent].message, "|", metaFields)
 	assertEqual("META_ACK", metaFields[1], "new sender metadata kind changed")
 	assertEqual("C2", metaFields[8], "new sender must advertise verified checksum semantics")
-	assertEqual(fixture.reserves.BuildCanonicalChecksum(wireEquivalent), metaFields[3], "outbound META must hash serialized projection")
+	assertEqual(
+		fixture.reserves.BuildCanonicalChecksum(wireEquivalent),
+		metaFields[3],
+		"outbound META must hash serialized projection"
+	)
 	local oldPending = metaFields[3]
-	for key in pairs(fixture.sent) do fixture.sent[key] = nil end
+	for key in pairs(fixture.sent) do
+		fixture.sent[key] = nil
+	end
 	fixture.sync:HandleMessage("RMAResSync", "DATA_REQ|old-data|" .. oldPending, "WHISPER", "Old-Realm")
 	local encodedParts = {}
 	local oldDoneChecksum
 	for i = 1, #fixture.sent do
 		local fields = {}
 		fixture.payload.SplitFields(fixture.sent[i].message, "|", fields)
-		if fields[1] == "DATA_CHUNK" then encodedParts[tonumber(fields[3])] = fields[5] end
-		if fields[1] == "DATA_DONE" then oldDoneChecksum = fields[3] end
+		if fields[1] == "DATA_CHUNK" then
+			encodedParts[tonumber(fields[3])] = fields[5]
+		end
+		if fields[1] == "DATA_DONE" then
+			oldDoneChecksum = fields[3]
+		end
 	end
 	assertEqual(oldPending, oldDoneChecksum, "old receiver must accept matching opaque META/DONE checksum")
 	local oldPayload = fixture.payload.DecodeText(table.concat(encodedParts, ""))
 	assertTrue(oldPayload:find("H|multi|", 1, true) == 1, "old DATA_REQ must receive legacy noncompact payload header")
-	assertTrue(oldPayload:find("|100|1|0|", 1, true) ~= nil, "serialization must use the same numeric defaults as hashing")
+	assertTrue(
+		oldPayload:find("|100|1|0|", 1, true) ~= nil,
+		"serialization must use the same numeric defaults as hashing"
+	)
 	print("PASS reserves_sync_protocol_projection_and_chunks_fail_closed")
 end
 
 function cases.comms_batch_preflight_prevents_partial_enqueue(addon)
 	_G.SendAddonMessage = function() end
 	_G.SendChatMessage = function() end
-	_G.GetAddOnMetadata = function() return "test" end
-	_G.UnitName = function() return "Tester" end
-	_G.IsInInstance = function() return false, "none" end
-	_G.GetNumRaidMembers = function() return 1 end
-	_G.GetNumPartyMembers = function() return 0 end
+	_G.GetAddOnMetadata = function()
+		return "test"
+	end
+	_G.UnitName = function()
+		return "Tester"
+	end
+	_G.IsInInstance = function()
+		return false, "none"
+	end
+	_G.GetNumRaidMembers = function()
+		return 1
+	end
+	_G.GetNumPartyMembers = function()
+		return 0
+	end
 	addon.L = {}
-	addon.Database.GetSyncer = function() return nil end
-	addon.Database.GetRaidSchemaVersion = function() return 1 end
-	addon.Strings = { NormalizeName = function(value) return value end }
-	addon.Timer = { BindMixin = function(target)
-		target.ScheduleTimer = function() return {} end
-	end }
+	addon.Database.GetSyncer = function()
+		return nil
+	end
+	addon.Database.GetRaidSchemaVersion = function()
+		return 1
+	end
+	addon.Strings = {
+		NormalizeName = function(value)
+			return value
+		end,
+	}
+	addon.Timer = {
+		BindMixin = function(target)
+			target.ScheduleTimer = function()
+				return {}
+			end
+		end,
+	}
 	loadAddonFile(addon, "Raid Management Addon/Modules/Comms.lua")
 	for i = 1, 255 do
 		assertTrue(addon.Comms.QueueAddonMessage("RMA", "m" .. i, "RAID"), "queue fill must succeed")
@@ -9417,22 +12641,42 @@ local function installRealCommsQueueFixture(addon)
 		}
 	end
 	_G.SendChatMessage = function() end
-	_G.GetAddOnMetadata = function() return "test" end
-	_G.UnitName = function() return "Tester" end
-	_G.IsInInstance = function() return false, "none" end
-	_G.GetNumRaidMembers = function() return 1 end
-	_G.GetNumPartyMembers = function() return 0 end
+	_G.GetAddOnMetadata = function()
+		return "test"
+	end
+	_G.UnitName = function()
+		return "Tester"
+	end
+	_G.IsInInstance = function()
+		return false, "none"
+	end
+	_G.GetNumRaidMembers = function()
+		return 1
+	end
+	_G.GetNumPartyMembers = function()
+		return 0
+	end
 	addon.L = {}
-	addon.Database.GetSyncer = function() return nil end
-	addon.Database.GetRaidSchemaVersion = function() return 1 end
-	addon.Strings = { NormalizeName = function(value) return value end }
-	addon.Timer = { BindMixin = function(target)
-		target.ScheduleTimer = function(_, callback, delay)
-			local timer = { callback = callback, delay = delay }
-			fixture.timers[#fixture.timers + 1] = timer
-			return timer
-		end
-	end }
+	addon.Database.GetSyncer = function()
+		return nil
+	end
+	addon.Database.GetRaidSchemaVersion = function()
+		return 1
+	end
+	addon.Strings = {
+		NormalizeName = function(value)
+			return value
+		end,
+	}
+	addon.Timer = {
+		BindMixin = function(target)
+			target.ScheduleTimer = function(_, callback, delay)
+				local timer = { callback = callback, delay = delay }
+				fixture.timers[#fixture.timers + 1] = timer
+				return timer
+			end
+		end,
+	}
 	loadAddonFile(addon, "Raid Management Addon/Modules/Comms.lua")
 
 	function fixture:FireNextTimer()
@@ -9477,15 +12721,28 @@ function cases.reserves_import_limits_and_schema_fail_closed(addon)
 	addon.L.WarnReservesHeaderHint = "header"
 	addon.L.WarnReservesEncodedImportCompressed = "compressed"
 	addon.L.WarnReservesEncodedImportInvalid = "invalid"
-	addon.Diag = { D = {
-		LogReservesParseStart = "start", LogReservesImportRows = "%d %d %s %d",
-		LogReservesEncodedImportStart = "encoded", LogReservesEncodedImportRows = "%d %d %s",
-	}, W = { LogReservesImportFailedEmpty = "empty", LogReservesEncodedImportFailed = "%s" } }
-	addon.Options = { IsDebugEnabled = function() return false end }
+	addon.Diag = {
+		D = {
+			LogReservesParseStart = "start",
+			LogReservesImportRows = "%d %d %s %d",
+			LogReservesEncodedImportStart = "encoded",
+			LogReservesEncodedImportRows = "%d %d %s",
+		},
+		W = { LogReservesImportFailedEmpty = "empty", LogReservesEncodedImportFailed = "%s" },
+	}
+	addon.Options = {
+		IsDebugEnabled = function()
+			return false
+		end,
+	}
 	addon.Strings = {
-		NormalizeText = function(value) return value end,
+		NormalizeText = function(value)
+			return value
+		end,
 		NormalizeLower = function(value)
-			if type(value) ~= "string" or value == "" then return nil end
+			if type(value) ~= "string" or value == "" then
+				return nil
+			end
 			return string.lower(value)
 		end,
 	}
@@ -9494,10 +12751,16 @@ function cases.reserves_import_limits_and_schema_fail_closed(addon)
 		return addon.Services[name]
 	end
 	addon.Services.EnsureNamespace("Reserves")
-	addon.Services.Reserves.GetImportMode = function() return "multi" end
+	addon.Services.Reserves.GetImportMode = function()
+		return "multi"
+	end
 	loadAddonFile(addon, "Raid Management Addon/Modules/Base64.lua")
 	local jsonValue
-	addon.Json = { Decode = function() return jsonValue end }
+	addon.Json = {
+		Decode = function()
+			return jsonValue
+		end,
+	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Reserves/Import.lua")
 	local parser = addon.Services.Reserves._Import.BuildParser()
 	local service = addon.Services.Reserves
@@ -9514,7 +12777,10 @@ function cases.reserves_import_limits_and_schema_fail_closed(addon)
 	assertEqual("IMPORT_ENCODED_TOO_LARGE", reason, "oversized text reason differs")
 	local atDecodedLimit = addon.Base64.Encode(string.rep("j", 131072))
 	jsonValue = { softreserves = { { name = "Alpha", items = { { id = 1 } } } } }
-	assertTrue(parser.ParseImport(service, atDecodedLimit, "multi", { format = "json" }) ~= nil, "exact decoded limit must import")
+	assertTrue(
+		parser.ParseImport(service, atDecodedLimit, "multi", { format = "json" }) ~= nil,
+		"exact decoded limit must import"
+	)
 	local overDecodedLimit = addon.Base64.Encode(string.rep("j", 131073))
 	parsed, reason = parser.ParseImport(service, overDecodedLimit, "multi", { format = "json" })
 	assertEqual(nil, parsed, "decoded max plus one must fail")
@@ -9523,11 +12789,21 @@ function cases.reserves_import_limits_and_schema_fail_closed(addon)
 	jsonValue = { softreserves = { { name = "Alpha", items = { { id = 1 } } } } }
 	parsed = parser.ParseImport(service, addon.Base64.Encode("json"), "multi", { format = "json" })
 	assertTrue(parsed ~= nil, "normal encoded JSON must import")
-	parsed, reason = parser.ParseImport(service, addon.Base64.Encode(string.char(0x78, 0x9c) .. "bomb"), "multi", { format = "json" })
+	parsed, reason = parser.ParseImport(
+		service,
+		addon.Base64.Encode(string.char(0x78, 0x9c) .. "bomb"),
+		"multi",
+		{ format = "json" }
+	)
 	assertEqual(nil, parsed, "compressed import must fail before inflate")
 	assertEqual("COMPRESSED_UNSUPPORTED", reason, "compressed import reason differs")
 
-	jsonValue = { softreserves = { [1] = { name = "Alpha", items = { { id = 1 } } }, [3] = { name = "Beta", items = { { id = 2 } } } } }
+	jsonValue = {
+		softreserves = {
+			[1] = { name = "Alpha", items = { { id = 1 } } },
+			[3] = { name = "Beta", items = { { id = 2 } } },
+		},
+	}
 	parsed, reason = parser.ParseImport(service, "json", "multi", { format = "json" })
 	assertEqual(nil, parsed, "sparse JSON arrays must fail")
 	assertEqual("JSON_INVALID_SCHEMA", reason, "sparse JSON reason differs")
@@ -9542,19 +12818,34 @@ function cases.reserves_import_limits_and_schema_fail_closed(addon)
 	local quoted = csvHeader .. 'x,1,raid,"Alpha",WARRIOR,tank,"a,b",0\r\n'
 	assertTrue(parser.ParseImport(service, quoted, "multi", { format = "csv" }) ~= nil, "quoted CRLF CSV must import")
 	local wideHeader, wideRow = { "itemId", "name" }, { "1", "Alpha" }
-	for i = 3, 32 do wideHeader[i], wideRow[i] = "legacy" .. i, "value" .. i end
+	for i = 3, 32 do
+		wideHeader[i], wideRow[i] = "legacy" .. i, "value" .. i
+	end
 	local exactFieldsCsv = table.concat(wideHeader, ",") .. "\n" .. table.concat(wideRow, ",")
-	assertTrue(parser.ParseImport(service, exactFieldsCsv, "multi", { format = "csv" }) ~= nil, "exact CSV field limit must import")
+	assertTrue(
+		parser.ParseImport(service, exactFieldsCsv, "multi", { format = "csv" }) ~= nil,
+		"exact CSV field limit must import"
+	)
 	local overFieldsCsv = table.concat(wideHeader, ",") .. ",extra\n" .. table.concat(wideRow, ",") .. ",value"
 	parsed, reason = parser.ParseImport(service, overFieldsCsv, "multi", { format = "csv" })
 	assertEqual(nil, parsed, "CSV field max plus one must fail")
 	assertEqual("CSV_FIELDS_LIMIT", reason, "CSV field count reason differs")
-	parsed, reason = parser.ParseImport(service, csvHeader .. "x,1,raid," .. string.rep("A", 65) .. ",WARRIOR,tank,note,0", "multi", { format = "csv" })
+	parsed, reason = parser.ParseImport(
+		service,
+		csvHeader .. "x,1,raid," .. string.rep("A", 65) .. ",WARRIOR,tank,note,0",
+		"multi",
+		{ format = "csv" }
+	)
 	assertEqual(nil, parsed, "overlong CSV name must fail")
 	assertEqual("FIELD_LIMIT", reason, "CSV field reason differs")
 	local duplicateRows = csvHeader
-	for _ = 1, 100 do duplicateRows = duplicateRows .. "x,1,raid,Alpha,WARRIOR,tank,note,0\n" end
-	assertTrue(parser.ParseImport(service, duplicateRows, "multi", { format = "csv" }) ~= nil, "quantity exact limit must import")
+	for _ = 1, 100 do
+		duplicateRows = duplicateRows .. "x,1,raid,Alpha,WARRIOR,tank,note,0\n"
+	end
+	assertTrue(
+		parser.ParseImport(service, duplicateRows, "multi", { format = "csv" }) ~= nil,
+		"quantity exact limit must import"
+	)
 	duplicateRows = duplicateRows .. "x,1,raid,Alpha,WARRIOR,tank,note,0\n"
 	parsed, reason = parser.ParseImport(service, duplicateRows, "multi", { format = "csv" })
 	assertEqual(nil, parsed, "quantity over limit must fail")
@@ -9564,27 +12855,40 @@ function cases.reserves_import_limits_and_schema_fail_closed(addon)
 	assertEqual(nil, parsed, "huge CSV field must fail")
 	assertEqual("FIELD_LIMIT", reason, "huge field reason differs")
 	local reserveRows = csvHeader
-	for itemId = 1, 20 do reserveRows = reserveRows .. "x," .. itemId .. ",raid,Alpha,WARRIOR,tank,note,0\n" end
-	assertTrue(parser.ParseImport(service, reserveRows, "multi", { format = "csv" }) ~= nil, "reserves per player exact limit must import")
+	for itemId = 1, 20 do
+		reserveRows = reserveRows .. "x," .. itemId .. ",raid,Alpha,WARRIOR,tank,note,0\n"
+	end
+	assertTrue(
+		parser.ParseImport(service, reserveRows, "multi", { format = "csv" }) ~= nil,
+		"reserves per player exact limit must import"
+	)
 	reserveRows = reserveRows .. "x,21,raid,Alpha,WARRIOR,tank,note,0\n"
 	parsed, reason = parser.ParseImport(service, reserveRows, "multi", { format = "csv" })
 	assertEqual(nil, parsed, "reserves per player over limit must fail")
 	assertEqual("RESERVES_PER_PLAYER_LIMIT", reason, "reserve count reason differs")
 	local playerParts = { csvHeader }
-	for i = 1, 1000 do playerParts[#playerParts + 1] = "x,1,raid,P" .. i .. ",WARRIOR,tank,note,0\n" end
+	for i = 1, 1000 do
+		playerParts[#playerParts + 1] = "x,1,raid,P" .. i .. ",WARRIOR,tank,note,0\n"
+	end
 	local playerRows = table.concat(playerParts)
-	assertTrue(parser.ParseImport(service, playerRows, "multi", { format = "csv" }) ~= nil, "player exact limit must import")
+	assertTrue(
+		parser.ParseImport(service, playerRows, "multi", { format = "csv" }) ~= nil,
+		"player exact limit must import"
+	)
 	playerRows = playerRows .. "x,1,raid,P1001,WARRIOR,tank,note,0\n"
 	parsed, reason = parser.ParseImport(service, playerRows, "multi", { format = "csv" })
 	assertEqual(nil, parsed, "player max plus one must fail")
 	assertEqual("PLAYERS_LIMIT", reason, "player limit reason differs")
 	local rowParts = { csvHeader }
 	for player = 1, 250 do
-		for itemId = 1, 20 do rowParts[#rowParts + 1] = "x," .. itemId .. ",raid,R" .. player .. ",WARRIOR,tank,note,0\n" end
+		for itemId = 1, 20 do
+			rowParts[#rowParts + 1] = "x," .. itemId .. ",raid,R" .. player .. ",WARRIOR,tank,note,0\n"
+		end
 	end
 	local maxRows = table.concat(rowParts)
 	assertTrue(parser.ParseImport(service, maxRows, "multi", { format = "csv" }) ~= nil, "row exact limit must import")
-	parsed, reason = parser.ParseImport(service, maxRows .. "x,1,raid,R1,WARRIOR,tank,note,0\n", "multi", { format = "csv" })
+	parsed, reason =
+		parser.ParseImport(service, maxRows .. "x,1,raid,R1,WARRIOR,tank,note,0\n", "multi", { format = "csv" })
 	assertEqual(nil, parsed, "row max plus one must fail")
 	assertEqual("ROWS_LIMIT", reason, "row limit reason differs")
 	jsonValue = { softreserves = { { name = "Alpha", items = { { id = "1" } } } } }
@@ -9607,56 +12911,121 @@ function cases.reserves_whisper_admission_is_bounded_and_fail_closed(addon)
 	local now = 100
 	local addCalls = 0
 	addon.L = {
-		WhisperSoftResHeader = "header", WhisperSoftResEntry = "%d. %s", WhisperSoftResNone = "none %s",
-		WhisperSoftResAdded = "added %s", WhisperSoftResInvalidItem = "invalid item",
-		WhisperSoftResAdmissionLimited = "slow down", WhisperSoftResCapacity = "full",
+		WhisperSoftResHeader = "header",
+		WhisperSoftResEntry = "%d. %s",
+		WhisperSoftResNone = "none %s",
+		WhisperSoftResAdded = "added %s",
+		WhisperSoftResInvalidItem = "invalid item",
+		WhisperSoftResAdmissionLimited = "slow down",
+		WhisperSoftResCapacity = "full",
 		WhisperSoftResInvalidSender = "invalid sender",
 		StrReservesItemFallback = "[Item %s]",
 	}
 	addon.Strings = {
-		TrimText = function(value) return tostring(value or ""):match("^%s*(.-)%s*$") end,
-		NormalizeLower = function(value) return string.lower(tostring(value or "")) end,
-		NormalizeName = function(value) return tostring(value or "") end,
+		TrimText = function(value)
+			return tostring(value or ""):match("^%s*(.-)%s*$")
+		end,
+		NormalizeLower = function(value)
+			return string.lower(tostring(value or ""))
+		end,
+		NormalizeName = function(value)
+			return tostring(value or "")
+		end,
 	}
-	addon.Database = { GetRealmName = function() return "Local Realm" end }
-	addon.Options = { GetValue = function() return true end }
+	addon.Database = {
+		GetRealmName = function()
+			return "Local Realm"
+		end,
+	}
+	addon.Options = {
+		GetValue = function()
+			return true
+		end,
+	}
 	addon.Events.Wow = { ChatMsgWhisper = "CHAT_MSG_WHISPER" }
-	addon.Bus.RegisterCallback = function(_, callback) callbacks[#callbacks + 1] = callback end
-	addon.Comms = { SendWhisper = function(target, text) sent[#sent + 1] = { target, text }; return true end }
-	addon.Time = { GetCurrentTime = function() return now end }
-	addon.Services.Raid = {
-		GetPlayerRoleState = function() return { inRaid = true, isMasterLooter = true } end,
-		CanUseCapability = function() return true end,
+	addon.Bus.RegisterCallback = function(_, callback)
+		callbacks[#callbacks + 1] = callback
+	end
+	addon.Comms = {
+		SendWhisper = function(target, text)
+			sent[#sent + 1] = { target, text }
+			return true
+		end,
 	}
-	addon.Services.EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} end
+	addon.Time = {
+		GetCurrentTime = function()
+			return now
+		end,
+	}
+	addon.Services.Raid = {
+		GetPlayerRoleState = function()
+			return { inRaid = true, isMasterLooter = true }
+		end,
+		CanUseCapability = function()
+			return true
+		end,
+	}
+	addon.Services.EnsureNamespace = function(name)
+		addon.Services[name] = addon.Services[name] or {}
+	end
 	addon.Services.EnsureNamespace("Reserves")
 	local reserves = addon.Services.Reserves
-	reserves.ScheduleTimer = function(_, callback) timers[#timers + 1] = callback; return #timers end
-	reserves.IsPlusSystem = function() return false end
+	reserves.ScheduleTimer = function(_, callback)
+		timers[#timers + 1] = callback
+		return #timers
+	end
+	reserves.IsPlusSystem = function()
+		return false
+	end
 	reserves.GetCounts = function()
 		local players, entries = 0, 0
-		for _, rows in pairs(data) do players = players + 1; entries = entries + #rows end
+		for _, rows in pairs(data) do
+			players = players + 1
+			entries = entries + #rows
+		end
 		return players, entries
 	end
-	reserves.GetPlayerReserveEntries = function(_, name) return data[string.lower(name)] or {} end
+	reserves.GetPlayerReserveEntries = function(_, name)
+		return data[string.lower(name)] or {}
+	end
 	reserves.NormalizeWhisperPlayerIdentity = function(_, value, localRealm)
-		if type(value) ~= "string" or value == "" or #value > 64 or value:find("[%c|]")
-			or value:find(string.char(0xff), 1, true) then return nil end
+		if
+			type(value) ~= "string"
+			or value == ""
+			or #value > 64
+			or value:find("[%c|]")
+			or value:find(string.char(0xff), 1, true)
+		then
+			return nil
+		end
 		local character, realm = value:match("^([^-]+)%-(.+)$")
 		character, realm = character or value, realm or localRealm
-		if character:find("[^A-Za-z\128-\255']") or character:match("^'") or character:match("'$+")
-			or realm:match("^[ %'-]") or realm:match("[ %'-]$") then return nil end
+		if
+			character:find("[^A-Za-z\128-\255']")
+			or character:match("^'")
+			or character:match("'$+")
+			or realm:match("^[ %'-]")
+			or realm:match("[ %'-]$")
+		then
+			return nil
+		end
 		local realmKey = string.lower((realm:gsub("[ '%-]", "")))
 		local localKey = string.lower((localRealm:gsub("[ '%-]", "")))
 		return character, realmKey, string.lower(character) .. "-" .. realmKey, localKey
 	end
 	reserves.ResolveWhisperPlayerName = function(_, character, senderRealm, localRealm)
-		if senderRealm == localRealm then return character end
+		if senderRealm == localRealm then
+			return character
+		end
 		return character .. "-" .. senderRealm
 	end
 	reserves.AddPlayerReserve = function(_, name, itemRef)
-		if itemRef == "[PublishFail]" then return false, "publish_failed" end
-		if itemRef ~= "[Valid]" then return false, "invalid_item" end
+		if itemRef == "[PublishFail]" then
+			return false, "publish_failed"
+		end
+		if itemRef ~= "[Valid]" then
+			return false, "invalid_item"
+		end
 		addCalls = addCalls + 1
 		local key = string.lower(name)
 		data[key] = data[key] or {}
@@ -9693,13 +13062,17 @@ function cases.reserves_whisper_admission_is_bounded_and_fail_closed(addon)
 	whisper(nil, "+sr [Valid]", "Outside")
 	assertEqual(1, #data.outside, "out-of-group opt-in signup must reuse local short-name storage")
 	whisper(nil, "+sr [Valid]", "Al" .. string.char(0xc3, 0xa9) .. "a-R" .. string.char(0xc3, 0xa9) .. "alm")
-	assertTrue(data["al" .. string.char(0xc3, 0xa9) .. "a-r" .. string.char(0xc3, 0xa9) .. "alm"] ~= nil,
-		"valid UTF-8 player and realm bytes must be accepted")
+	assertTrue(
+		data["al" .. string.char(0xc3, 0xa9) .. "a-r" .. string.char(0xc3, 0xa9) .. "alm"] ~= nil,
+		"valid UTF-8 player and realm bytes must be accepted"
+	)
 
 	-- Short local and explicit local realm share one admission identity.
 	drainTimers()
 	local deliveredBeforeBurst = #sent
-	for _ = 1, 5 do whisper(nil, "+sr", "Burst") end
+	for _ = 1, 5 do
+		whisper(nil, "+sr", "Burst")
+	end
 	whisper(nil, "+sr", "Burst-LocalRealm")
 	whisper(nil, "+sr", "Burst")
 	drainTimers()
@@ -9716,16 +13089,22 @@ function cases.reserves_whisper_admission_is_bounded_and_fail_closed(addon)
 	assertEqual(nil, data["spoof-realm"], "invalid item must not create a participant")
 
 	data["capped-realm"] = {}
-	for i = 1, 20 do data["capped-realm"][i] = { rawID = i, itemName = tostring(i) } end
+	for i = 1, 20 do
+		data["capped-realm"][i] = { rawID = i, itemName = tostring(i) }
+	end
 	whisper(nil, "+sr [Valid]", "Capped-Realm")
 	assertEqual(20, #data["capped-realm"], "per-player reserve cap must reject before mutation")
-	for i = 1, 1000 do data["player" .. i .. "-realm"] = {} end
+	for i = 1, 1000 do
+		data["player" .. i .. "-realm"] = {}
+	end
 	whisper(nil, "+sr [Valid]", "Overflow-Realm")
 	assertEqual(nil, data["overflow-realm"], "participant cap must reject before mutation")
 	data = {}
 	for player = 1, 250 do
 		local rows = {}
-		for item = 1, 20 do rows[item] = { rawID = item, itemName = tostring(item) } end
+		for item = 1, 20 do
+			rows[item] = { rawID = item, itemName = tostring(item) }
+		end
 		data["full" .. player .. "-realm"] = rows
 	end
 	whisper(nil, "+sr [Valid]", "Total-Realm")
@@ -9736,7 +13115,9 @@ function cases.reserves_whisper_admission_is_bounded_and_fail_closed(addon)
 	assertTrue(data["twin-realma"] ~= data["twin-realmb"], "realm-qualified identities must remain distinct")
 
 	data = {}
-	for i = 1, 110 do whisper(nil, "+sr", "Query" .. i .. "-Realm") end
+	for i = 1, 110 do
+		whisper(nil, "+sr", "Query" .. i .. "-Realm")
+	end
 	local deliveredBeforeQueue = #sent
 	drainTimers()
 	assertTrue(#sent - deliveredBeforeQueue <= 100, "response queue must retain at most 100 queued replies")
@@ -9746,7 +13127,9 @@ function cases.reserves_whisper_admission_is_bounded_and_fail_closed(addon)
 	whisper(nil, "+sr", "Burst-Local Realm")
 	drainTimers()
 	assertEqual(beforeExpiryReply + 1, #sent, "expired sender must receive a fresh admission")
-	for _ = 1, 4 do whisper(nil, "+sr", "Burst") end
+	for _ = 1, 4 do
+		whisper(nil, "+sr", "Burst")
+	end
 	whisper(nil, "+sr", "Burst-LocalRealm")
 	drainTimers()
 	data["persisted-realm"] = { { rawID = 7, itemName = "Persisted" } }
@@ -9803,7 +13186,10 @@ function cases.spammer_warnings_saved_variables_are_normalized(addon)
 	local warningsStore = {
 		[1] = { name = "  Pull  ", content = "  Pull now  ", extra = true },
 		[3] = { name = "", content = "missing name" },
-		[5] = { name = string.rep("N", 63) .. string.char(0xc3, 0xa9), content = string.rep("C", 254) .. string.char(0xc3, 0xa9) },
+		[5] = {
+			name = string.rep("N", 63) .. string.char(0xc3, 0xa9),
+			content = string.rep("C", 254) .. string.char(0xc3, 0xa9),
+		},
 		mapped = { name = "  Stack  ", content = "  Stack now  " },
 		invalidUtf8 = { name = "Safe", content = "Good" .. string.char(0xff) .. "discard" },
 		bad = "not a warning",
@@ -9812,28 +13198,42 @@ function cases.spammer_warnings_saved_variables_are_normalized(addon)
 	local warningEvents = {}
 	local failWarningEvent = false
 	addon.L = {
-		StrTank = "tank", StrHealer = "healer", StrMelee = "melee", StrRanged = "ranged",
-		StrSpammerNeedStr = "need", StrConfigRaidWarningPreviewEmpty = "empty",
+		StrTank = "tank",
+		StrHealer = "healer",
+		StrMelee = "melee",
+		StrRanged = "ranged",
+		StrSpammerNeedStr = "need",
+		StrConfigRaidWarningPreviewEmpty = "empty",
 		StrRaidWarningTemplatePullName = string.rep("T", 63) .. string.char(0xc3, 0xa9),
 		StrRaidWarningTemplatePullContent = string.rep("P", 254) .. string.char(0xc3, 0xa9),
 	}
 	addon.Strings = {
 		TrimText = function(value)
-			if type(value) ~= "string" then return "" end
+			if type(value) ~= "string" then
+				return ""
+			end
 			return value:match("^%s*(.-)%s*$")
 		end,
 	}
 	addon.Database.SavedVariables = {
-		GetSpammer = function() return spammerStore end,
-		GetWarnings = function() return warningsStore end,
+		GetSpammer = function()
+			return spammerStore
+		end,
+		GetWarnings = function()
+			return warningsStore
+		end,
 	}
 	addon.Services.EnsureNamespace = function(owner, child)
 		addon.Services[owner] = addon.Services[owner] or {}
-		if child then addon.Services[owner][child] = addon.Services[owner][child] or {} end
+		if child then
+			addon.Services[owner][child] = addon.Services[owner][child] or {}
+		end
 	end
 	addon.Events.Internal = { WarningsDataChanged = "WarningsDataChanged" }
 	addon.Bus.TriggerEvent = function(_, reason)
-		if failWarningEvent then error("listener failure") end
+		if failWarningEvent then
+			error("listener failure")
+		end
 		local snapshot = {}
 		for i = 1, #warningsStore do
 			snapshot[i] = { name = warningsStore[i].name, content = warningsStore[i].content }
@@ -9841,7 +13241,9 @@ function cases.spammer_warnings_saved_variables_are_normalized(addon)
 		warningEvents[#warningEvents + 1] = { reason = reason, warnings = snapshot }
 	end
 	_G.GetChannelName = function(id)
-		if id == 7 then return 7, "LookingForGroup" end
+		if id == 7 then
+			return 7, "LookingForGroup"
+		end
 		return 0, nil
 	end
 
@@ -9908,25 +13310,37 @@ function cases.spammer_warnings_saved_variables_are_normalized(addon)
 	assertEqual("templates", warningEvents[#warningEvents].reason, "template event reason differs")
 	assertEqual(63, #warningEvents[#warningEvents].warnings[5].name, "template event must observe canonical data")
 	for i = 1, 4 do
-		assertTrue(rawequal(normalizedRefs[i], warnings[i]), "template insertion must preserve existing row identity " .. i)
+		assertTrue(
+			rawequal(normalizedRefs[i], warnings[i]),
+			"template insertion must preserve existing row identity " .. i
+		)
 	end
 	local exactWarningName = string.rep("W", 62) .. string.char(0xc3, 0xa9)
 	local exactWarningContent = string.rep("Q", 253) .. string.char(0xc3, 0xa9)
 	local savedWarning = warningStore.SaveWarning(exactWarningContent, exactWarningName)
 	assertEqual(10, savedWarning, "exact-boundary UTF-8 warning must save")
 	assertEqual(exactWarningName, warnings[savedWarning].name, "exact-boundary warning name must remain intact")
-	assertEqual(exactWarningContent, warnings[savedWarning].content, "exact-boundary warning content must remain intact")
+	assertEqual(
+		exactWarningContent,
+		warnings[savedWarning].content,
+		"exact-boundary warning content must remain intact"
+	)
 	for i = 1, 4 do
 		assertTrue(rawequal(normalizedRefs[i], warnings[i]), "append must preserve existing row identity " .. i)
 	end
 	local beforeEditRefs = {}
-	for i = 1, #warnings do beforeEditRefs[i] = warnings[i] end
+	for i = 1, #warnings do
+		beforeEditRefs[i] = warnings[i]
+	end
 	local editedID = warningStore.SaveWarning("edited content", "Edited exact", savedWarning, true)
 	assertEqual(savedWarning, editedID, "valid edit must preserve warning ID")
 	for i = 1, savedWarning - 1 do
 		assertTrue(rawequal(beforeEditRefs[i], warnings[i]), "edit must preserve unchanged row identity " .. i)
 	end
-	assertTrue(not rawequal(beforeEditRefs[savedWarning], warnings[savedWarning]), "edit must replace only the changed row")
+	assertTrue(
+		not rawequal(beforeEditRefs[savedWarning], warnings[savedWarning]),
+		"edit must replace only the changed row"
+	)
 	local beforeRejectedSave = deepCopy(warnings)
 	local rejectedID, rejectedReason = warningStore.SaveWarning(string.rep("X", 256), "Oversized")
 	assertEqual(nil, rejectedID, "oversized API warning content must be rejected")
@@ -9940,15 +13354,24 @@ function cases.spammer_warnings_saved_variables_are_normalized(addon)
 	local eventCountBefore = #warningEvents
 	local stableRoot = warningsStore
 	local beforeNotificationRefs = {}
-	for i = 1, #warnings do beforeNotificationRefs[i] = warnings[i] end
+	for i = 1, #warnings do
+		beforeNotificationRefs[i] = warnings[i]
+	end
 	failWarningEvent = true
 	local committedID, committedReason, commitDetail = warningStore.SaveWarning("committed", "Notification contained")
-	assertEqual(#beforeNotificationRefs + 1, committedID, "notification failure must not turn a committed save into failure")
+	assertEqual(
+		#beforeNotificationRefs + 1,
+		committedID,
+		"notification failure must not turn a committed save into failure"
+	)
 	assertEqual(nil, committedReason, "committed save has no mutation failure")
 	assertEqual(true, commitDetail.notificationFailed, "save must expose contained notification failure")
 	assertTrue(rawequal(stableRoot, warningsStore), "save must preserve SavedVariables root identity")
 	for i = 1, #beforeNotificationRefs do
-		assertTrue(rawequal(beforeNotificationRefs[i], warnings[i]), "contained notification failure must preserve row identity " .. i)
+		assertTrue(
+			rawequal(beforeNotificationRefs[i], warnings[i]),
+			"contained notification failure must preserve row identity " .. i
+		)
 	end
 	assertEqual(eventCountBefore, #warningEvents, "throwing notification must not append an event snapshot")
 	local deletedRef = warnings[2]
@@ -9961,8 +13384,16 @@ function cases.spammer_warnings_saved_variables_are_normalized(addon)
 	local stockRefs = {}
 	for i = 1, #warnings do
 		local warning = warnings[i]
-		if warning.name == string.rep("T", 63) or warning.name == "Spread" or warning.name == "Stack" or warning.name == "Stop DPS"
-			or warning.name == "Bloodlust" or warning.name == "Break" then stockRefs[warning.name] = warning end
+		if
+			warning.name == string.rep("T", 63)
+			or warning.name == "Spread"
+			or warning.name == "Stack"
+			or warning.name == "Stop DPS"
+			or warning.name == "Bloodlust"
+			or warning.name == "Break"
+		then
+			stockRefs[warning.name] = warning
+		end
 	end
 	local clearResult = warningStore.ClearSavedWarnings(false)
 	assertEqual(true, clearResult.notificationFailed, "clear must expose contained notification failure")
@@ -9988,10 +13419,14 @@ function cases.spammer_runtime_is_bounded_and_atomic(addon)
 	addon.L = addon.L or {}
 	addon.L.MsgSpammerAutoStopDuration = "duration %d"
 	addon.L.MsgSpammerAutoStopMessages = "messages %d"
-	addon.warn = function(_, message) warnings[#warnings + 1] = message end
+	addon.warn = function(_, message)
+		warnings[#warnings + 1] = message
+	end
 	addon.Services = addon.Services or {}
 	addon.Services.Spammer = addon.Services.Spammer or {}
-	addon.Services.EnsureNamespace = function() return addon.Services.Spammer end
+	addon.Services.EnsureNamespace = function()
+		return addon.Services.Spammer
+	end
 	addon.Timer = addon.Timer or {}
 	addon.Timer.BindMixin = function(target)
 		function target:ScheduleRepeatingTimer(callback)
@@ -9999,36 +13434,73 @@ function cases.spammer_runtime_is_bounded_and_atomic(addon)
 			scheduled[#scheduled + 1] = handle
 			return handle
 		end
-		function target:CancelTimer(handle) handle.cancelled = true return true end
+		function target:CancelTimer(handle)
+			handle.cancelled = true
+			return true
+		end
 	end
 	loadAddonFile(addon, "Raid Management Addon/Services/Spammer/Runtime.lua")
 	local runtime = addon.Services.Spammer.Runtime
 	local workingScheduler = runtime.ScheduleRepeatingTimer
 	local attempts, terminal = {}, 0
-	local ok = runtime:Start({ duration = 1, output = "saved draft", channels = { "GUILD", "YELL" },
-		sendFn = function(text, channel) attempts[#attempts + 1] = text .. ":" .. channel return true end,
-		onTerminal = function() terminal = terminal + 1 end })
+	local ok = runtime:Start({
+		duration = 1,
+		output = "saved draft",
+		channels = { "GUILD", "YELL" },
+		sendFn = function(text, channel)
+			attempts[#attempts + 1] = text .. ":" .. channel
+			return true
+		end,
+		onTerminal = function()
+			terminal = terminal + 1
+		end,
+	})
 	assertEqual(ok, true, "runtime starts")
-	for _ = 1, 60 do scheduled[1].callback() end
+	for _ = 1, 60 do
+		scheduled[1].callback()
+	end
 	assertEqual(#attempts, 30, "global cap counts destination attempts")
 	assertEqual(terminal, 1, "terminal callback fires once")
 	assertEqual(runtime:GetState().ticking, false, "cap stops runtime")
 	assertEqual(0, #warnings, "runtime owner must not duplicate controller terminal feedback")
 
 	local stale = scheduled[1].callback
-	assertEqual(runtime:Start({ duration = 1, output = "restart", channels = { "GUILD" }, sendFn = function() return true end }), true, "restart")
+	assertEqual(
+		runtime:Start({
+			duration = 1,
+			output = "restart",
+			channels = { "GUILD" },
+			sendFn = function()
+				return true
+			end,
+		}),
+		true,
+		"restart"
+	)
 	stale()
 	assertEqual(runtime:GetState().attempts, 0, "stale callback ignored")
 	runtime:Stop(true, true)
 	assertEqual(runtime:GetState().ticking, false, "explicit stop")
 
 	local clock, sendTimes = 0, {}
-	assertEqual(runtime:Start({ duration = 3, output = "timed", channels = { "GUILD", "YELL" }, sendFn = function()
-		sendTimes[#sendTimes + 1] = clock
-		return true
-	end }), true, "timed run starts")
+	assertEqual(
+		runtime:Start({
+			duration = 3,
+			output = "timed",
+			channels = { "GUILD", "YELL" },
+			sendFn = function()
+				sendTimes[#sendTimes + 1] = clock
+				return true
+			end,
+		}),
+		true,
+		"timed run starts"
+	)
 	local timedCallback = scheduled[#scheduled].callback
-	for second = 1, 6 do clock = second timedCallback() end
+	for second = 1, 6 do
+		clock = second
+		timedCallback()
+	end
 	assertEqual(sendTimes[1], 3, "first destination uses exact interval")
 	assertEqual(sendTimes[2], 4, "destinations are throttled")
 	assertEqual(sendTimes[3], 6, "cycle interval is measured from first destination")
@@ -10036,19 +13508,50 @@ function cases.spammer_runtime_is_bounded_and_atomic(addon)
 	runtime:Stop(true, true)
 
 	local stopTerminal = 0
-	assertEqual(runtime:Start({ duration = 1, output = "stop", channels = { "GUILD" },
-		sendFn = function() runtime:Stop(true, true) return true end,
-		onTerminal = function() stopTerminal = stopTerminal + 1 end }), true, "reentrant stop run")
+	assertEqual(
+		runtime:Start({
+			duration = 1,
+			output = "stop",
+			channels = { "GUILD" },
+			sendFn = function()
+				runtime:Stop(true, true)
+				return true
+			end,
+			onTerminal = function()
+				stopTerminal = stopTerminal + 1
+			end,
+		}),
+		true,
+		"reentrant stop run"
+	)
 	scheduled[#scheduled].callback()
 	assertEqual(runtime:GetState().ticking, false, "send callback stop remains authoritative")
 	assertEqual(runtime:GetState().attempts, 0, "stopped run cannot restore reserved attempt")
 	assertEqual(stopTerminal, 0, "explicit reentrant stop does not emit terminal callback")
 
 	local replacementTerminal = 0
-	assertEqual(runtime:Start({ duration = 1, output = "old", channels = { "GUILD" }, sendFn = function()
-		return runtime:Start({ duration = 5, output = "replacement", channels = { "YELL" }, sendFn = function() return true end,
-			onTerminal = function() replacementTerminal = replacementTerminal + 1 end })
-	end }), true, "reentrant replacement run")
+	assertEqual(
+		runtime:Start({
+			duration = 1,
+			output = "old",
+			channels = { "GUILD" },
+			sendFn = function()
+				return runtime:Start({
+					duration = 5,
+					output = "replacement",
+					channels = { "YELL" },
+					sendFn = function()
+						return true
+					end,
+					onTerminal = function()
+						replacementTerminal = replacementTerminal + 1
+					end,
+				})
+			end,
+		}),
+		true,
+		"reentrant replacement run"
+	)
 	local oldCallback = scheduled[#scheduled].callback
 	oldCallback()
 	assertEqual(runtime:GetState().output, "replacement", "old tick cannot overwrite replacement run")
@@ -10060,27 +13563,81 @@ function cases.spammer_runtime_is_bounded_and_atomic(addon)
 	assertEqual(replacementTerminal, 0, "replacement callback not fired by old run")
 
 	local failureReasons = {}
-	assertEqual(runtime:Start({ duration = 1, output = "false", channels = { "GUILD" }, sendFn = function() return false end,
-		onTerminal = function(reason) failureReasons[#failureReasons + 1] = reason end }), true, "false transport run")
+	assertEqual(
+		runtime:Start({
+			duration = 1,
+			output = "false",
+			channels = { "GUILD" },
+			sendFn = function()
+				return false
+			end,
+			onTerminal = function(reason)
+				failureReasons[#failureReasons + 1] = reason
+			end,
+		}),
+		true,
+		"false transport run"
+	)
 	scheduled[#scheduled].callback()
 	assertEqual("send_failed", failureReasons[1], "false transport terminates run")
 	assertEqual(1, runtime:GetState().attempts, "false transport counts the actual attempt")
 	assertEqual(0, runtime:GetState().messagesSent, "failed transport must not count as delivered")
-	assertEqual(runtime:Start({ duration = 1, output = "nil", channels = { "GUILD" }, sendFn = function() return nil end,
-		onTerminal = function(reason) failureReasons[#failureReasons + 1] = reason end }), true, "nil transport run")
+	assertEqual(
+		runtime:Start({
+			duration = 1,
+			output = "nil",
+			channels = { "GUILD" },
+			sendFn = function()
+				return nil
+			end,
+			onTerminal = function(reason)
+				failureReasons[#failureReasons + 1] = reason
+			end,
+		}),
+		true,
+		"nil transport run"
+	)
 	scheduled[#scheduled].callback()
 	assertEqual("send_failed", failureReasons[2], "nil transport result must not report success")
-	assertEqual(runtime:Start({ duration = 1, output = "throw", channels = { "GUILD" }, sendFn = function() error("transport") end,
-		onTerminal = function(reason) failureReasons[#failureReasons + 1] = reason end }), true, "throwing transport run")
+	assertEqual(
+		runtime:Start({
+			duration = 1,
+			output = "throw",
+			channels = { "GUILD" },
+			sendFn = function()
+				error("transport")
+			end,
+			onTerminal = function(reason)
+				failureReasons[#failureReasons + 1] = reason
+			end,
+		}),
+		true,
+		"throwing transport run"
+	)
 	scheduled[#scheduled].callback()
 	assertEqual("send_failed", failureReasons[3], "throwing transport terminates run")
 	assertEqual(3, #failureReasons, "each failed run emits terminal callback once")
 	assertEqual(0, #warnings, "send failures emit no runtime-owner user feedback")
 	local destinationAvailable = true
-	assertEqual(runtime:Start({ duration = 1, output = "transition", channels = { "GUILD", "YELL" }, sendFn = function(_, destination)
-		if destination == "GUILD" then destinationAvailable = false return true end
-		return destinationAvailable
-	end, onTerminal = function(reason) failureReasons[#failureReasons + 1] = reason end }), true, "channel transition run")
+	assertEqual(
+		runtime:Start({
+			duration = 1,
+			output = "transition",
+			channels = { "GUILD", "YELL" },
+			sendFn = function(_, destination)
+				if destination == "GUILD" then
+					destinationAvailable = false
+					return true
+				end
+				return destinationAvailable
+			end,
+			onTerminal = function(reason)
+				failureReasons[#failureReasons + 1] = reason
+			end,
+		}),
+		true,
+		"channel transition run"
+	)
 	local transitionCallback = scheduled[#scheduled].callback
 	transitionCallback()
 	transitionCallback()
@@ -10089,19 +13646,43 @@ function cases.spammer_runtime_is_bounded_and_atomic(addon)
 	assertEqual(1, runtime:GetState().messagesSent, "transition counts only confirmed deliveries")
 	assertEqual(0, #warnings, "destination transition emits no runtime-owner user feedback")
 
-	assertEqual(runtime:Start({ duration = 999, output = "duration", channels = { "GUILD" }, sendFn = function() return true end }), true, "duration cap run")
+	assertEqual(
+		runtime:Start({
+			duration = 999,
+			output = "duration",
+			channels = { "GUILD" },
+			sendFn = function()
+				return true
+			end,
+		}),
+		true,
+		"duration cap run"
+	)
 	local durationCallback = scheduled[#scheduled].callback
-	for _ = 1, 1800 do durationCallback() end
+	for _ = 1, 1800 do
+		durationCallback()
+	end
 	assertEqual(0, #warnings, "duration cap feedback belongs to controller")
 	runtime:Stop(true, true)
 	assertEqual(0, #warnings, "explicit stop emits no runtime-owner user feedback")
 
-	runtime.ScheduleRepeatingTimer = function() return nil end
+	runtime.ScheduleRepeatingTimer = function()
+		return nil
+	end
 	local failed = runtime:Start({ duration = 1, output = "fail", channels = { "GUILD" } })
 	assertEqual(failed, false, "nil scheduler fails atomically")
 	assertEqual(runtime:GetState().ticking, false, "failed start does not tick")
-	runtime.ScheduleRepeatingTimer = function() error("scheduler unavailable") end
-	failed = runtime:Start({ duration = 0, output = "fail", channels = { "GUILD" }, sendFn = function() return true end })
+	runtime.ScheduleRepeatingTimer = function()
+		error("scheduler unavailable")
+	end
+	failed = runtime:Start({
+		duration = 0,
+		output = "fail",
+		channels = { "GUILD" },
+		sendFn = function()
+			return true
+		end,
+	})
 	assertEqual(failed, false, "throwing scheduler fails atomically")
 	assertEqual(runtime:GetState().ticking, false, "throwing start does not tick")
 	runtime.ScheduleRepeatingTimer = workingScheduler
@@ -10115,21 +13696,34 @@ function cases.spammer_runtime_contains_callback_exceptions_and_reasons(addon)
 		diagnostics[#diagnostics + 1] = reason and string.format(message, reason) or message
 	end
 	addon.Services.Spammer = {}
-	addon.Services.EnsureNamespace = function() return addon.Services.Spammer end
-	addon.Timer = { BindMixin = function(target)
-		function target:ScheduleRepeatingTimer(callback)
-			local handle = { callback = callback }
-			scheduled[#scheduled + 1] = handle
-			return handle
-		end
-		function target:CancelTimer() return true end
-	end }
+	addon.Services.EnsureNamespace = function()
+		return addon.Services.Spammer
+	end
+	addon.Timer = {
+		BindMixin = function(target)
+			function target:ScheduleRepeatingTimer(callback)
+				local handle = { callback = callback }
+				scheduled[#scheduled + 1] = handle
+				return handle
+			end
+			function target:CancelTimer()
+				return true
+			end
+		end,
+	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Spammer/Runtime.lua")
 	local runtime = addon.Services.Spammer.Runtime
 
 	local callOk, started = pcall(runtime.Start, runtime, {
-		duration = 1, output = "callback", channels = { "GUILD" }, sendFn = function() return true end,
-		onTick = function() error("tick start") end,
+		duration = 1,
+		output = "callback",
+		channels = { "GUILD" },
+		sendFn = function()
+			return true
+		end,
+		onTick = function()
+			error("tick start")
+		end,
 	})
 	assertEqual(true, callOk, "throwing initial onTick must not escape Start")
 	assertEqual(true, started, "throwing initial onTick must not undo committed start")
@@ -10142,11 +13736,22 @@ function cases.spammer_runtime_contains_callback_exceptions_and_reasons(addon)
 	runtime:Stop(true, true)
 
 	local terminalReason
-	assertEqual(true, runtime:Start({
-		duration = 1, output = "failure", channels = { "GUILD" },
-		sendFn = function() return nil, "not_in_guild" end,
-		onTerminal = function(reason) terminalReason = reason; error("terminal callback") end,
-	}), "terminal callback containment run must start")
+	assertEqual(
+		true,
+		runtime:Start({
+			duration = 1,
+			output = "failure",
+			channels = { "GUILD" },
+			sendFn = function()
+				return nil, "not_in_guild"
+			end,
+			onTerminal = function(reason)
+				terminalReason = reason
+				error("terminal callback")
+			end,
+		}),
+		"terminal callback containment run must start"
+	)
 	callOk = pcall(scheduled[#scheduled].callback)
 	assertEqual(true, callOk, "throwing terminal callback must not escape timer dispatch")
 	assertEqual("not_in_guild", terminalReason, "runtime must preserve concrete transport reason")
@@ -10159,31 +13764,78 @@ function cases.spammer_controller_reports_terminal_failures_once(addon)
 	local store = { Name = "Ulduar", Message = "hard modes", Duration = "1", Channels = { "GUILD" } }
 	local scheduled, errors, infos = {}, {}, {}
 	addon.L = {
-		StrTank = "tank", StrHealer = "healer", StrMelee = "melee", StrRanged = "ranged", StrSpammerNeedStr = "need",
-		BtnResume = "Resume", BtnStop = "Stop", BtnStart = "Start",
-		ErrSpammerRuntime = "spammer failed: %s", MsgSpammerAutoStopDuration = "duration %d",
-		MsgSpammerAutoStopMessages = "messages %d", WarnSpammerCallbackFailed = "callback failed: %s",
+		StrTank = "tank",
+		StrHealer = "healer",
+		StrMelee = "melee",
+		StrRanged = "ranged",
+		StrSpammerNeedStr = "need",
+		BtnResume = "Resume",
+		BtnStop = "Stop",
+		BtnStart = "Start",
+		ErrSpammerRuntime = "spammer failed: %s",
+		MsgSpammerAutoStopDuration = "duration %d",
+		MsgSpammerAutoStopMessages = "messages %d",
+		WarnSpammerCallbackFailed = "callback failed: %s",
 	}
-	addon.error = function(_, message, reason) errors[#errors + 1] = string.format(message, reason) end
-	addon.info = function(_, message) infos[#infos + 1] = message end
+	addon.error = function(_, message, reason)
+		errors[#errors + 1] = string.format(message, reason)
+	end
+	addon.info = function(_, message)
+		infos[#infos + 1] = message
+	end
 	addon.warn = function() end
-	addon.Strings = { TrimText = function(value) return type(value) == "string" and value:match("^%s*(.-)%s*$") or "" end }
-	addon.Database.SavedVariables = { GetSpammer = function() return store end }
-	addon.Database.RequireServiceMethod = function(_, owner, method) return assert(owner[method]) end
+	addon.Strings = {
+		TrimText = function(value)
+			return type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
+		end,
+	}
+	addon.Database.SavedVariables = {
+		GetSpammer = function()
+			return store
+		end,
+	}
+	addon.Database.RequireServiceMethod = function(_, owner, method)
+		return assert(owner[method])
+	end
 	addon.Services.EnsureNamespace = function(owner, child)
 		addon.Services[owner] = addon.Services[owner] or {}
-		if child then addon.Services[owner][child] = addon.Services[owner][child] or {} end
+		if child then
+			addon.Services[owner][child] = addon.Services[owner][child] or {}
+		end
 	end
-	addon.Services.Chat = { SendSpamOutput = function() return nil, "not_in_guild" end }
-	addon.Timer = { BindMixin = function(target)
-		function target:ScheduleRepeatingTimer() return nil end
-		function target:CancelTimer() return true end
-	end }
+	addon.Services.Chat = {
+		SendSpamOutput = function()
+			return nil, "not_in_guild"
+		end,
+	}
+	addon.Timer = {
+		BindMixin = function(target)
+			function target:ScheduleRepeatingTimer()
+				return nil
+			end
+			function target:CancelTimer()
+				return true
+			end
+		end,
+	}
 	addon.Controllers = {}
 	addon.UI = {
-		Frames = { MakeModuleFrameGetter = function() return function() return nil end end },
-		ModuleState = { Ensure = function() return {} end }, Scaffold = { DefineModule = function() end },
-		Primitives = { SetEnabled = function() end }, EditBoxes = {}, Tooltips = {},
+		Frames = {
+			MakeModuleFrameGetter = function()
+				return function()
+					return nil
+				end
+			end,
+		},
+		ModuleState = {
+			Ensure = function()
+				return {}
+			end,
+		},
+		Scaffold = { DefineModule = function() end },
+		Primitives = { SetEnabled = function() end },
+		EditBoxes = {},
+		Tooltips = {},
 	}
 	loadAddonFile(addon, "Raid Management Addon/Modules/Strings.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Spammer/Draft.lua")
@@ -10213,27 +13865,52 @@ end
 function cases.headless_spammer_uses_saved_draft_through_runtime_owner(addon)
 	local store = { Name = "Icecrown 25", Tank = 1, Message = "fast clear", Duration = "2", Channels = { "GUILD" } }
 	local scheduled, sent, warnings = {}, {}, {}
-	addon.L = { StrTank = "tank", StrHealer = "healer", StrMelee = "melee", StrRanged = "ranged", StrSpammerNeedStr = "need",
-		MsgSpammerAutoStopDuration = "duration %d", MsgSpammerAutoStopMessages = "messages %d" }
-	addon.warn = function(_, message) warnings[#warnings + 1] = message end
-	addon.Strings = { TrimText = function(value) return type(value) == "string" and value:match("^%s*(.-)%s*$") or "" end }
-	addon.Database.SavedVariables = { GetSpammer = function() return store end }
+	addon.L = {
+		StrTank = "tank",
+		StrHealer = "healer",
+		StrMelee = "melee",
+		StrRanged = "ranged",
+		StrSpammerNeedStr = "need",
+		MsgSpammerAutoStopDuration = "duration %d",
+		MsgSpammerAutoStopMessages = "messages %d",
+	}
+	addon.warn = function(_, message)
+		warnings[#warnings + 1] = message
+	end
+	addon.Strings = {
+		TrimText = function(value)
+			return type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
+		end,
+	}
+	addon.Database.SavedVariables = {
+		GetSpammer = function()
+			return store
+		end,
+	}
 	addon.Services.EnsureNamespace = function(owner, child)
 		addon.Services[owner] = addon.Services[owner] or {}
-		if child then addon.Services[owner][child] = addon.Services[owner][child] or {} end
-	end
-	addon.Services.Chat = { SendSpamOutput = function(_, output, channels)
-		sent[#sent + 1] = { output = output, channel = channels[1] }
-		return true
-	end }
-	addon.Timer = { BindMixin = function(target)
-		function target:ScheduleRepeatingTimer(callback)
-			local handle = { callback = callback }
-			scheduled[#scheduled + 1] = handle
-			return handle
+		if child then
+			addon.Services[owner][child] = addon.Services[owner][child] or {}
 		end
-		function target:CancelTimer() return true end
-	end }
+	end
+	addon.Services.Chat = {
+		SendSpamOutput = function(_, output, channels)
+			sent[#sent + 1] = { output = output, channel = channels[1] }
+			return true
+		end,
+	}
+	addon.Timer = {
+		BindMixin = function(target)
+			function target:ScheduleRepeatingTimer(callback)
+				local handle = { callback = callback }
+				scheduled[#scheduled + 1] = handle
+				return handle
+			end
+			function target:CancelTimer()
+				return true
+			end
+		end,
+	}
 	loadAddonFile(addon, "Raid Management Addon/Modules/Strings.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Spammer/Draft.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Spammer/Runtime.lua")
@@ -10241,21 +13918,42 @@ function cases.headless_spammer_uses_saved_draft_through_runtime_owner(addon)
 	local runtime = addon.Services.Spammer.Runtime
 	local preview = draft.BuildPreview(draft.GetStore(), draft.GetDefaultOutput())
 	assertTrue(preview.output ~= "LFM", "saved draft must produce non-default headless output")
-	assertEqual(runtime:Start({ duration = preview.duration, output = preview.output,
-		channels = draft.GetChannels(store), resetCountdown = true, resetRun = true }), true, "runtime owner starts headless run")
+	assertEqual(
+		runtime:Start({
+			duration = preview.duration,
+			output = preview.output,
+			channels = draft.GetChannels(store),
+			resetCountdown = true,
+			resetRun = true,
+		}),
+		true,
+		"runtime owner starts headless run"
+	)
 	scheduled[1].callback()
 	assertEqual(0, #sent, "headless start respects saved duration")
 	scheduled[1].callback()
 	assertEqual(preview.output, sent[1].output, "headless send uses canonical saved preview")
 	assertEqual("GUILD", sent[1].channel, "headless send uses stable saved destination")
 	runtime:Stop(true, true)
-	assertEqual(runtime:Start({ duration = 1, output = preview.output, channels = { "GUILD", "YELL" }, resetRun = true }), true, "runtime cap run")
+	assertEqual(
+		runtime:Start({ duration = 1, output = preview.output, channels = { "GUILD", "YELL" }, resetRun = true }),
+		true,
+		"runtime cap run"
+	)
 	local capCallback = scheduled[#scheduled].callback
-	for _ = 1, 60 do capCallback() end
+	for _ = 1, 60 do
+		capCallback()
+	end
 	assertEqual(0, #warnings, "headless runtime cap must not bypass controller feedback ownership")
-	assertEqual(runtime:Start({ duration = 999, output = preview.output, channels = { "GUILD" }, resetRun = true }), true, "runtime duration run")
+	assertEqual(
+		runtime:Start({ duration = 999, output = preview.output, channels = { "GUILD" }, resetRun = true }),
+		true,
+		"runtime duration run"
+	)
 	local durationCallback = scheduled[#scheduled].callback
-	for _ = 1, 1800 do durationCallback() end
+	for _ = 1, 1800 do
+		durationCallback()
+	end
 	assertEqual(0, #warnings, "headless runtime duration cap must not emit duplicate user feedback")
 	print("PASS headless_spammer_uses_saved_draft_through_runtime_owner")
 end
@@ -10263,32 +13961,67 @@ end
 function cases.controller_request_start_uses_saved_draft_without_frame(addon)
 	local store = { Name = "Ulduar 25", Healer = 2, Message = "hard modes", Duration = "1", Channels = { "GUILD" } }
 	local scheduled, sent, enabledStates = {}, {}, {}
-	addon.L = { StrTank = "tank", StrHealer = "healer", StrMelee = "melee", StrRanged = "ranged", StrSpammerNeedStr = "need" }
-	addon.Strings = { TrimText = function(value) return type(value) == "string" and value:match("^%s*(.-)%s*$") or "" end }
-	addon.Database.SavedVariables = { GetSpammer = function() return store end }
-	addon.Database.RequireServiceMethod = function(_, owner, method) return assert(owner[method]) end
+	addon.L =
+		{ StrTank = "tank", StrHealer = "healer", StrMelee = "melee", StrRanged = "ranged", StrSpammerNeedStr = "need" }
+	addon.Strings = {
+		TrimText = function(value)
+			return type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
+		end,
+	}
+	addon.Database.SavedVariables = {
+		GetSpammer = function()
+			return store
+		end,
+	}
+	addon.Database.RequireServiceMethod = function(_, owner, method)
+		return assert(owner[method])
+	end
 	addon.Services.EnsureNamespace = function(owner, child)
 		addon.Services[owner] = addon.Services[owner] or {}
-		if child then addon.Services[owner][child] = addon.Services[owner][child] or {} end
-	end
-	addon.Services.Chat = { SendSpamOutput = function(_, output, channels)
-		sent[#sent + 1] = { output = output, channel = channels[1] }
-		return true
-	end }
-	addon.Timer = { BindMixin = function(target)
-		function target:ScheduleRepeatingTimer(callback)
-			local handle = { callback = callback }
-			scheduled[#scheduled + 1] = handle
-			return handle
+		if child then
+			addon.Services[owner][child] = addon.Services[owner][child] or {}
 		end
-		function target:CancelTimer() return true end
-	end }
+	end
+	addon.Services.Chat = {
+		SendSpamOutput = function(_, output, channels)
+			sent[#sent + 1] = { output = output, channel = channels[1] }
+			return true
+		end,
+	}
+	addon.Timer = {
+		BindMixin = function(target)
+			function target:ScheduleRepeatingTimer(callback)
+				local handle = { callback = callback }
+				scheduled[#scheduled + 1] = handle
+				return handle
+			end
+			function target:CancelTimer()
+				return true
+			end
+		end,
+	}
 	addon.Controllers = {}
 	addon.UI = {
-		Frames = { MakeModuleFrameGetter = function() return function() return nil end end },
-		ModuleState = { Ensure = function() return {} end },
+		Frames = {
+			MakeModuleFrameGetter = function()
+				return function()
+					return nil
+				end
+			end,
+		},
+		ModuleState = {
+			Ensure = function()
+				return {}
+			end,
+		},
 		Scaffold = { DefineModule = function() end },
-		Primitives = { SetEnabled = function(_, enabled) enabledStates[#enabledStates + 1] = enabled end }, EditBoxes = {}, Tooltips = {},
+		Primitives = {
+			SetEnabled = function(_, enabled)
+				enabledStates[#enabledStates + 1] = enabled
+			end,
+		},
+		EditBoxes = {},
+		Tooltips = {},
 	}
 	loadAddonFile(addon, "Raid Management Addon/Modules/Strings.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Spammer/Draft.lua")
@@ -10312,65 +14045,150 @@ function cases.spammer_clear_invalidates_ui_without_mutating_active_snapshot(add
 	local store = { Name = "stale draft", Message = "old message", Duration = "1", Channels = { "GUILD" } }
 	local scheduled, sent, currentFrame, scaffoldSpec = {}, {}, nil, nil
 	addon.L = {
-		StrTank = "tank", StrHealer = "healer", StrMelee = "melee", StrRanged = "ranged",
-		StrSpammerNeedStr = "need", BtnResume = "Resume", BtnStop = "Stop", BtnStart = "Start",
+		StrTank = "tank",
+		StrHealer = "healer",
+		StrMelee = "melee",
+		StrRanged = "ranged",
+		StrSpammerNeedStr = "need",
+		BtnResume = "Resume",
+		BtnStop = "Stop",
+		BtnStart = "Start",
 	}
-	addon.Strings = { TrimText = function(value) return type(value) == "string" and value:match("^%s*(.-)%s*$") or "" end }
-	addon.Database.SavedVariables = { GetSpammer = function() return store end }
-	addon.Database.RequireServiceMethod = function(_, owner, method) return assert(owner[method]) end
+	addon.Strings = {
+		TrimText = function(value)
+			return type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
+		end,
+	}
+	addon.Database.SavedVariables = {
+		GetSpammer = function()
+			return store
+		end,
+	}
+	addon.Database.RequireServiceMethod = function(_, owner, method)
+		return assert(owner[method])
+	end
 	addon.Services.EnsureNamespace = function(owner, child)
 		addon.Services[owner] = addon.Services[owner] or {}
-		if child then addon.Services[owner][child] = addon.Services[owner][child] or {} end
-	end
-	addon.Services.Chat = { SendSpamOutput = function(_, output, channels)
-		sent[#sent + 1] = { output = output, channel = channels[1] }
-		return true
-	end }
-	addon.Timer = { BindMixin = function(target)
-		function target:ScheduleRepeatingTimer(callback)
-			local handle = { callback = callback }
-			scheduled[#scheduled + 1] = handle
-			return handle
+		if child then
+			addon.Services[owner][child] = addon.Services[owner][child] or {}
 		end
-		function target:CancelTimer() return true end
-	end }
+	end
+	addon.Services.Chat = {
+		SendSpamOutput = function(_, output, channels)
+			sent[#sent + 1] = { output = output, channel = channels[1] }
+			return true
+		end,
+	}
+	addon.Timer = {
+		BindMixin = function(target)
+			function target:ScheduleRepeatingTimer(callback)
+				local handle = { callback = callback }
+				scheduled[#scheduled + 1] = handle
+				return handle
+			end
+			function target:CancelTimer()
+				return true
+			end
+		end,
+	}
 	addon.Controllers = {}
 	local function newControl(text)
 		return {
-			text = text or "", checked = false,
-			GetText = function(self) return self.text end,
-			SetText = function(self, value) self.text = tostring(value or "") end,
-			SetTextColor = function() end, SetMaxLetters = function() end,
-			SetAlpha = function() end, SetEnabled = function() end, ClearFocus = function() end,
-			GetChecked = function(self) return self.checked end,
-			SetChecked = function(self, value) self.checked = value == true end,
+			text = text or "",
+			checked = false,
+			GetText = function(self)
+				return self.text
+			end,
+			SetText = function(self, value)
+				self.text = tostring(value or "")
+			end,
+			SetTextColor = function() end,
+			SetMaxLetters = function() end,
+			SetAlpha = function() end,
+			SetEnabled = function() end,
+			ClearFocus = function() end,
+			GetChecked = function(self)
+				return self.checked
+			end,
+			SetChecked = function(self, value)
+				self.checked = value == true
+			end,
 		}
 	end
-	local frame = { shown = true, IsShown = function(self) return self.shown end }
-	local suffixes = {
-		"Name", "Duration", "Tank", "TankClass", "Healer", "HealerClass", "Melee", "MeleeClass",
-		"Ranged", "RangedClass", "Message", "Output", "Length", "Tick", "StartBtn", "ClearBtn",
-		"ChatGuild", "ChatYell",
+	local frame = {
+		shown = true,
+		IsShown = function(self)
+			return self.shown
+		end,
 	}
-	for i = 1, #suffixes do _G["RMASpammer" .. suffixes[i]] = newControl() end
-	for i = 1, 8 do _G["RMASpammerChat" .. i] = newControl() end
+	local suffixes = {
+		"Name",
+		"Duration",
+		"Tank",
+		"TankClass",
+		"Healer",
+		"HealerClass",
+		"Melee",
+		"MeleeClass",
+		"Ranged",
+		"RangedClass",
+		"Message",
+		"Output",
+		"Length",
+		"Tick",
+		"StartBtn",
+		"ClearBtn",
+		"ChatGuild",
+		"ChatYell",
+	}
+	for i = 1, #suffixes do
+		_G["RMASpammer" .. suffixes[i]] = newControl()
+	end
+	for i = 1, 8 do
+		_G["RMASpammerChat" .. i] = newControl()
+	end
 	addon.UI = {
 		Frames = {
-			MakeModuleFrameGetter = function() return function() return currentFrame end end,
-			BindModuleFrame = function() currentFrame = frame; return "RMASpammer" end,
-			GetRef = function(_, suffix) return _G["RMASpammer" .. suffix] end,
+			MakeModuleFrameGetter = function()
+				return function()
+					return currentFrame
+				end
+			end,
+			BindModuleFrame = function()
+				currentFrame = frame
+				return "RMASpammer"
+			end,
+			GetRef = function(_, suffix)
+				return _G["RMASpammer" .. suffix]
+			end,
 			SetScriptSafely = function() end,
 		},
-		ModuleState = { Ensure = function() return { Localized = true } end },
-		Scaffold = { DefineModule = function(spec)
-			scaffoldSpec = spec
-			spec.module.RequestRefresh = function() spec.refresh() end
-		end },
+		ModuleState = {
+			Ensure = function()
+				return { Localized = true }
+			end,
+		},
+		Scaffold = {
+			DefineModule = function(spec)
+				scaffoldSpec = spec
+				spec.module.RequestRefresh = function()
+					spec.refresh()
+				end
+			end,
+		},
 		Primitives = { SetEnabled = function() end, SetText = function() end },
-		EditBoxes = { Reset = function(box) if box then box:SetText("") end end },
+		EditBoxes = {
+			Reset = function(box)
+				if box then
+					box:SetText("")
+				end
+			end,
+		},
 		Tooltips = {},
 	}
-	_G.GetChannelName = function() return 0, nil end
+	_G.GetChannelName = function()
+		return 0, nil
+	end
 
 	loadAddonFile(addon, "Raid Management Addon/Modules/Strings.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Spammer/Draft.lua")
@@ -10402,7 +14220,11 @@ function cases.spammer_clear_invalidates_ui_without_mutating_active_snapshot(add
 	controller:RequestStop()
 	frame.shown = false
 	controller:RequestStart()
-	assertEqual(false, addon.Services.Spammer.Runtime:GetState().ticking, "later headless start must use cleared canonical draft")
+	assertEqual(
+		false,
+		addon.Services.Spammer.Runtime:GetState().ticking,
+		"later headless start must use cleared canonical draft"
+	)
 	assertEqual(1, #scheduled, "cleared canonical draft must not schedule a replacement run")
 	print("PASS spammer_clear_invalidates_ui_without_mutating_active_snapshot")
 end
@@ -10411,54 +14233,113 @@ function cases.spammer_frame_binding_applies_uncached_clear_state(addon)
 	local function installFixture(target, store)
 		local scheduled, sent, currentFrame, scaffoldSpec = {}, {}, nil, nil
 		target.L = {
-			StrTank = "tank", StrHealer = "healer", StrMelee = "melee", StrRanged = "ranged",
-			StrSpammerNeedStr = "need", BtnResume = "Resume", BtnStop = "Stop", BtnStart = "Start",
+			StrTank = "tank",
+			StrHealer = "healer",
+			StrMelee = "melee",
+			StrRanged = "ranged",
+			StrSpammerNeedStr = "need",
+			BtnResume = "Resume",
+			BtnStop = "Stop",
+			BtnStart = "Start",
 		}
-		target.Strings = { TrimText = function(value)
-			return type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
-		end }
-		target.Database.SavedVariables = { GetSpammer = function() return store end }
-		target.Database.RequireServiceMethod = function(_, owner, method) return assert(owner[method]) end
+		target.Strings = {
+			TrimText = function(value)
+				return type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
+			end,
+		}
+		target.Database.SavedVariables = {
+			GetSpammer = function()
+				return store
+			end,
+		}
+		target.Database.RequireServiceMethod = function(_, owner, method)
+			return assert(owner[method])
+		end
 		target.Services.EnsureNamespace = function(owner, child)
 			target.Services[owner] = target.Services[owner] or {}
-			if child then target.Services[owner][child] = target.Services[owner][child] or {} end
-		end
-		target.Services.Chat = { SendSpamOutput = function(_, output, channels)
-			sent[#sent + 1] = { output = output, channel = channels[1] }
-			return true
-		end }
-		target.Timer = { BindMixin = function(owner)
-			function owner:ScheduleRepeatingTimer(callback)
-				local handle = { callback = callback }
-				scheduled[#scheduled + 1] = handle
-				return handle
+			if child then
+				target.Services[owner][child] = target.Services[owner][child] or {}
 			end
-			function owner:CancelTimer() return true end
-		end }
+		end
+		target.Services.Chat = {
+			SendSpamOutput = function(_, output, channels)
+				sent[#sent + 1] = { output = output, channel = channels[1] }
+				return true
+			end,
+		}
+		target.Timer = {
+			BindMixin = function(owner)
+				function owner:ScheduleRepeatingTimer(callback)
+					local handle = { callback = callback }
+					scheduled[#scheduled + 1] = handle
+					return handle
+				end
+				function owner:CancelTimer()
+					return true
+				end
+			end,
+		}
 		target.Controllers = {}
 
 		local function newControl(text)
 			return {
-				text = text or "", checked = false, enabled = true,
-				GetText = function(self) return self.text end,
-				SetText = function(self, value) self.text = tostring(value or "") end,
-				SetTextColor = function() end, SetMaxLetters = function() end,
+				text = text or "",
+				checked = false,
+				enabled = true,
+				GetText = function(self)
+					return self.text
+				end,
+				SetText = function(self, value)
+					self.text = tostring(value or "")
+				end,
+				SetTextColor = function() end,
+				SetMaxLetters = function() end,
 				SetAlpha = function() end,
-				SetEnabled = function(self, enabled) self.enabled = enabled == true end,
+				SetEnabled = function(self, enabled)
+					self.enabled = enabled == true
+				end,
 				ClearFocus = function() end,
-				GetChecked = function(self) return self.checked end,
-				SetChecked = function(self, value) self.checked = value == true end,
+				GetChecked = function(self)
+					return self.checked
+				end,
+				SetChecked = function(self, value)
+					self.checked = value == true
+				end,
 			}
 		end
 		local function bindFrame()
-			local frame = { shown = true, IsShown = function(self) return self.shown end }
-			local suffixes = {
-				"Name", "Duration", "Tank", "TankClass", "Healer", "HealerClass", "Melee", "MeleeClass",
-				"Ranged", "RangedClass", "Message", "Output", "Length", "Tick", "StartBtn", "ClearBtn",
-				"ChatGuild", "ChatYell",
+			local frame = {
+				shown = true,
+				IsShown = function(self)
+					return self.shown
+				end,
 			}
-			for i = 1, #suffixes do _G["RMASpammer" .. suffixes[i]] = newControl() end
-			for i = 1, 8 do _G["RMASpammerChat" .. i] = newControl() end
+			local suffixes = {
+				"Name",
+				"Duration",
+				"Tank",
+				"TankClass",
+				"Healer",
+				"HealerClass",
+				"Melee",
+				"MeleeClass",
+				"Ranged",
+				"RangedClass",
+				"Message",
+				"Output",
+				"Length",
+				"Tick",
+				"StartBtn",
+				"ClearBtn",
+				"ChatGuild",
+				"ChatYell",
+			}
+			for i = 1, #suffixes do
+				_G["RMASpammer" .. suffixes[i]] = newControl()
+			end
+			for i = 1, 8 do
+				_G["RMASpammerChat" .. i] = newControl()
+			end
 			currentFrame = frame
 			scaffoldSpec.onLoad(frame)
 			target.Controllers.Spammer:RequestRefresh()
@@ -10467,27 +14348,60 @@ function cases.spammer_frame_binding_applies_uncached_clear_state(addon)
 
 		target.UI = {
 			Frames = {
-				MakeModuleFrameGetter = function() return function() return currentFrame end end,
-				BindModuleFrame = function(_, frame) currentFrame = frame; return "RMASpammer" end,
-				GetRef = function(_, suffix) return _G["RMASpammer" .. suffix] end,
+				MakeModuleFrameGetter = function()
+					return function()
+						return currentFrame
+					end
+				end,
+				BindModuleFrame = function(_, frame)
+					currentFrame = frame
+					return "RMASpammer"
+				end,
+				GetRef = function(_, suffix)
+					return _G["RMASpammer" .. suffix]
+				end,
 				SetScriptSafely = function() end,
 			},
-			ModuleState = { Ensure = function() return { Localized = true } end },
-			Scaffold = { DefineModule = function(spec)
-				scaffoldSpec = spec
-				spec.module.RequestRefresh = function() spec.refresh() end
-			end },
-			Primitives = {
-				SetEnabled = function(control, enabled) if control then control.enabled = enabled == true end end,
-				SetText = function(control, activeText, defaultText, active)
-					if control then control:SetText(active and activeText or defaultText) end
+			ModuleState = {
+				Ensure = function()
+					return { Localized = true }
 				end,
 			},
-			EditBoxes = { Reset = function(box) if box then box:SetText("") end end },
+			Scaffold = {
+				DefineModule = function(spec)
+					scaffoldSpec = spec
+					spec.module.RequestRefresh = function()
+						spec.refresh()
+					end
+				end,
+			},
+			Primitives = {
+				SetEnabled = function(control, enabled)
+					if control then
+						control.enabled = enabled == true
+					end
+				end,
+				SetText = function(control, activeText, defaultText, active)
+					if control then
+						control:SetText(active and activeText or defaultText)
+					end
+				end,
+			},
+			EditBoxes = {
+				Reset = function(box)
+					if box then
+						box:SetText("")
+					end
+				end,
+			},
 			Tooltips = {},
 		}
-		target.WithinRange = function(value, minimum, maximum) return value >= minimum and value <= maximum end
-		_G.GetChannelName = function() return 0, nil end
+		target.WithinRange = function(value, minimum, maximum)
+			return value >= minimum and value <= maximum
+		end
+		_G.GetChannelName = function()
+			return 0, nil
+		end
 		loadAddonFile(target, "Raid Management Addon/Modules/Strings.lua")
 		loadAddonFile(target, "Raid Management Addon/Services/Spammer/Draft.lua")
 		loadAddonFile(target, "Raid Management Addon/Services/Spammer/Runtime.lua")
@@ -10523,16 +14437,30 @@ function cases.spammer_frame_binding_applies_uncached_clear_state(addon)
 	assertEqual("Stop", _G.RMASpammerStartBtn:GetText(), "active headless bind must render active stop action")
 	pendingCallback()
 	assertEqual(1, #activeFixture.sent, "pending active snapshot callback must still send")
-	assertTrue(activeFixture.sent[1].output:find("active headless", 1, true) ~= nil, "active output snapshot must survive clear")
-	assertTrue(activeFixture.sent[1].output:find("snapshot", 1, true) ~= nil, "active message snapshot must survive clear")
+	assertTrue(
+		activeFixture.sent[1].output:find("active headless", 1, true) ~= nil,
+		"active output snapshot must survive clear"
+	)
+	assertTrue(
+		activeFixture.sent[1].output:find("snapshot", 1, true) ~= nil,
+		"active message snapshot must survive clear"
+	)
 	activeAddon.Services.Spammer.Runtime:Pause()
 	activeAddon.Controllers.Spammer:RequestRefresh()
 	assertEqual(true, _G.RMASpammerStartBtn.enabled, "paused clear must keep Resume enabled")
 	assertEqual("Resume", _G.RMASpammerStartBtn:GetText(), "paused clear must render Resume action")
 	activeAddon.Controllers.Spammer:RequestStart()
-	assertEqual(false, activeAddon.Services.Spammer.Runtime:GetState().paused, "Resume action must work with cleared draft")
+	assertEqual(
+		false,
+		activeAddon.Services.Spammer.Runtime:GetState().paused,
+		"Resume action must work with cleared draft"
+	)
 	activeAddon.Controllers.Spammer:RequestStart()
-	assertEqual(false, activeAddon.Services.Spammer.Runtime:GetState().ticking, "Stop action must work with cleared draft")
+	assertEqual(
+		false,
+		activeAddon.Services.Spammer.Runtime:GetState().ticking,
+		"Stop action must work with cleared draft"
+	)
 	print("PASS spammer_frame_binding_applies_uncached_clear_state")
 end
 
@@ -10566,63 +14494,158 @@ function cases.spammer_channel_menu_normalizes_unavailable_saved_choices(addon)
 	end
 
 	addon.L = {
-		StrTank = "tank", StrHealer = "healer", StrMelee = "melee", StrRanged = "ranged",
-		StrSpammerNeedStr = "need", StrSpammerChannelUnavailable = "%s (unavailable)",
+		StrTank = "tank",
+		StrHealer = "healer",
+		StrMelee = "melee",
+		StrRanged = "ranged",
+		StrSpammerNeedStr = "need",
+		StrSpammerChannelUnavailable = "%s (unavailable)",
 		StrChannels = "Channels",
-		BtnResume = "Resume", BtnStop = "Stop", BtnStart = "Start",
+		BtnResume = "Resume",
+		BtnStop = "Stop",
+		BtnStart = "Start",
 	}
-	addon.Strings = { TrimText = function(value)
-		return type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
-	end }
-	addon.Database.SavedVariables = { GetSpammer = function() return store end }
-	addon.Database.RequireServiceMethod = function(_, owner, method) return assert(owner[method]) end
+	addon.Strings = {
+		TrimText = function(value)
+			return type(value) == "string" and value:match("^%s*(.-)%s*$") or ""
+		end,
+	}
+	addon.Database.SavedVariables = {
+		GetSpammer = function()
+			return store
+		end,
+	}
+	addon.Database.RequireServiceMethod = function(_, owner, method)
+		return assert(owner[method])
+	end
 	addon.Services.EnsureNamespace = function(owner, child)
 		addon.Services[owner] = addon.Services[owner] or {}
-		if child then addon.Services[owner][child] = addon.Services[owner][child] or {} end
+		if child then
+			addon.Services[owner][child] = addon.Services[owner][child] or {}
+		end
 	end
-	addon.Services.Chat = { SendSpamOutput = function() return true end }
-	addon.Timer = { BindMixin = function(target)
-		function target:ScheduleRepeatingTimer() return {} end
-		function target:CancelTimer() return true end
-	end }
+	addon.Services.Chat = {
+		SendSpamOutput = function()
+			return true
+		end,
+	}
+	addon.Timer = {
+		BindMixin = function(target)
+			function target:ScheduleRepeatingTimer()
+				return {}
+			end
+			function target:CancelTimer()
+				return true
+			end
+		end,
+	}
 	addon.Controllers = {}
 
 	local function newControl()
 		return {
-			text = "", enabled = true,
-			GetText = function(self) return self.text end,
-			SetText = function(self, value) self.text = tostring(value or "") end,
-			SetTextColor = function() end, SetMaxLetters = function() end,
-			SetAlpha = function() end, ClearFocus = function() end,
-			SetEnabled = function(self, enabled) self.enabled = enabled == true end,
+			text = "",
+			enabled = true,
+			GetText = function(self)
+				return self.text
+			end,
+			SetText = function(self, value)
+				self.text = tostring(value or "")
+			end,
+			SetTextColor = function() end,
+			SetMaxLetters = function() end,
+			SetAlpha = function() end,
+			ClearFocus = function() end,
+			SetEnabled = function(self, enabled)
+				self.enabled = enabled == true
+			end,
 		}
 	end
-	local frame = { shown = true, IsShown = function(self) return self.shown end }
-	local suffixes = {
-		"Name", "Duration", "Tank", "TankClass", "Healer", "HealerClass", "Melee", "MeleeClass",
-		"Ranged", "RangedClass", "Message", "Output", "Length", "Tick", "StartBtn", "ClearBtn", "ChannelMenu",
+	local frame = {
+		shown = true,
+		IsShown = function(self)
+			return self.shown
+		end,
 	}
-	for i = 1, #suffixes do _G["RMASpammer" .. suffixes[i]] = newControl() end
+	local suffixes = {
+		"Name",
+		"Duration",
+		"Tank",
+		"TankClass",
+		"Healer",
+		"HealerClass",
+		"Melee",
+		"MeleeClass",
+		"Ranged",
+		"RangedClass",
+		"Message",
+		"Output",
+		"Length",
+		"Tick",
+		"StartBtn",
+		"ClearBtn",
+		"ChannelMenu",
+	}
+	for i = 1, #suffixes do
+		_G["RMASpammer" .. suffixes[i]] = newControl()
+	end
 	addon.UI = {
 		Frames = {
-			MakeModuleFrameGetter = function() return function() return currentFrame end end,
-			BindModuleFrame = function() currentFrame = frame; return "RMASpammer" end,
-			GetRef = function(_, suffix) return _G["RMASpammer" .. suffix] end,
+			MakeModuleFrameGetter = function()
+				return function()
+					return currentFrame
+				end
+			end,
+			BindModuleFrame = function()
+				currentFrame = frame
+				return "RMASpammer"
+			end,
+			GetRef = function(_, suffix)
+				return _G["RMASpammer" .. suffix]
+			end,
 			SetScriptSafely = function() end,
 		},
-		ModuleState = { Ensure = function() return { Localized = true } end },
-		Scaffold = { DefineModule = function(spec)
-			scaffoldSpec = spec
-			spec.module.RequestRefresh = function() spec.refresh() end
-		end },
-		Primitives = { SetEnabled = function(control, enabled) if control then control.enabled = enabled == true end end, SetText = function() end },
-		EditBoxes = { Reset = function(box) if box then box:SetText("") end end },
+		ModuleState = {
+			Ensure = function()
+				return { Localized = true }
+			end,
+		},
+		Scaffold = {
+			DefineModule = function(spec)
+				scaffoldSpec = spec
+				spec.module.RequestRefresh = function()
+					spec.refresh()
+				end
+			end,
+		},
+		Primitives = {
+			SetEnabled = function(control, enabled)
+				if control then
+					control.enabled = enabled == true
+				end
+			end,
+			SetText = function() end,
+		},
+		EditBoxes = {
+			Reset = function(box)
+				if box then
+					box:SetText("")
+				end
+			end,
+		},
 		Tooltips = {},
 	}
-	_G.GetChannelList = function() return 2, "Trade", 7, "LookingForGroup" end
-	_G.IsInGuild = function() return false end
-	_G.UIDropDownMenu_Initialize = function(menu, initialize) menu.initialize = initialize end
-	_G.UIDropDownMenu_CreateInfo = function() return {} end
+	_G.GetChannelList = function()
+		return 2, "Trade", 7, "LookingForGroup"
+	end
+	_G.IsInGuild = function()
+		return false
+	end
+	_G.UIDropDownMenu_Initialize = function(menu, initialize)
+		menu.initialize = initialize
+	end
+	_G.UIDropDownMenu_CreateInfo = function()
+		return {}
+	end
 	_G.UIDropDownMenu_AddButton = function(info)
 		local choice = {
 			value = info.arg1,
@@ -10639,14 +14662,20 @@ function cases.spammer_channel_menu_normalizes_unavailable_saved_choices(addon)
 		end
 		choices[#choices + 1] = choice
 	end
-	_G.UIDropDownMenu_DisableDropDown = function(menu) menu.enabled = false end
-	_G.UIDropDownMenu_EnableDropDown = function(menu) menu.enabled = true end
+	_G.UIDropDownMenu_DisableDropDown = function(menu)
+		menu.enabled = false
+	end
+	_G.UIDropDownMenu_EnableDropDown = function(menu)
+		menu.enabled = true
+	end
 	_G.UIDropDownMenu_SetWidth = function(menu, width, padding)
 		menu.dropdownWidth = width
 		menu.dropdownPadding = padding
 		menu.dropdownOuterWidth = width + (padding or 50)
 	end
-	_G.UIDropDownMenu_SetText = function(menu, text) menu.dropdownText = text end
+	_G.UIDropDownMenu_SetText = function(menu, text)
+		menu.dropdownText = text
+	end
 
 	loadAddonFile(addon, "Raid Management Addon/Modules/Strings.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Spammer/Draft.lua")
@@ -10684,13 +14713,33 @@ function cases.spammer_channel_menu_normalizes_unavailable_saved_choices(addon)
 	assertEqual(false, guild.checked, "disabled guild row click must leave local state unchanged")
 	assertEqual(normalizationCallCount, #setChannelCalls, "disabled rows must not update saved preferences")
 	lookingForGroup.click(true)
-	assertEqual(normalizationCallCount + 1, #setChannelCalls, "first live channel click must update saved preferences once")
-	assertEqual("LookingForGroup", setChannelCalls[normalizationCallCount + 1].channel, "live channel click target differs")
-	assertEqual(true, setChannelCalls[normalizationCallCount + 1].checked, "live channel click must add an unchecked choice")
+	assertEqual(
+		normalizationCallCount + 1,
+		#setChannelCalls,
+		"first live channel click must update saved preferences once"
+	)
+	assertEqual(
+		"LookingForGroup",
+		setChannelCalls[normalizationCallCount + 1].channel,
+		"live channel click target differs"
+	)
+	assertEqual(
+		true,
+		setChannelCalls[normalizationCallCount + 1].checked,
+		"live channel click must add an unchecked choice"
+	)
 	assertSameChannels({ "Trade", "LookingForGroup" }, draft.GetChannels(store), "live click did not add channel")
 	lookingForGroup.click(false)
-	assertEqual(normalizationCallCount + 2, #setChannelCalls, "second live channel click must update saved preferences once")
-	assertEqual(false, setChannelCalls[normalizationCallCount + 2].checked, "second live channel click must remove the kept-open choice")
+	assertEqual(
+		normalizationCallCount + 2,
+		#setChannelCalls,
+		"second live channel click must update saved preferences once"
+	)
+	assertEqual(
+		false,
+		setChannelCalls[normalizationCallCount + 2].checked,
+		"second live channel click must remove the kept-open choice"
+	)
 	assertSameChannels({ "Trade" }, draft.GetChannels(store), "second live click did not remove channel")
 
 	addon.Controllers.Spammer:RequestStart()
@@ -10704,7 +14753,9 @@ function cases.spammer_channel_menu_normalizes_unavailable_saved_choices(addon)
 	local discoveryFailureCallCount = #setChannelCalls
 	store.Channels = { "Trade" }
 	choices = {}
-	_G.GetChannelList = function() error("channel discovery failed") end
+	_G.GetChannelList = function()
+		error("channel discovery failed")
+	end
 	_G.RMASpammerChannelMenu.initialize(1)
 	assertSameChannels({ "Trade" }, draft.GetChannels(store), "failed channel discovery removed saved custom channel")
 	assertEqual(discoveryFailureCallCount, #setChannelCalls, "failed discovery must not normalize custom channels")
@@ -10722,17 +14773,33 @@ function cases.chat_delivery_uses_live_destinations_and_reports_failures(addon)
 	local channelRows = { 2, "Trade" }
 	_G.SendAddonMessage = function() end
 	_G.SendChatMessage = function(message, channel, language, target)
-		if message == "throw" then error("chat unavailable") end
-		if message == "false" then return false end
+		if message == "throw" then
+			error("chat unavailable")
+		end
+		if message == "false" then
+			return false
+		end
 		sent[#sent + 1] = { message = message, channel = channel, target = target }
 		return nil
 	end
-	_G.GetAddOnMetadata = function() return "test" end
-	_G.UnitName = function() return "Tester" end
-	_G.IsInInstance = function() return false, "none" end
-	_G.GetNumRaidMembers = function() return raidCount end
-	_G.GetNumPartyMembers = function() return partyCount end
-	_G.GetChannelList = function() return unpack(channelRows) end
+	_G.GetAddOnMetadata = function()
+		return "test"
+	end
+	_G.UnitName = function()
+		return "Tester"
+	end
+	_G.IsInInstance = function()
+		return false, "none"
+	end
+	_G.GetNumRaidMembers = function()
+		return raidCount
+	end
+	_G.GetNumPartyMembers = function()
+		return partyCount
+	end
+	_G.GetChannelList = function()
+		return unpack(channelRows)
+	end
 	_G.GetChannelName = function(name)
 		for i = 1, #channelRows, 2 do
 			if string.lower(tostring(channelRows[i + 1])) == string.lower(tostring(name)) then
@@ -10741,32 +14808,70 @@ function cases.chat_delivery_uses_live_destinations_and_reports_failures(addon)
 		end
 		return 0, nil
 	end
-	_G.IsInGuild = function() return inGuild end
-	_G.GetGuildInfo = function() return "Officer", "Officer", 1 end
-	_G.GuildControlGetRankFlags = function() return true, true, true, officerSpeak end
+	_G.IsInGuild = function()
+		return inGuild
+	end
+	_G.GetGuildInfo = function()
+		return "Officer", "Officer", 1
+	end
+	_G.GuildControlGetRankFlags = function()
+		return true, true, true, officerSpeak
+	end
 	addon.L = {}
 	addon.C = { CHAT_OUTPUT_FORMAT = "%s", CHAT_PREFIX_SHORT = "RMA", CHAT_PREFIX_HEX = "" }
-	addon.Database.GetSyncer = function() return nil end
-	addon.Database.GetRaidSchemaVersion = function() return 1 end
-	addon.Database.GetUnitRank = function() return unitRank end
+	addon.Database.GetSyncer = function()
+		return nil
+	end
+	addon.Database.GetRaidSchemaVersion = function()
+		return 1
+	end
+	addon.Database.GetUnitRank = function()
+		return unitRank
+	end
 	addon.Strings = {
-		NormalizeName = function(value) return value end,
-		TrimText = function(value) return value end,
-		FormatChatMessage = function(value) return value end,
+		NormalizeName = function(value)
+			return value
+		end,
+		TrimText = function(value)
+			return value
+		end,
+		FormatChatMessage = function(value)
+			return value
+		end,
 	}
-	addon.Timer = { BindMixin = function(target) target.ScheduleTimer = function() return {} end end }
-	addon.Services.EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} end
-	addon.Deformat = function() return nil end
-	addon.Options = { GetValue = function() return false end }
+	addon.Timer = {
+		BindMixin = function(target)
+			target.ScheduleTimer = function()
+				return {}
+			end
+		end,
+	}
+	addon.Services.EnsureNamespace = function(name)
+		addon.Services[name] = addon.Services[name] or {}
+	end
+	addon.Deformat = function()
+		return nil
+	end
+	addon.Options = {
+		GetValue = function()
+			return false
+		end,
+	}
 	addon.Group = {
 		GetTypeAndCount = function()
-			if raidCount > 0 then return "raid", 1, raidCount end
-			if partyCount > 0 then return "party", 0, partyCount end
+			if raidCount > 0 then
+				return "raid", 1, raidCount
+			end
+			if partyCount > 0 then
+				return "party", 0, partyCount
+			end
 			return nil, 0, 0
 		end,
 	}
 	local localPrints = 0
-	addon.info = function() localPrints = localPrints + 1 end
+	addon.info = function()
+		localPrints = localPrints + 1
+	end
 	loadAddonFile(addon, "Raid Management Addon/Modules/Comms.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Chat.lua")
 
@@ -10850,7 +14955,9 @@ function cases.chat_delivery_uses_live_destinations_and_reports_failures(addon)
 	assertEqual(nil, ok, "partial multi-destination delivery must report failure")
 	assertEqual("channel_unavailable", reason, "aggregate delivery must preserve first concrete failure")
 	assertEqual(attemptsBefore + 2, #sent, "aggregate delivery must attempt every valid destination exactly once")
-	addon.Services.Chat.Announce = function() return nil, "send_failed" end
+	addon.Services.Chat.Announce = function()
+		return nil, "send_failed"
+	end
 	ok, reason = addon.Services.Chat:AnnounceWarningMessage("warning")
 	assertEqual(nil, ok, "warning facade must propagate announcement failure")
 	assertEqual("send_failed", reason, "warning facade failure reason differs")
@@ -10869,9 +14976,12 @@ function cases.loot_award_freezes_roll_intake(addon)
 	assertTrue(Rolls:SubmitDebugRoll("Runner", 80), "second roll must enter")
 	local beforeFreeze = Rolls:GetDisplayModel()
 	assertEqual("Winner", Rolls:GetResolvedWinner(beforeFreeze), "initial winner differs")
-	assertTrue(Rolls:StartCountdown(1, nil, function()
-		Rolls:SetRollRecordingEnabled(true)
-	end), "countdown must start")
+	assertTrue(
+		Rolls:StartCountdown(1, nil, function()
+			Rolls:SetRollRecordingEnabled(true)
+		end),
+		"countdown must start"
+	)
 	local staleCountdownEnd = scheduled[#scheduled].callback
 	staleCountdownEnd()
 	local _, expiredRecord, expiredCanRoll = Rolls:GetRollStatus()
@@ -10906,31 +15016,47 @@ function cases.loot_award_freezes_roll_intake(addon)
 	local selected = {}
 	local selection = {
 		EnsureState = function()
-			for key in pairs(selected) do selected[key] = nil end
+			for key in pairs(selected) do
+				selected[key] = nil
+			end
 		end,
-		SetAnchor = function(_, name) selectionState.anchor = name end,
-		GetAnchor = function() return selectionState.anchor end,
+		SetAnchor = function(_, name)
+			selectionState.anchor = name
+		end,
+		GetAnchor = function()
+			return selectionState.anchor
+		end,
 		GetCount = function()
 			local count = 0
-			for _ in pairs(selected) do count = count + 1 end
+			for _ in pairs(selected) do
+				count = count + 1
+			end
 			return count
 		end,
 		GetSelected = function()
 			local names = {}
-			for name in pairs(selected) do names[#names + 1] = name end
+			for name in pairs(selected) do
+				names[#names + 1] = name
+			end
 			table.sort(names)
 			return names
 		end,
-		IsSelected = function(_, name) return selected[name] == true end,
+		IsSelected = function(_, name)
+			return selected[name] == true
+		end,
 		Toggle = function(_, name, preserve)
 			if not preserve then
-				for key in pairs(selected) do selected[key] = nil end
+				for key in pairs(selected) do
+					selected[key] = nil
+				end
 			end
 			selected[name] = not selected[name]
 		end,
 	}
 	local rollRows = {
-		IsSelectableRow = function(row) return row and row.selectionAllowed ~= false end,
+		IsSelectableRow = function(row)
+			return row and row.selectionAllowed ~= false
+		end,
 		BuildSelectionState = function(opts)
 			local winners = opts.selectedWinners or {}
 			return {
@@ -10940,16 +15066,22 @@ function cases.loot_award_freezes_roll_intake(addon)
 				selectionAllowed = opts.selectionAllowed == true,
 			}
 		end,
-		BuildModel = function(opts) return opts.rows, opts.rows end,
+		BuildModel = function(opts)
+			return opts.rows, opts.rows
+		end,
 	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Master/RollSelection.lua")
 	local rollSelection = addon.Services.Master.RollSelection.CreateController({
-		getDisplayModel = function() return Rolls:GetDisplayModel() end,
+		getDisplayModel = function()
+			return Rolls:GetDisplayModel()
+		end,
 		getSessionKey = function()
 			local current = Rolls:GetRollSession()
 			return current and current.id or nil
 		end,
-		isFromInventory = function() return true end,
+		isFromInventory = function()
+			return true
+		end,
 		rollRows = rollRows,
 		selection = selection,
 		state = {},
@@ -10968,22 +15100,48 @@ function cases.loot_award_freezes_roll_intake(addon)
 			BuildMultiAwardWinnersPlan = function(opts)
 				return { winners = opts.pickedWinners }
 			end,
-			BuildMultiAwardState = function() return { state = nil } end,
+			BuildMultiAwardState = function()
+				return { state = nil }
+			end,
 		},
-		inventory = { BuildMultiAwardSlotCandidates = function() return {}, {} end },
+		inventory = {
+			BuildMultiAwardSlotCandidates = function()
+				return {}, {}
+			end,
+		},
 		lootState = lootState,
 		rollSelection = rollSelection,
-		scheduleTimer = function() return {} end,
+		scheduleTimer = function()
+			return {}
+		end,
 		cancelTimer = function() end,
 		registerAwardedItem = function() end,
-		awardExecutor = { Assign = function(_, _, _, _, roll) assignedRoll = roll return true end },
+		awardExecutor = {
+			Assign = function(_, _, _, _, roll)
+				assignedRoll = roll
+				return true
+			end,
+		},
 		itemCount = { Set = function() end, Reset = function() end },
 		createAttempt = function()
-			return { Confirm = function() return true end, Fail = function() return true end }
+			return {
+				Confirm = function()
+					return true
+				end,
+				Fail = function()
+					return true
+				end,
+			}
 		end,
-		getRollSessionId = function() return session.id end,
-		getItemKey = function() return "item:19019" end,
-		getRaidNid = function() return 1 end,
+		getRollSessionId = function()
+			return session.id
+		end,
+		getItemKey = function()
+			return "item:19019"
+		end,
+		getRaidNid = function()
+			return 1
+		end,
 	})
 	local planned = awardSequence:BuildWinners(2)
 	assertEqual(2, #planned, "AwardSequence lost frozen multi-selection")
@@ -11012,23 +15170,44 @@ end
 
 function cases.loot_duplicate_award_is_rejected_in_flight(addon)
 	local admissions = {
-		{ "button", function(fixture) return fixture.master._Private.BtnAward(nil, nil) end },
-		{ "manual-grid", function(fixture)
-			return fixture.master._Private.AcceptManualGridAward({
-				itemLink = "item:19019",
-				playerName = "Winner",
-				rollType = 4,
-				rollValue = 90,
-			})
-		end },
-		{ "hold", function(fixture) return fixture.master._Private.BtnHold(nil, nil) end },
-		{ "single", function(fixture) return fixture.awardSequence:TrySingleCopy("item:19019", "Winner") end },
-		{ "multi", function(fixture)
-			return fixture.awardSequence:Start("item:19019", 2, {
-				{ name = "Winner", roll = 90 },
-				{ name = "Runner", roll = 80 },
-			})
-		end },
+		{
+			"button",
+			function(fixture)
+				return fixture.master._Private.BtnAward(nil, nil)
+			end,
+		},
+		{
+			"manual-grid",
+			function(fixture)
+				return fixture.master._Private.AcceptManualGridAward({
+					itemLink = "item:19019",
+					playerName = "Winner",
+					rollType = 4,
+					rollValue = 90,
+				})
+			end,
+		},
+		{
+			"hold",
+			function(fixture)
+				return fixture.master._Private.BtnHold(nil, nil)
+			end,
+		},
+		{
+			"single",
+			function(fixture)
+				return fixture.awardSequence:TrySingleCopy("item:19019", "Winner")
+			end,
+		},
+		{
+			"multi",
+			function(fixture)
+				return fixture.awardSequence:Start("item:19019", 2, {
+					{ name = "Winner", roll = 90 },
+					{ name = "Runner", roll = 80 },
+				})
+			end,
+		},
 	}
 	for i = 1, #admissions do
 		local name, enter = admissions[i][1], admissions[i][2]
@@ -11044,16 +15223,25 @@ function cases.loot_duplicate_award_is_rejected_in_flight(addon)
 	local master = fixture.master
 	local confirmation = master._awardConfirmation
 	local pendingEffect = {
-		RunCheckpoint = function(_, _, callback, ...) return callback(...) end,
-		Confirm = function() return true end,
-		Fail = function() return true end,
+		RunCheckpoint = function(_, _, callback, ...)
+			return callback(...)
+		end,
+		Confirm = function()
+			return true
+		end,
+		Fail = function()
+			return true
+		end,
 	}
-	assertTrue(confirmation:Queue({
-		itemLink = "item:19019",
-		itemIndex = 1,
-		playerName = "Winner",
-		effect = pendingEffect,
-	}), "initial confirmation must enter")
+	assertTrue(
+		confirmation:Queue({
+			itemLink = "item:19019",
+			itemIndex = 1,
+			playerName = "Winner",
+			effect = pendingEffect,
+		}),
+		"initial confirmation must enter"
+	)
 	local baselineTimers = fixture.timers
 	local baselineAttempts = fixture.attempts
 
@@ -11069,7 +15257,8 @@ function cases.loot_duplicate_award_is_rejected_in_flight(addon)
 	ok, reason = fixture.awardSequence:TrySingleCopy("item:19019", "Winner")
 	assertEqual(nil, ok, "single sequence reentry must fail closed")
 	assertEqual("award_in_flight", reason, "single sequence reentry reason differs")
-	ok, reason = fixture.awardSequence:Start("item:19019", 2, { { name = "Winner", roll = 90 }, { name = "Runner", roll = 80 } })
+	ok, reason =
+		fixture.awardSequence:Start("item:19019", 2, { { name = "Winner", roll = 90 }, { name = "Runner", roll = 80 } })
 	assertEqual(nil, ok, "multi sequence reentry must fail closed")
 	assertEqual("award_in_flight", reason, "multi sequence reentry reason differs")
 	assertEqual(0, fixture.assignments, "duplicate award reached physical assignment")
@@ -11078,11 +15267,10 @@ function cases.loot_duplicate_award_is_rejected_in_flight(addon)
 
 	assertTrue(confirmation:Confirm(1), "first award must confirm")
 	assertEqual(false, confirmation:HasInFlight(), "confirmation must release in-flight guard")
-	assertTrue(fixture.awardSequence:Start(
-		"item:19019",
-		2,
-		{ { name = "Winner", roll = 90 }, { name = "Runner", roll = 80 } }
-	), "confirmed multi sequence must start")
+	assertTrue(
+		fixture.awardSequence:Start("item:19019", 2, { { name = "Winner", roll = 90 }, { name = "Runner", roll = 80 } }),
+		"confirmed multi sequence must start"
+	)
 	assertEqual(1, fixture.assignments, "first legitimate multi assignment did not execute")
 	assertTrue(confirmation:Confirm(1), "first multi assignment must confirm")
 	local checkpoints = fixture.lastAttempt:GetState().checkpoints
@@ -11099,9 +15287,15 @@ end
 function cases.loot_direct_assignment_admits_before_mutation(addon)
 	local fixture = installLootHardeningMasterFixture(addon)
 	local effect = { MarkUncertain = function() end, Fail = function() end }
-	assertTrue(fixture.master._awardConfirmation:Queue({
-		itemLink = "item:19019", itemIndex = 1, playerName = "Winner", effect = effect,
-	}), "fixture must own one pending award")
+	assertTrue(
+		fixture.master._awardConfirmation:Queue({
+			itemLink = "item:19019",
+			itemIndex = 1,
+			playerName = "Winner",
+			effect = effect,
+		}),
+		"fixture must own one pending award"
+	)
 	local assignmentsBefore = fixture.assignments
 	local rollTypeBefore = fixture.lootState.currentRollType
 	local timersBefore = fixture.timers
@@ -11116,9 +15310,24 @@ end
 
 function cases.loot_direct_assignment_rejects_in_flight_trade_before_mutation(addon)
 	local entries = {
-		{ "hold", function(fixture) return fixture.master._Private.BtnHold(nil, "LeftButton") end },
-		{ "bank", function(fixture) return fixture.master._Private.BtnBank(nil, "LeftButton") end },
-		{ "disenchant", function(fixture) return fixture.master._Private.BtnDisenchant(nil, "LeftButton") end },
+		{
+			"hold",
+			function(fixture)
+				return fixture.master._Private.BtnHold(nil, "LeftButton")
+			end,
+		},
+		{
+			"bank",
+			function(fixture)
+				return fixture.master._Private.BtnBank(nil, "LeftButton")
+			end,
+		},
+		{
+			"disenchant",
+			function(fixture)
+				return fixture.master._Private.BtnDisenchant(nil, "LeftButton")
+			end,
+		},
 	}
 	for i = 1, #entries do
 		local fixture = installLootHardeningMasterFixture(i == 1 and addon or newAddon())
@@ -11143,11 +15352,14 @@ function cases.loot_award_prerequisites_and_sequence_retry_are_ordered(addon)
 	local sequence = fixture.awardSequence
 	local confirmation = fixture.master._awardConfirmation
 	fixture.lootState.selectedItemCount = 3
-	assertTrue(sequence:Start("item:19019", 3, {
-		{ name = "Winner", roll = 90 },
-		{ name = "Runner", roll = 80 },
-		{ name = "Third", roll = 70 },
-	}), "multi award must start")
+	assertTrue(
+		sequence:Start("item:19019", 3, {
+			{ name = "Winner", roll = 90 },
+			{ name = "Runner", roll = 80 },
+			{ name = "Third", roll = 70 },
+		}),
+		"multi award must start"
+	)
 
 	fixture.rejectDistribution = true
 	local confirmed = confirmation:Confirm(1)
@@ -11193,7 +15405,10 @@ function cases.loot_award_finalize_and_single_reset_are_retry_safe(addon)
 	local fixture = installLootHardeningMasterFixture(addon)
 	fixture.announceOnWin = true
 	local confirmation = fixture.master._awardConfirmation
-	assertTrue(fixture.awardSequence:Start("item:19019", 1, { { name = "Winner", roll = 90 } }), "final multi award must start")
+	assertTrue(
+		fixture.awardSequence:Start("item:19019", 1, { { name = "Winner", roll = 90 } }),
+		"final multi award must start"
+	)
 	fixture.throwAnnouncement = true
 	assertEqual(nil, confirmation:Confirm(1), "announcement throw must remain retryable")
 	assertTrue(fixture.lootState.multiAward ~= nil, "announcement failure cleared multi state")
@@ -11201,7 +15416,10 @@ function cases.loot_award_finalize_and_single_reset_are_retry_safe(addon)
 	fixture.throwItemReset = true
 	local resetConfirmed, resetReason = confirmation:Confirm(1)
 	assertEqual(nil, resetConfirmed, "item reset throw must remain retryable")
-	assertTrue(tostring(resetReason):find("item reset exploded", 1, true) ~= nil, "unexpected reset failure: " .. tostring(resetReason))
+	assertTrue(
+		tostring(resetReason):find("item reset exploded", 1, true) ~= nil,
+		"unexpected reset failure: " .. tostring(resetReason)
+	)
 	assertEqual(nil, fixture.lootState.multiAward, "state clear did not commit before reset failure")
 	assertEqual(1, fixture.itemResetCalls, "first item reset attempt count differs")
 	assertEqual(true, confirmation:Confirm(1), "item reset retry must confirm")
@@ -11220,7 +15438,11 @@ function cases.loot_award_finalize_and_single_reset_are_retry_safe(addon)
 	assertEqual(nil, singleConfirmation:Confirm(1), "single reset throw must remain retryable")
 	assertEqual(true, singleConfirmation:Confirm(1), "single reset retry must confirm")
 	assertEqual(2, single.itemResetCalls, "single reset retry count differs")
-	assertEqual(true, single.lastAttempt:GetState().checkpoints.single_item_count_reset, "single reset checkpoint missing")
+	assertEqual(
+		true,
+		single.lastAttempt:GetState().checkpoints.single_item_count_reset,
+		"single reset checkpoint missing"
+	)
 	print("PASS loot_award_finalize_and_single_reset_are_retry_safe")
 end
 
@@ -11231,11 +15453,14 @@ function cases.loot_multi_award_cancellation_preserves_current_and_future_admiss
 	fixture.mutateSelectedCountOnReset = true
 	fixture.lootState.selectedItemCount = 3
 	fixture.windowItemCount = 2
-	assertTrue(sequence:Start("item:19019", 3, {
-		{ name = "Winner", roll = 90 },
-		{ name = "Runner", roll = 80 },
-		{ name = "Third", roll = 70 },
-	}), "multi award must start")
+	assertTrue(
+		sequence:Start("item:19019", 3, {
+			{ name = "Winner", roll = 90 },
+			{ name = "Runner", roll = 80 },
+			{ name = "Third", roll = 70 },
+		}),
+		"multi award must start"
+	)
 	assertEqual(true, confirmation:Confirm(1), "first award must confirm")
 	assertEqual(1, fixture.lootState.itemTraded, "first confirmed award count differs")
 	local cancelledBeforeContinuation = #fixture.cancelledTimerHandles
@@ -11249,14 +15474,22 @@ function cases.loot_multi_award_cancellation_preserves_current_and_future_admiss
 	assertEqual(1, fixture.lootState.itemTraded, "cancellation changed confirmed award count")
 	assertEqual(1, fixture.lootState.selectedItemCount, "fixture did not model cancellation item-count reset")
 	assertEqual(nil, fixture.lootState.multiAward, "cancellation retained future sequence state")
-	assertEqual(cancelledBeforeContinuation + 2, #fixture.cancelledTimerHandles, "progress and delay handles were not both cancelled")
+	assertEqual(
+		cancelledBeforeContinuation + 2,
+		#fixture.cancelledTimerHandles,
+		"progress and delay handles were not both cancelled"
+	)
 	fixture.timerCallbacks[#fixture.timerCallbacks]()
 	assertEqual(1, fixture.assignments, "cancelled delay started the next winner")
 
 	fixture.windowItemCount = 2
-	assertTrue(sequence:Start("item:19019", 2, {
-		{ name = "Fresh", roll = 70 }, { name = "FreshTwo", roll = 60 },
-	}), "fresh sequence must be admitted")
+	assertTrue(
+		sequence:Start("item:19019", 2, {
+			{ name = "Fresh", roll = 70 },
+			{ name = "FreshTwo", roll = 60 },
+		}),
+		"fresh sequence must be admitted"
+	)
 	assertEqual(2, fixture.assignments, "fresh sequence did not execute")
 	assertEqual(nil, fixture.lootState.itemTraded, "fresh sequence inherited canceled sequence progress")
 	assertEqual(true, confirmation:Confirm(1), "fresh first award must confirm")
@@ -11270,9 +15503,13 @@ function cases.loot_multi_award_cancellation_preserves_current_and_future_admiss
 
 	local waiting = installLootHardeningMasterFixture(newAddon())
 	waiting.lootState.selectedItemCount = 2
-	assertTrue(waiting.awardSequence:Start("item:19019", 2, {
-		{ name = "Winner", roll = 90 }, { name = "Runner", roll = 80 },
-	}), "progress-timeout sequence must start")
+	assertTrue(
+		waiting.awardSequence:Start("item:19019", 2, {
+			{ name = "Winner", roll = 90 },
+			{ name = "Runner", roll = 80 },
+		}),
+		"progress-timeout sequence must start"
+	)
 	assertEqual(true, waiting.master._awardConfirmation:Confirm(1), "progress-timeout current award must confirm")
 	local cancelledBeforeTimeout = #waiting.cancelledTimerHandles
 	local timeoutRefreshes = waiting.refreshCalls
@@ -11285,9 +15522,13 @@ function cases.loot_multi_award_cancellation_preserves_current_and_future_admiss
 	local current = installLootHardeningMasterFixture(newAddon())
 	current.lootState.selectedItemCount = 2
 	current.mutateSelectedCountOnReset = true
-	assertTrue(current.awardSequence:Start("item:19019", 2, {
-		{ name = "Winner", roll = 90 }, { name = "Runner", roll = 80 },
-	}), "current-attempt sequence must start")
+	assertTrue(
+		current.awardSequence:Start("item:19019", 2, {
+			{ name = "Winner", roll = 90 },
+			{ name = "Runner", roll = 80 },
+		}),
+		"current-attempt sequence must start"
+	)
 	local currentCancelled, currentReason = current.awardSequence:CancelRemaining("operator")
 	assertEqual(true, currentCancelled, "future entries must cancel while current award is irreversible")
 	assertEqual("current_award_in_flight", currentReason, "cancellation must disclose current award ownership")
@@ -11296,9 +15537,13 @@ function cases.loot_multi_award_cancellation_preserves_current_and_future_admiss
 	assertEqual(1, current.lootState.itemTraded, "current confirmed award was not preserved")
 	assertEqual(false, current.awardSequence:ContinueOnLootSlotCleared(1), "cancelled sequence continued")
 	current.windowItemCount = 2
-	assertTrue(current.awardSequence:Start("item:19019", 2, {
-		{ name = "Fresh", roll = 70 }, { name = "FreshTwo", roll = 60 },
-	}), "fresh sequence after current terminal must start")
+	assertTrue(
+		current.awardSequence:Start("item:19019", 2, {
+			{ name = "Fresh", roll = 70 },
+			{ name = "FreshTwo", roll = 60 },
+		}),
+		"fresh sequence after current terminal must start"
+	)
 	assertEqual(nil, current.lootState.itemTraded, "fresh sequence after current terminal inherited old progress")
 	assertEqual(true, current.master._awardConfirmation:Confirm(1), "fresh current first award must confirm")
 	assertEqual(1, current.lootState.itemTraded, "fresh current sequence reset too early")
@@ -11328,7 +15573,9 @@ function cases.loot_multi_award_clear_button_is_truthful(addon)
 	assertEqual(true, state.canClear, "active multi-award cancellation must remain available")
 
 	local clearRollCalls = 0
-	addon.Services.Rolls.ClearRolls = function() clearRollCalls = clearRollCalls + 1 end
+	addon.Services.Rolls.ClearRolls = function()
+		clearRollCalls = clearRollCalls + 1
+	end
 	local cancelCalls = 0
 	fixture.awardSequence.CancelRemaining = function(_, cancelReason)
 		cancelCalls = cancelCalls + 1
@@ -11357,23 +15604,33 @@ function cases.loot_slot_clear_perf_spans_close_on_all_exits(addon)
 		finishes[#finishes + 1] = label
 	end
 	fixture.windowItemCount = 1
-	assertTrue(fixture.awardSequence:Start("item:19019", 2, {
-		{ name = "Winner", roll = 90 }, { name = "Runner", roll = 80 },
-	}), "perf sequence must start")
+	assertTrue(
+		fixture.awardSequence:Start("item:19019", 2, {
+			{ name = "Winner", roll = 90 },
+			{ name = "Runner", roll = 80 },
+		}),
+		"perf sequence must start"
+	)
 	assertEqual(true, fixture.master:LOOT_SLOT_CLEARED(1), "auto-managed continuation must return its result")
 	local finishCounts = {}
-	for i = 1, #finishes do finishCounts[finishes[i]] = (finishCounts[finishes[i]] or 0) + 1 end
+	for i = 1, #finishes do
+		finishCounts[finishes[i]] = (finishCounts[finishes[i]] or 0) + 1
+	end
 	assertEqual(1, finishCounts["Master.LOOT_SLOT_CLEARED ContinueAward"], "continuation span did not close")
 	assertEqual(1, finishCounts["Master.LOOT_SLOT_CLEARED Total"], "total span did not close")
 
-	fixture.master._awardConfirmation.Confirm = function() return nil, "retry" end
+	fixture.master._awardConfirmation.Confirm = function()
+		return nil, "retry"
+	end
 	finishes = {}
 	local ok, failureReason = fixture.master:LOOT_SLOT_CLEARED(1)
 	assertEqual(nil, ok, "failed confirmation must preserve nil result")
 	assertEqual("retry", failureReason, "failed confirmation reason differs")
 	local closedTotal = false
 	for i = 1, #finishes do
-		if finishes[i] == "Master.LOOT_SLOT_CLEARED Total" then closedTotal = true end
+		if finishes[i] == "Master.LOOT_SLOT_CLEARED Total" then
+			closedTotal = true
+		end
 	end
 	assertEqual(true, closedTotal, "failed confirmation exit did not close total span")
 	print("PASS loot_slot_clear_perf_spans_close_on_all_exits")
@@ -11382,21 +15639,34 @@ end
 function cases.loot_multi_award_twenty_slot_work_is_bounded(addon)
 	local fixture = installLootHardeningMasterFixture(addon)
 	local winners = {}
-	for i = 1, 20 do winners[i] = { name = "Winner" .. tostring(i), roll = 101 - i } end
+	for i = 1, 20 do
+		winners[i] = { name = "Winner" .. tostring(i), roll = 101 - i }
+	end
 	fixture.windowItemCount = 20
 	assertTrue(fixture.awardSequence:Start("item:19019", 20, winners), "bounded sequence must start")
 	for i = 1, 20 do
-		assertEqual(true, fixture.master._awardConfirmation:Confirm(1), "bounded confirmation failed at " .. tostring(i))
+		assertEqual(
+			true,
+			fixture.master._awardConfirmation:Confirm(1),
+			"bounded confirmation failed at " .. tostring(i)
+		)
 		if i < 20 then
 			fixture.windowItemCount = 20 - i
-			assertTrue(fixture.awardSequence:ContinueOnLootSlotCleared(i), "bounded continuation failed at " .. tostring(i))
+			assertTrue(
+				fixture.awardSequence:ContinueOnLootSlotCleared(i),
+				"bounded continuation failed at " .. tostring(i)
+			)
 			fixture.timerCallbacks[#fixture.timerCallbacks]()
 		end
 	end
 	assertEqual(19, fixture.lootCountScans, "loot count scans exceed one per continuation")
 	assertEqual(20, fixture.candidateScans, "candidate scans exceed initial plus one per continuation")
 	assertEqual(20, fixture.distributionCalls, "RMADist completion sends differ from confirmed awards")
-	assertEqual(39, fixture.refreshCalls, "refresh requests differ from one transition plus one confirmation per later award")
+	assertEqual(
+		39,
+		fixture.refreshCalls,
+		"refresh requests differ from one transition plus one confirmation per later award"
+	)
 	print("PASS loot_multi_award_twenty_slot_work_is_bounded scans=19 candidates=20 sends=20 refreshes=39")
 end
 
@@ -11410,9 +15680,13 @@ function cases.loot_slot_clear_stops_after_matched_confirmation_failure(addon)
 		return continue(self, slot)
 	end
 	fixture.rejectDistribution = true
-	assertTrue(fixture.awardSequence:Start("item:19019", 2, {
-		{ name = "Winner", roll = 90 }, { name = "Runner", roll = 80 },
-	}), "multi award must start")
+	assertTrue(
+		fixture.awardSequence:Start("item:19019", 2, {
+			{ name = "Winner", roll = 90 },
+			{ name = "Runner", roll = 80 },
+		}),
+		"multi award must start"
+	)
 	local result = fixture.master:LOOT_SLOT_CLEARED(1)
 	assertEqual(nil, result, "matched failed confirmation must stop slot processing")
 	assertEqual(0, continueCalls, "failed confirmation continued the multi award")
@@ -11437,23 +15711,49 @@ function cases.loot_award_confirmation_expiry_is_bounded(addon)
 	loadAddonFile(addon, "Raid Management Addon/Services/Master/AwardConfirmation.lua")
 	local scheduled, warnings, refreshes, unresolved, success, cancelled = {}, 0, 0, 0, 0, 0
 	local effect = addon.Services.Master.AwardAttempt.CreateExecuting({
-		onConfirm = function() success = success + 1 return true end,
-		onFail = function() cancelled = cancelled + 1 return true end,
+		onConfirm = function()
+			success = success + 1
+			return true
+		end,
+		onFail = function()
+			cancelled = cancelled + 1
+			return true
+		end,
 	})
 	local owner = addon.Services.Master.AwardConfirmation.Create({
 		timeoutSeconds = 4,
 		reconciliationSeconds = 8,
-		scheduleTimer = function(callback, delay) scheduled[#scheduled + 1] = { callback = callback, delay = delay } return callback end,
+		scheduleTimer = function(callback, delay)
+			scheduled[#scheduled + 1] = { callback = callback, delay = delay }
+			return callback
+		end,
 		cancelTimer = function() end,
-		requestRefresh = function() refreshes = refreshes + 1 end,
-		warnFailure = function() warnings = warnings + 1 end,
-		warnUncertain = function() warnings = warnings + 1 end,
-		warnTimeout = function() warnings = warnings + 1 end,
-		warnUnresolved = function() warnings = warnings + 1 end,
-		onUnresolved = function() unresolved = unresolved + 1 end,
-		confirmProvisional = function() return true end,
+		requestRefresh = function()
+			refreshes = refreshes + 1
+		end,
+		warnFailure = function()
+			warnings = warnings + 1
+		end,
+		warnUncertain = function()
+			warnings = warnings + 1
+		end,
+		warnTimeout = function()
+			warnings = warnings + 1
+		end,
+		warnUnresolved = function()
+			warnings = warnings + 1
+		end,
+		onUnresolved = function()
+			unresolved = unresolved + 1
+		end,
+		confirmProvisional = function()
+			return true
+		end,
 	})
-	assertTrue(owner:Queue({ itemLink = "item:19019", itemIndex = 1, playerName = "Winner", effect = effect }), "entry must queue")
+	assertTrue(
+		owner:Queue({ itemLink = "item:19019", itemIndex = 1, playerName = "Winner", effect = effect }),
+		"entry must queue"
+	)
 	assertEqual(1, #scheduled, "queue must own one confirmation timer")
 	scheduled[1].callback()
 	assertEqual(2, #scheduled, "timeout must schedule one reconciliation expiry")
@@ -11474,31 +15774,60 @@ end
 function cases.loot_award_confirmation_expiry_survives_presentation_failures(addon)
 	local function runScenario(mode)
 		addon.Services = {
-			EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} return addon.Services[name] end,
+			EnsureNamespace = function(name)
+				addon.Services[name] = addon.Services[name] or {}
+				return addon.Services[name]
+			end,
 		}
 		loadAddonFile(addon, "Raid Management Addon/Services/Master/AwardAttempt.lua")
 		loadAddonFile(addon, "Raid Management Addon/Services/Master/AwardConfirmation.lua")
 		local timeoutCallback, scheduleCalls, cleanupCalls, warnCalls, refreshCalls = nil, 0, 0, 0, 0
-		local effect = addon.Services.Master.AwardAttempt.CreateExecuting({ onConfirm = function() return true end })
+		local effect = addon.Services.Master.AwardAttempt.CreateExecuting({
+			onConfirm = function()
+				return true
+			end,
+		})
 		local owner = addon.Services.Master.AwardConfirmation.Create({
 			timeoutSeconds = 4,
 			reconciliationSeconds = 8,
 			scheduleTimer = function(callback)
 				scheduleCalls = scheduleCalls + 1
-				if scheduleCalls == 1 then timeoutCallback = callback return callback end
-				if mode == "throw" then error("expiry schedule exploded") end
+				if scheduleCalls == 1 then
+					timeoutCallback = callback
+					return callback
+				end
+				if mode == "throw" then
+					error("expiry schedule exploded")
+				end
 				return nil
 			end,
 			cancelTimer = function() end,
-			requestRefresh = function() refreshCalls = refreshCalls + 1 error("refresh exploded") end,
+			requestRefresh = function()
+				refreshCalls = refreshCalls + 1
+				error("refresh exploded")
+			end,
 			warnFailure = function() end,
 			warnUncertain = function() end,
-			warnTimeout = function() warnCalls = warnCalls + 1 error("timeout warning exploded") end,
-			warnUnresolved = function() warnCalls = warnCalls + 1 error("unresolved warning exploded") end,
-			onUnresolved = function() cleanupCalls = cleanupCalls + 1 error("cleanup exploded") end,
-			confirmProvisional = function() return true end,
+			warnTimeout = function()
+				warnCalls = warnCalls + 1
+				error("timeout warning exploded")
+			end,
+			warnUnresolved = function()
+				warnCalls = warnCalls + 1
+				error("unresolved warning exploded")
+			end,
+			onUnresolved = function()
+				cleanupCalls = cleanupCalls + 1
+				error("cleanup exploded")
+			end,
+			confirmProvisional = function()
+				return true
+			end,
 		})
-		assertTrue(owner:Queue({ itemLink = "item:19019", itemIndex = 1, playerName = "Winner", effect = effect }), "scenario must queue")
+		assertTrue(
+			owner:Queue({ itemLink = "item:19019", itemIndex = 1, playerName = "Winner", effect = effect }),
+			"scenario must queue"
+		)
 		local ok = pcall(timeoutCallback)
 		assertEqual(true, ok, mode .. " timeout path leaked callback failure")
 		assertEqual(false, owner:HasInFlight(), mode .. " expiry failure retained ownership")
@@ -11515,17 +15844,36 @@ end
 
 function cases.loot_inventory_slot_validation_is_strict(addon)
 	local currentLink
-	_G.GetNumLootItems = function() return currentLink and 1 or 0 end
-	_G.GetLootSlotLink = function() return currentLink end
-	_G.GetContainerNumSlots = function() return 0 end
-	_G.GetContainerItemLink = function() return nil end
-	_G.GetContainerItemInfo = function() return nil end
-	addon.Database = { EnsureLootRuntimeState = function() return {}, {}, {} end }
+	_G.GetNumLootItems = function()
+		return currentLink and 1 or 0
+	end
+	_G.GetLootSlotLink = function()
+		return currentLink
+	end
+	_G.GetContainerNumSlots = function()
+		return 0
+	end
+	_G.GetContainerItemLink = function()
+		return nil
+	end
+	_G.GetContainerItemInfo = function()
+		return nil
+	end
+	addon.Database = {
+		EnsureLootRuntimeState = function()
+			return {}, {}, {}
+		end,
+	}
 	addon.Services = {
-		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} return addon.Services[name] end,
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+			return addon.Services[name]
+		end,
 	}
 	addon.Item = {
-		GetItemStringFromLink = function(link) return link and link:match("|H(item:[^|]+)|h") or nil end,
+		GetItemStringFromLink = function(link)
+			return link and link:match("|H(item:[^|]+)|h") or nil
+		end,
 		GetItemIdFromLink = function(link)
 			return tonumber(link and (link:match("item:(%d+)") or link:match("^(%d+)$")))
 		end,
@@ -11544,18 +15892,28 @@ function cases.loot_inventory_slot_validation_is_strict(addon)
 	assertEqual(nil, ok, "missing slot must reject")
 	assertEqual("loot_slot_missing", reason, "missing slot reason differs")
 	currentLink = "item:19019"
-	assertEqual(true, inventory.ValidateLootSlot(1, "19019"), "item ID fallback must work when canonical data is unavailable")
+	assertEqual(
+		true,
+		inventory.ValidateLootSlot(1, "19019"),
+		"item ID fallback must work when canonical data is unavailable"
+	)
 	print("PASS loot_inventory_slot_validation_is_strict")
 end
 
 local function installTradeEvidenceInventory(addon, bags)
-	_G.GetNumLootItems = function() return 0 end
-	_G.GetLootSlotLink = function() return nil end
+	_G.GetNumLootItems = function()
+		return 0
+	end
+	_G.GetLootSlotLink = function()
+		return nil
+	end
 	_G.GetContainerNumSlots = function(bag)
 		local rows = bags[bag] or {}
 		local highest = 0
 		for slot in pairs(rows) do
-			if slot > highest then highest = slot end
+			if slot > highest then
+				highest = slot
+			end
 		end
 		return highest
 	end
@@ -11568,18 +15926,24 @@ local function installTradeEvidenceInventory(addon, bags)
 		return nil, row and row.count or nil
 	end
 	addon.Database = addon.Database or {}
-	addon.Database.EnsureLootRuntimeState = function() return {}, {}, {} end
+	addon.Database.EnsureLootRuntimeState = function()
+		return {}, {}, {}
+	end
 	addon.Services = addon.Services or {}
 	addon.Services.EnsureNamespace = function(name)
 		addon.Services[name] = addon.Services[name] or {}
 		return addon.Services[name]
 	end
 	addon.Item = {
-		GetItemStringFromLink = function(link) return link and link:match("|H(item:[^|]+)|h") or nil end,
+		GetItemStringFromLink = function(link)
+			return link and link:match("|H(item:[^|]+)|h") or nil
+		end,
 		GetItemIdFromLink = function(link)
 			return tonumber(link and (link:match("item:(%d+)") or link:match("^(%d+)$")))
 		end,
-		IsBagItemSoulbound = function() return false end,
+		IsBagItemSoulbound = function()
+			return false
+		end,
 	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Loot/Inventory.lua")
 	return addon.Services.Loot.Inventory
@@ -11602,15 +15966,23 @@ function cases.loot_award_sequence_schedule_failure_is_terminal(addon)
 		fixture.onWarn = function()
 			reentrantResult = fixture.awardSequence:ContinueOnLootSlotCleared(1)
 		end
-		assertTrue(fixture.awardSequence:Start("item:19019", 2, {
-			{ name = "Winner", roll = 90 }, { name = "Runner", roll = 80 },
-		}), scenario.name .. " sequence must start")
+		assertTrue(
+			fixture.awardSequence:Start("item:19019", 2, {
+				{ name = "Winner", roll = 90 },
+				{ name = "Runner", roll = 80 },
+			}),
+			scenario.name .. " sequence must start"
+		)
 		local result, reason
 		if scenario.progress then
 			fixture[scenario.flag] = true
 			result, reason = fixture.master._awardConfirmation:Confirm(1)
 		else
-			assertEqual(true, fixture.master._awardConfirmation:Confirm(1), scenario.name .. " first award must confirm")
+			assertEqual(
+				true,
+				fixture.master._awardConfirmation:Confirm(1),
+				scenario.name .. " first award must confirm"
+			)
 			fixture.windowItemCount = 1
 			fixture[scenario.flag] = true
 			result, reason = fixture.awardSequence:ContinueOnLootSlotCleared(1)
@@ -11630,12 +16002,15 @@ end
 function cases.loot_inventory_canonical_match_and_required_count(addon)
 	local bags = { [0] = { [1] = { link = "|Hitem:19019:0:0:0:0:0:0:1|h[A]|h", count = 2 } } }
 	local inventory = installTradeEvidenceInventory(addon, bags)
-	assertTrue(inventory.LootLinkMatchesTarget(
-		"|Hitem:19019:0:0:0:0:0:0:1|h[A]|h",
-		"|cffa335ee|Hitem:19019:0:0:0:0:0:0:1|h[B]|h|r",
-		"item:19019:0:0:0:0:0:0:1",
-		19019
-	), "canonical item strings must match")
+	assertTrue(
+		inventory.LootLinkMatchesTarget(
+			"|Hitem:19019:0:0:0:0:0:0:1|h[A]|h",
+			"|cffa335ee|Hitem:19019:0:0:0:0:0:0:1|h[B]|h|r",
+			"item:19019:0:0:0:0:0:0:1",
+			19019
+		),
+		"canonical item strings must match"
+	)
 	local evidence = assert(inventory.CaptureTradeEvidence(bags[0][1].link, 0, 1))
 	evidence.expectedPartner = "Winner"
 	bags[0][1].count = 1
@@ -11713,21 +16088,53 @@ local function installAwardTradeFixture(addon, opts)
 		ErrMLWinnerLootBannedWithNote = "%s %s",
 		ErrScreenReminder = "screen",
 		WarnTradeTransferUnverified = "%s %s",
-	}, { __index = function(_, key) return key .. " %s %s %s %s" end })
+	}, {
+		__index = function(_, key)
+			return key .. " %s %s %s %s"
+		end,
+	})
 	addon.Diag = {
-		D = setmetatable({ LogTradeCompleted = "%s %s %s %s" }, { __index = function(_, key) return key .. " %s %s %s %s %s" end }),
-		W = setmetatable({ LogTradeDelayedOutOfRange = "%s %s" }, { __index = function(_, key) return key .. " %s %s %s %s %s" end }),
-		E = setmetatable({ LogTradeLoggerLogFailed = "%s %s %s" }, { __index = function(_, key) return key .. " %s %s %s %s %s" end }),
+		D = setmetatable({ LogTradeCompleted = "%s %s %s %s" }, {
+			__index = function(_, key)
+				return key .. " %s %s %s %s %s"
+			end,
+		}),
+		W = setmetatable({ LogTradeDelayedOutOfRange = "%s %s" }, {
+			__index = function(_, key)
+				return key .. " %s %s %s %s %s"
+			end,
+		}),
+		E = setmetatable({ LogTradeLoggerLogFailed = "%s %s %s" }, {
+			__index = function(_, key)
+				return key .. " %s %s %s %s %s"
+			end,
+		}),
 	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Master/TradeExecution.lua")
 	local counters = {
-		logger = 0, raid = 0, registered = 0, rollEnd = 0, itemDone = 0, announce = 0,
-		whisper = 0, release = 0, warn = 0, clearLoot = 0, reset = 0, refresh = 0,
-		context = 0, initiateSawState = nil, initiateTrade = 0, terminalMessages = {},
+		logger = 0,
+		raid = 0,
+		registered = 0,
+		rollEnd = 0,
+		itemDone = 0,
+		announce = 0,
+		whisper = 0,
+		release = 0,
+		warn = 0,
+		clearLoot = 0,
+		reset = 0,
+		refresh = 0,
+		context = 0,
+		initiateSawState = nil,
+		initiateTrade = 0,
+		terminalMessages = {},
 	}
 	local lootState = {
-		fromInventory = true, selectedItemCount = opts.selectedItemCount or 1, currentRollItem = 10,
-		currentItemIndex = 1, rollSession = { id = "RS:trade" },
+		fromInventory = true,
+		selectedItemCount = opts.selectedItemCount or 1,
+		currentRollItem = 10,
+		currentItemIndex = 1,
+		rollSession = { id = "RS:trade" },
 	}
 	local itemInfo = {}
 	local controller
@@ -11738,7 +16145,9 @@ local function installAwardTradeFixture(addon, opts)
 		attempt = {
 			Confirm = function(_, context)
 				state.state = "confirming"
-				if context then state.executorContext = deepCopy(context) end
+				if context then
+					state.executorContext = deepCopy(context)
+				end
 				if not wrapperEffects.rollEnd then
 					controller.distribution.PublishRollEnd()
 					wrapperEffects.rollEnd = true
@@ -11751,20 +16160,34 @@ local function installAwardTradeFixture(addon, opts)
 				state.state = invoked and ok == true and "confirmed" or "uncertain"
 				return invoked and ok == true and true or nil
 			end,
-			Fail = function(_, reason) state.state = "failed" state.reason = reason return true end,
-			GetState = function() return state end,
+			Fail = function(_, reason)
+				state.state = "failed"
+				state.reason = reason
+				return true
+			end,
+			GetState = function()
+				return state
+			end,
 		}
 		return attempt
 	end
 	controller = addon.Services.Master.TradeExecution.CreateController({
-		lootBans = { Get = function() return false end },
+		lootBans = {
+			Get = function()
+				return false
+			end,
+		},
 		trade = { Reset = function() end },
 		inventory = inventory,
-		awardPlanner = { BuildTradeNotificationPlan = function()
-			return { keep = false, output = "awarded", whisper = "winner whisper", markerPlan = {} }
-		end },
+		awardPlanner = {
+			BuildTradeNotificationPlan = function()
+				return { keep = false, output = "awarded", whisper = "winner whisper", markerPlan = {} }
+			end,
+		},
 		rollSelection = {
-			GetSelectedCount = function() return #selectedWinners end,
+			GetSelectedCount = function()
+				return #selectedWinners
+			end,
 			DeselectWinner = function(_, playerName)
 				for i = 1, #selectedWinners do
 					if selectedWinners[i].name == playerName then
@@ -11773,16 +16196,26 @@ local function installAwardTradeFixture(addon, opts)
 					end
 				end
 			end,
-			GetSelectedWinnersOrdered = function() return selectedWinners end,
+			GetSelectedWinnersOrdered = function()
+				return selectedWinners
+			end,
 		},
 		raid = {
-			GetUnitID = function() return "raid1" end,
+			GetUnitID = function()
+				return "raid1"
+			end,
 			ClearRaidIcons = function() end,
-			AddPlayerCountForRollType = function() counters.raid = counters.raid + 1 end,
+			AddPlayerCountForRollType = function()
+				counters.raid = counters.raid + 1
+			end,
 		},
 		loot = {
-			GetItemLink = function() return target end,
-			ClearLoot = function() counters.clearLoot = counters.clearLoot + 1 end,
+			GetItemLink = function()
+				return target
+			end,
+			ClearLoot = function()
+				counters.clearLoot = counters.clearLoot + 1
+			end,
 		},
 		distribution = {
 			PublishRollEnd = function()
@@ -11795,7 +16228,9 @@ local function installAwardTradeFixture(addon, opts)
 				counters.terminalMessages[#counters.terminalMessages + 1] = "ITEM_DONE"
 				return true
 			end,
-			AcquireSessionOwnership = function() return "owner:1" end,
+			AcquireSessionOwnership = function()
+				return "owner:1"
+			end,
 			ReleaseSessionOwnership = function()
 				counters.release = counters.release + 1
 				return opts.rejectRelease ~= true
@@ -11803,18 +16238,38 @@ local function installAwardTradeFixture(addon, opts)
 		},
 		rolls = {
 			EnsureLootRollSession = function() end,
-			ValidateWinner = function() return { ok = true } end,
-			GetResolvedWinner = function() return "Winner" end,
-			GetRolls = function() return {} end,
+			ValidateWinner = function()
+				return { ok = true }
+			end,
+			GetResolvedWinner = function()
+				return "Winner"
+			end,
+			GetRolls = function()
+				return {}
+			end,
 		},
-		comms = { SendWhisper = function() counters.whisper = counters.whisper + 1 return true end },
-		database = { GetCurrentRaid = function() return 1 end, GetPlayerName = function() return "Holder" end },
+		comms = {
+			SendWhisper = function()
+				counters.whisper = counters.whisper + 1
+				return true
+			end,
+		},
+		database = {
+			GetCurrentRaid = function()
+				return 1
+			end,
+			GetPlayerName = function()
+				return "Holder"
+			end,
+		},
 		item = addon.Item,
 		lootState = lootState,
 		itemInfo = itemInfo,
 		wow = {
 			ClearCursor = function() end,
-			CursorHasItem = function() return true end,
+			CursorHasItem = function()
+				return true
+			end,
 			GetContainerItemInfo = _G.GetContainerItemInfo,
 			GetContainerItemLink = _G.GetContainerItemLink,
 			PickupContainerItem = function() end,
@@ -11825,16 +16280,24 @@ local function installAwardTradeFixture(addon, opts)
 			end,
 			SetRaidTarget = function() end,
 			CheckInteractDistance = function()
-				if opts.inRange == false then return nil end
+				if opts.inRange == false then
+					return nil
+				end
 				return 1
 			end,
 		},
-		getOption = function(_, key) return key == "ignoreStacks" end,
+		getOption = function(_, key)
+			return key == "ignoreStacks"
+		end,
 		buildRollSelectionModel = function()
 			return { winner = selectedWinners[1] and selectedWinners[1].name or nil, rows = selectedWinners }
 		end,
-		buildLootRollSessionOptions = function() return {} end,
-		resetTradeState = function() counters.reset = counters.reset + 1 end,
+		buildLootRollSessionOptions = function()
+			return {}
+		end,
+		resetTradeState = function()
+			counters.reset = counters.reset + 1
+		end,
 		hideTradeDropdowns = function() end,
 		clearLootAndResetRecordedRolls = function() end,
 		ensureTradeLootContext = function()
@@ -11849,17 +16312,31 @@ local function installAwardTradeFixture(addon, opts)
 			counters.registered = counters.registered + count
 			return counters.registered >= lootState.selectedItemCount
 		end,
-		requestRefresh = function() counters.refresh = counters.refresh + 1 return true end,
-		announce = function() counters.announce = counters.announce + 1 return true end,
-		isAnnounced = function() return false end,
+		requestRefresh = function()
+			counters.refresh = counters.refresh + 1
+			return true
+		end,
+		announce = function()
+			counters.announce = counters.announce + 1
+			return true
+		end,
+		isAnnounced = function()
+			return false
+		end,
 		setAnnounced = function() end,
-		isScreenshotWarn = function() return false end,
+		isScreenshotWarn = function()
+			return false
+		end,
 		setScreenshotWarn = function() end,
-		warn = function() counters.warn = counters.warn + 1 end,
+		warn = function()
+			counters.warn = counters.warn + 1
+		end,
 		error = function() end,
 		createAttempt = createAttempt,
 		getItemKey = addon.Item.GetItemStringFromLink,
-		canCommitRaidHistory = function() return opts.canonicalAuthority ~= false end,
+		canCommitRaidHistory = function()
+			return opts.canonicalAuthority ~= false
+		end,
 	})
 	return {
 		controller = controller,
@@ -11958,7 +16435,11 @@ function cases.loot_out_of_range_trade_can_retry(addon)
 	fixture.opts.inRange = true
 	assertTrue(requestTrade("Winner", 90), "in-range retry must be admitted on the frozen roll session")
 	assertEqual(1, fixture.counters.initiateTrade, "in-range retry did not initiate trade")
-	assertEqual("requested", fixture.controller:GetPendingState().state, "in-range retry did not establish pending state")
+	assertEqual(
+		"requested",
+		fixture.controller:GetPendingState().state,
+		"in-range retry did not establish pending state"
+	)
 	assertTrue(fixture.controller:HandleTradeShow("Winner"), "first winner trade did not open")
 	assertTrue(fixture.controller:HandleAcceptedAwardTrade(1, 1), "first winner trade was not accepted")
 	fixture.bags[0][1] = nil
@@ -11968,7 +16449,11 @@ function cases.loot_out_of_range_trade_can_retry(addon)
 
 	assertTrue(requestTrade("Runner", 80), "second winner was not admitted on the same frozen roll session")
 	assertEqual(2, fixture.counters.initiateTrade, "second winner trade did not initiate")
-	assertEqual("requested", fixture.controller:GetPendingState().state, "second winner did not establish pending state")
+	assertEqual(
+		"requested",
+		fixture.controller:GetPendingState().state,
+		"second winner did not establish pending state"
+	)
 	print("PASS loot_out_of_range_trade_can_retry")
 end
 
@@ -12063,7 +16548,11 @@ function cases.loot_award_trade_event_order_is_evidence_gated(addon)
 	assertEqual(1, fixture.counters.raid, "confirmed trade counter count differs")
 	assertEqual(1, fixture.counters.rollEnd, "confirmed trade ROLL_END count differs")
 	assertEqual(1, fixture.counters.itemDone, "confirmed trade ITEM_DONE count differs")
-	assertEqual("ITEM_DONE", fixture.counters.terminalMessages[#fixture.counters.terminalMessages], "ITEM_DONE must remain terminal")
+	assertEqual(
+		"ITEM_DONE",
+		fixture.counters.terminalMessages[#fixture.counters.terminalMessages],
+		"ITEM_DONE must remain terminal"
+	)
 	assertEqual(1, fixture.counters.announce, "confirmed trade announcement count differs")
 	assertEqual(1, fixture.counters.whisper, "confirmed trade whisper count differs")
 	assertEqual(1, fixture.counters.release, "confirmed trade did not release session ownership")
@@ -12083,7 +16572,11 @@ function cases.loot_award_trade_event_order_is_evidence_gated(addon)
 	local shown, showReason = missingShowPartner.controller:HandleTradeShow(nil)
 	assertEqual(nil, shown, "TRADE_SHOW without an observed partner must not advance")
 	assertEqual("trade_partner_unavailable", showReason, "missing TRADE_SHOW partner reason differs")
-	assertEqual("requested", missingShowPartner.controller:GetPendingState().state, "missing partner advanced show state")
+	assertEqual(
+		"requested",
+		missingShowPartner.controller:GetPendingState().state,
+		"missing partner advanced show state"
+	)
 
 	local beforeShowCancel = installAwardTradeFixture(newAddon())
 	assertTrue(beforeShowCancel.controller:TradeItem(beforeShowCancel.target, "Winner", 1, 90))
@@ -12132,7 +16625,11 @@ function cases.loot_award_trade_event_order_is_evidence_gated(addon)
 	assertEqual(true, releaseRetry.controller:GetPendingState().releasePending, "release retry state not exposed")
 	assertEqual(1, releaseRetry.counters.logger, "release failure repeated logger")
 	releaseRetry.opts.rejectRelease = false
-	assertEqual(true, releaseRetry.controller:SettleAcceptedTrade(nil), "terminal release retry must succeed without evidence rerun")
+	assertEqual(
+		true,
+		releaseRetry.controller:SettleAcceptedTrade(nil),
+		"terminal release retry must succeed without evidence rerun"
+	)
 	assertEqual(false, releaseRetry.controller:HasInFlightAward(), "successful release retry retained ownership")
 	assertEqual(2, releaseRetry.counters.release, "session release retry count differs")
 	assertEqual(1, releaseRetry.counters.logger, "session release retry duplicated logger")
@@ -12146,7 +16643,11 @@ function cases.loot_trader_keep_uses_award_callback_contract(addon)
 	assertEqual(true, fixture.controller:TradeItem(fixture.target, "Holder", 1, 90), "trader-keep award must settle")
 	assertEqual(1, fixture.counters.rollEnd, "trader-keep award published ROLL_END more than once")
 	assertEqual(1, fixture.counters.itemDone, "trader-keep award did not publish ITEM_DONE")
-	assertEqual("ITEM_DONE", fixture.counters.terminalMessages[#fixture.counters.terminalMessages], "trader-keep ITEM_DONE must remain terminal")
+	assertEqual(
+		"ITEM_DONE",
+		fixture.counters.terminalMessages[#fixture.counters.terminalMessages],
+		"trader-keep ITEM_DONE must remain terminal"
+	)
 	assertEqual(1, fixture.counters.clearLoot, "trader-keep award did not clear the master loot item")
 	assertEqual(2, fixture.counters.reset, "trader-keep award did not reset the trade state")
 	assertEqual(1, fixture.counters.refresh, "trader-keep award did not refresh the master loot frame")
@@ -12159,7 +16660,10 @@ function cases.loot_split_master_trade_finalizes_without_local_canonical_writes(
 	assertTrue(accepted.controller:HandleTradeShow("Winner"), "split-authority trade did not observe the partner")
 	assertTrue(accepted.controller:HandleAcceptedAwardTrade(1, 1), "split-authority trade did not accept both sides")
 	accepted.bags[0][1] = nil
-	assertTrue(accepted.controller:SettleAcceptedTrade("Winner"), "split-authority trade did not finalize from evidence")
+	assertTrue(
+		accepted.controller:SettleAcceptedTrade("Winner"),
+		"split-authority trade did not finalize from evidence"
+	)
 	assertEqual(0, accepted.counters.context, "non-authoritative trade created local loot context")
 	assertEqual(0, accepted.counters.logger, "non-authoritative trade wrote the local logger")
 	assertEqual(0, accepted.counters.raid, "non-authoritative trade wrote the local counter")
@@ -12180,32 +16684,84 @@ function cases.loot_manual_hold_trade_requires_inventory_evidence(addon)
 	local bags = { [0] = { [1] = { link = target, count = 1 } } }
 	installTradeEvidenceInventory(addon, bags)
 	local lootState = {}
-	local raid = { loot = { {
-		lootNid = 10, rollType = 5, looter = "Holder", holder = "Holder",
-		itemString = "item:19019:0:0:0:0:0:0:0", itemId = 19019,
-	} } }
+	local raid = {
+		loot = {
+			{
+				lootNid = 10,
+				rollType = 5,
+				looter = "Holder",
+				holder = "Holder",
+				itemString = "item:19019:0:0:0:0:0:0:0",
+				itemId = 19019,
+			},
+		},
+	}
 	local loggerCalls, countCalls, warnings = 0, 0, 0
 	addon.C = { rollTypes = { MAINSPEC = 1, OFFSPEC = 2, RESERVED = 3, FREE = 4, HOLD = 5 } }
-	addon.L = setmetatable({ BtnMS = "MS", BtnOS = "OS", BtnSR = "SR", BtnFree = "Free",
-		WarnTradeManualReasonMissing = "%s", WarnTradeTransferUnverified = "%s",
-	}, { __index = function(_, key) return key .. " %s %s" end })
-	addon.Diag = { D = setmetatable({}, { __index = function(_, key) return key .. " %s %s %s" end }),
-		W = setmetatable({}, { __index = function(_, key) return key .. " %s %s %s" end }),
-		E = setmetatable({}, { __index = function(_, key) return key .. " %s %s %s" end }) }
-	addon.warn = function() warnings = warnings + 1 end
-	addon.Database.EnsureLootRuntimeState = function() return {}, lootState, {} end
-	addon.Database.EnsureRaidByIndex = function() return raid end
-	addon.Database.GetCurrentRaid = function() return 1 end
-	addon.Database.GetPlayerName = function() return "Holder" end
-	addon.Services.Logger = { Actions = { RecordLoot = function() loggerCalls = loggerCalls + 1 return true end } }
+	addon.L = setmetatable({
+		BtnMS = "MS",
+		BtnOS = "OS",
+		BtnSR = "SR",
+		BtnFree = "Free",
+		WarnTradeManualReasonMissing = "%s",
+		WarnTradeTransferUnverified = "%s",
+	}, {
+		__index = function(_, key)
+			return key .. " %s %s"
+		end,
+	})
+	addon.Diag = {
+		D = setmetatable({}, {
+			__index = function(_, key)
+				return key .. " %s %s %s"
+			end,
+		}),
+		W = setmetatable({}, {
+			__index = function(_, key)
+				return key .. " %s %s %s"
+			end,
+		}),
+		E = setmetatable({}, {
+			__index = function(_, key)
+				return key .. " %s %s %s"
+			end,
+		}),
+	}
+	addon.warn = function()
+		warnings = warnings + 1
+	end
+	addon.Database.EnsureLootRuntimeState = function()
+		return {}, lootState, {}
+	end
+	addon.Database.EnsureRaidByIndex = function()
+		return raid
+	end
+	addon.Database.GetCurrentRaid = function()
+		return 1
+	end
+	addon.Database.GetPlayerName = function()
+		return "Holder"
+	end
+	addon.Services.Logger =
+		{ Actions = {
+			RecordLoot = function()
+				loggerCalls = loggerCalls + 1
+				return true
+			end,
+		} }
 	addon.Services.Raid = {
-		GetPlayerID = function() return 1 end,
-		AddPlayerCountForRollType = function() countCalls = countCalls + 1 end,
+		GetPlayerID = function()
+			return 1
+		end,
+		AddPlayerCountForRollType = function()
+			countCalls = countCalls + 1
+		end,
 	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Master/Trade.lua")
 	local trade = addon.Services.Master.Trade
 	local state = trade.RefreshCandidate({
-		source = "TRADE_PLAYER_ITEM_CHANGED", partnerName = "Winner",
+		source = "TRADE_PLAYER_ITEM_CHANGED",
+		partnerName = "Winner",
 		tradeItems = { [1] = { itemLink = target, itemString = "item:19019:0:0:0:0:0:0:0", itemId = 19019 } },
 	})
 	assertEqual(true, state.active, "manual Hold candidate did not activate")
@@ -12230,29 +16786,59 @@ function cases.loot_manual_hold_trade_requires_inventory_evidence(addon)
 	} }
 	installTradeEvidenceInventory(secondAddon, secondBags)
 	local secondLootState = {}
-	local secondRaid = { loot = {
-		{ lootNid = 10, rollType = 5, looter = "Holder", holder = "Holder",
-			itemString = "item:19019:0:0:0:0:0:0:0", itemId = 19019 },
-		{ lootNid = 11, rollType = 5, looter = "Holder", holder = "Holder",
-			itemString = "item:18832:0:0:0:0:0:0:0", itemId = 18832 },
-	} }
+	local secondRaid = {
+		loot = {
+			{
+				lootNid = 10,
+				rollType = 5,
+				looter = "Holder",
+				holder = "Holder",
+				itemString = "item:19019:0:0:0:0:0:0:0",
+				itemId = 19019,
+			},
+			{
+				lootNid = 11,
+				rollType = 5,
+				looter = "Holder",
+				holder = "Holder",
+				itemString = "item:18832:0:0:0:0:0:0:0",
+				itemId = 18832,
+			},
+		},
+	}
 	local loggerByNid, counterByName, rejectSecond = {}, {}, true
 	secondAddon.C = addon.C
 	secondAddon.L = addon.L
 	secondAddon.Diag = addon.Diag
 	secondAddon.warn = function() end
-	secondAddon.Database.EnsureLootRuntimeState = function() return {}, secondLootState, {} end
-	secondAddon.Database.EnsureRaidByIndex = function() return secondRaid end
-	secondAddon.Database.GetCurrentRaid = function() return 1 end
-	secondAddon.Database.GetPlayerName = function() return "Holder" end
-	secondAddon.Services.Logger = { Actions = { RecordLoot = function(_, request)
-		local nid = request.lootNid
-		loggerByNid[nid] = (loggerByNid[nid] or 0) + 1
-		if nid == 11 and rejectSecond then return false end
-		return true
-	end } }
+	secondAddon.Database.EnsureLootRuntimeState = function()
+		return {}, secondLootState, {}
+	end
+	secondAddon.Database.EnsureRaidByIndex = function()
+		return secondRaid
+	end
+	secondAddon.Database.GetCurrentRaid = function()
+		return 1
+	end
+	secondAddon.Database.GetPlayerName = function()
+		return "Holder"
+	end
+	secondAddon.Services.Logger = {
+		Actions = {
+			RecordLoot = function(_, request)
+				local nid = request.lootNid
+				loggerByNid[nid] = (loggerByNid[nid] or 0) + 1
+				if nid == 11 and rejectSecond then
+					return false
+				end
+				return true
+			end,
+		},
+	}
 	secondAddon.Services.Raid = {
-		GetPlayerID = function() return 1 end,
+		GetPlayerID = function()
+			return 1
+		end,
 		AddPlayerCountForRollType = function(_, name)
 			counterByName[name] = (counterByName[name] or 0) + 1
 		end,
@@ -12260,7 +16846,8 @@ function cases.loot_manual_hold_trade_requires_inventory_evidence(addon)
 	loadAddonFile(secondAddon, "Raid Management Addon/Services/Master/Trade.lua")
 	local secondTrade = secondAddon.Services.Master.Trade
 	local secondState = secondTrade.RefreshCandidate({
-		source = "TRADE_PLAYER_ITEM_CHANGED", partnerName = "Winner",
+		source = "TRADE_PLAYER_ITEM_CHANGED",
+		partnerName = "Winner",
 		tradeItems = {
 			[1] = { itemLink = target, itemString = "item:19019:0:0:0:0:0:0:0", itemId = 19019 },
 			[2] = { itemLink = secondTarget, itemString = "item:18832:0:0:0:0:0:0:0", itemId = 18832 },
@@ -12286,15 +16873,36 @@ end
 
 function cases.loot_attribution_cancellation_is_transaction_scoped(addon)
 	local lootState = { pendingAwards = {} }
-	_G.GetTime = function() return 10 end
+	_G.GetTime = function()
+		return 10
+	end
 	addon.C = { PENDING_AWARD_TTL_SECONDS = 8 }
 	addon.Diag = { D = { LogLootPendingAwardConsumed = "%s %s %s %s" } }
-	addon.Options = { IsDebugEnabled = function() return false end }
-	addon.Strings = { NormalizeName = function(value) return value end }
-	addon.Item = { GetItemStringFromLink = function(link) return link end }
-	addon.Database = { EnsureLootRuntimeState = function() return {}, lootState end }
+	addon.Options = {
+		IsDebugEnabled = function()
+			return false
+		end,
+	}
+	addon.Strings = {
+		NormalizeName = function(value)
+			return value
+		end,
+	}
+	addon.Item = {
+		GetItemStringFromLink = function(link)
+			return link
+		end,
+	}
+	addon.Database = {
+		EnsureLootRuntimeState = function()
+			return {}, lootState
+		end,
+	}
 	addon.Services = {
-		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} return addon.Services[name] end,
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+			return addon.Services[name]
+		end,
 	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Loot/LootAttribution.lua")
 	local attribution = addon.Services.Loot.LootAttribution
@@ -12318,15 +16926,36 @@ end
 
 function cases.loot_award_attribution_event_order_is_atomic(addon)
 	local lootState = { pendingAwards = {} }
-	_G.GetTime = function() return 10 end
+	_G.GetTime = function()
+		return 10
+	end
 	addon.C = { PENDING_AWARD_TTL_SECONDS = 8 }
 	addon.Diag = { D = { LogLootPendingAwardConsumed = "%s %s %s %s" } }
-	addon.Options = { IsDebugEnabled = function() return false end }
-	addon.Strings = { NormalizeName = function(value) return value end }
-	addon.Item = { GetItemStringFromLink = function(link) return link end }
-	addon.Database = { EnsureLootRuntimeState = function() return {}, lootState end }
+	addon.Options = {
+		IsDebugEnabled = function()
+			return false
+		end,
+	}
+	addon.Strings = {
+		NormalizeName = function(value)
+			return value
+		end,
+	}
+	addon.Item = {
+		GetItemStringFromLink = function(link)
+			return link
+		end,
+	}
+	addon.Database = {
+		EnsureLootRuntimeState = function()
+			return {}, lootState
+		end,
+	}
 	addon.Services = {
-		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} return addon.Services[name] end,
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+			return addon.Services[name]
+		end,
 	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Loot/LootAttribution.lua")
 	local attribution = addon.Services.Loot.LootAttribution
@@ -12343,25 +16972,30 @@ function cases.loot_award_attribution_event_order_is_atomic(addon)
 	-- CHAT_MSG_LOOT first: retain the transaction until slot confirmation, then
 	-- finalize exactly once without waiting for another chat event.
 	attribution.Add("item:19019", "Winner", 1, 90, "RS:chat", nil, { transactionId = "AT:chat" })
-	assertTrue(attribution.StageAuthoritative("item:19019", "Winner", {
-		itemCount = 2,
-	}, reconcile), "chat-first award was not staged")
-	assertEqual(0, records, "chat-first award finalized before slot evidence")
-	local chatFirst = attribution.ConfirmProvisional(
-		"item:19019", "Winner", "RS:chat", 1, "AT:chat", 1,
-		function() error("chat-first confirmation must not schedule grace") end,
-		function() end,
-		finalize
+	assertTrue(
+		attribution.StageAuthoritative("item:19019", "Winner", {
+			itemCount = 2,
+		}, reconcile),
+		"chat-first award was not staged"
 	)
+	assertEqual(0, records, "chat-first award finalized before slot evidence")
+	local chatFirst = attribution.ConfirmProvisional("item:19019", "Winner", "RS:chat", 1, "AT:chat", 1, function()
+		error("chat-first confirmation must not schedule grace")
+	end, function() end, finalize)
 	assertTrue(chatFirst and chatFirst.finalized, "chat-first award did not confirm")
 	assertEqual("CHAT_MSG_LOOT", chatFirst.finalizedSource, "chat-first source differs")
 	assertEqual(1, records, "chat-first award record count differs")
 	assertEqual(1, reconciles, "chat-first reconciliation count differs")
-	assertEqual(nil, attribution.Remove("item:19019", "Winner", 8, "RS:chat", false, false),
-		"chat-first confirmation retained a consumable pending award")
-	assertEqual(nil, attribution.ConfirmProvisional(
-		"item:19019", "Winner", "RS:chat", 1, "AT:chat", 1, nil, nil, finalize
-	), "duplicate chat-first slot confirmation found a completed pending award")
+	assertEqual(
+		nil,
+		attribution.Remove("item:19019", "Winner", 8, "RS:chat", false, false),
+		"chat-first confirmation retained a consumable pending award"
+	)
+	assertEqual(
+		nil,
+		attribution.ConfirmProvisional("item:19019", "Winner", "RS:chat", 1, "AT:chat", 1, nil, nil, finalize),
+		"duplicate chat-first slot confirmation found a completed pending award"
+	)
 	assertEqual(1, records, "duplicate chat-first confirmation repeated finalization")
 	assertEqual(1, reconciles, "duplicate chat-first confirmation repeated reconciliation")
 
@@ -12370,21 +17004,37 @@ function cases.loot_award_attribution_event_order_is_atomic(addon)
 	local scheduled, cancelled = {}, 0
 	attribution.Add("item:19019", "Winner", 1, 80, "RS:slot", nil, { transactionId = "AT:slot" })
 	local slotFirst = attribution.ConfirmProvisional(
-		"item:19019", "Winner", "RS:slot", 1, "AT:slot", 1,
-		function(callback) scheduled[#scheduled + 1] = callback return callback end,
-		function() cancelled = cancelled + 1 end,
+		"item:19019",
+		"Winner",
+		"RS:slot",
+		1,
+		"AT:slot",
+		1,
+		function(callback)
+			scheduled[#scheduled + 1] = callback
+			return callback
+		end,
+		function()
+			cancelled = cancelled + 1
+		end,
 		finalize
 	)
 	assertTrue(slotFirst and not slotFirst.finalized, "slot-first award finalized before chat/grace")
-	assertEqual(nil, attribution.StageAuthoritative("item:19019", "Winner", { itemCount = 2 }, reconcile),
-		"slot-first chat bypassed existing provisional reconciliation")
+	assertEqual(
+		nil,
+		attribution.StageAuthoritative("item:19019", "Winner", { itemCount = 2 }, reconcile),
+		"slot-first chat bypassed existing provisional reconciliation"
+	)
 	local consumed = attribution.Remove("item:19019", "Winner", 8, "RS:slot", false, false)
 	assertTrue(consumed ~= nil, "slot-first authoritative resolution did not consume pending")
-	assertTrue(attribution.ReconcileProvisional(
-		"item:19019", "Winner", "RS:slot", "AT:slot",
-		function() cancelled = cancelled + 1 end,
-		function() reconciles = reconciles + 1 end
-	), "slot-first chat did not reconcile")
+	assertTrue(
+		attribution.ReconcileProvisional("item:19019", "Winner", "RS:slot", "AT:slot", function()
+			cancelled = cancelled + 1
+		end, function()
+			reconciles = reconciles + 1
+		end),
+		"slot-first chat did not reconcile"
+	)
 	assertEqual(2, records, "slot-first award record count differs")
 	assertEqual(2, reconciles, "slot-first reconciliation count differs")
 	assertEqual(1, cancelled, "slot-first grace timer cancellation count differs")
@@ -12395,21 +17045,54 @@ end
 
 function cases.loot_attribution_schedule_failure_finalizes_once(addon)
 	local lootState = { pendingAwards = {} }
-	_G.GetTime = function() return 10 end
+	_G.GetTime = function()
+		return 10
+	end
 	addon.C = { PENDING_AWARD_TTL_SECONDS = 8 }
 	addon.Diag = { D = { LogLootPendingAwardConsumed = "%s %s %s %s" } }
-	addon.Options = { IsDebugEnabled = function() return false end }
-	addon.Strings = { NormalizeName = function(value) return value end }
-	addon.Item = { GetItemStringFromLink = function(link) return link end }
-	addon.Database = { EnsureLootRuntimeState = function() return {}, lootState end }
+	addon.Options = {
+		IsDebugEnabled = function()
+			return false
+		end,
+	}
+	addon.Strings = {
+		NormalizeName = function(value)
+			return value
+		end,
+	}
+	addon.Item = {
+		GetItemStringFromLink = function(link)
+			return link
+		end,
+	}
+	addon.Database = {
+		EnsureLootRuntimeState = function()
+			return {}, lootState
+		end,
+	}
 	addon.Services = {
-		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} return addon.Services[name] end,
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+			return addon.Services[name]
+		end,
 	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Loot/LootAttribution.lua")
 	local attribution = addon.Services.Loot.LootAttribution
 	local failures = {
-		{ name = "scheduler throw", schedule = function() error("schedule exploded") end, expectedReason = "timer_schedule_failed" },
-		{ name = "scheduler nil", schedule = function() return nil end, expectedReason = "timer_schedule_failed" },
+		{
+			name = "scheduler throw",
+			schedule = function()
+				error("schedule exploded")
+			end,
+			expectedReason = "timer_schedule_failed",
+		},
+		{
+			name = "scheduler nil",
+			schedule = function()
+				return nil
+			end,
+			expectedReason = "timer_schedule_failed",
+		},
 		{ name = "finalizer throw", throwFinalize = true, expectedReason = "record_finalize_failed" },
 	}
 	for i = 1, #failures do
@@ -12419,40 +17102,64 @@ function cases.loot_attribution_schedule_failure_finalizes_once(addon)
 		local finalizeCount, failureCount, reconcileCount = 0, 0, 0
 		attribution.Add("item:19019", "Winner", 1, 90, sessionId, nil, { transactionId = transactionId })
 		local scheduledCallback
-		local schedule = scenario.schedule or function(callback)
-			scheduledCallback = callback
-			return callback
-		end
+		local schedule = scenario.schedule
+			or function(callback)
+				scheduledCallback = callback
+				return callback
+			end
 		local observedReason
 		local provisional = attribution.ConfirmProvisional(
-			"item:19019", "Winner", sessionId, 1, transactionId, 1,
+			"item:19019",
+			"Winner",
+			sessionId,
+			1,
+			transactionId,
+			1,
 			schedule,
-			function() error("failed grace timer must not need cancellation") end,
+			function()
+				error("failed grace timer must not need cancellation")
+			end,
 			function()
 				finalizeCount = finalizeCount + 1
-				if scenario.throwFinalize then error("finalize exploded") end
+				if scenario.throwFinalize then
+					error("finalize exploded")
+				end
 				return finalizeCount
 			end,
 			function(reason)
 				failureCount = failureCount + 1
 				observedReason = reason
 				if reason == "record_finalize_failed" then
-					assertEqual(nil, attribution.Remove("item:19019", "Winner", 8, sessionId, false, false),
-						scenario.name .. " reported failure before consuming pending ownership")
+					assertEqual(
+						nil,
+						attribution.Remove("item:19019", "Winner", 8, sessionId, false, false),
+						scenario.name .. " reported failure before consuming pending ownership"
+					)
 				end
 			end
 		)
-		if scheduledCallback then scheduledCallback() end
+		if scheduledCallback then
+			scheduledCallback()
+		end
 		assertTrue(provisional and provisional.finalized, scenario.name .. " did not finalize immediately")
 		assertEqual("LOOT_SLOT_CLEARED", provisional.finalizedSource, scenario.name .. " source differs")
 		assertEqual(1, finalizeCount, scenario.name .. " finalization count differs")
 		assertEqual(1, failureCount, scenario.name .. " must report one failure")
 		assertEqual(scenario.expectedReason, observedReason, scenario.name .. " failure reason differs")
-		assertEqual(nil, attribution.Remove("item:19019", "Winner", 8, sessionId, false, false),
-			scenario.name .. " retained a consumable pending award")
+		assertEqual(
+			nil,
+			attribution.Remove("item:19019", "Winner", 8, sessionId, false, false),
+			scenario.name .. " retained a consumable pending award"
+		)
 		local reconciled, reconcileReason = attribution.ReconcileProvisional(
-			"item:19019", "Winner", sessionId, transactionId, nil,
-			function() reconcileCount = reconcileCount + 1 end
+			"item:19019",
+			"Winner",
+			sessionId,
+			transactionId,
+			nil,
+			function()
+				reconcileCount = reconcileCount + 1
+			end
 		)
 		if scenario.throwFinalize then
 			assertEqual(nil, reconciled, scenario.name .. " falsely reported handled reconciliation")
@@ -12469,12 +17176,18 @@ function cases.loot_attribution_schedule_failure_finalizes_once(addon)
 	local controllerFixture = installLootHardeningMasterFixture(newAddon(), { realLootFlow = true })
 	assertTrue(controllerFixture.master._Private.BtnAward(nil, nil), "controller failure fixture admission failed")
 	controllerFixture.throwNextSchedule = true
-	assertEqual(true, controllerFixture.master._awardConfirmation:Confirm(1),
-		"controller scheduler fallback did not complete confirmation")
+	assertEqual(
+		true,
+		controllerFixture.master._awardConfirmation:Confirm(1),
+		"controller scheduler fallback did not complete confirmation"
+	)
 	assertEqual(1, controllerFixture.warningCount, "controller scheduler fallback did not warn exactly once")
 	assertEqual(1, #controllerFixture.raid.loot, "controller scheduler fallback did not record once")
-	assertEqual("LOOT_SLOT_CLEARED", controllerFixture.raid.loot[1].source,
-		"controller scheduler fallback record source differs")
+	assertEqual(
+		"LOOT_SLOT_CLEARED",
+		controllerFixture.raid.loot[1].source,
+		"controller scheduler fallback record source differs"
+	)
 
 	local fallbackFailures = {
 		{ name = "finalizer throw", throwFinalize = true },
@@ -12493,7 +17206,9 @@ function cases.loot_attribution_schedule_failure_finalizes_once(addon)
 		local finalizeCalls = 0
 		function fixture.loot:LogTradeOnlyLoot()
 			finalizeCalls = finalizeCalls + 1
-			if scenario.throwFinalize then error("record finalize exploded") end
+			if scenario.throwFinalize then
+				error("record finalize exploded")
+			end
 			return scenario.recordIndex
 		end
 		assertTrue(fixture.master._Private.BtnAward(nil, nil), scenario.name .. " admission failed")
@@ -12502,18 +17217,22 @@ function cases.loot_attribution_schedule_failure_finalizes_once(addon)
 		assertEqual(1, finalizeCalls, scenario.name .. " finalizer count differs after grace")
 		assertEqual(1, fixture.warningCount, scenario.name .. " warning count differs after grace")
 		assertEqual(0, #fixture.raid.loot, scenario.name .. " created an invalid provisional row")
-		assertEqual(nil, fixture.loot.LootAttribution.Remove(
-			"item:19019", "Winner", 8, "RS:1", false, false
-		), scenario.name .. " retained pending attribution after grace")
+		assertEqual(
+			nil,
+			fixture.loot.LootAttribution.Remove("item:19019", "Winner", 8, "RS:1", false, false),
+			scenario.name .. " retained pending attribution after grace"
+		)
 
 		fixture.loot:AddLoot("loot-msg", nil, nil, parsed)
 		assertEqual(1, #fixture.raid.loot, scenario.name .. " authoritative fallback row count differs")
 		assertEqual("CHAT_MSG_LOOT", fixture.raid.loot[1].source, scenario.name .. " authoritative source differs")
 		assertEqual(1, finalizeCalls, scenario.name .. " reconciliation repeated finalization")
 		assertEqual(1, fixture.warningCount, scenario.name .. " reconciliation repeated warning")
-		assertEqual(nil, fixture.loot.LootAttribution.Remove(
-			"item:19019", "Winner", 8, "RS:1", false, false
-		), scenario.name .. " reconciliation restored pending attribution")
+		assertEqual(
+			nil,
+			fixture.loot.LootAttribution.Remove("item:19019", "Winner", 8, "RS:1", false, false),
+			scenario.name .. " reconciliation restored pending attribution"
+		)
 
 		fixture.loot:AddLoot("loot-msg", nil, nil, parsed)
 		assertEqual(1, #fixture.raid.loot, scenario.name .. " duplicate authoritative event created another row")
@@ -12525,22 +17244,53 @@ end
 
 function cases.loot_attribution_terminal_callbacks_are_contained(addon)
 	local lootState = { pendingAwards = {} }
-	_G.GetTime = function() return 10 end
+	_G.GetTime = function()
+		return 10
+	end
 	addon.C = { PENDING_AWARD_TTL_SECONDS = 8 }
 	addon.Diag = { D = { LogLootPendingAwardConsumed = "%s %s %s %s" } }
-	addon.Options = { IsDebugEnabled = function() return false end }
-	addon.Strings = { NormalizeName = function(value) return value end }
-	addon.Item = { GetItemStringFromLink = function(link) return link end }
-	addon.Database = { EnsureLootRuntimeState = function() return {}, lootState end }
+	addon.Options = {
+		IsDebugEnabled = function()
+			return false
+		end,
+	}
+	addon.Strings = {
+		NormalizeName = function(value)
+			return value
+		end,
+	}
+	addon.Item = {
+		GetItemStringFromLink = function(link)
+			return link
+		end,
+	}
+	addon.Database = {
+		EnsureLootRuntimeState = function()
+			return {}, lootState
+		end,
+	}
 	addon.Services = {
-		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} return addon.Services[name] end,
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+			return addon.Services[name]
+		end,
 	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Loot/LootAttribution.lua")
 	local attribution = addon.Services.Loot.LootAttribution
 
 	local authoritativeFailures = {
-		{ name = "finalizer throw", finalize = function() error("record callback exploded") end },
-		{ name = "finalizer zero", finalize = function() return 0 end },
+		{
+			name = "finalizer throw",
+			finalize = function()
+				error("record callback exploded")
+			end,
+		},
+		{
+			name = "finalizer zero",
+			finalize = function()
+				return 0
+			end,
+		},
 	}
 	for i = 1, #authoritativeFailures do
 		local scenario = authoritativeFailures[i]
@@ -12552,29 +17302,60 @@ function cases.loot_attribution_terminal_callbacks_are_contained(addon)
 			authoritativeCount = authoritativeCount + 1
 		end)
 		local provisional = attribution.ConfirmProvisional(
-			"item:19019", "Winner", sessionId, 1, transactionId, 1, nil, nil,
+			"item:19019",
+			"Winner",
+			sessionId,
+			1,
+			transactionId,
+			1,
+			nil,
+			nil,
 			function(...)
 				finalizeCount = finalizeCount + 1
 				return scenario.finalize(...)
 			end,
-			function() warningCount = warningCount + 1 end
+			function()
+				warningCount = warningCount + 1
+			end
 		)
 		assertTrue(provisional and provisional.finalized, scenario.name .. " did not become terminal")
 		assertEqual(1, finalizeCount, scenario.name .. " finalizer count differs")
 		assertEqual(0, authoritativeCount, scenario.name .. " reconciled without a positive record id")
 		assertEqual(1, warningCount, scenario.name .. " warning count differs")
-		assertEqual(nil, attribution.Remove("item:19019", "Winner", 8, sessionId, false, false),
-			scenario.name .. " retained pending ownership")
-		assertEqual(nil, attribution.ConfirmProvisional(
-			"item:19019", "Winner", sessionId, 1, transactionId, 1, nil, nil, scenario.finalize
-		), scenario.name .. " admitted duplicate finalization")
+		assertEqual(
+			nil,
+			attribution.Remove("item:19019", "Winner", 8, sessionId, false, false),
+			scenario.name .. " retained pending ownership"
+		)
+		assertEqual(
+			nil,
+			attribution.ConfirmProvisional(
+				"item:19019",
+				"Winner",
+				sessionId,
+				1,
+				transactionId,
+				1,
+				nil,
+				nil,
+				scenario.finalize
+			),
+			scenario.name .. " admitted duplicate finalization"
+		)
 		local reconciled, reconcileReason = attribution.ReconcileProvisional(
-			"item:19019", "Winner", sessionId, transactionId, nil, function()
+			"item:19019",
+			"Winner",
+			sessionId,
+			transactionId,
+			nil,
+			function()
 				authoritativeCount = authoritativeCount + 1
 			end
 		)
-		assertTrue(reconciled and reconciled.finalized and reconciled.reconciled,
-			scenario.name .. " lost terminal duplicate ownership")
+		assertTrue(
+			reconciled and reconciled.finalized and reconciled.reconciled,
+			scenario.name .. " lost terminal duplicate ownership"
+		)
 		assertEqual(nil, reconcileReason, scenario.name .. " repeated terminal reason differs")
 		assertEqual(0, authoritativeCount, scenario.name .. " applied authoritative data without a positive record id")
 		assertEqual(1, finalizeCount, scenario.name .. " repeated finalization")
@@ -12586,16 +17367,41 @@ function cases.loot_attribution_terminal_callbacks_are_contained(addon)
 	attribution.StageAuthoritative("item:18832", "Winner", { itemCount = 1 }, function()
 		authoritativeCount = authoritativeCount + 1
 		reentrantResult = attribution.ConfirmProvisional(
-			"item:18832", "Winner", "RS:post", 1, "AT:post", 1, nil, nil, function() return 99 end
+			"item:18832",
+			"Winner",
+			"RS:post",
+			1,
+			"AT:post",
+			1,
+			nil,
+			nil,
+			function()
+				return 99
+			end
 		)
 		error("authoritative callback exploded")
 	end)
 	local postRecord = attribution.ConfirmProvisional(
-		"item:18832", "Winner", "RS:post", 1, "AT:post", 1, nil, nil,
-		function() finalizeCount = finalizeCount + 1 return 7 end,
-		function() warningCount = warningCount + 1 end
+		"item:18832",
+		"Winner",
+		"RS:post",
+		1,
+		"AT:post",
+		1,
+		nil,
+		nil,
+		function()
+			finalizeCount = finalizeCount + 1
+			return 7
+		end,
+		function()
+			warningCount = warningCount + 1
+		end
 	)
-	assertTrue(postRecord and postRecord.finalized and postRecord.reconciled, "post-record callback lost terminal state")
+	assertTrue(
+		postRecord and postRecord.finalized and postRecord.reconciled,
+		"post-record callback lost terminal state"
+	)
 	assertEqual(7, postRecord.recordIndex, "post-record callback lost the valid record id")
 	assertEqual(nil, reentrantResult, "post-record callback observed live pending ownership")
 	assertEqual(1, finalizeCount, "post-record callback repeated record creation")
@@ -12606,26 +17412,53 @@ function cases.loot_attribution_terminal_callbacks_are_contained(addon)
 	attribution.Add("item:17182", "Winner", 1, 70, "RS:reconcile", nil, { transactionId = "AT:reconcile" })
 	local scheduled
 	attribution.ConfirmProvisional(
-		"item:17182", "Winner", "RS:reconcile", 1, "AT:reconcile", 1,
-		function(callback) scheduled = callback return callback end, nil,
-		function() return 8 end,
-		function() reconcileWarnings = reconcileWarnings + 1 end
+		"item:17182",
+		"Winner",
+		"RS:reconcile",
+		1,
+		"AT:reconcile",
+		1,
+		function(callback)
+			scheduled = callback
+			return callback
+		end,
+		nil,
+		function()
+			return 8
+		end,
+		function()
+			reconcileWarnings = reconcileWarnings + 1
+		end
 	)
 	attribution.StageAuthoritative("item:17182", "Winner", { itemCount = 1 })
 	local reconciled = attribution.ReconcileProvisional(
-		"item:17182", "Winner", "RS:reconcile", "AT:reconcile", nil,
-		function() reconcileCount = reconcileCount + 1 error("reconcile callback exploded") end
+		"item:17182",
+		"Winner",
+		"RS:reconcile",
+		"AT:reconcile",
+		nil,
+		function()
+			reconcileCount = reconcileCount + 1
+			error("reconcile callback exploded")
+		end
 	)
-	assertTrue(reconciled and reconciled.finalized and reconciled.reconciled, "reconcile callback escaped terminal state")
+	assertTrue(
+		reconciled and reconciled.finalized and reconciled.reconciled,
+		"reconcile callback escaped terminal state"
+	)
 	assertEqual(1, reconcileCount, "reconcile callback count differs")
 	assertEqual(1, reconcileWarnings, "reconcile callback warning count differs")
-	assertTrue(attribution.ReconcileProvisional(
-		"item:17182", "Winner", "RS:reconcile", "AT:reconcile", nil,
-		function() reconcileCount = reconcileCount + 1 end
-	), "repeat reconcile lost terminal result")
+	assertTrue(
+		attribution.ReconcileProvisional("item:17182", "Winner", "RS:reconcile", "AT:reconcile", nil, function()
+			reconcileCount = reconcileCount + 1
+		end),
+		"repeat reconcile lost terminal result"
+	)
 	assertEqual(1, reconcileCount, "repeat reconcile invoked callback")
 	assertEqual(1, reconcileWarnings, "repeat reconcile repeated warning")
-	if scheduled then scheduled() end
+	if scheduled then
+		scheduled()
+	end
 	assertEqual(1, reconcileCount, "stale timer changed reconciliation")
 	print("PASS loot_attribution_terminal_callbacks_are_contained")
 end
@@ -12634,44 +17467,105 @@ function cases.loot_service_stages_authoritative_before_consumption(addon)
 	local lootState, itemInfo, raidState = {}, {}, {}
 	local raid = { loot = {} }
 	local raidRecord = { raidUid = "fixture-authoritative", status = "active", state = raid }
-	local raidStore = { GetActiveRecord = function() return raidRecord end }
-	local staged, removed = 0, 0
-	_G.table.wipe = _G.table.wipe or function(target) for key in pairs(target) do target[key] = nil end return target end
-	_G.GetLootThreshold = function() return 2 end
-	_G.GetItemInfo = function() return "Thunderfury", nil, 5, nil, nil, "Weapon", nil, nil, nil, "texture" end
-	addon.C = { itemColors = {}, rollTypes = {}, PENDING_AWARD_TTL_SECONDS = 8, GROUP_LOOT_PENDING_AWARD_TTL_SECONDS = 60 }
-	addon.L = {}
-	addon.Diag = { D = setmetatable({}, { __index = function() return "%s %s %s %s" end }) }
-	addon.Events = { Internal = {
-		RaidLootUpdate = "RaidLootUpdate",
-		SetItem = "SetItem",
-		LootDistributionSessionChanged = "LootDistributionSessionChanged",
-	} }
-	addon.Bus = { TriggerEvent = function() end, RegisterCallback = function() end }
-	addon.Deformat = function() return nil end
-	addon.Options = {
-		GetValue = function() return false end,
-		NormalizeLoggerLootQualityThreshold = function(value) return tonumber(value) or 2 end,
+	local raidStore = {
+		GetActiveRecord = function()
+			return raidRecord
+		end,
 	}
-	addon.Strings = { NormalizeName = function(value) return value end }
-	addon.Time = { GetCurrentTime = function() return 10 end }
-	addon.Timer = { BindMixin = function(target)
-		function target:ScheduleTimer() return {} end
-		function target:CancelTimer() return true end
-	end }
+	local staged, removed = 0, 0
+	_G.table.wipe = _G.table.wipe
+		or function(target)
+			for key in pairs(target) do
+				target[key] = nil
+			end
+			return target
+		end
+	_G.GetLootThreshold = function()
+		return 2
+	end
+	_G.GetItemInfo = function()
+		return "Thunderfury", nil, 5, nil, nil, "Weapon", nil, nil, nil, "texture"
+	end
+	addon.C =
+		{ itemColors = {}, rollTypes = {}, PENDING_AWARD_TTL_SECONDS = 8, GROUP_LOOT_PENDING_AWARD_TTL_SECONDS = 60 }
+	addon.L = {}
+	addon.Diag = { D = setmetatable({}, {
+		__index = function()
+			return "%s %s %s %s"
+		end,
+	}) }
+	addon.Events = {
+		Internal = {
+			RaidLootUpdate = "RaidLootUpdate",
+			SetItem = "SetItem",
+			LootDistributionSessionChanged = "LootDistributionSessionChanged",
+		},
+	}
+	addon.Bus = { TriggerEvent = function() end, RegisterCallback = function() end }
+	addon.Deformat = function()
+		return nil
+	end
+	addon.Options = {
+		GetValue = function()
+			return false
+		end,
+		NormalizeLoggerLootQualityThreshold = function(value)
+			return tonumber(value) or 2
+		end,
+	}
+	addon.Strings = {
+		NormalizeName = function(value)
+			return value
+		end,
+	}
+	addon.Time = {
+		GetCurrentTime = function()
+			return 10
+		end,
+	}
+	addon.Timer = {
+		BindMixin = function(target)
+			function target:ScheduleTimer()
+				return {}
+			end
+			function target:CancelTimer()
+				return true
+			end
+		end,
+	}
 	addon.Item = {
-		GetItemStringFromLink = function() return "item:19019" end,
-		GetItemIdFromLink = function() return 19019 end,
-		GetItemKey = function() return "item:19019" end,
+		GetItemStringFromLink = function()
+			return "item:19019"
+		end,
+		GetItemIdFromLink = function()
+			return 19019
+		end,
+		GetItemKey = function()
+			return "item:19019"
+		end,
 	}
 	addon.Database = {
-		EnsureLootRuntimeState = function() return {}, lootState, itemInfo, raidState end,
-		GetCurrentRaid = function() return 1 end,
-		GetPlayerName = function() return "Tester" end,
-		GetRaidQueries = function() return { ResolveLootLooterName = function() end } end,
-		GetRaidStore = function() return raidStore end,
+		EnsureLootRuntimeState = function()
+			return {}, lootState, itemInfo, raidState
+		end,
+		GetCurrentRaid = function()
+			return 1
+		end,
+		GetPlayerName = function()
+			return "Tester"
+		end,
+		GetRaidQueries = function()
+			return { ResolveLootLooterName = function() end }
+		end,
+		GetRaidStore = function()
+			return raidStore
+		end,
 	}
-	local noopOwner = setmetatable({}, { __index = function() return function() end end })
+	local noopOwner = setmetatable({}, {
+		__index = function()
+			return function() end
+		end,
+	})
 	local attribution = setmetatable({
 		StageAuthoritative = function(_, _, authoritative)
 			staged = staged + 1
@@ -12684,21 +17578,36 @@ function cases.loot_service_stages_authoritative_before_consumption(addon)
 		end,
 	}, getmetatable(noopOwner))
 	addon.Services = {
-		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} return addon.Services[name] end,
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+			return addon.Services[name]
+		end,
 		Loot = {
 			LootAttribution = attribution,
 			_PassiveGroupLoot = setmetatable({
-				IsPassiveGroupLootMethod = function() return false end,
-				IsPassiveLootWinnerMessage = function() return false end,
+				IsPassiveGroupLootMethod = function()
+					return false
+				end,
+				IsPassiveLootWinnerMessage = function()
+					return false
+				end,
 			}, getmetatable(noopOwner)),
 			_Tracking = noopOwner,
 			_Workflow = noopOwner,
 			_Recording = noopOwner,
-			_Rules = { _IsIgnoredItem = function() return false end },
+			_Rules = {
+				_IsIgnoredItem = function()
+					return false
+				end,
+			},
 			AwardPlanner = noopOwner,
 			Inventory = noopOwner,
 			DistributionSession = noopOwner,
-			_Context = { ResolveRaidRecord = function() return 1, raid end },
+			_Context = {
+				ResolveRaidRecord = function()
+					return 1, raid
+				end,
+			},
 		},
 	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Loot/Service.lua")
@@ -12757,8 +17666,10 @@ function cases.loot_award_event_orders_share_full_production_chain(addon)
 	assertEqual(1, chatFirst.realAttributionAddCalls, "chat-first admission did not call real attribution owner")
 	assertEqual("item:19019", chatFirst.realAddPendingItem, "chat-first pending item differs")
 	assertEqual("Winner", chatFirst.realAddPendingWinner, "chat-first pending winner differs")
-	assertTrue(chatFirst.loot.LootAttribution.Refresh("item:19019", "Winner", 8, "RS:1") ~= nil,
-		"chat-first real attribution owner cannot find admitted pending")
+	assertTrue(
+		chatFirst.loot.LootAttribution.Refresh("item:19019", "Winner", 8, "RS:1") ~= nil,
+		"chat-first real attribution owner cannot find admitted pending"
+	)
 	assertEqual(1, pendingCount(chatFirst), "chat-first award did not create pending attribution")
 	chatFirst.loot:AddLoot("loot-msg", nil, nil, parsed)
 	assertEqual(0, #chatFirst.raid.loot, "chat-first event logged before slot confirmation")
@@ -12770,7 +17681,11 @@ function cases.loot_award_event_orders_share_full_production_chain(addon)
 	chatStale()
 	assertEqual(1, #chatFirst.raid.loot, "chat-first stale timeout duplicated record")
 	assertEqual(1, chatFirst.realProvisionalConfirmCalls, "chat-first stale timeout repeated confirmation")
-	assertEqual(false, chatFirst.master._awardConfirmation:HasInFlight(), "chat-first stale timeout restored confirmation")
+	assertEqual(
+		false,
+		chatFirst.master._awardConfirmation:HasInFlight(),
+		"chat-first stale timeout restored confirmation"
+	)
 	assertTrue(chatFirst.master._Private.BtnAward(nil, nil), "chat-first next award was blocked")
 	assertEqual(2, chatFirst.attempts, "chat-first next admission attempt count differs")
 
@@ -12785,7 +17700,11 @@ function cases.loot_award_event_orders_share_full_production_chain(addon)
 	slotGrace()
 	assertEqual(1, #slotFirst.raid.loot, "slot-first stale grace callback duplicated record")
 	assertEqual(1, slotFirst.realProvisionalConfirmCalls, "slot-first stale grace repeated confirmation")
-	assertEqual(false, slotFirst.master._awardConfirmation:HasInFlight(), "slot-first stale grace restored confirmation")
+	assertEqual(
+		false,
+		slotFirst.master._awardConfirmation:HasInFlight(),
+		"slot-first stale grace restored confirmation"
+	)
 	assertTrue(slotFirst.master._Private.BtnAward(nil, nil), "slot-first next award was blocked")
 	assertEqual(2, slotFirst.attempts, "slot-first next admission attempt count differs")
 	print("PASS loot_award_event_orders_share_full_production_chain")
@@ -12814,11 +17733,12 @@ function cases.loot_master_warns_once_when_authoritative_reconciliation_fails(ad
 	assertEqual(1, finalizeCalls, "reconcile warning finalization count differs")
 	assertEqual(1, #fixture.raid.loot, "reconcile warning canonical record count differs")
 	assertEqual(1, fixture.warningCount, "reconcile failure must warn exactly once")
-	assertEqual("attribution record_reconcile_failed", fixture.lastWarning,
-		"reconcile failure warning text differs")
-	assertEqual(nil, fixture.loot.LootAttribution.Remove(
-		"item:19019", "Winner", 8, "RS:1", false, false
-	), "reconcile failure retained pending ownership")
+	assertEqual("attribution record_reconcile_failed", fixture.lastWarning, "reconcile failure warning text differs")
+	assertEqual(
+		nil,
+		fixture.loot.LootAttribution.Remove("item:19019", "Winner", 8, "RS:1", false, false),
+		"reconcile failure retained pending ownership"
+	)
 
 	fixture.loot:AddLoot("loot-msg", nil, nil, parsed)
 	assertEqual(1, finalizeCalls, "duplicate authoritative event repeated finalization")
@@ -12830,7 +17750,9 @@ end
 function cases.loot_master_effect_boundary_is_failure_safe(addon)
 	local function pendingCount(fixture)
 		local count = 0
-		for _ in pairs(fixture.pendingAttributions or {}) do count = count + 1 end
+		for _ in pairs(fixture.pendingAttributions or {}) do
+			count = count + 1
+		end
 		return count
 	end
 	local function run(configure)
@@ -12849,20 +17771,29 @@ function cases.loot_master_effect_boundary_is_failure_safe(addon)
 	assertEqual(0, fixture.assignments, "changed slot reached GiveMasterLoot")
 	assertEqual(0, pendingCount(fixture), "changed slot retained attribution")
 
-	fixture, ok, reason = run(function(value) value.permissionDenied = true end)
+	fixture, ok, reason = run(function(value)
+		value.permissionDenied = true
+	end)
 	assertEqual(nil, ok, "permission change must fail closed")
 	assertEqual("not_master_looter", reason, "permission reason differs")
 	assertEqual(0, fixture.assignments, "permission change reached GiveMasterLoot")
 
-	fixture, ok, reason = run(function(value) value.winnerIneligible = true end)
+	fixture, ok, reason = run(function(value)
+		value.winnerIneligible = true
+	end)
 	assertEqual(nil, ok, "eligibility change must fail closed")
 	assertEqual("winner_ineligible", reason, "eligibility reason differs")
 
-	fixture, ok, reason = run(function(value) value.lootBanAtCheck = 2 value.candidateUnavailable = true end)
+	fixture, ok, reason = run(function(value)
+		value.lootBanAtCheck = 2
+		value.candidateUnavailable = true
+	end)
 	assertEqual(nil, ok, "new Loot Ban must fail closed")
 	assertEqual("loot_ban", reason, "Loot Ban must retain precedence over candidate failure")
 
-	fixture, ok, reason = run(function(value) value.candidateUnavailable = true end)
+	fixture, ok, reason = run(function(value)
+		value.candidateUnavailable = true
+	end)
 	assertEqual(nil, ok, "candidate change must fail closed")
 	assertEqual("candidate_unavailable", reason, "candidate reason differs")
 
@@ -12892,7 +17823,9 @@ end
 function cases.loot_master_success_and_timeout_follow_confirmation_evidence(addon)
 	local function pendingCount(fixture)
 		local count = 0
-		for _ in pairs(fixture.pendingAttributions or {}) do count = count + 1 end
+		for _ in pairs(fixture.pendingAttributions or {}) do
+			count = count + 1
+		end
 		return count
 	end
 	local fixture = installLootHardeningMasterFixture(addon)
@@ -12936,10 +17869,17 @@ function cases.loot_master_success_and_timeout_follow_confirmation_evidence(addo
 	assertEqual(1, absent.distributionCalls, "absent target did not publish confirmed success")
 
 	local unavailable = installLootHardeningMasterFixture(newAddon())
-	assertTrue(unavailable.awardSequence:TrySingleCopy("item:19019", "Winner"), "unavailable timeout fixture must queue")
+	assertTrue(
+		unavailable.awardSequence:TrySingleCopy("item:19019", "Winner"),
+		"unavailable timeout fixture must queue"
+	)
 	unavailable.lootState.opened = false
 	unavailable.timerCallbacks[1]()
-	assertEqual(true, unavailable.master._awardConfirmation:HasPending(), "unavailable loot window resolved prematurely")
+	assertEqual(
+		true,
+		unavailable.master._awardConfirmation:HasPending(),
+		"unavailable loot window resolved prematurely"
+	)
 	assertEqual("uncertain", unavailable.lastAttempt:GetState().state, "unavailable loot window must remain uncertain")
 	assertEqual(0, unavailable.distributionCalls, "unavailable loot window published success")
 	unavailable.timerCallbacks[#unavailable.timerCallbacks]()
@@ -12982,35 +17922,80 @@ function cases.warning_controller_reports_terminal_announcement_outcomes(addon)
 		MsgWarningLocalFallback = "local fallback",
 		ErrWarningAnnouncement = "announcement failed: %s",
 	}
-	addon.info = function(_, message, value) infos[#infos + 1] = value and string.format(message, value) or message end
-	addon.warn = function(_, message) warnings[#warnings + 1] = message end
-	addon.error = function(_, message, value) errors[#errors + 1] = value and string.format(message, value) or message end
+	addon.info = function(_, message, value)
+		infos[#infos + 1] = value and string.format(message, value) or message
+	end
+	addon.warn = function(_, message)
+		warnings[#warnings + 1] = message
+	end
+	addon.error = function(_, message, value)
+		errors[#errors + 1] = value and string.format(message, value) or message
+	end
 	addon.Controllers = {}
 	addon.State.warningsSavedVariablesFresh = false
-	addon.Database.RequireServiceMethod = function(_, owner, method) return assert(owner[method]) end
-	addon.Services.Chat = { AnnounceWarningMessage = function() return unpack(outcome) end }
-	addon.Services.Warnings = { Store = {
-		GetStore = function() return { { name = "Pull", content = "Pull now" } } end,
-		GetWarning = function(id) return id == 1 and { name = "Pull", content = "Pull now" } or nil end,
-		EnsureDefaultTemplates = function() return { added = 0, total = 1 } end,
-		DeleteWarning = function() return { deleted = true, total = 0 } end,
-		SaveWarning = function() return 1 end,
-	} }
+	addon.Database.RequireServiceMethod = function(_, owner, method)
+		return assert(owner[method])
+	end
+	addon.Services.Chat = {
+		AnnounceWarningMessage = function()
+			return unpack(outcome)
+		end,
+	}
+	addon.Services.Warnings = {
+		Store = {
+			GetStore = function()
+				return { { name = "Pull", content = "Pull now" } }
+			end,
+			GetWarning = function(id)
+				return id == 1 and { name = "Pull", content = "Pull now" } or nil
+			end,
+			EnsureDefaultTemplates = function()
+				return { added = 0, total = 1 }
+			end,
+			DeleteWarning = function()
+				return { deleted = true, total = 0 }
+			end,
+			SaveWarning = function()
+				return 1
+			end,
+		},
+	}
 	addon.Events.Internal = { WarningsDataChanged = "WarningsDataChanged" }
 	addon.Bus.RegisterCallback = function() end
 	local noopController = { Dirty = function() end }
 	addon.UI = {
 		Lists = {
-			CreateController = function() return noopController end,
-			MakeIndexedRowName = function() return "row" end,
-			CreateRowRenderer = function(callback) return callback end,
+			CreateController = function()
+				return noopController
+			end,
+			MakeIndexedRowName = function()
+				return "row"
+			end,
+			CreateRowRenderer = function(callback)
+				return callback
+			end,
 		},
-		Frames = { MakeModuleFrameGetter = function() return function() return nil end end },
+		Frames = {
+			MakeModuleFrameGetter = function()
+				return function()
+					return nil
+				end
+			end,
+		},
 		Scaffold = { DefineModule = function() end },
-		Primitives = {}, EditBoxes = {},
-		ModuleState = { Ensure = function() return {} end },
+		Primitives = {},
+		EditBoxes = {},
+		ModuleState = {
+			Ensure = function()
+				return {}
+			end,
+		},
 	}
-	addon.Strings = { TrimText = function(value) return value or "" end }
+	addon.Strings = {
+		TrimText = function(value)
+			return value or ""
+		end,
+	}
 	loadAddonFile(addon, "Raid Management Addon/Controllers/Warnings.lua")
 
 	local ok, reason, detail = addon.Controllers.Warnings:RequestAnnounce(1)
@@ -13034,53 +18019,93 @@ function cases.loot_canonical_mutations_advance_revision_before_notification(add
 	local recording = loot._Recording
 	local function assertNextEventRevision(previousRevision, previousEvents, label)
 		assertEqual(previousEvents + 1, #fixture.lootEventRevisions, label .. " event count differs")
-		assertTrue(fixture.lootEventRevisions[#fixture.lootEventRevisions] > previousRevision,
-			label .. " notified before revision advanced")
+		assertTrue(
+			fixture.lootEventRevisions[#fixture.lootEventRevisions] > previousRevision,
+			label .. " notified before revision advanced"
+		)
 	end
 
 	local previousRevision = fixture.lootRevision
 	local previousEvents = #fixture.lootEventRevisions
-	assertTrue(loot:LogTradeOnlyLoot(
-		"item:19019", "Winner", addon.C.rollTypes.MANUAL, 90, 1,
-		"MASTER_LOOT", 1, 1, "RS:direct"
-	) > 0, "direct Master Loot record was not appended")
+	assertTrue(
+		loot:LogTradeOnlyLoot("item:19019", "Winner", addon.C.rollTypes.MANUAL, 90, 1, "MASTER_LOOT", 1, 1, "RS:direct")
+			> 0,
+		"direct Master Loot record was not appended"
+	)
 	assertNextEventRevision(previousRevision, previousEvents, "direct Master Loot append")
 
 	loot:AddPendingAward(
-		"item:19019", "Winner", addon.C.rollTypes.HOLD, 0, "RS:hold", nil,
+		"item:19019",
+		"Winner",
+		addon.C.rollTypes.HOLD,
+		0,
+		"RS:hold",
+		nil,
 		{ transactionId = "AT:hold" }
 	)
 	loot:AddLoot("loot-msg", nil, nil, {
-		msg = "loot-msg", kind = "winner", itemLink = "item:19019", itemCount = 2, playerName = "Winner",
+		msg = "loot-msg",
+		kind = "winner",
+		itemLink = "item:19019",
+		itemCount = 2,
+		playerName = "Winner",
 	})
 	previousRevision = fixture.lootRevision
 	previousEvents = #fixture.lootEventRevisions
 	local provisional = loot.LootAttribution.ConfirmProvisional(
-		"item:19019", "Winner", "RS:hold", 1, "AT:hold", 1, nil, nil,
+		"item:19019",
+		"Winner",
+		"RS:hold",
+		1,
+		"AT:hold",
+		1,
+		nil,
+		nil,
 		function()
 			return loot:LogTradeOnlyLoot(
-				"item:19019", "Winner", addon.C.rollTypes.HOLD, 0, 1,
-				"LOOT_SLOT_CLEARED", 1, 1, "RS:hold"
+				"item:19019",
+				"Winner",
+				addon.C.rollTypes.HOLD,
+				0,
+				1,
+				"LOOT_SLOT_CLEARED",
+				1,
+				1,
+				"RS:hold"
 			)
 		end
 	)
 	assertTrue(provisional and provisional.finalized, "Hold award was not provisionally committed")
 	assertEqual(previousEvents + 2, #fixture.lootEventRevisions, "authoritative Hold event count differs")
-	assertTrue(fixture.lootEventRevisions[previousEvents + 1] > previousRevision,
-		"provisional Hold append notified before revision advanced")
-	assertTrue(fixture.lootEventRevisions[previousEvents + 2] > fixture.lootEventRevisions[previousEvents + 1],
-		"authoritative Hold update notified before revision advanced")
+	assertTrue(
+		fixture.lootEventRevisions[previousEvents + 1] > previousRevision,
+		"provisional Hold append notified before revision advanced"
+	)
+	assertTrue(
+		fixture.lootEventRevisions[previousEvents + 2] > fixture.lootEventRevisions[previousEvents + 1],
+		"authoritative Hold update notified before revision advanced"
+	)
 
-	assertTrue(loot:LogTradeOnlyLoot(
-		"item:19019", "Winner", addon.C.rollTypes.HOLD, 0, 1,
-		"LOOT_SLOT_CLEARED", 1, 1, "RS:trade"
-	) > 0, "trade fallback record was not appended")
+	assertTrue(
+		loot:LogTradeOnlyLoot(
+			"item:19019",
+			"Winner",
+			addon.C.rollTypes.HOLD,
+			0,
+			1,
+			"LOOT_SLOT_CLEARED",
+			1,
+			1,
+			"RS:trade"
+		) > 0,
+		"trade fallback record was not appended"
+	)
 	previousRevision = fixture.lootRevision
 	previousEvents = #fixture.lootEventRevisions
-	assertTrue(loot:LogTradeOnlyLoot(
-		"item:19019", "Winner", addon.C.rollTypes.HOLD, 80, 2,
-		"TRADE_ONLY", 1, 1, "RS:trade"
-	) > 0, "later Hold trade completion was not merged")
+	assertTrue(
+		loot:LogTradeOnlyLoot("item:19019", "Winner", addon.C.rollTypes.HOLD, 80, 2, "TRADE_ONLY", 1, 1, "RS:trade") > 0,
+		"later Hold trade completion was not merged"
+	)
 	assertNextEventRevision(previousRevision, previousEvents, "Hold trade reconciliation")
 
 	previousRevision = fixture.lootRevision
@@ -13104,8 +18129,13 @@ function cases.loot_semantic_store_failure_is_atomic(addon)
 		return nil, "INJECTED_STORE_FAILURE"
 	end
 	local appended = recording.Append(fixture.raid, {
-		lootNid = 1, itemId = 19019, itemName = "Thunderfury", itemString = "item:19019",
-		itemLink = "item:19019", itemCount = 1, time = 10,
+		lootNid = 1,
+		itemId = 19019,
+		itemName = "Thunderfury",
+		itemString = "item:19019",
+		itemLink = "item:19019",
+		itemCount = 1,
+		time = 10,
 	})
 	assertEqual(nil, appended, "failed loot commit must reject append")
 	assertEqual(1, commitCalls, "loot owner must reach semantic store")
@@ -13117,8 +18147,13 @@ function cases.loot_semantic_store_failure_is_atomic(addon)
 		return { staged = true, eventType = "LOOT_ADDED" }, "HANDOVER_STAGED"
 	end
 	local stagedOk, staged, _, _, stagingReason = pcall(recording.Append, fixture.raid, {
-		lootNid = 1, itemId = 19019, itemName = "Thunderfury", itemString = "item:19019",
-		itemLink = "item:19019", itemCount = 1, time = 10,
+		lootNid = 1,
+		itemId = 19019,
+		itemName = "Thunderfury",
+		itemString = "item:19019",
+		itemLink = "item:19019",
+		itemCount = 1,
+		time = 10,
 	})
 	assertTrue(stagedOk, "staged loot commit treated a staging reason as canonical state")
 	assertEqual(nil, staged, "staged loot commit reported a canonical append before handover")
@@ -13157,7 +18192,9 @@ function cases.raid_capabilities_accept_numeric_unit_identity(addon)
 	_G.UnitName = function(unit)
 		return unitOwners[unit]
 	end
-	_G.GetNumRaidMembers = function() return 3 end
+	_G.GetNumRaidMembers = function()
+		return 3
+	end
 	_G.GetRaidRosterInfo = function(index)
 		local names = { "Local", "Disonesta", "Member" }
 		return names[index], index == 1 and 2 or 0
@@ -13165,19 +18202,31 @@ function cases.raid_capabilities_accept_numeric_unit_identity(addon)
 
 	addon.L = {}
 	addon.warn = function() end
-	addon.Database.GetUnitRank = function(unit) return unit == "player" and playerRank or 0 end
-	addon.Database.GetPlayerName = function() return "Local" end
-	addon.Database.GetCurrentRaid = function() return activeRaid end
-	addon.Strings = { NormalizeLower = function(value)
-		return value and string.lower(string.match(value, "^([^%-]+)") or value) or nil
-	end }
+	addon.Database.GetUnitRank = function(unit)
+		return unit == "player" and playerRank or 0
+	end
+	addon.Database.GetPlayerName = function()
+		return "Local"
+	end
+	addon.Database.GetCurrentRaid = function()
+		return activeRaid
+	end
+	addon.Strings = {
+		NormalizeLower = function(value)
+			return value and string.lower(string.match(value, "^([^%-]+)") or value) or nil
+		end,
+	}
 	addon.Services.EnsureNamespace = function(name)
 		addon.Services[name] = addon.Services[name] or {}
 		return addon.Services[name]
 	end
 	addon.Services.Raid = {
-		GetUnitID = function(_, name) return namedUnits[name] or "none" end,
-		IsPlayerInRaid = function() return inRaid end,
+		GetUnitID = function(_, name)
+			return namedUnits[name] or "none"
+		end,
+		IsPlayerInRaid = function()
+			return inRaid
+		end,
 	}
 
 	loadAddonFile(addon, "Raid Management Addon/Services/Raid/Capabilities.lua")
@@ -13219,9 +18268,15 @@ function cases.rma_group_helpers_preserve_wotlk_roster_semantics(addon)
 		raid1 = true,
 		raid2 = true,
 	}
-	_G.GetNumRaidMembers = function() return raidCount end
-	_G.GetNumPartyMembers = function() return partyCount end
-	_G.UnitExists = function(unit) return existingUnits[unit] == true end
+	_G.GetNumRaidMembers = function()
+		return raidCount
+	end
+	_G.GetNumPartyMembers = function()
+		return partyCount
+	end
+	_G.UnitExists = function(unit)
+		return existingUnits[unit] == true
+	end
 
 	loadAddonFile(addon, "Raid Management Addon/Modules/Group.lua")
 	local Group = assert(addon.Group, "group helper owner is missing")
@@ -13231,7 +18286,9 @@ function cases.rma_group_helpers_preserve_wotlk_roster_semantics(addon)
 	assertEqual(2, members, "raid group count differs")
 
 	local raidUnits = {}
-	for unit in Group.IterateUnits(true) do raidUnits[#raidUnits + 1] = unit end
+	for unit in Group.IterateUnits(true) do
+		raidUnits[#raidUnits + 1] = unit
+	end
 	assertEqual("raid1", raidUnits[1], "first raid unit differs")
 	assertEqual("raid2", raidUnits[2], "second raid unit differs")
 
@@ -13287,12 +18344,24 @@ end
 function cases.rma_timer_runs_without_libcompat(addon)
 	local now = 0
 	local frame = { shown = false }
-	function frame:SetScript(kind, callback) self[kind] = callback end
-	function frame:Show() self.shown = true end
-	function frame:Hide() self.shown = false end
-	function frame:IsShown() return self.shown end
-	_G.GetTime = function() return now end
-	_G.CreateFrame = function() return frame end
+	function frame:SetScript(kind, callback)
+		self[kind] = callback
+	end
+	function frame:Show()
+		self.shown = true
+	end
+	function frame:Hide()
+		self.shown = false
+	end
+	function frame:IsShown()
+		return self.shown
+	end
+	_G.GetTime = function()
+		return now
+	end
+	_G.CreateFrame = function()
+		return frame
+	end
 	_G.UIParent = {}
 	_G.LibStub = nil
 	addon.L = {
@@ -13303,7 +18372,9 @@ function cases.rma_timer_runs_without_libcompat(addon)
 	}
 	addon.EntryPoints = { Debug = { RegisterCommand = function() end } }
 	addon.info = function() end
-	addon.error = function(_, message) fail(message) end
+	addon.error = function(_, message)
+		fail(message)
+	end
 
 	loadAddonFile(addon, "Raid Management Addon/Modules/Timer.lua")
 	local owner = {}
@@ -13321,7 +18392,9 @@ function cases.rma_timer_runs_without_libcompat(addon)
 	assertEqual("omega", oneShotArgs[3], "one-shot trailing argument differs")
 
 	local ticks = 0
-	local ticker = owner:ScheduleRepeatingTimer(function() ticks = ticks + 1 end, 0.25)
+	local ticker = owner:ScheduleRepeatingTimer(function()
+		ticks = ticks + 1
+	end, 0.25)
 	frame.OnUpdate(frame, 0.25)
 	frame.OnUpdate(frame, 0.25)
 	assertEqual(2, ticks, "repeating timer tick count differs")
@@ -13336,7 +18409,9 @@ function cases.rma_print_preserves_chat_output_contract(addon)
 	installInitStubs(addon)
 	local defaultMessages = {}
 	_G.DEFAULT_CHAT_FRAME = {
-		AddMessage = function(_, message) defaultMessages[#defaultMessages + 1] = message end,
+		AddMessage = function(_, message)
+			defaultMessages[#defaultMessages + 1] = message
+		end,
 	}
 	loadAddonFile(addon, "Raid Management Addon/Init.lua")
 	assertEqual(true, addon:Print("alpha", 2, nil), "default chat print must succeed")
@@ -13344,7 +18419,9 @@ function cases.rma_print_preserves_chat_output_contract(addon)
 
 	local customMessages = {}
 	local customFrame = {
-		AddMessage = function(_, message) customMessages[#customMessages + 1] = message end,
+		AddMessage = function(_, message)
+			customMessages[#customMessages + 1] = message
+		end,
 	}
 	assertEqual(true, addon:Print(customFrame, "beta", 3), "custom chat frame print must succeed")
 	assertEqual("beta 3", customMessages[1], "custom chat frame print payload differs")
@@ -13355,7 +18432,9 @@ function cases.rma_logger_preserves_levels_flags_and_output_contract(addon)
 	installInitStubs(addon)
 	local messages = {}
 	_G.DEFAULT_CHAT_FRAME = {
-		AddMessage = function(_, message) messages[#messages + 1] = message end,
+		AddMessage = function(_, message)
+			messages[#messages + 1] = message
+		end,
 	}
 	_G.LibStub = function(name)
 		if name == "LibLogger-1.0" then
@@ -13391,12 +18470,26 @@ end
 local function installRaidTransferSessionFixture(addon, options)
 	options = options or {}
 	local fixture = {
-		now = 100, queued = {}, batches = {}, timers = {}, cancelled = {}, nextRequest = 0,
-		channelEncodeCalls = 0, channelDecodeCalls = 0, deflateCalls = 0,
-		protocolEncodeBodyCalls = 0, protocolDecodeBodyCalls = 0,
+		now = 100,
+		queued = {},
+		batches = {},
+		timers = {},
+		cancelled = {},
+		nextRequest = 0,
+		channelEncodeCalls = 0,
+		channelDecodeCalls = 0,
+		deflateCalls = 0,
+		protocolEncodeBodyCalls = 0,
+		protocolDecodeBodyCalls = 0,
 	}
-	_G.GetTime = function() return fixture.now end
-	_G.UnitName = function(unit) if unit == "player" then return options.playerName or "Tester" end end
+	_G.GetTime = function()
+		return fixture.now
+	end
+	_G.UnitName = function(unit)
+		if unit == "player" then
+			return options.playerName or "Tester"
+		end
+	end
 	local transferLibStub = function(name)
 		assertEqual("LibDeflate", name)
 		return {
@@ -13411,37 +18504,47 @@ local function installRaidTransferSessionFixture(addon, options)
 			EncodeForWoWAddonChannel = function(_, text)
 				fixture.channelEncodeCalls = fixture.channelEncodeCalls + 1
 				if options.safeChannelEncoding then
-					return (string.gsub(text, ".", function(character)
-						return string.format("%02x", string.byte(character))
-					end))
+					return (
+						string.gsub(text, ".", function(character)
+							return string.format("%02x", string.byte(character))
+						end)
+					)
 				end
 				return text
 			end,
 			DecodeForWoWAddonChannel = function(_, text)
 				fixture.channelDecodeCalls = fixture.channelDecodeCalls + 1
-				if fixture.decodedText then return fixture.decodedText end
+				if fixture.decodedText then
+					return fixture.decodedText
+				end
 				if options.safeChannelEncoding then
-					return (string.gsub(text, "(%x%x)", function(pair)
-						return string.char(tonumber(pair, 16))
-					end))
+					return (
+						string.gsub(text, "(%x%x)", function(pair)
+							return string.char(tonumber(pair, 16))
+						end)
+					)
 				end
 				return text
 			end,
 		}
 	end
-	addon.Timer = { BindMixin = function(target)
-		target.ScheduleTimer = function(_, callback, delay)
-			local handle = { callback = callback, delay = delay }
-			fixture.timers[#fixture.timers + 1] = handle
-			return handle
-		end
-		target.CancelTimer = function(_, handle)
-			if not handle or handle.cancelled then return false end
-			handle.cancelled = true
-			fixture.cancelled[#fixture.cancelled + 1] = handle
-			return true
-		end
-	end }
+	addon.Timer = {
+		BindMixin = function(target)
+			target.ScheduleTimer = function(_, callback, delay)
+				local handle = { callback = callback, delay = delay }
+				fixture.timers[#fixture.timers + 1] = handle
+				return handle
+			end
+			target.CancelTimer = function(_, handle)
+				if not handle or handle.cancelled then
+					return false
+				end
+				handle.cancelled = true
+				fixture.cancelled[#fixture.cancelled + 1] = handle
+				return true
+			end
+		end,
+	}
 	local protocol = installRaidReplicationProtocolFixture(addon)
 	local encodeBody = protocol.EncodeBody
 	protocol.EncodeBody = function(...)
@@ -13458,15 +18561,21 @@ local function installRaidTransferSessionFixture(addon, options)
 		return string.lower(string.match(tostring(value or ""), "^([^%-]+)") or tostring(value or ""))
 	end
 	addon.Comms.QueueAddonMessage = function(prefix, message, channel, target)
-		if options.rejectSingle then return false, "backpressure" end
+		if options.rejectSingle then
+			return false, "backpressure"
+		end
 		fixture.queued[#fixture.queued + 1] = { prefix = prefix, message = message, channel = channel, target = target }
 		return true
 	end
 	addon.Comms.QueueAddonMessages = function(prefix, messages, channel, target)
 		local copy = {}
-		for i = 1, #messages do copy[i] = messages[i] end
+		for i = 1, #messages do
+			copy[i] = messages[i]
+		end
 		fixture.batches[#fixture.batches + 1] = { prefix = prefix, messages = copy, channel = channel, target = target }
-		if options.rejectBatch then return false, "backpressure" end
+		if options.rejectBatch then
+			return false, "backpressure"
+		end
 		return true
 	end
 	loadAddonFile(addon, "Raid Management Addon/Database/DBSyncSession.lua")
@@ -13481,9 +18590,16 @@ end
 
 local function beginRangeRequest(fixture, callback, target)
 	fixture.nextRequest = fixture.nextRequest + 1
-	return assert(fixture.session:BeginRequest(
-		"RANGE_REQ", target or "Leader", rangeMetadata(), "RANGE_DATA", rangeMetadata(), callback
-	))
+	return assert(
+		fixture.session:BeginRequest(
+			"RANGE_REQ",
+			target or "Leader",
+			rangeMetadata(),
+			"RANGE_DATA",
+			rangeMetadata(),
+			callback
+		)
+	)
 end
 
 function cases.raid_transfer_session_assembly(addon)
@@ -13492,14 +18608,24 @@ function cases.raid_transfer_session_assembly(addon)
 	local requestId = beginRangeRequest(fixture, function(ok, reason, body)
 		calls, succeeded, completedBody = calls + 1, ok, body
 	end)
-	local injected = function() injectedCalls = injectedCalls + 1 end
+	local injected = function()
+		injectedCalls = injectedCalls + 1
+	end
 	local transfer = { events = { string.rep("a", 260), string.rep("b", 260) } }
 	assertTrue(fixture.session:QueueTransfer("RANGE_DATA", requestId, "Tester", rangeMetadata(), transfer))
 	local messages = fixture.batches[1].messages
 	assertTrue(#messages > 1, "assembly test must use multiple chunks")
 	local last = assert(fixture.protocol.Decode(messages[#messages]))
-	assertEqual(true, fixture.session:ReceiveChunk("Leader-Realm", last, injected), "out-of-order final chunk was rejected")
-	assertEqual(true, fixture.session:ReceiveChunk("Leader-Realm", last, injected), "identical duplicate was not a no-op")
+	assertEqual(
+		true,
+		fixture.session:ReceiveChunk("Leader-Realm", last, injected),
+		"out-of-order final chunk was rejected"
+	)
+	assertEqual(
+		true,
+		fixture.session:ReceiveChunk("Leader-Realm", last, injected),
+		"identical duplicate was not a no-op"
+	)
 	for i = #messages - 1, 1, -1 do
 		assertTrue(fixture.session:ReceiveChunk("Leader-Realm", assert(fixture.protocol.Decode(messages[i])), injected))
 	end
@@ -13530,22 +18656,42 @@ function cases.raid_transfer_session_capacity(addon)
 	local fixture = installRaidTransferSessionFixture(addon)
 	local ids = {}
 	for i = 1, 9 do
-		if i == 5 or i == 9 then fixture.now = fixture.now + 30 end
+		if i == 5 or i == 9 then
+			fixture.now = fixture.now + 30
+		end
 		ids[i] = beginRangeRequest(fixture, function() end)
 	end
 	for i = 1, 8 do
 		local envelope = {
-			kind = "RANGE_DATA", requestId = ids[i], target = "Tester",
-			body = { raidUid = "r1", authorityEpoch = 1, fromSequence = 1, toSequence = 2,
-				partIndex = 1, partCount = 2, chunk = "x" },
+			kind = "RANGE_DATA",
+			requestId = ids[i],
+			target = "Tester",
+			body = {
+				raidUid = "r1",
+				authorityEpoch = 1,
+				fromSequence = 1,
+				toSequence = 2,
+				partIndex = 1,
+				partCount = 2,
+				chunk = "x",
+			},
 		}
 		assertTrue(fixture.session:ReceiveChunk("Leader", envelope), "bounded assembly allocation failed")
 	end
 	assertEqual(8, fixture.session._assemblyCount, "per-sender setup count differs")
 	local overflow = {
-		kind = "RANGE_DATA", requestId = ids[9], target = "Tester",
-		body = { raidUid = "r1", authorityEpoch = 1, fromSequence = 1, toSequence = 2,
-			partIndex = 1, partCount = 2, chunk = "x" },
+		kind = "RANGE_DATA",
+		requestId = ids[9],
+		target = "Tester",
+		body = {
+			raidUid = "r1",
+			authorityEpoch = 1,
+			fromSequence = 1,
+			toSequence = 2,
+			partIndex = 1,
+			partCount = 2,
+			chunk = "x",
+		},
 	}
 	local accepted, reason = fixture.session:ReceiveChunk("Leader", overflow)
 	assertEqual(nil, accepted, "ninth sender assembly was accepted")
@@ -13562,9 +18708,18 @@ function cases.raid_transfer_session_capacity(addon)
 		local sender = "Sender" .. i
 		globalIds[i] = beginRangeRequest(fixture, function() end, sender)
 		local envelope = {
-			kind = "RANGE_DATA", requestId = globalIds[i], target = "Tester",
-			body = { raidUid = "r1", authorityEpoch = 1, fromSequence = 1, toSequence = 2,
-				partIndex = 1, partCount = 2, chunk = "x" },
+			kind = "RANGE_DATA",
+			requestId = globalIds[i],
+			target = "Tester",
+			body = {
+				raidUid = "r1",
+				authorityEpoch = 1,
+				fromSequence = 1,
+				toSequence = 2,
+				partIndex = 1,
+				partCount = 2,
+				chunk = "x",
+			},
 		}
 		local allocated, allocationReason = fixture.session:ReceiveChunk(sender, envelope)
 		if i <= 64 then
@@ -13584,22 +18739,63 @@ end
 function cases.raid_transfer_session_correlation(addon)
 	local fixture = installRaidTransferSessionFixture(addon)
 	local failures = {
-		{ "wrong kind", function(envelope) envelope.kind = "SNAP_DATA" end, "RESPONSE_KIND_MISMATCH" },
-		{ "wrong raid", function(envelope) envelope.body.raidUid = "other" end, "RESPONSE_METADATA_MISMATCH" },
-		{ "wrong epoch", function(envelope) envelope.body.authorityEpoch = 2 end, "RESPONSE_METADATA_MISMATCH" },
-		{ "wrong from", function(envelope) envelope.body.fromSequence = 2 end, "RESPONSE_METADATA_MISMATCH" },
-		{ "wrong to", function(envelope) envelope.body.toSequence = 3 end, "RESPONSE_METADATA_MISMATCH" },
+		{
+			"wrong kind",
+			function(envelope)
+				envelope.kind = "SNAP_DATA"
+			end,
+			"RESPONSE_KIND_MISMATCH",
+		},
+		{
+			"wrong raid",
+			function(envelope)
+				envelope.body.raidUid = "other"
+			end,
+			"RESPONSE_METADATA_MISMATCH",
+		},
+		{
+			"wrong epoch",
+			function(envelope)
+				envelope.body.authorityEpoch = 2
+			end,
+			"RESPONSE_METADATA_MISMATCH",
+		},
+		{
+			"wrong from",
+			function(envelope)
+				envelope.body.fromSequence = 2
+			end,
+			"RESPONSE_METADATA_MISMATCH",
+		},
+		{
+			"wrong to",
+			function(envelope)
+				envelope.body.toSequence = 3
+			end,
+			"RESPONSE_METADATA_MISMATCH",
+		},
 	}
 	for i = 1, #failures do
-		if i == 5 then fixture.now = fixture.now + 30 end
+		if i == 5 then
+			fixture.now = fixture.now + 30
+		end
 		local callbackCalls, callbackReason = 0
 		local requestId = beginRangeRequest(fixture, function(ok, reason)
 			callbackCalls, callbackReason = callbackCalls + 1, reason
 		end)
 		local envelope = {
-			kind = "RANGE_DATA", requestId = requestId, target = "Tester",
-			body = { raidUid = "r1", authorityEpoch = 1, fromSequence = 1, toSequence = 2,
-				partIndex = 1, partCount = 1, chunk = '{"ok":true}' },
+			kind = "RANGE_DATA",
+			requestId = requestId,
+			target = "Tester",
+			body = {
+				raidUid = "r1",
+				authorityEpoch = 1,
+				fromSequence = 1,
+				toSequence = 2,
+				partIndex = 1,
+				partCount = 1,
+				chunk = '{"ok":true}',
+			},
 		}
 		failures[i][2](envelope)
 		local accepted, reason = fixture.session:ReceiveChunk("Leader", envelope)
@@ -13611,15 +18807,30 @@ function cases.raid_transfer_session_correlation(addon)
 
 	fixture.now = fixture.now + 30
 	local sequenceCalls = 0
-	local snapId = assert(fixture.session:BeginRequest(
-		"SNAP_REQ", "Leader", { raidUid = "r1" }, "SNAP_DATA",
-		{ raidUid = "r1", authorityEpoch = 1, sequence = 7 },
-		function() sequenceCalls = sequenceCalls + 1 end
-	))
+	local snapId = assert(
+		fixture.session:BeginRequest(
+			"SNAP_REQ",
+			"Leader",
+			{ raidUid = "r1" },
+			"SNAP_DATA",
+			{ raidUid = "r1", authorityEpoch = 1, sequence = 7 },
+			function()
+				sequenceCalls = sequenceCalls + 1
+			end
+		)
+	)
 	local wrongSequence = {
-		kind = "SNAP_DATA", requestId = snapId, target = "Tester",
-		body = { raidUid = "r1", authorityEpoch = 1, sequence = 8,
-			partIndex = 1, partCount = 1, chunk = '{"ok":true}' },
+		kind = "SNAP_DATA",
+		requestId = snapId,
+		target = "Tester",
+		body = {
+			raidUid = "r1",
+			authorityEpoch = 1,
+			sequence = 8,
+			partIndex = 1,
+			partCount = 1,
+			chunk = '{"ok":true}',
+		},
 	}
 	assertEqual(nil, fixture.session:ReceiveChunk("Leader", wrongSequence), "wrong snapshot sequence was accepted")
 	assertEqual(1, sequenceCalls, "wrong snapshot sequence was not terminal once")
@@ -13629,9 +18840,18 @@ function cases.raid_transfer_session_correlation(addon)
 		crossCalls, crossReason = crossCalls + 1, reason
 	end)
 	local first = {
-		kind = "RANGE_DATA", requestId = crossId, target = "Tester",
-		body = { raidUid = "r1", authorityEpoch = 1, fromSequence = 1, toSequence = 2,
-			partIndex = 1, partCount = 2, chunk = '{"ok":' },
+		kind = "RANGE_DATA",
+		requestId = crossId,
+		target = "Tester",
+		body = {
+			raidUid = "r1",
+			authorityEpoch = 1,
+			fromSequence = 1,
+			toSequence = 2,
+			partIndex = 1,
+			partCount = 2,
+			chunk = '{"ok":',
+		},
 	}
 	assertTrue(fixture.session:ReceiveChunk("Leader", first))
 	local changed = deepCopy(first)
@@ -13650,9 +18870,18 @@ function cases.raid_transfer_session_decode_bounds(addon)
 	local fixture = installRaidTransferSessionFixture(addon)
 	local requestId = beginRangeRequest(fixture, function() end)
 	local oversized = {
-		kind = "RANGE_DATA", requestId = requestId, target = "Tester",
-		body = { raidUid = "r1", authorityEpoch = 1, fromSequence = 1, toSequence = 2,
-			partIndex = 1, partCount = 256, chunk = string.rep("x", 221) },
+		kind = "RANGE_DATA",
+		requestId = requestId,
+		target = "Tester",
+		body = {
+			raidUid = "r1",
+			authorityEpoch = 1,
+			fromSequence = 1,
+			toSequence = 2,
+			partIndex = 1,
+			partCount = 256,
+			chunk = string.rep("x", 221),
+		},
 	}
 	local decodeCalls = fixture.channelDecodeCalls
 	local parseCalls = fixture.protocolDecodeBodyCalls
@@ -13666,9 +18895,18 @@ function cases.raid_transfer_session_decode_bounds(addon)
 	fixture.decodedText = string.rep("x", 65537)
 	requestId = beginRangeRequest(fixture, function() end)
 	local decodedOversize = {
-		kind = "RANGE_DATA", requestId = requestId, target = "Tester",
-		body = { raidUid = "r1", authorityEpoch = 1, fromSequence = 1, toSequence = 2,
-			partIndex = 1, partCount = 1, chunk = "x" },
+		kind = "RANGE_DATA",
+		requestId = requestId,
+		target = "Tester",
+		body = {
+			raidUid = "r1",
+			authorityEpoch = 1,
+			fromSequence = 1,
+			toSequence = 2,
+			partIndex = 1,
+			partCount = 1,
+			chunk = "x",
+		},
 	}
 	parseCalls = fixture.protocolDecodeBodyCalls
 	accepted, reason = fixture.session:ReceiveChunk("Leader", decodedOversize)
@@ -13681,7 +18919,9 @@ function cases.raid_transfer_session_decode_bounds(addon)
 	local encodeCalls = fixture.channelEncodeCalls
 	local batchCalls = #fixture.batches
 	local queued, queueReason = fixture.session:QueueTransfer(
-		"SNAP_DATA", "oversized", "Recipient",
+		"SNAP_DATA",
+		"oversized",
+		"Recipient",
 		{ raidUid = "r1", authorityEpoch = 1, sequence = 1 },
 		{ snapshot = string.rep("x", 56321) }
 	)
@@ -13720,7 +18960,9 @@ end
 function cases.raid_transfer_session_atomic_batch(addon)
 	local fixture = installRaidTransferSessionFixture(addon, { rejectBatch = true })
 	local queued, reason = fixture.session:QueueTransfer(
-		"SNAP_DATA", "request-1", "Recipient",
+		"SNAP_DATA",
+		"request-1",
+		"Recipient",
 		{ raidUid = "r1", authorityEpoch = 1, sequence = 1 },
 		{ snapshot = string.rep("x", 600) }
 	)
@@ -13739,7 +18981,9 @@ end
 function cases.raid_transfer_session_rechunks_snapshot_at_safe_wire_limit(addon)
 	local fixture = installRaidTransferSessionFixture(addon)
 	local queued, reason = fixture.session:QueueTransfer(
-		"SNAP_DATA", "request-1", "Recipient",
+		"SNAP_DATA",
+		"request-1",
+		"Recipient",
 		{ raidUid = "r1", authorityEpoch = 1, sequence = 1 },
 		{ snapshot = string.rep("x", 300) }
 	)
@@ -13770,29 +19014,51 @@ function cases.raid_transfer_session_rate_limits(addon)
 	local encodeBodyCalls = fixture.protocolEncodeBodyCalls
 	local queueCalls = #fixture.queued
 	local requestId, requestReason = fixture.session:BeginRequest(
-		"RANGE_REQ", "Outbound", rangeMetadata(), "RANGE_DATA", rangeMetadata(), function() end
+		"RANGE_REQ",
+		"Outbound",
+		rangeMetadata(),
+		"RANGE_DATA",
+		rangeMetadata(),
+		function() end
 	)
 	assertEqual(nil, requestId, "fifth outbound request was accepted")
 	assertEqual("RATE_LIMIT", requestReason, "outbound request rate reason differs")
 	assertEqual(encodeBodyCalls, fixture.protocolEncodeBodyCalls, "rate-limited request reached protocol encoding")
 	assertEqual(queueCalls, #fixture.queued, "rate-limited request allocated queue work")
 	fixture.now = 160
-	assertTrue(fixture.session:BeginRequest(
-		"RANGE_REQ", "Outbound", rangeMetadata(), "RANGE_DATA", rangeMetadata(), function() end
-	), "outbound request rate did not expire at 30 seconds")
+	assertTrue(
+		fixture.session:BeginRequest(
+			"RANGE_REQ",
+			"Outbound",
+			rangeMetadata(),
+			"RANGE_DATA",
+			rangeMetadata(),
+			function() end
+		),
+		"outbound request rate did not expire at 30 seconds"
+	)
 
 	for i = 1, 4 do
-		assertTrue(fixture.session:QueueTransfer(
-			"SNAP_DATA", "batch-" .. i, "BatchTarget",
-			{ raidUid = "r1", authorityEpoch = 1, sequence = 1 }, { snapshot = "x" }
-		), "transfer batch within limit failed")
+		assertTrue(
+			fixture.session:QueueTransfer(
+				"SNAP_DATA",
+				"batch-" .. i,
+				"BatchTarget",
+				{ raidUid = "r1", authorityEpoch = 1, sequence = 1 },
+				{ snapshot = "x" }
+			),
+			"transfer batch within limit failed"
+		)
 	end
 	encodeBodyCalls = fixture.protocolEncodeBodyCalls
 	local channelCalls = fixture.channelEncodeCalls
 	local batchCalls = #fixture.batches
 	allowed, reason = fixture.session:QueueTransfer(
-		"SNAP_DATA", "batch-5", "BatchTarget",
-		{ raidUid = "r1", authorityEpoch = 1, sequence = 1 }, { snapshot = "x" }
+		"SNAP_DATA",
+		"batch-5",
+		"BatchTarget",
+		{ raidUid = "r1", authorityEpoch = 1, sequence = 1 },
+		{ snapshot = "x" }
 	)
 	assertEqual(false, allowed, "fifth transfer batch was accepted")
 	assertEqual("RATE_LIMIT", reason, "transfer batch rate reason differs")
@@ -13800,26 +19066,43 @@ function cases.raid_transfer_session_rate_limits(addon)
 	assertEqual(channelCalls, fixture.channelEncodeCalls, "rate-limited batch reached channel encoding")
 	assertEqual(batchCalls, #fixture.batches, "rate-limited batch allocated queue work")
 	fixture.now = 190
-	assertTrue(fixture.session:QueueTransfer(
-		"SNAP_DATA", "batch-expired", "BatchTarget",
-		{ raidUid = "r1", authorityEpoch = 1, sequence = 1 }, { snapshot = "x" }
-	), "transfer rate did not expire at 30 seconds")
+	assertTrue(
+		fixture.session:QueueTransfer(
+			"SNAP_DATA",
+			"batch-expired",
+			"BatchTarget",
+			{ raidUid = "r1", authorityEpoch = 1, sequence = 1 },
+			{ snapshot = "x" }
+		),
+		"transfer rate did not expire at 30 seconds"
+	)
 
-	for i = 1, 140 do fixture.session:AllowIncomingRequest("Unique" .. i) end
+	for i = 1, 140 do
+		fixture.session:AllowIncomingRequest("Unique" .. i)
+	end
 	local ratePeers = 0
-	for _ in pairs(fixture.session._incomingRates) do ratePeers = ratePeers + 1 end
+	for _ in pairs(fixture.session._incomingRates) do
+		ratePeers = ratePeers + 1
+	end
 	assertTrue(ratePeers <= 128, "inbound rate map grew beyond its bound")
 	fixture.now = fixture.now + 31
 	fixture.session:AllowIncomingRequest("Fresh")
 	ratePeers = 0
-	for _ in pairs(fixture.session._incomingRates) do ratePeers = ratePeers + 1 end
+	for _ in pairs(fixture.session._incomingRates) do
+		ratePeers = ratePeers + 1
+	end
 	assertEqual(1, ratePeers, "expired inbound rate entries were not pruned")
 	print("PASS raid_transfer_session_rate_limits")
 end
 
 local function newLiveReplicationNetwork()
 	local network = {
-		clients = {}, messages = {}, nextMessage = 0, now = 100, raidLeader = "Leader", heldTransfers = {},
+		clients = {},
+		messages = {},
+		nextMessage = 0,
+		now = 100,
+		raidLeader = "Leader",
+		heldTransfers = {},
 	}
 
 	function network:encode(kind, requestId, target, body)
@@ -13888,10 +19171,18 @@ local function newLiveReplicationStore(callbacks, initialRecord)
 
 	function store:ApplyReplicaEvent(event)
 		local current = self.record
-		if not current then return nil, "RAID_NOT_ACTIVE" end
-		if event.raidUid ~= current.raidUid then return nil, "RAID_NOT_FOUND" end
-		if event.authorityEpoch ~= current.authorityEpoch then return nil, "AUTHORITY_EPOCH_MISMATCH" end
-		if event.sequence ~= current.sequence + 1 then return nil, "SEQUENCE_MISMATCH" end
+		if not current then
+			return nil, "RAID_NOT_ACTIVE"
+		end
+		if event.raidUid ~= current.raidUid then
+			return nil, "RAID_NOT_FOUND"
+		end
+		if event.authorityEpoch ~= current.authorityEpoch then
+			return nil, "AUTHORITY_EPOCH_MISMATCH"
+		end
+		if event.sequence ~= current.sequence + 1 then
+			return nil, "SEQUENCE_MISMATCH"
+		end
 		self.record.sequence = event.sequence
 		self.record.digest = event.resultDigest
 		if event.eventType == "RAID_CONCLUDED" then
@@ -13915,7 +19206,8 @@ local function newLiveReplicationStore(callbacks, initialRecord)
 						for i = 1, #(self.record.state.players or {}) do
 							local player = self.record.state.players[i]
 							if tonumber(player.playerNid) == tonumber(event.payload.loot.looterNid) then
-								player[field] = (tonumber(player[field]) or 0) + (tonumber(event.payload.loot.itemCount) or 1)
+								player[field] = (tonumber(player[field]) or 0)
+									+ (tonumber(event.payload.loot.itemCount) or 1)
 								break
 							end
 						end
@@ -13923,7 +19215,10 @@ local function newLiveReplicationStore(callbacks, initialRecord)
 				end
 			elseif event.eventType == "LOOT_UPDATED" then
 				for i = 1, #(self.record.state.loot or {}) do
-					if tonumber(self.record.state.loot[i].lootNid) == tonumber(event.payload.loot and event.payload.loot.lootNid) then
+					if
+						tonumber(self.record.state.loot[i].lootNid)
+						== tonumber(event.payload.loot and event.payload.loot.lootNid)
+					then
 						self.record.state.loot[i] = deepCopy(event.payload.loot)
 						break
 					end
@@ -13933,7 +19228,9 @@ local function newLiveReplicationStore(callbacks, initialRecord)
 				local incoming = event.payload and event.payload.player
 				local replaced = false
 				for i = 1, #self.record.state.players do
-					if tonumber(self.record.state.players[i].playerNid) == tonumber(incoming and incoming.playerNid)
+					if
+						tonumber(self.record.state.players[i].playerNid)
+							== tonumber(incoming and incoming.playerNid)
 						or self.record.state.players[i].name == (incoming and incoming.name)
 					then
 						self.record.state.players[i] = deepCopy(incoming)
@@ -13941,7 +19238,9 @@ local function newLiveReplicationStore(callbacks, initialRecord)
 						break
 					end
 				end
-				if not replaced then self.record.state.players[#self.record.state.players + 1] = deepCopy(incoming) end
+				if not replaced then
+					self.record.state.players[#self.record.state.players + 1] = deepCopy(incoming)
+				end
 			end
 			self.record.events[#self.record.events + 1] = deepCopy(event)
 		end
@@ -13950,13 +19249,19 @@ local function newLiveReplicationStore(callbacks, initialRecord)
 
 	function store:GetEventRange(raidUid, afterSequence, maximumCount)
 		local current = self:GetRecord(raidUid)
-		if not current then return nil, "RAID_NOT_FOUND" end
-		if afterSequence < current.checkpointSequence then return nil, "SNAPSHOT_REQUIRED" end
+		if not current then
+			return nil, "RAID_NOT_FOUND"
+		end
+		if afterSequence < current.checkpointSequence then
+			return nil, "SNAPSHOT_REQUIRED"
+		end
 		local events = {}
 		for i = 1, #current.events do
 			if current.events[i].sequence > afterSequence then
 				events[#events + 1] = deepCopy(current.events[i])
-				if #events >= maximumCount then break end
+				if #events >= maximumCount then
+					break
+				end
 			end
 		end
 		return events
@@ -13964,7 +19269,9 @@ local function newLiveReplicationStore(callbacks, initialRecord)
 
 	function store:BuildSnapshot(raidUid)
 		local current = self:GetRecord(raidUid)
-		if not current then return nil, "RAID_NOT_FOUND" end
+		if not current then
+			return nil, "RAID_NOT_FOUND"
+		end
 		return deepCopy(current)
 	end
 
@@ -14006,14 +19313,22 @@ local function newLiveReplicationStore(callbacks, initialRecord)
 		end
 		if not self.record then
 			self.record = {
-				raidUid = event.raidUid, status = "active", authorityEpoch = event.authorityEpoch,
-				sequence = 0, checkpointSequence = 0, digest = "00000000:1", state = {}, events = {},
+				raidUid = event.raidUid,
+				status = "active",
+				authorityEpoch = event.authorityEpoch,
+				sequence = 0,
+				checkpointSequence = 0,
+				digest = "00000000:1",
+				state = {},
+				events = {},
 			}
 		end
 		assert(self:ApplyReplicaEvent(event))
 		self.committed[#self.committed + 1] = deepCopy(event)
 		local listeners = callbacks.RaidReplicationCommitted or {}
-		for i = 1, #listeners do listeners[i](nil, deepCopy(event)) end
+		for i = 1, #listeners do
+			listeners[i](nil, deepCopy(event))
+		end
 		return true
 	end
 
@@ -14021,7 +19336,9 @@ local function newLiveReplicationStore(callbacks, initialRecord)
 		if type(self.authorityGuard) ~= "function" or self.authorityGuard("create") ~= true then
 			return nil, "NOT_RAID_LEADER"
 		end
-		if self:GetActiveRecord() then return nil, "ACTIVE_RAID_EXISTS" end
+		if self:GetActiveRecord() then
+			return nil, "ACTIVE_RAID_EXISTS"
+		end
 		args = args or {}
 		local raidUid = "raid-created-" .. tostring(args.authorityKey or "unknown")
 		local state = deepCopy(args.state or {
@@ -14058,10 +19375,11 @@ local function newLiveReplicationStore(callbacks, initialRecord)
 		}
 		self.committed[#self.committed + 1] = deepCopy(event)
 		local listeners = callbacks.RaidReplicationCommitted or {}
-		for i = 1, #listeners do listeners[i](nil, deepCopy(event)) end
+		for i = 1, #listeners do
+			listeners[i](nil, deepCopy(event))
+		end
 		return deepCopy(event), state
 	end
-
 
 	function store:CommitAuthoritativeEvent(raidUid, eventType, payload)
 		if type(self.authorityGuard) ~= "function" then
@@ -14073,11 +19391,17 @@ local function newLiveReplicationStore(callbacks, initialRecord)
 		end
 		local nextSequence = self.record.sequence + 1
 		local event = {
-			raidUid = raidUid, authorityEpoch = self.record.authorityEpoch, sequence = nextSequence,
+			raidUid = raidUid,
+			authorityEpoch = self.record.authorityEpoch,
+			sequence = nextSequence,
 			eventUid = raidUid .. ":" .. tostring(self.record.authorityEpoch) .. ":" .. tostring(nextSequence),
-			eventType = eventType, payload = deepCopy(payload), resultDigest = string.format("%08d:1", nextSequence),
+			eventType = eventType,
+			payload = deepCopy(payload),
+			resultDigest = string.format("%08d:1", nextSequence),
 		}
-		if not self:Commit(event) then return nil end
+		if not self:Commit(event) then
+			return nil
+		end
 		return event, self.record.state
 	end
 
@@ -14100,31 +19424,49 @@ local function makeLiveRecord(sequence, digest)
 	local events = {}
 	for i = 1, sequence do
 		events[i] = {
-			raidUid = "raid-live", authorityEpoch = 1, sequence = i,
-			eventUid = "raid-live:1:" .. tostring(i), eventType = "TEST",
-			payload = { value = i }, resultDigest = "0000000" .. tostring(i) .. ":1",
+			raidUid = "raid-live",
+			authorityEpoch = 1,
+			sequence = i,
+			eventUid = "raid-live:1:" .. tostring(i),
+			eventType = "TEST",
+			payload = { value = i },
+			resultDigest = "0000000" .. tostring(i) .. ":1",
 		}
 	end
 	return {
-		raidUid = "raid-live", status = "active", authorityEpoch = 1,
-		sequence = sequence, checkpointSequence = 0,
+		raidUid = "raid-live",
+		status = "active",
+		authorityEpoch = 1,
+		sequence = sequence,
+		checkpointSequence = 0,
 		digest = digest or (sequence > 0 and events[sequence].resultDigest or "00000000:1"),
 		state = {
 			value = sequence,
 			zone = "Naxxramas",
 			size = 10,
 			difficulty = 1,
-		}, events = events,
+		},
+		events = events,
 	}
 end
 
 local function installLiveReplicationRealStore(addon, client, seedActiveRaid)
 	resetSavedVariables()
-	_G.GetTime = function() return 100 end
-	addon.Time = { GetCurrentTime = function() return 100 end }
+	_G.GetTime = function()
+		return 100
+	end
+	addon.Time = {
+		GetCurrentTime = function()
+			return 100
+		end,
+	}
 	addon.IgnoredMobs = {
-		IsTrashMobName = function() return false end,
-		GetTrashMobName = function() return "Trash" end,
+		IsTrashMobName = function()
+			return false
+		end,
+		GetTrashMobName = function()
+			return "Trash"
+		end,
 	}
 	installRaidReplicationEventFixture(addon)
 	loadAddonFile(addon, "Raid Management Addon/Database/DB.lua")
@@ -14133,7 +19475,9 @@ local function installLiveReplicationRealStore(addon, client, seedActiveRaid)
 	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidValidator.lua")
 	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidStore.lua")
 	local store = addon.Database.GetRaidStore()
-	assert(store:SetAuthorityGuard(function() return true end))
+	assert(store:SetAuthorityGuard(function()
+		return true
+	end))
 	if seedActiveRaid then
 		local _, index, raidUid = assert(store:CreateActiveRaid({
 			authorityKey = client.name .. "-TestRealm",
@@ -14185,20 +19529,34 @@ local function installLiveReplicationClient(network, name, initialRecord, option
 	local addon = newAddon()
 	client.addon = addon
 	addon.DB = {}
-	addon.Database = { GetCurrentRaid = function() return client.currentRaid end }
+	addon.Database = {
+		GetCurrentRaid = function()
+			return client.currentRaid
+		end,
+	}
 	addon.L = {
-		WarnRaidDatabaseAuthorityReleased =
-			"Raid database authority passed to %s. This client now holds a read-only replica.",
-		WarnRaidDatabaseAuthorityReceived =
-			"Raid database authority received from %s. Recovery is in progress; raid history writes are temporarily paused.",
+		WarnRaidDatabaseAuthorityReleased = "Raid database authority passed to %s. This client now holds a read-only replica.",
+		WarnRaidDatabaseAuthorityReceived = "Raid database authority received from %s. Recovery is in progress; raid history writes are temporarily paused.",
 	}
 	addon.Diagnose = { D = { RaidSyncTrace = "%s %s" } }
 	addon.Diag = addon.Diagnose
-	addon.warn = function(_, message) client.warnings[#client.warnings + 1] = message end
-	addon.debug = function(_, message) client.traces[#client.traces + 1] = message end
-	addon.IsInGroup = function() return true end
-	addon.IsInRaid = function() return true end
-	addon.Options = { IsDebugEnabled = function() return false end }
+	addon.warn = function(_, message)
+		client.warnings[#client.warnings + 1] = message
+	end
+	addon.debug = function(_, message)
+		client.traces[#client.traces + 1] = message
+	end
+	addon.IsInGroup = function()
+		return true
+	end
+	addon.IsInRaid = function()
+		return true
+	end
+	addon.Options = {
+		IsDebugEnabled = function()
+			return false
+		end,
+	}
 	addon.Timer = {
 		BindMixin = function(target)
 			function target:ScheduleTimer(callback, delay)
@@ -14216,13 +19574,20 @@ local function installLiveReplicationClient(network, name, initialRecord, option
 		end,
 	}
 	addon.Strings = {
-		NormalizeName = function(value) return value end,
-		NormalizeLower = function(value) return value and string.lower(string.match(value, "^([^%-]+)") or value) end,
+		NormalizeName = function(value)
+			return value
+		end,
+		NormalizeLower = function(value)
+			return value and string.lower(string.match(value, "^([^%-]+)") or value)
+		end,
 	}
 	addon.Events = {
 		Internal = {
-			OptionsLoaded = "OptionsLoaded", RaidCreate = "RaidCreate", RaidRosterDelta = "RaidRosterDelta",
-			RaidReplicationCommitted = "RaidReplicationCommitted", LoggerSelectRaid = "LoggerSelectRaid",
+			OptionsLoaded = "OptionsLoaded",
+			RaidCreate = "RaidCreate",
+			RaidRosterDelta = "RaidRosterDelta",
+			RaidReplicationCommitted = "RaidReplicationCommitted",
+			LoggerSelectRaid = "LoggerSelectRaid",
 			LoggerDataChanged = "LoggerDataChanged",
 			LoggerRaidOfferReceived = "LoggerRaidOfferReceived",
 			RaidAuthorityRecoveryFinished = "RaidAuthorityRecoveryFinished",
@@ -14267,14 +19632,21 @@ local function installLiveReplicationClient(network, name, initialRecord, option
 		client.protocol = installRaidReplicationProtocolFixture(addon)
 	else
 		client.protocol = {
-			Encode = function(kind, requestId, target, body) return network:encode(kind, requestId, target, body) end,
-			Decode = function(wire) return network:decode(wire) end,
+			Encode = function(kind, requestId, target, body)
+				return network:encode(kind, requestId, target, body)
+			end,
+			Decode = function(wire)
+				return network:decode(wire)
+			end,
 		}
 	end
 	addon.DB.SyncProtocol = client.protocol
 	local pending, nextRequest = {}, 0
 	addon.Comms = {
-		RegisterPrefixIfAvailable = function(prefix) client.prefix = prefix return true end,
+		RegisterPrefixIfAvailable = function(prefix)
+			client.prefix = prefix
+			return true
+		end,
 		NormalizeSender = function(sender)
 			return type(sender) == "string" and (string.match(sender, "^([^%-]+)") or sender) or nil
 		end,
@@ -14299,7 +19671,9 @@ local function installLiveReplicationClient(network, name, initialRecord, option
 		end,
 	}
 	addon.DB.SyncSession = {
-		AllowIncomingRequest = function() return true end,
+		AllowIncomingRequest = function()
+			return true
+		end,
 		BeginRequest = function(_, kind, target, body, expectedKind, metadata, callback)
 			client.lastBeginRequestCallback = callback
 			client.lastBeginRequestTarget = target
@@ -14318,7 +19692,8 @@ local function installLiveReplicationClient(network, name, initialRecord, option
 			client.requests[#client.requests + 1] = kind
 			if options.realProtocol then
 				client.transfers[#client.transfers + 1] = kind
-				local recipient = network.clients[target] or network.clients[string.upper(string.sub(target, 1, 1)) .. string.sub(target, 2)]
+				local recipient = network.clients[target]
+					or network.clients[string.upper(string.sub(target, 1, 1)) .. string.sub(target, 2)]
 				return recipient and recipient.receiveTransfer(name, kind, requestId, metadata, body) or false
 			end
 			local envelopeBody = deepCopy(metadata)
@@ -14339,15 +19714,21 @@ local function installLiveReplicationClient(network, name, initialRecord, option
 		end,
 		ReceiveChunk = function(_, sender, envelope)
 			local request = pending[envelope.requestId]
-			if not request then return nil, "UNKNOWN_REQUEST" end
-			if envelope.kind ~= request.expectedKind then return nil, "RESPONSE_KIND_MISMATCH" end
+			if not request then
+				return nil, "UNKNOWN_REQUEST"
+			end
+			if envelope.kind ~= request.expectedKind then
+				return nil, "RESPONSE_KIND_MISMATCH"
+			end
 			pending[envelope.requestId] = nil
 			request.callback(true, "COMPLETE", envelope.body.transferBody)
 			return true
 		end,
 		CancelRequest = function(_, requestId, reason)
 			local request = pending[requestId]
-			if not request then return false, "UNKNOWN_REQUEST" end
+			if not request then
+				return false, "UNKNOWN_REQUEST"
+			end
 			pending[requestId] = nil
 			client.cancelledRequests[#client.cancelledRequests + 1] = {
 				requestId = requestId,
@@ -14382,7 +19763,9 @@ local function installLiveReplicationClient(network, name, initialRecord, option
 		end
 		raidService.IsGroupMember = function(_, sender)
 			local short = type(sender) == "string" and (string.match(sender, "^([^%-]+)") or sender) or nil
-			if not short then return false end
+			if not short then
+				return false
+			end
 			local normalized = string.lower(short)
 			if type(network.raidLeader) == "string" and string.lower(network.raidLeader) == normalized then
 				return true
@@ -14400,19 +19783,28 @@ local function installLiveReplicationClient(network, name, initialRecord, option
 		installProductionReentryRuntime(client)
 	end
 	if not options.productionCapabilities then
-		_G.UnitName = function(unit) return unit == "player" and name or nil end
+		_G.UnitName = function(unit)
+			return unit == "player" and name or nil
+		end
 	end
-	_G.GetTime = function() return network.now end
+	_G.GetTime = function()
+		return network.now
+	end
 	loadAddonFile(addon, "Raid Management Addon/Database/DBSyncer.lua")
 	client.syncer = addon.DB.Syncer
 	function client:FireHandoverTimer()
 		local timer = self.timers and table.remove(self.timers, 1) or nil
-		if timer then timer.callback() return true end
+		if timer then
+			timer.callback()
+			return true
+		end
 		return false
 	end
 	client.receiveTransfer = function(sender, kind, requestId, metadata, body)
 		local request = pending[requestId]
-		if not request or request.expectedKind ~= kind then return false end
+		if not request or request.expectedKind ~= kind then
+			return false
+		end
 		pending[requestId] = nil
 		request.callback(true, "COMPLETE", deepCopy(body))
 		return true
@@ -14423,9 +19815,12 @@ end
 
 local function makeLiveEvent(sequence, epoch)
 	return {
-		raidUid = "raid-live", authorityEpoch = epoch or 1, sequence = sequence,
+		raidUid = "raid-live",
+		authorityEpoch = epoch or 1,
+		sequence = sequence,
 		eventUid = "raid-live:" .. tostring(epoch or 1) .. ":" .. tostring(sequence),
-		eventType = "TEST", payload = { value = sequence },
+		eventType = "TEST",
+		payload = { value = sequence },
 		resultDigest = "0000000" .. tostring(sequence) .. ":1",
 	}
 end
@@ -14450,25 +19845,32 @@ local function installFaithfulLiveReplica(addon, options)
 	local callbacks = {}
 	fixture.callbacks = callbacks
 	addon.L = {
-		WarnRaidDatabaseAuthorityReleased =
-			"Raid database authority passed to %s. This client now holds a read-only replica.",
-		WarnRaidDatabaseAuthorityReceived =
-			"Raid database authority received from %s. Recovery is in progress; raid history writes are temporarily paused.",
+		WarnRaidDatabaseAuthorityReleased = "Raid database authority passed to %s. This client now holds a read-only replica.",
+		WarnRaidDatabaseAuthorityReceived = "Raid database authority received from %s. Recovery is in progress; raid history writes are temporarily paused.",
 	}
 	addon.Diagnose = { D = { LogRaidSyncTrace = "%s %s" } }
 	addon.Diag = addon.Diagnose
 	addon.warn = function() end
 	addon.debug = function() end
-	addon.IsInGroup = function() return true end
-	addon.IsInRaid = function() return true end
+	addon.IsInGroup = function()
+		return true
+	end
+	addon.IsInRaid = function()
+		return true
+	end
 	addon.Options = {
 		RegisterNamespace = function() end,
-		IsDebugEnabled = function() return false end,
+		IsDebugEnabled = function()
+			return false
+		end,
 	}
 	addon.Events = {
 		Internal = {
-			OptionsLoaded = "OptionsLoaded", RaidCreate = "RaidCreate", RaidRosterDelta = "RaidRosterDelta",
-			RaidReplicationCommitted = "RaidReplicationCommitted", LoggerSelectRaid = "LoggerSelectRaid",
+			OptionsLoaded = "OptionsLoaded",
+			RaidCreate = "RaidCreate",
+			RaidRosterDelta = "RaidRosterDelta",
+			RaidReplicationCommitted = "RaidReplicationCommitted",
+			LoggerSelectRaid = "LoggerSelectRaid",
 			LoggerRaidOfferReceived = "LoggerRaidOfferReceived",
 			RaidAuthorityRecoveryFinished = "RaidAuthorityRecoveryFinished",
 			RaidInstanceRecognized = "RaidInstanceRecognized",
@@ -14484,36 +19886,49 @@ local function installFaithfulLiveReplica(addon, options)
 	}
 	fixture.store = realStore or newLiveReplicationStore(callbacks, makeLiveRecord(1))
 	addon.DB.RaidStore = fixture.store
-	addon.Services = { Raid = {
-		GetRaidLeaderName = function() return fixture.raidLeader end,
-		IsRaidLeader = function() return fixture.localRaidLeader end,
-		IsGroupMember = function(_, sender)
-			return string.match(tostring(sender or ""), "^([^%-]+)") == "Leader"
-				or string.match(tostring(sender or ""), "^([^%-]+)") == "Member"
-		end,
-	} }
-	addon.Comms.RegisterPrefixIfAvailable = function() return true end
+	addon.Services = {
+		Raid = {
+			GetRaidLeaderName = function()
+				return fixture.raidLeader
+			end,
+			IsRaidLeader = function()
+				return fixture.localRaidLeader
+			end,
+			IsGroupMember = function(_, sender)
+				return string.match(tostring(sender or ""), "^([^%-]+)") == "Leader"
+					or string.match(tostring(sender or ""), "^([^%-]+)") == "Member"
+			end,
+		},
+	}
+	addon.Comms.RegisterPrefixIfAvailable = function()
+		return true
+	end
 	addon.Comms.SendAddonBatch = function(prefix, messages, target)
-		if target then return addon.Comms.QueueAddonMessages(prefix, messages, "WHISPER", target) end
+		if target then
+			return addon.Comms.QueueAddonMessages(prefix, messages, "WHISPER", target)
+		end
 		return addon.Comms.QueueAddonMessages(prefix, messages, "RAID")
 	end
-	_G.UnitName = function(unit) if unit == "player" then return "Member" end end
+	_G.UnitName = function(unit)
+		if unit == "player" then
+			return "Member"
+		end
+	end
 	loadAddonFile(addon, "Raid Management Addon/Database/DBSyncer.lua")
 	fixture.syncer = addon.DB.Syncer
 	return fixture
 end
 
 local function deliverFaithfulFinalSnapshot(fixture, requestEnvelope, finalSnapshot)
-	assert(fixture.session:QueueTransfer(
-		"SNAP_DATA", requestEnvelope.requestId, "Member",
-		{ raidUid = finalSnapshot.raidUid, authorityEpoch = finalSnapshot.authorityEpoch, sequence = finalSnapshot.sequence },
-		{ snapshot = finalSnapshot }
-	))
+	assert(fixture.session:QueueTransfer("SNAP_DATA", requestEnvelope.requestId, "Member", {
+		raidUid = finalSnapshot.raidUid,
+		authorityEpoch = finalSnapshot.authorityEpoch,
+		sequence = finalSnapshot.sequence,
+	}, { snapshot = finalSnapshot }))
 	local batch = fixture.batches[#fixture.batches]
 	for i = 1, #batch.messages do
-		local accepted, reason = fixture.syncer:OnAddonMessage(
-			"RMARaidSync", batch.messages[i], "WHISPER", "Leader-Test Realm"
-		)
+		local accepted, reason =
+			fixture.syncer:OnAddonMessage("RMARaidSync", batch.messages[i], "WHISPER", "Leader-Test Realm")
 		assertTrue(accepted ~= nil and accepted ~= false, "faithful final chunk rejected: " .. tostring(reason))
 	end
 end
@@ -14532,7 +19947,9 @@ function cases.raid_handover_real_recovery(addon)
 	local fixture = installFaithfulLiveReplica(addon, { realStore = true })
 	local store = fixture.store
 	local original = store:CaptureRaidHistoryState()
-	assert(store:SetAuthorityGuard(function() return true end))
+	assert(store:SetAuthorityGuard(function()
+		return true
+	end))
 	local active = assert(store:GetActiveRecord())
 	local raidUid = assert(store:GetRaidUid(active.state))
 	assert(store:CommitAuthoritativeEvent(raidUid, "RAID_METADATA_UPDATED", {
@@ -14540,17 +19957,24 @@ function cases.raid_handover_real_recovery(addon)
 	}))
 	local sourceSnapshot = assert(store:BuildSnapshot(raidUid))
 	assert(store:RestoreRaidHistoryState(original))
-	assert(store:SetAuthorityGuard(function() return fixture.localRaidLeader end))
+	assert(store:SetAuthorityGuard(function()
+		return fixture.localRaidLeader
+	end))
 
 	fixture.raidLeader = "Member"
 	fixture.localRaidLeader = true
 	local rosterCallbacks = assert(fixture.callbacks.RaidRosterDelta, "real roster callback missing")
-	for i = 1, #rosterCallbacks do rosterCallbacks[i]("RaidRosterDelta") end
+	for i = 1, #rosterCallbacks do
+		rosterCallbacks[i]("RaidRosterDelta")
+	end
 	assertTrue(fixture.syncer._handover ~= nil, "real handover transition was not detected")
 	local head = {
-		raidUid = sourceSnapshot.raidUid, authorityEpoch = sourceSnapshot.authorityEpoch,
-		sequence = sourceSnapshot.sequence, checkpointSequence = sourceSnapshot.sequence,
-		digest = sourceSnapshot.digest, status = "active",
+		raidUid = sourceSnapshot.raidUid,
+		authorityEpoch = sourceSnapshot.authorityEpoch,
+		sequence = sourceSnapshot.sequence,
+		checkpointSequence = sourceSnapshot.sequence,
+		digest = sourceSnapshot.digest,
+		status = "active",
 	}
 	local headWire = assert(fixture.protocol.Encode("HEAD", "-", "-", head))
 	assert(fixture.syncer:OnAddonMessage("RMARaidSync", headWire, "RAID", "Leader-Test Realm"))
@@ -14570,14 +19994,24 @@ function cases.raid_handover_store_promotion_is_recovery_only(addon)
 	local store = installRaidArchiveFixture(addon)
 	local recovering = false
 	assert(store:SetAuthorityGuard(function(operation)
-		if operation == "promote" then return true end
-		if recovering then return false, "AUTHORITY_RECOVERING" end
+		if operation == "promote" then
+			return true
+		end
+		if recovering then
+			return false, "AUTHORITY_RECOVERING"
+		end
 		return true
 	end))
 	local _, _, raidUid = assert(store:CreateActiveRaid({
-		authorityKey = "Leader-Realm", serverTime = 1721120000,
-		zone = "Naxxramas", size = 25, difficulty = 1,
-		players = {}, bossKills = {}, attendance = {}, loot = {},
+		authorityKey = "Leader-Realm",
+		serverTime = 1721120000,
+		zone = "Naxxramas",
+		size = 25,
+		difficulty = 1,
+		players = {},
+		bossKills = {},
+		attendance = {},
+		loot = {},
 	}))
 	local before = deepCopy(assert(store:GetRecord(raidUid)))
 	recovering = true
@@ -14624,7 +20058,9 @@ function cases.raid_handover_repeated_authority_change(addon)
 			end
 		end
 		local distinctRaidUidCount = 0
-		for _ in pairs(distinctRaidUids) do distinctRaidUidCount = distinctRaidUidCount + 1 end
+		for _ in pairs(distinctRaidUids) do
+			distinctRaidUidCount = distinctRaidUidCount + 1
+		end
 		return recordCount, distinctRaidUidCount
 	end
 	local originalArchiveRecordCount, originalDistinctRaidUidCount = countArchiveRecords(store:EnsureArchive())
@@ -14638,22 +20074,32 @@ function cases.raid_handover_repeated_authority_change(addon)
 	fixture.raidLeader = "Member"
 	fixture.localRaidLeader = true
 	local callbacks = assert(fixture.callbacks.PartyLootMethodChanged, "loot-method callback missing")
-	for i = 1, #callbacks do callbacks[i]("PartyLootMethodChanged") end
+	for i = 1, #callbacks do
+		callbacks[i]("PartyLootMethodChanged")
+	end
 	local head = {
-		raidUid = raidUid, authorityEpoch = source.authorityEpoch, sequence = source.sequence,
-		checkpointSequence = source.checkpointSequence, digest = source.digest, status = "active",
+		raidUid = raidUid,
+		authorityEpoch = source.authorityEpoch,
+		sequence = source.sequence,
+		checkpointSequence = source.checkpointSequence,
+		digest = source.digest,
+		status = "active",
 	}
 	local headWire = assert(fixture.protocol.Encode("HEAD", "-", "-", head))
 	assert(fixture.syncer:OnAddonMessage("RMARaidSync", headWire, "RAID", "Leader-Test Realm"))
 	local oldSelection = assert(fixture.timers[1], "first handover timer missing")
 	oldSelection.callback()
 	local oldRequestId
-	for requestId in pairs(fixture.session._pendingRequests) do oldRequestId = requestId end
+	for requestId in pairs(fixture.session._pendingRequests) do
+		oldRequestId = requestId
+	end
 	assertTrue(oldRequestId ~= nil, "first handover did not start recovery")
 
 	fixture.raidLeader = "Leader"
 	fixture.localRaidLeader = false
-	for i = 1, #callbacks do callbacks[i]("PartyLootMethodChanged") end
+	for i = 1, #callbacks do
+		callbacks[i]("PartyLootMethodChanged")
+	end
 	assertEqual(nil, fixture.syncer._handover, "lost authority retained handover")
 	assertEqual(nil, fixture.session._pendingRequests[oldRequestId], "lost authority retained pending recovery")
 	oldSelection.callback()
@@ -14661,10 +20107,8 @@ function cases.raid_handover_repeated_authority_change(addon)
 	local finalArchive = store:EnsureArchive()
 	local finalArchiveRecordCount, finalDistinctRaidUidCount = countArchiveRecords(finalArchive)
 	assertEqual(raidUid, finalArchive.activeRaidUid, "real handover changed the active raid UID")
-	assertEqual(originalArchiveRecordCount, finalArchiveRecordCount,
-		"real handover created a second archive record")
-	assertEqual(originalDistinctRaidUidCount, finalDistinctRaidUidCount,
-		"real handover created a second raid UID")
+	assertEqual(originalArchiveRecordCount, finalArchiveRecordCount, "real handover created a second archive record")
+	assertEqual(originalDistinctRaidUidCount, finalDistinctRaidUidCount, "real handover created a second raid UID")
 
 	local network = newLiveReplicationNetwork()
 	local leader = installLiveReplicationClient(network, "Leader", makeLiveRecord(1))
@@ -14672,12 +20116,20 @@ function cases.raid_handover_repeated_authority_change(addon)
 	local originalUid = member.store.record.raidUid
 	local originalState = deepCopy(member.store.record.state)
 	network.raidLeader = "Member"
-	for i = 1, #(member.callbacks.PartyLootMethodChanged or {}) do member.callbacks.PartyLootMethodChanged[i]() end
-	for i = 1, #(leader.callbacks.PartyLootMethodChanged or {}) do leader.callbacks.PartyLootMethodChanged[i]() end
+	for i = 1, #(member.callbacks.PartyLootMethodChanged or {}) do
+		member.callbacks.PartyLootMethodChanged[i]()
+	end
+	for i = 1, #(leader.callbacks.PartyLootMethodChanged or {}) do
+		leader.callbacks.PartyLootMethodChanged[i]()
+	end
 	local staleCallback = assert(member.timers[1], "B handover timer missing").callback
 	network.raidLeader = "Leader"
-	for i = 1, #(member.callbacks.PartyLootMethodChanged or {}) do member.callbacks.PartyLootMethodChanged[i]() end
-	for i = 1, #(leader.callbacks.PartyLootMethodChanged or {}) do leader.callbacks.PartyLootMethodChanged[i]() end
+	for i = 1, #(member.callbacks.PartyLootMethodChanged or {}) do
+		member.callbacks.PartyLootMethodChanged[i]()
+	end
+	for i = 1, #(leader.callbacks.PartyLootMethodChanged or {}) do
+		leader.callbacks.PartyLootMethodChanged[i]()
+	end
 	staleCallback()
 	assertEqual(1, member.store.record.authorityEpoch, "stale B handover promoted after A regained authority")
 	assertEqual(1, #member.recoveryFinished, "stale B handover failure event count differs")
@@ -14745,7 +20197,9 @@ end
 
 local function fireLiveReplicationCallback(client, eventName)
 	local callbacks = client.callbacks[eventName] or {}
-	for i = 1, #callbacks do callbacks[i](eventName) end
+	for i = 1, #callbacks do
+		callbacks[i](eventName)
+	end
 end
 
 function cases.raid_fresh_leader_entry_creates_without_recovery()
@@ -14788,8 +20242,11 @@ function cases.raid_initial_authority_discovery_is_not_handover()
 	assertEqual("leader", leader.syncer._knownAuthority, "initial authority was not recorded")
 	assertEqual(nil, leader.syncer._reentry, "initial authority discovery started reentry")
 	assertEqual(nil, leader.syncer._handover, "initial authority discovery was classified as handover")
-	assertEqual(false, leader.syncer:IsAuthorityRecovering("raid-live"),
-		"initial authority discovery closed the write barrier")
+	assertEqual(
+		false,
+		leader.syncer:IsAuthorityRecovering("raid-live"),
+		"initial authority discovery closed the write barrier"
+	)
 	print("PASS raid_initial_authority_discovery_is_not_handover")
 end
 
@@ -14884,8 +20341,12 @@ function cases.raid_handover_begin_request_failures_close_recovery_once()
 		beginRequestFailures = { SNAP_REQ = "INJECTED_REPLICA_BEGIN_FAILURE" },
 	})
 	local head = {
-		raidUid = "raid-live", authorityEpoch = 1, sequence = 3,
-		checkpointSequence = 3, digest = "00000003:1", status = "active",
+		raidUid = "raid-live",
+		authorityEpoch = 1,
+		sequence = 3,
+		checkpointSequence = 3,
+		digest = "00000003:1",
+		status = "active",
 	}
 	local requested, requestReason = replica.syncer:RequestSnapshot("Leader", head)
 	assertEqual(false, requested, "non-handover BeginRequest failure was accepted")
@@ -14921,7 +20382,11 @@ function cases.raid_handover_previous_authority()
 	fireLiveReplicationCallback(fallbackMember, "RaidRosterDelta")
 	fireLiveReplicationCallback(highest, "RaidRosterDelta")
 	assertTrue(fallbackMember:FireHandoverTimer(), "fallback handover selection was not scheduled")
-	assertEqual(4, fallbackMember.store.record.sequence, "highest valid peer was not selected without previous authority")
+	assertEqual(
+		4,
+		fallbackMember.store.record.sequence,
+		"highest valid peer was not selected without previous authority"
+	)
 	assertEqual(2, fallbackMember.store.record.authorityEpoch, "fallback recovery did not promote")
 	print("PASS raid_handover_previous_authority")
 end
@@ -14954,7 +20419,9 @@ function cases.raid_handover_digest_conflict_keeps_write_barrier(addon)
 	fixture.raidLeader = "Member"
 	fixture.localRaidLeader = true
 	local rosterCallbacks = assert(fixture.callbacks.RaidRosterDelta, "real roster callback missing")
-	for i = 1, #rosterCallbacks do rosterCallbacks[i]("RaidRosterDelta") end
+	for i = 1, #rosterCallbacks do
+		rosterCallbacks[i]("RaidRosterDelta")
+	end
 	assertTrue(fixture.syncer._handover ~= nil, "real digest conflict did not start handover")
 
 	local conflictingHead = {
@@ -14992,10 +20459,15 @@ function cases.raid_handover_digest_conflict_keeps_write_barrier(addon)
 
 	fixture.raidLeader = "Leader"
 	fixture.localRaidLeader = false
-	for i = 1, #rosterCallbacks do rosterCallbacks[i]("RaidRosterDelta") end
+	for i = 1, #rosterCallbacks do
+		rosterCallbacks[i]("RaidRosterDelta")
+	end
 	assertEqual(nil, fixture.syncer._handover, "authority change retained the obsolete conflicted transition")
-	assertEqual(false, fixture.syncer:IsAuthorityRecovering(raidUid),
-		"authority change retained the obsolete conflict barrier")
+	assertEqual(
+		false,
+		fixture.syncer:IsAuthorityRecovering(raidUid),
+		"authority change retained the obsolete conflict barrier"
+	)
 	print("PASS raid_handover_digest_conflict_keeps_write_barrier")
 end
 
@@ -15017,19 +20489,34 @@ function cases.raid_handover_without_local_head_discovers_before_create(addon)
 
 	local recoveryNetwork = newLiveReplicationNetwork()
 	recoveryNetwork.raidLeader = "Member"
-	local promoted = installLiveReplicationClient(recoveryNetwork, "Member", nil,
-		{ realStore = true, productionCapabilities = true })
+	local promoted = installLiveReplicationClient(
+		recoveryNetwork,
+		"Member",
+		nil,
+		{ realStore = true, productionCapabilities = true }
+	)
 	promoted.syncer._knownAuthority = "replicab"
 	promoted:RestoreProductionUnitApi()
-	assertEqual("Member", promoted.addon.Services.Raid:GetRaidLeaderName(),
-		"production headless recovery leader identity differs")
-	assertEqual(true, promoted.addon.Services.Raid:IsRaidLeader(),
-		"production headless recovery leader capability differs")
-	assertEqual(true, promoted.addon.Services.Raid:IsGroupMember("ReplicaB-Test Realm"),
-		"production headless recovery does not recognize the previous authority")
+	assertEqual(
+		"Member",
+		promoted.addon.Services.Raid:GetRaidLeaderName(),
+		"production headless recovery leader identity differs"
+	)
+	assertEqual(
+		true,
+		promoted.addon.Services.Raid:IsRaidLeader(),
+		"production headless recovery leader capability differs"
+	)
+	assertEqual(
+		true,
+		promoted.addon.Services.Raid:IsGroupMember("ReplicaB-Test Realm"),
+		"production headless recovery does not recognize the previous authority"
+	)
 	local recoveredCreatedEvents = 0
 	promoted.addon.Bus.RegisterCallback(promoted.addon.Events.Internal.RaidReplicationCommitted, function(_, event)
-		if event and event.eventType == "RAID_CREATED" then recoveredCreatedEvents = recoveredCreatedEvents + 1 end
+		if event and event.eventType == "RAID_CREATED" then
+			recoveredCreatedEvents = recoveredCreatedEvents + 1
+		end
 	end)
 
 	promoted.addon:ZONE_CHANGED_NEW_AREA()
@@ -15040,12 +20527,32 @@ function cases.raid_handover_without_local_head_discovers_before_create(addon)
 	local checked, checkReason = promoted.addon.Services.Raid:Check("Naxxramas", 1)
 	assertEqual(false, checked, "production Session check bypassed headless discovery")
 	assertEqual("AUTHORITY_RECOVERING", checkReason, "headless Session rejection reason differs")
-	assertEqual("AUTHORITY_RECOVERING", select(2, promoted.store:CreateActiveRaid({
-		authorityKey = "Member-Test Realm", serverTime = 101, zone = "Naxxramas", size = 10, difficulty = 1,
-	})), "headless direct create bypassed the real authority guard")
-	assertEqual("AUTHORITY_RECOVERING", select(2, promoted.store:CommitAuthoritativeEvent(
-		sourceRaidUid, "RAID_METADATA_UPDATED", { metadata = { zone = "Icecrown Citadel" } }
-	)), "headless authoritative event bypassed the real authority guard")
+	assertEqual(
+		"AUTHORITY_RECOVERING",
+		select(
+			2,
+			promoted.store:CreateActiveRaid({
+				authorityKey = "Member-Test Realm",
+				serverTime = 101,
+				zone = "Naxxramas",
+				size = 10,
+				difficulty = 1,
+			})
+		),
+		"headless direct create bypassed the real authority guard"
+	)
+	assertEqual(
+		"AUTHORITY_RECOVERING",
+		select(
+			2,
+			promoted.store:CommitAuthoritativeEvent(
+				sourceRaidUid,
+				"RAID_METADATA_UPDATED",
+				{ metadata = { zone = "Icecrown Citadel" } }
+			)
+		),
+		"headless authoritative event bypassed the real authority guard"
+	)
 
 	local source = installLiveReplicationClient(recoveryNetwork, "ReplicaB", sourceSnapshot)
 	promoted:RestoreProductionUnitApi()
@@ -15063,40 +20570,61 @@ function cases.raid_handover_without_local_head_discovers_before_create(addon)
 	assertTrue(acceptedHead == true, "valid headless recovery HEAD was rejected: " .. tostring(headReason))
 	assertTrue(promoted:FireHandoverTimer(), "headless handover selection timer was not fired")
 	local recovered = assert(promoted.store:GetActiveRecord(), "valid remote snapshot was not installed")
-	assertEqual(sourceSnapshot.raidUid, promoted.store:GetRaidUid(recovered.state),
-		"headless recovery installed a competing raid UID")
-	assertEqual(sourceSnapshot.authorityEpoch + 1, recovered.authorityEpoch,
-		"headless recovery did not promote the recovered authority epoch")
+	assertEqual(
+		sourceSnapshot.raidUid,
+		promoted.store:GetRaidUid(recovered.state),
+		"headless recovery installed a competing raid UID"
+	)
+	assertEqual(
+		sourceSnapshot.authorityEpoch + 1,
+		recovered.authorityEpoch,
+		"headless recovery did not promote the recovered authority epoch"
+	)
 	assertEqual(0, recoveredCreatedEvents, "headless recovery emitted a competing RAID_CREATED event")
 	local recoveredIndex = assert(promoted.store:GetIndexByUid(sourceRaidUid), "recovered raid index is missing")
-	assertEqual(recoveredIndex, promoted.addon.Database.GetCurrentRaid(),
-		"headless recovery did not select the recovered raid")
-	assertEqual(false, promoted.syncer:IsAuthorityRecovering(sourceRaidUid),
-		"headless recovery retained the write barrier after selection")
+	assertEqual(
+		recoveredIndex,
+		promoted.addon.Database.GetCurrentRaid(),
+		"headless recovery did not select the recovered raid"
+	)
+	assertEqual(
+		false,
+		promoted.syncer:IsAuthorityRecovering(sourceRaidUid),
+		"headless recovery retained the write barrier after selection"
+	)
 	local beforeRecoveredWrite = recovered.sequence
 	local terminalEvent, terminalReason = promoted.store:CommitAuthoritativeEvent(
-		sourceRaidUid, "RAID_METADATA_UPDATED", { metadata = { zone = "Icecrown Citadel" } }
+		sourceRaidUid,
+		"RAID_METADATA_UPDATED",
+		{ metadata = { zone = "Icecrown Citadel" } }
 	)
-	assertTrue(terminalEvent ~= nil, "headless recovery did not enable authoritative writes: " .. tostring(terminalReason))
+	assertTrue(
+		terminalEvent ~= nil,
+		"headless recovery did not enable authoritative writes: " .. tostring(terminalReason)
+	)
 	local terminalRecord = assert(promoted.store:GetRecord(sourceRaidUid), "terminal recovered raid is missing")
 	assertEqual(beforeRecoveredWrite + 1, terminalRecord.sequence, "terminal authoritative write sequence differs")
-	assertEqual("Icecrown Citadel", terminalRecord.state.zone, "terminal authoritative write did not mutate recovered state")
+	assertEqual(
+		"Icecrown Citadel",
+		terminalRecord.state.zone,
+		"terminal authoritative write did not mutate recovered state"
+	)
 	assertEqual(1, #RMA_Raids.order, "headless terminal recovery stored more than one raid UID")
 	assertTrue(source.store:GetActiveRecord() ~= nil, "remote recovery source was overwritten")
 
 	local freshNetwork = newLiveReplicationNetwork()
 	freshNetwork.raidLeader = "Solo"
-	local fresh = installLiveReplicationClient(freshNetwork, "Solo", nil,
-		{ realStore = true, productionCapabilities = true })
+	local fresh =
+		installLiveReplicationClient(freshNetwork, "Solo", nil, { realStore = true, productionCapabilities = true })
 	fresh.syncer._knownAuthority = "replicab"
 	fresh:RestoreProductionUnitApi()
-	assertEqual("Solo", fresh.addon.Services.Raid:GetRaidLeaderName(),
-		"production no-copy leader identity differs")
-	assertEqual(true, fresh.addon.Services.Raid:IsRaidLeader(),
-		"production no-copy leader capability differs")
+	assertEqual("Solo", fresh.addon.Services.Raid:GetRaidLeaderName(), "production no-copy leader identity differs")
+	assertEqual(true, fresh.addon.Services.Raid:IsRaidLeader(), "production no-copy leader capability differs")
 	local freshCreatedEvents = 0
 	fresh.addon.Bus.RegisterCallback(fresh.addon.Events.Internal.RaidReplicationCommitted, function(_, event)
-		if event and event.eventType == "RAID_CREATED" then freshCreatedEvents = freshCreatedEvents + 1 end
+		if event and event.eventType == "RAID_CREATED" then
+			freshCreatedEvents = freshCreatedEvents + 1
+		end
 	end)
 	fresh.addon:ZONE_CHANGED_NEW_AREA()
 	assertTrue(fresh.syncer:IsAuthorityRecovering(), "no-copy discovery did not close the write barrier")
@@ -15107,8 +20635,11 @@ function cases.raid_handover_without_local_head_discovers_before_create(addon)
 	fresh.addon.Services.Raid:Check("Naxxramas", 1)
 	local created = assert(fresh.store:GetActiveRecord(), "bounded no-copy outcome did not allow fresh creation")
 	local createdUid = assert(fresh.store:GetRaidUid(created.state))
-	assertEqual(fresh.addon.Database.GetCurrentRaid(), fresh.store:GetIndexByUid(createdUid),
-		"fresh lifecycle did not select the created raid")
+	assertEqual(
+		fresh.addon.Database.GetCurrentRaid(),
+		fresh.store:GetIndexByUid(createdUid),
+		"fresh lifecycle did not select the created raid"
+	)
 	fresh.addon.Services.Raid:Check("Naxxramas", 1)
 	assertEqual(1, freshCreatedEvents, "bounded no-copy outcome created more than one raid")
 	assertEqual(1, #RMA_Raids.order, "bounded no-copy outcome stored more than one raid")
@@ -15121,7 +20652,9 @@ function cases.raid_live_sync_oversized_event_head_fallback()
 	local member = installLiveReplicationClient(network, "Member", makeLiveRecord(0), { realProtocol = true })
 	local raidEvents = leader.addon.DB.RaidEvents
 	local event = {
-		raidUid = "raid-live", authorityEpoch = 1, sequence = 1,
+		raidUid = "raid-live",
+		authorityEpoch = 1,
+		sequence = 1,
 		eventUid = assert(raidEvents.BuildEventUid("raid-live", 1, 1)),
 		eventType = "PLAYER_UPDATED",
 		payload = { player = { playerNid = 1, name = string.rep("A", 300) } },
@@ -15183,24 +20716,30 @@ function cases.raid_live_sync_snapshot_coalesces_newer_event_burst()
 	assertEqual(1, countKind(member.requests, "SNAP_REQ"), "bootstrap did not start one snapshot")
 
 	for sequence = 3, 8 do
-		assertTrue(leader.store:Commit(makeLiveEvent(sequence)),
-			"leader could not commit burst event " .. tostring(sequence))
+		assertTrue(
+			leader.store:Commit(makeLiveEvent(sequence)),
+			"leader could not commit burst event " .. tostring(sequence)
+		)
 	end
-	assertEqual(1, countKind(member.requests, "SNAP_REQ"),
-		"newer events replaced the in-flight snapshot")
-	assertEqual(0, #member.cancelledRequests,
-		"newer events cancelled the compatible in-flight snapshot")
+	assertEqual(1, countKind(member.requests, "SNAP_REQ"), "newer events replaced the in-flight snapshot")
+	assertEqual(0, #member.cancelledRequests, "newer events cancelled the compatible in-flight snapshot")
 
 	network.holdTransfers = false
-	assertTrue(network:deliver(
-		heldSnapshot.sender, heldSnapshot.prefix, heldSnapshot.wire, "WHISPER", heldSnapshot.target
-	), "held snapshot was not accepted")
-	assertEqual(1, countKind(member.requests, "RANGE_REQ"),
-		"snapshot completion did not request one catch-up range")
-	assertEqual(leader.store.record.sequence, member.store.record.sequence,
-		"member sequence did not converge after the burst")
-	assertEqual(leader.store.record.digest, member.store.record.digest,
-		"member digest did not converge after the burst")
+	assertTrue(
+		network:deliver(heldSnapshot.sender, heldSnapshot.prefix, heldSnapshot.wire, "WHISPER", heldSnapshot.target),
+		"held snapshot was not accepted"
+	)
+	assertEqual(1, countKind(member.requests, "RANGE_REQ"), "snapshot completion did not request one catch-up range")
+	assertEqual(
+		leader.store.record.sequence,
+		member.store.record.sequence,
+		"member sequence did not converge after the burst"
+	)
+	assertEqual(
+		leader.store.record.digest,
+		member.store.record.digest,
+		"member digest did not converge after the burst"
+	)
 	local status, reason = member.syncer:GetStatus()
 	assertEqual("synchronized", status, "member did not finish synchronized")
 	assertEqual("UP_TO_DATE", reason, "member retained a recovery failure")
@@ -15218,24 +20757,30 @@ function cases.raid_live_sync_snapshot_coalesces_newer_snapshot_burst()
 	assertEqual(1, countKind(member.requests, "SNAP_REQ"), "bootstrap did not start one snapshot")
 
 	for sequence = 3, 8 do
-		assertTrue(leader.store:Commit(makeLiveEvent(sequence)),
-			"leader could not commit burst event " .. tostring(sequence))
+		assertTrue(
+			leader.store:Commit(makeLiveEvent(sequence)),
+			"leader could not commit burst event " .. tostring(sequence)
+		)
 	end
-	assertEqual(1, countKind(member.requests, "SNAP_REQ"),
-		"newer snapshots replaced the in-flight snapshot")
-	assertEqual(0, #member.cancelledRequests,
-		"newer snapshots cancelled the compatible in-flight snapshot")
+	assertEqual(1, countKind(member.requests, "SNAP_REQ"), "newer snapshots replaced the in-flight snapshot")
+	assertEqual(0, #member.cancelledRequests, "newer snapshots cancelled the compatible in-flight snapshot")
 
 	network.holdTransfers = false
-	assertTrue(network:deliver(
-		heldSnapshot.sender, heldSnapshot.prefix, heldSnapshot.wire, "WHISPER", heldSnapshot.target
-	), "held snapshot was not accepted")
-	assertEqual(1, countKind(member.requests, "RANGE_REQ"),
-		"snapshot completion did not request one catch-up range")
-	assertEqual(leader.store.record.sequence, member.store.record.sequence,
-		"member sequence did not converge after the burst")
-	assertEqual(leader.store.record.digest, member.store.record.digest,
-		"member digest did not converge after the burst")
+	assertTrue(
+		network:deliver(heldSnapshot.sender, heldSnapshot.prefix, heldSnapshot.wire, "WHISPER", heldSnapshot.target),
+		"held snapshot was not accepted"
+	)
+	assertEqual(1, countKind(member.requests, "RANGE_REQ"), "snapshot completion did not request one catch-up range")
+	assertEqual(
+		leader.store.record.sequence,
+		member.store.record.sequence,
+		"member sequence did not converge after the burst"
+	)
+	assertEqual(
+		leader.store.record.digest,
+		member.store.record.digest,
+		"member digest did not converge after the burst"
+	)
 	local status, reason = member.syncer:GetStatus()
 	assertEqual("synchronized", status, "member did not finish synchronized")
 	assertEqual("UP_TO_DATE", reason, "member retained a recovery failure")
@@ -15259,9 +20804,7 @@ function cases.raid_live_sync_snapshot_follow_up_digest_conflict()
 	local conflicting = makeLiveEvent(3)
 	conflicting.resultDigest = "ffffffff:1"
 	local wire = network:encode("EVENT", "-", "-", { event = conflicting })
-	local accepted, conflictReason = member.syncer:OnAddonMessage(
-		"RMARaidSync", wire, "RAID", "Leader-Test Realm"
-	)
+	local accepted, conflictReason = member.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
 	assertEqual(false, accepted, "conflicting retained position was accepted")
 	assertEqual("DIGEST_CONFLICT", conflictReason, "conflicting retained position reason differs")
 	assertEqual(1, #member.cancelledRequests, "digest conflict did not cancel the held snapshot")
@@ -15343,12 +20886,21 @@ function cases.raid_leader_reentry_repairs_corrupt_equal_position()
 	installLiveReplicationClient(network, "ReplicaB", remoteRecord)
 	leader.callbacks.RaidInstanceRecognized[1](nil, "Naxxramas", "naxxramas", 1)
 	assert(leader:FireHandoverTimer())
-	assertEqual(1, countKind(leader.requests, "SNAP_REQ"),
-		"corrupt equal-position local state skipped replica snapshot repair")
-	assertEqual(1, #(leader.store.record.state.loot or {}),
+	assertEqual(
+		1,
+		countKind(leader.requests, "SNAP_REQ"),
+		"corrupt equal-position local state skipped replica snapshot repair"
+	)
+	assertEqual(
+		1,
+		#(leader.store.record.state.loot or {}),
 		"replica snapshot did not restore the missing Loot History row status="
-			.. tostring(leader.syncer:GetStatus()) .. " target=" .. tostring(leader.lastBeginRequestTarget)
-			.. " computed=" .. tostring(leader.store.record.state.computedDigest))
+			.. tostring(leader.syncer:GetStatus())
+			.. " target="
+			.. tostring(leader.lastBeginRequestTarget)
+			.. " computed="
+			.. tostring(leader.store.record.state.computedDigest)
+	)
 	print("PASS raid_leader_reentry_repairs_corrupt_equal_position")
 end
 
@@ -15498,8 +21050,10 @@ local function installReentryDecisionBridge(client)
 			client.store.record.events[1].raidUid = client.store.record.raidUid
 			client.store.record.events[1].eventUid = client.store.record.raidUid .. ":1:1"
 			client.store.record.events[1].eventType = "RAID_CREATED"
-			client.addon.Bus.TriggerEvent(client.addon.Events.Internal.RaidReplicationCommitted,
-				deepCopy(client.store.record.events[1]))
+			client.addon.Bus.TriggerEvent(
+				client.addon.Events.Internal.RaidReplicationCommitted,
+				deepCopy(client.store.record.events[1])
+			)
 			client.currentRaidUid = client.store.record.raidUid
 			return true, client.currentRaidUid
 		end
@@ -15510,8 +21064,10 @@ local function installReentryDecisionBridge(client)
 			client.store.record.events[1].raidUid = client.store.record.raidUid
 			client.store.record.events[1].eventUid = client.store.record.raidUid .. ":1:1"
 			client.store.record.events[1].eventType = "RAID_CREATED"
-			client.addon.Bus.TriggerEvent(client.addon.Events.Internal.RaidReplicationCommitted,
-				deepCopy(client.store.record.events[1]))
+			client.addon.Bus.TriggerEvent(
+				client.addon.Events.Internal.RaidReplicationCommitted,
+				deepCopy(client.store.record.events[1])
+			)
 			client.currentRaidUid = client.store.record.raidUid
 			return true, client.currentRaidUid
 		end
@@ -15519,22 +21075,33 @@ local function installReentryDecisionBridge(client)
 	end
 	client.addon.Bus.RegisterCallback(client.addon.Events.Internal.RaidReentryRecoveryReady, function(_, summary)
 		local raid, context = summary.raid, summary.context
-		if raid and raid.zone == context.zone and tonumber(raid.size) == tonumber(context.size)
+		if
+			raid
+			and raid.zone == context.zone
+			and tonumber(raid.size) == tonumber(context.size)
 			and tonumber(raid.difficulty) == tonumber(context.difficulty)
 		then
 			client.decisionRequests[#client.decisionRequests + 1] = deepCopy(summary)
 			client.addon.Bus.TriggerEvent(client.addon.Events.Internal.RaidReentryDecisionRequired, summary)
 		else
-			client.addon.Bus.TriggerEvent(client.addon.Events.Internal.RaidReentryDecisionResolved,
-				summary.raidUid, raid and "replace" or "new", context)
+			client.addon.Bus.TriggerEvent(
+				client.addon.Events.Internal.RaidReentryDecisionResolved,
+				summary.raidUid,
+				raid and "replace" or "new",
+				context
+			)
 		end
 	end)
 end
 
 local function resolveReentry(client, decision)
 	local summary = assert(client.decisionRequests[#client.decisionRequests], "re-entry decision missing")
-	client.addon.Bus.TriggerEvent(client.addon.Events.Internal.RaidReentryDecisionResolved,
-		summary.raidUid, decision, summary.context)
+	client.addon.Bus.TriggerEvent(
+		client.addon.Events.Internal.RaidReentryDecisionResolved,
+		summary.raidUid,
+		decision,
+		summary.context
+	)
 end
 
 installProductionReentryRuntime = function(client)
@@ -15557,24 +21124,42 @@ installProductionReentryRuntime = function(client)
 	addon.Diag.D.LogRaidCheck = "%s %s %s"
 	addon.Diag.D.LogRaidSessionCreate = "%s %s %s"
 	addon.Diag.D.LogRaidSessionChange = "%s %s %s"
-	addon.Strings.TrimText = function(value) return value end
+	addon.Strings.TrimText = function(value)
+		return value
+	end
 	addon.Strings.NormalizeName = function(value)
-		if type(value) ~= "string" then return value end
+		if type(value) ~= "string" then
+			return value
+		end
 		return string.lower(string.match(value, "^([^%-]+)") or value)
 	end
-	addon.Time = { GetCurrentTime = function() return 100 end }
-	addon.Base64 = { Encode = function(value) return tostring(value) end }
+	addon.Time = {
+		GetCurrentTime = function()
+			return 100
+		end,
+	}
+	addon.Base64 = {
+		Encode = function(value)
+			return tostring(value)
+		end,
+	}
 	addon.LootSources = {}
 	addon.LootSourceCandidates = {}
-	addon.Options.IsDebugEnabled = function() return false end
+	addon.Options.IsDebugEnabled = function()
+		return false
+	end
 	addon.Services.EnsureNamespace = function(name)
 		addon.Services[name] = addon.Services[name] or {}
 		return addon.Services[name]
 	end
 	addon.Services.Loot = {
 		_State = {
-			SetField = function(_, _, value) return value end,
-			SetActive = function(_, value) return value end,
+			SetField = function(_, _, value)
+				return value
+			end,
+			SetActive = function(_, value)
+				return value
+			end,
 			SyncActive = function() end,
 			Reset = function() end,
 		},
@@ -15582,49 +21167,96 @@ installProductionReentryRuntime = function(client)
 		_Snapshots = {},
 		_Context = {},
 	}
-	addon.GetGroupTypeAndCount = function() return "raid", 2 end
-	addon.GetNumGroupMembers = function() return 2 end
-	addon.GetCreatureId = function() return nil end
-	addon.tLength = function() return 0 end
-	_G.table.wipe = _G.table.wipe or function(target)
-		for key in pairs(target) do target[key] = nil end
-		return target
+	addon.GetGroupTypeAndCount = function()
+		return "raid", 2
 	end
-	_G.UnitExists = function() return true end
-	_G.UnitGUID = function() return nil end
-	_G.UnitIsDead = function() return false end
-	_G.UnitIsConnected = function() return true end
-	_G.UnitInRaid = function() return 1 end
+	addon.GetNumGroupMembers = function()
+		return 2
+	end
+	addon.GetCreatureId = function()
+		return nil
+	end
+	addon.tLength = function()
+		return 0
+	end
+	_G.table.wipe = _G.table.wipe
+		or function(target)
+			for key in pairs(target) do
+				target[key] = nil
+			end
+			return target
+		end
+	_G.UnitExists = function()
+		return true
+	end
+	_G.UnitGUID = function()
+		return nil
+	end
+	_G.UnitIsDead = function()
+		return false
+	end
+	_G.UnitIsConnected = function()
+		return true
+	end
+	_G.UnitInRaid = function()
+		return 1
+	end
 	_G.UnitIsGroupLeader = nil
 	_G.IsRaidLeader = function()
 		return client.productionLeaderRoleSettled
 	end
-	_G.UnitRace = function() return "Human", "Human" end
-	_G.UnitSex = function() return 2 end
+	_G.UnitRace = function()
+		return "Human", "Human"
+	end
+	_G.UnitSex = function()
+		return 2
+	end
 	local function getProductionUnitName(unit)
-		if unit == "player" or unit == "raid1" then return client.name end
-		if unit == "raid2" then return "ReplicaB" end
+		if unit == "player" or unit == "raid1" then
+			return client.name
+		end
+		if unit == "raid2" then
+			return "ReplicaB"
+		end
 		return nil
 	end
 	_G.UnitName = getProductionUnitName
 	client.RestoreProductionUnitApi = function()
 		_G.UnitName = getProductionUnitName
 	end
-	_G.UnitFullName = function() return client.name, "Test Realm" end
+	_G.UnitFullName = function()
+		return client.name, "Test Realm"
+	end
 	_G.GetInstanceInfo = getProductionInstanceInfo
-	_G.GetNumRaidMembers = function() return 2 end
-	_G.GetNumPartyMembers = function() return 0 end
+	_G.GetNumRaidMembers = function()
+		return 2
+	end
+	_G.GetNumPartyMembers = function()
+		return 0
+	end
 	_G.GetRaidRosterInfo = function(index)
 		if index == 1 then
-			return client.name, client.productionLeaderIdentitySettled and 2 or 0,
-				1, 80, "Warrior", "WARRIOR", nil, true
+			return client.name,
+				client.productionLeaderIdentitySettled and 2 or 0,
+				1,
+				80,
+				"Warrior",
+				"WARRIOR",
+				nil,
+				true
 		end
-		if index == 2 then return "ReplicaB", 0, 1, 80, "Mage", "MAGE", nil, true end
+		if index == 2 then
+			return "ReplicaB", 0, 1, 80, "Mage", "MAGE", nil, true
+		end
 		return nil
 	end
 	_G.SetRaidTarget = function() end
-	_G.GetLootMethod = function() return "group" end
-	_G.UnitIsUnit = function(left, right) return left == right end
+	_G.GetLootMethod = function()
+		return "group"
+	end
+	_G.UnitIsUnit = function(left, right)
+		return left == right
+	end
 	_G.UNKNOWNOBJECT = "Unknown"
 	_G.UNKNOWNBEING = "Unknown Being"
 	loadAddonFile(addon, "Raid Management Addon/Modules/Group.lua")
@@ -15635,26 +21267,53 @@ installProductionReentryRuntime = function(client)
 	local function newDatasetOwner()
 		local activeKey
 		return {
-			ResolveInstanceKey = function() return "naxxramas" end,
-			GetActiveInstanceKey = function() return activeKey end,
-			CaptureActivationState = function() return { activeKey = activeKey } end,
-			RestoreActivationState = function(snapshot) activeKey = snapshot and snapshot.activeKey return true end,
-			ActivateInstance = function(key) activeKey = key return true end,
-			DeactivateInstance = function() activeKey = nil return true end,
+			ResolveInstanceKey = function()
+				return "naxxramas"
+			end,
+			GetActiveInstanceKey = function()
+				return activeKey
+			end,
+			CaptureActivationState = function()
+				return { activeKey = activeKey }
+			end,
+			RestoreActivationState = function(snapshot)
+				activeKey = snapshot and snapshot.activeKey
+				return true
+			end,
+			ActivateInstance = function(key)
+				activeKey = key
+				return true
+			end,
+			DeactivateInstance = function()
+				activeKey = nil
+				return true
+			end,
 		}
 	end
 	addon.LootSourcesData = newDatasetOwner()
 	local ignoredDataset = newDatasetOwner()
-	for key, value in pairs(ignoredDataset) do addon.IgnoredMobs[key] = value end
+	for key, value in pairs(ignoredDataset) do
+		addon.IgnoredMobs[key] = value
+	end
 	installInitStubs(addon)
 	client:RestoreProductionUnitApi()
-	_G.GetNumRaidMembers = function() return 2 end
+	_G.GetNumRaidMembers = function()
+		return 2
+	end
 	_G.GetRaidRosterInfo = function(index)
 		if index == 1 then
-			return client.name, client.productionLeaderIdentitySettled and 2 or 0,
-				1, 80, "Warrior", "WARRIOR", nil, true
+			return client.name,
+				client.productionLeaderIdentitySettled and 2 or 0,
+				1,
+				80,
+				"Warrior",
+				"WARRIOR",
+				nil,
+				true
 		end
-		if index == 2 then return "ReplicaB", 0, 1, 80, "Mage", "MAGE", nil, true end
+		if index == 2 then
+			return "ReplicaB", 0, 1, 80, "Mage", "MAGE", nil, true
+		end
 		return nil
 	end
 	_G.GetInstanceInfo = getProductionInstanceInfo
@@ -15663,7 +21322,9 @@ installProductionReentryRuntime = function(client)
 		local index = 0
 		return function()
 			index = index + 1
-			if index <= 2 then return "raid" .. tostring(index) end
+			if index <= 2 then
+				return "raid" .. tostring(index)
+			end
 			return nil
 		end
 	end
@@ -15679,18 +21340,26 @@ local function installReentryEntryWiring(client)
 	client.popupDialogs = {}
 	local addon = client.addon
 	addon.L.PopupRaidReentryConfirm = "Resume the previous raid?\nZone: %s\nSize: %d\nDifficulty: %s"
-	addon.Services.Raid.Projections = { GetDifficultyLabel = function() return "10N" end }
-	addon.UI = { Popups = {
-		Define = function(key, dialog)
-			client.popupDialogs[key] = dialog
-			return true
+	addon.Services.Raid.Projections = {
+		GetDifficultyLabel = function()
+			return "10N"
 		end,
-		IsDefined = function(key) return client.popupDialogs[key] ~= nil end,
-		Show = function(key, text, _, data)
-			client.popupShows[#client.popupShows + 1] = { key = key, text = text, data = data }
-			return true
-		end,
-	} }
+	}
+	addon.UI = {
+		Popups = {
+			Define = function(key, dialog)
+				client.popupDialogs[key] = dialog
+				return true
+			end,
+			IsDefined = function(key)
+				return client.popupDialogs[key] ~= nil
+			end,
+			Show = function(key, text, _, data)
+				client.popupShows[#client.popupShows + 1] = { key = key, text = text, data = data }
+				return true
+			end,
+		},
+	}
 	_G.YES, _G.NO = "Yes", "No"
 	loadAddonFile(addon, "Raid Management Addon/Controllers/RaidRecovery.lua")
 	local observedEvents = {
@@ -15755,36 +21424,58 @@ end
 
 function cases.raid_reentry_entry_wiring_emits_one_popup()
 	local freshNetwork = newLiveReplicationNetwork()
-	local fresh = installLiveReplicationClient(freshNetwork, "Leader", nil,
-		{ realStore = true, productionCapabilities = true })
+	local fresh =
+		installLiveReplicationClient(freshNetwork, "Leader", nil, { realStore = true, productionCapabilities = true })
 	installReentryEntryWiring(fresh)
 	assertProductionRaidAuthority(fresh)
 	enterRaidThroughInit(fresh)
 	local freshRecord = assert(fresh.store:GetActiveRecord(), "fresh entry did not create a real active raid")
-	assertEqual(fresh.store:GetIndexByUid(fresh.store:GetRaidUid(freshRecord.state)),
-		fresh.addon.Database.GetCurrentRaid(), "fresh entry did not select the real created raid")
-	assertEqual(1, countEmittedEvent(fresh, fresh.addon.Events.Internal.RaidReplicationCommitted,
-		"RAID_CREATED"), "fresh entry did not create exactly one raid")
+	assertEqual(
+		fresh.store:GetIndexByUid(fresh.store:GetRaidUid(freshRecord.state)),
+		fresh.addon.Database.GetCurrentRaid(),
+		"fresh entry did not select the real created raid"
+	)
+	assertEqual(
+		1,
+		countEmittedEvent(fresh, fresh.addon.Events.Internal.RaidReplicationCommitted, "RAID_CREATED"),
+		"fresh entry did not create exactly one raid"
+	)
 	assertEqual(0, #fresh.popupShows, "fresh entry displayed the reuse popup without a replica")
 
 	local network = newLiveReplicationNetwork()
-	local leader = installLiveReplicationClient(network, "Leader", nil,
-		{ realStore = true, seedActiveRaid = true, productionCapabilities = true })
+	local leader = installLiveReplicationClient(
+		network,
+		"Leader",
+		nil,
+		{ realStore = true, seedActiveRaid = true, productionCapabilities = true }
+	)
 	installReentryEntryWiring(leader)
 	installLiveReplicationClient(network, "ReplicaB", leader.seedRecord)
 	assertProductionRaidAuthority(leader)
 
 	enterRaidThroughInit(leader)
-	assertEqual(nil, leader.addon.Database.GetCurrentRaid(),
-		"active re-entry selected the archived raid before the decision")
-	assertEqual(leader.seedRaidUid, leader.store:GetRaidUid(leader.store:GetActiveRecord().state),
-		"active re-entry created a competing raid")
+	assertEqual(
+		nil,
+		leader.addon.Database.GetCurrentRaid(),
+		"active re-entry selected the archived raid before the decision"
+	)
+	assertEqual(
+		leader.seedRaidUid,
+		leader.store:GetRaidUid(leader.store:GetActiveRecord().state),
+		"active re-entry created a competing raid"
+	)
 	assert(leader:FireHandoverTimer())
 	assertEqual(1, #leader.popupShows, "recognized entry did not show exactly one reuse popup")
-	assertEqual(1, countEmittedEvent(leader, leader.addon.Events.Internal.RaidReentryRecoveryReady),
-		"recognized entry emitted recovery-ready more than once")
-	assertEqual(1, countEmittedEvent(leader, leader.addon.Events.Internal.RaidReentryDecisionRequired),
-		"recognized entry emitted decision-required more than once")
+	assertEqual(
+		1,
+		countEmittedEvent(leader, leader.addon.Events.Internal.RaidReentryRecoveryReady),
+		"recognized entry emitted recovery-ready more than once"
+	)
+	assertEqual(
+		1,
+		countEmittedEvent(leader, leader.addon.Events.Internal.RaidReentryDecisionRequired),
+		"recognized entry emitted decision-required more than once"
+	)
 	enterRaidThroughInit(leader)
 	assertEqual(1, #leader.popupShows, "duplicate recognition showed another reuse popup")
 	print("PASS raid_reentry_entry_wiring_emits_one_popup")
@@ -15803,30 +21494,25 @@ function cases.raid_reentry_starts_when_instance_context_settles_after_login()
 	leader:RestoreProductionUnitApi()
 
 	leader.addon:PLAYER_ENTERING_WORLD()
-	assertEqual(nil, leader.syncer._reentry,
-		"unavailable login context started re-entry recovery")
-	assertEqual(nil, leader.addon.Database.GetCurrentRaid(),
-		"unavailable login context selected a current raid")
-	local initialCheckHandle = assert(leader.addon.Services.Raid.CheckInitialRaidStateHandle,
-		"delayed initial raid check timer missing")
-	local initialCheck = assert(leader.timers[initialCheckHandle],
-		"delayed initial raid check callback missing")
+	assertEqual(nil, leader.syncer._reentry, "unavailable login context started re-entry recovery")
+	assertEqual(nil, leader.addon.Database.GetCurrentRaid(), "unavailable login context selected a current raid")
+	local initialCheckHandle =
+		assert(leader.addon.Services.Raid.CheckInitialRaidStateHandle, "delayed initial raid check timer missing")
+	local initialCheck = assert(leader.timers[initialCheckHandle], "delayed initial raid check callback missing")
 
 	leader.productionInstanceReady = true
 	initialCheck.callback()
-	assertTrue(leader.syncer._reentry ~= nil,
-		"settled delayed instance context did not start re-entry recovery")
-	assertEqual(nil, leader.addon.Database.GetCurrentRaid(),
-		"delayed recognition bypassed re-entry recovery")
-	assertEqual(0, countEmittedEvent(leader,
-		leader.addon.Events.Internal.RaidReplicationCommitted, "RAID_CREATED"),
-		"delayed recognition created a competing raid")
+	assertTrue(leader.syncer._reentry ~= nil, "settled delayed instance context did not start re-entry recovery")
+	assertEqual(nil, leader.addon.Database.GetCurrentRaid(), "delayed recognition bypassed re-entry recovery")
+	assertEqual(
+		0,
+		countEmittedEvent(leader, leader.addon.Events.Internal.RaidReplicationCommitted, "RAID_CREATED"),
+		"delayed recognition created a competing raid"
+	)
 
-	local completionHandle = assert(leader.syncer._reentry.timer,
-		"delayed re-entry completion timer missing")
+	local completionHandle = assert(leader.syncer._reentry.timer, "delayed re-entry completion timer missing")
 	assert(leader.timers[completionHandle]).callback()
-	assertEqual(1, #leader.popupShows,
-		"delayed instance recognition did not show exactly one re-entry popup")
+	assertEqual(1, #leader.popupShows, "delayed instance recognition did not show exactly one re-entry popup")
 
 	print("PASS raid_reentry_starts_when_instance_context_settles_after_login")
 end
@@ -15844,37 +21530,32 @@ function cases.raid_reentry_retries_once_after_leader_roster_settlement()
 	installLiveReplicationClient(network, "ReplicaB", leader.seedRecord)
 
 	leader.addon:PLAYER_ENTERING_WORLD()
-	assertEqual(nil, leader.addon.Database.GetCurrentRaid(),
-		"unsettled entry selected the archived raid")
-	assertEqual(nil, leader.syncer._reentry,
-		"unsettled entry started recovery before raid leadership resolved")
-	assertTrue(leader.syncer._discovery ~= nil,
-		"unsettled leader discovery did not retain the recognized context")
-	local discoveryTimerHandle = assert(leader.syncer._discovery.timer,
-		"unsettled leader discovery timer handle missing")
-	local discoveryTimer = assert(leader.timers[discoveryTimerHandle],
-		"unsettled leader discovery timer missing")
+	assertEqual(nil, leader.addon.Database.GetCurrentRaid(), "unsettled entry selected the archived raid")
+	assertEqual(nil, leader.syncer._reentry, "unsettled entry started recovery before raid leadership resolved")
+	assertTrue(leader.syncer._discovery ~= nil, "unsettled leader discovery did not retain the recognized context")
+	local discoveryTimerHandle =
+		assert(leader.syncer._discovery.timer, "unsettled leader discovery timer handle missing")
+	local discoveryTimer = assert(leader.timers[discoveryTimerHandle], "unsettled leader discovery timer missing")
 	assertEqual(3, discoveryTimer.delay, "unsettled leader retry delay differs")
-	local initialCheckHandle = assert(leader.addon.Services.Raid.CheckInitialRaidStateHandle,
-		"PLAYER_ENTERING_WORLD initial check timer missing")
-	assertTrue(initialCheckHandle ~= discoveryTimerHandle,
-		"discovery and initial raid check unexpectedly share a timer")
-	assertEqual(3, leader.timers[initialCheckHandle].delay,
-		"initial raid check delay differs")
+	local initialCheckHandle = assert(
+		leader.addon.Services.Raid.CheckInitialRaidStateHandle,
+		"PLAYER_ENTERING_WORLD initial check timer missing"
+	)
+	assertTrue(
+		initialCheckHandle ~= discoveryTimerHandle,
+		"discovery and initial raid check unexpectedly share a timer"
+	)
+	assertEqual(3, leader.timers[initialCheckHandle].delay, "initial raid check delay differs")
 
 	leader.productionLeaderRoleSettled = true
 	leader.productionLeaderIdentitySettled = true
 	discoveryTimer.callback()
-	assertTrue(leader.syncer._reentry ~= nil,
-		"settled raid leader did not start re-entry recovery")
+	assertTrue(leader.syncer._reentry ~= nil, "settled raid leader did not start re-entry recovery")
 	leader.timers[initialCheckHandle].callback()
-	assertEqual(nil, leader.addon.Database.GetCurrentRaid(),
-		"concurrent initial raid check bypassed re-entry recovery")
+	assertEqual(nil, leader.addon.Database.GetCurrentRaid(), "concurrent initial raid check bypassed re-entry recovery")
 	local function fireReentryCompletion()
-		local completionTimerHandle = assert(leader.syncer._reentry.timer,
-			"re-entry completion timer handle missing")
-		local completionTimer = assert(leader.timers[completionTimerHandle],
-			"re-entry completion timer missing")
+		local completionTimerHandle = assert(leader.syncer._reentry.timer, "re-entry completion timer handle missing")
+		local completionTimer = assert(leader.timers[completionTimerHandle], "re-entry completion timer missing")
 		assertEqual(3, completionTimer.delay, "re-entry completion delay differs")
 		completionTimer.callback()
 	end
@@ -15882,11 +21563,12 @@ function cases.raid_reentry_retries_once_after_leader_roster_settlement()
 	if leader.syncer._reentry and leader.syncer._reentry.phase == "collecting" then
 		fireReentryCompletion()
 	end
-	assertEqual(1, #leader.popupShows,
-		"settled raid leader did not receive exactly one re-entry popup")
-	assertEqual(1, countEmittedEvent(leader,
-		leader.addon.Events.Internal.RaidReentryDecisionRequired),
-		"settled raid leader emitted more than one re-entry decision")
+	assertEqual(1, #leader.popupShows, "settled raid leader did not receive exactly one re-entry popup")
+	assertEqual(
+		1,
+		countEmittedEvent(leader, leader.addon.Events.Internal.RaidReentryDecisionRequired),
+		"settled raid leader emitted more than one re-entry decision"
+	)
 
 	print("PASS raid_reentry_retries_once_after_leader_roster_settlement")
 end
@@ -15903,40 +21585,50 @@ function cases.raid_reentry_waits_for_leader_identity_after_role_settlement()
 	installReentryEntryWiring(leader)
 
 	leader.addon:PLAYER_ENTERING_WORLD()
-	local discoveryTimerHandle = assert(leader.syncer._discovery.timer,
-		"partial settlement discovery timer handle missing")
-	local discoveryTimer = assert(leader.timers[discoveryTimerHandle],
-		"partial settlement discovery timer missing")
+	local discoveryTimerHandle =
+		assert(leader.syncer._discovery.timer, "partial settlement discovery timer handle missing")
+	local discoveryTimer = assert(leader.timers[discoveryTimerHandle], "partial settlement discovery timer missing")
 	leader.productionLeaderRoleSettled = true
 	leader.addon:ZONE_CHANGED_NEW_AREA()
-	assertEqual(nil, leader.syncer._reentry,
-		"leader role without matching identity started immediate re-entry recovery")
-	assertTrue(leader.syncer._discovery ~= nil,
-		"partial settlement cancelled the bounded discovery retry")
-	assertEqual(discoveryTimerHandle, leader.syncer._discovery.timer,
-		"partial settlement replaced the bounded discovery retry")
-	assertEqual(0, #leader.popupShows,
-		"partial settlement displayed a re-entry popup before retry")
+	assertEqual(
+		nil,
+		leader.syncer._reentry,
+		"leader role without matching identity started immediate re-entry recovery"
+	)
+	assertTrue(leader.syncer._discovery ~= nil, "partial settlement cancelled the bounded discovery retry")
+	assertEqual(
+		discoveryTimerHandle,
+		leader.syncer._discovery.timer,
+		"partial settlement replaced the bounded discovery retry"
+	)
+	assertEqual(0, #leader.popupShows, "partial settlement displayed a re-entry popup before retry")
 	discoveryTimer.callback()
 
-	assertEqual(true, leader.addon.Services.Raid:IsRaidLeader(),
-		"partial settlement did not expose the local leader role")
-	assertEqual(nil, leader.addon.Services.Raid:GetRaidLeaderName(),
-		"partial settlement unexpectedly exposed the leader identity")
-	assertEqual(nil, leader.syncer._reentry,
-		"leader role without matching identity started re-entry recovery")
-	assertEqual(nil, leader.syncer._discovery,
-		"partial settlement retained the bounded discovery retry")
-	assertEqual(0, #leader.popupShows,
-		"partial settlement displayed a re-entry popup")
+	assertEqual(
+		true,
+		leader.addon.Services.Raid:IsRaidLeader(),
+		"partial settlement did not expose the local leader role"
+	)
+	assertEqual(
+		nil,
+		leader.addon.Services.Raid:GetRaidLeaderName(),
+		"partial settlement unexpectedly exposed the leader identity"
+	)
+	assertEqual(nil, leader.syncer._reentry, "leader role without matching identity started re-entry recovery")
+	assertEqual(nil, leader.syncer._discovery, "partial settlement retained the bounded discovery retry")
+	assertEqual(0, #leader.popupShows, "partial settlement displayed a re-entry popup")
 
 	print("PASS raid_reentry_waits_for_leader_identity_after_role_settlement")
 end
 
 function cases.raid_reentry_yes_resumes_once()
 	local network = newLiveReplicationNetwork()
-	local leader = installLiveReplicationClient(network, "Leader", nil,
-		{ realStore = true, seedActiveRaid = true, productionCapabilities = true })
+	local leader = installLiveReplicationClient(
+		network,
+		"Leader",
+		nil,
+		{ realStore = true, seedActiveRaid = true, productionCapabilities = true }
+	)
 	installReentryEntryWiring(leader)
 	installLiveReplicationClient(network, "ReplicaB", leader.seedRecord)
 	assertProductionRaidAuthority(leader)
@@ -15947,20 +21639,26 @@ function cases.raid_reentry_yes_resumes_once()
 	local sequence, digest = record.sequence, record.digest
 	resolveShownReentry(leader, true)
 	resolveShownReentry(leader, true)
-	assertEqual(leader.seedRaidIndex, leader.addon.Database.GetCurrentRaid(),
-		"Yes did not resume the recovered raid")
+	assertEqual(leader.seedRaidIndex, leader.addon.Database.GetCurrentRaid(), "Yes did not resume the recovered raid")
 	assertEqual(sequence, record.sequence, "Yes created a recovered-raid revision")
 	assertEqual(digest, record.digest, "Yes changed the recovered digest")
-	assertEqual(0, countEmittedEvent(leader, leader.addon.Events.Internal.RaidReplicationCommitted,
-		"RAID_CREATED"), "Yes created a new raid")
+	assertEqual(
+		0,
+		countEmittedEvent(leader, leader.addon.Events.Internal.RaidReplicationCommitted, "RAID_CREATED"),
+		"Yes created a new raid"
+	)
 	assertEqual(nil, leader.syncer._reentry, "Yes retained the chosen recovery state")
 	print("PASS raid_reentry_yes_resumes_once")
 end
 
 function cases.raid_reentry_no_replaces_once_without_digest_conflict()
 	local network = newLiveReplicationNetwork()
-	local leader = installLiveReplicationClient(network, "Leader", nil,
-		{ realStore = true, seedActiveRaid = true, productionCapabilities = true })
+	local leader = installLiveReplicationClient(
+		network,
+		"Leader",
+		nil,
+		{ realStore = true, seedActiveRaid = true, productionCapabilities = true }
+	)
 	installReentryEntryWiring(leader)
 	installLiveReplicationClient(network, "ReplicaB", leader.seedRecord)
 	assertProductionRaidAuthority(leader)
@@ -15974,20 +21672,28 @@ function cases.raid_reentry_no_replaces_once_without_digest_conflict()
 	local replacementUid = assert(leader.store:GetRaidUid(replacement.state))
 	assertEqual("complete", previous.status, "No did not conclude the recovered raid")
 	assertTrue(replacementUid ~= leader.seedRaidUid, "No did not create a replacement raid")
-	assertEqual(leader.store:GetIndexByUid(replacementUid), leader.addon.Database.GetCurrentRaid(),
-		"No did not select the replacement")
-	assertEqual(1, countEmittedEvent(leader, leader.addon.Events.Internal.RaidReplicationCommitted,
-		"RAID_CONCLUDED"), "No emitted the conclusion lifecycle event more than once")
-	assertEqual(1, countEmittedEvent(leader, leader.addon.Events.Internal.RaidReplicationCommitted,
-		"RAID_CREATED"), "No emitted the creation lifecycle event more than once")
-	local conclusionIndex = assert(firstEmittedEventIndex(leader,
-		leader.addon.Events.Internal.RaidReplicationCommitted, "RAID_CONCLUDED"))
-	local creationIndex = assert(firstEmittedEventIndex(leader,
-		leader.addon.Events.Internal.RaidReplicationCommitted, "RAID_CREATED"))
+	assertEqual(
+		leader.store:GetIndexByUid(replacementUid),
+		leader.addon.Database.GetCurrentRaid(),
+		"No did not select the replacement"
+	)
+	assertEqual(
+		1,
+		countEmittedEvent(leader, leader.addon.Events.Internal.RaidReplicationCommitted, "RAID_CONCLUDED"),
+		"No emitted the conclusion lifecycle event more than once"
+	)
+	assertEqual(
+		1,
+		countEmittedEvent(leader, leader.addon.Events.Internal.RaidReplicationCommitted, "RAID_CREATED"),
+		"No emitted the creation lifecycle event more than once"
+	)
+	local conclusionIndex =
+		assert(firstEmittedEventIndex(leader, leader.addon.Events.Internal.RaidReplicationCommitted, "RAID_CONCLUDED"))
+	local creationIndex =
+		assert(firstEmittedEventIndex(leader, leader.addon.Events.Internal.RaidReplicationCommitted, "RAID_CREATED"))
 	assertTrue(conclusionIndex < creationIndex, "No published the new raid before concluding the recovered raid")
 	assertEqual(nil, leader.syncer._reentry, "No retained the chosen recovery state")
-	assertTrue(select(2, leader.syncer:GetStatus()) ~= "DIGEST_MISMATCH",
-		"No ended in a digest mismatch")
+	assertTrue(select(2, leader.syncer:GetStatus()) ~= "DIGEST_MISMATCH", "No ended in a digest mismatch")
 	print("PASS raid_reentry_no_replaces_once_without_digest_conflict")
 end
 
@@ -16034,13 +21740,22 @@ function cases.raid_leader_reentry_replace_publishes_lifecycle_before_head()
 	assert(leader:FireHandoverTimer())
 	resolveReentry(leader, "replace")
 	assertEqual("raid-replacement-1", leader.store.record.raidUid)
-	assertEqual(nil, leader.syncer._reentry,
-		"replacement suspended before publishing lifecycle events: " .. tostring(select(2, leader.syncer:GetStatus())))
-	assertEqual("raid-replacement-1", replica.store.record.raidUid,
-		"replica retained the concluded active raid after replacement")
+	assertEqual(
+		nil,
+		leader.syncer._reentry,
+		"replacement suspended before publishing lifecycle events: " .. tostring(select(2, leader.syncer:GetStatus()))
+	)
+	assertEqual(
+		"raid-replacement-1",
+		replica.store.record.raidUid,
+		"replica retained the concluded active raid after replacement"
+	)
 	assertEqual("active", replica.store.record.status, "replica did not converge to the replacement")
-	assertEqual(leader.store.record.sequence, replica.store.record.sequence,
-		"replica missed the post-create attendance event")
+	assertEqual(
+		leader.store.record.sequence,
+		replica.store.record.sequence,
+		"replica missed the post-create attendance event"
+	)
 	print("PASS raid_leader_reentry_replace_publishes_lifecycle_before_head")
 end
 
@@ -16195,8 +21910,14 @@ end
 
 function cases.raid_live_sync_real_session_final_head(addon)
 	local fixture = installFaithfulLiveReplica(addon)
-	local head = { raidUid = "raid-live", authorityEpoch = 1, sequence = 3,
-		checkpointSequence = 3, digest = "00000003:1", status = "complete" }
+	local head = {
+		raidUid = "raid-live",
+		authorityEpoch = 1,
+		sequence = 3,
+		checkpointSequence = 3,
+		digest = "00000003:1",
+		status = "complete",
+	}
 	local wire = assert(fixture.protocol.Encode("HEAD", "-", "-", head))
 	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
 	assertEqual(1, #fixture.queued, "final HEAD did not request recovery immediately")
@@ -16208,7 +21929,11 @@ function cases.raid_live_sync_real_session_final_head(addon)
 	finalSnapshot.events = {}
 	deliverFaithfulFinalSnapshot(fixture, request, finalSnapshot)
 	local status, statusReason = fixture.syncer:GetStatus()
-	assertEqual(3, fixture.store.record.sequence, "final HEAD snapshot did not converge status=" .. tostring(status) .. " reason=" .. tostring(statusReason))
+	assertEqual(
+		3,
+		fixture.store.record.sequence,
+		"final HEAD snapshot did not converge status=" .. tostring(status) .. " reason=" .. tostring(statusReason)
+	)
 	assertEqual("complete", fixture.store.record.status, "final HEAD snapshot did not compact raid")
 	assertEqual(0, #fixture.store.record.events, "final HEAD snapshot retained event ledger")
 	local queued = #fixture.queued
@@ -16225,8 +21950,14 @@ function cases.raid_live_sync_real_session_conclusion_coalescing(addon)
 	event.eventUid = assert(raidEvents.BuildEventUid(event.raidUid, event.authorityEpoch, event.sequence))
 	local eventWire = assert(fixture.protocol.Encode("EVENT", "-", "-", { event = event }))
 	fixture.syncer:OnAddonMessage("RMARaidSync", eventWire, "RAID", "Leader-Test Realm")
-	local head = { raidUid = "raid-live", authorityEpoch = 1, sequence = 3,
-		checkpointSequence = 3, digest = "00000003:1", status = "complete" }
+	local head = {
+		raidUid = "raid-live",
+		authorityEpoch = 1,
+		sequence = 3,
+		checkpointSequence = 3,
+		digest = "00000003:1",
+		status = "complete",
+	}
 	local headWire = assert(fixture.protocol.Encode("HEAD", "-", "-", head))
 	fixture.syncer:OnAddonMessage("RMARaidSync", headWire, "RAID", "Leader-Test Realm")
 	assertEqual(1, #fixture.queued, "EVENT plus final HEAD opened duplicate snapshot requests")
@@ -16248,8 +21979,14 @@ end
 
 function cases.raid_live_sync_real_session_range_coalescing(addon)
 	local fixture = installFaithfulLiveReplica(addon)
-	local head = { raidUid = "raid-live", authorityEpoch = 1, sequence = 3,
-		checkpointSequence = 0, digest = "00000003:1", status = "active" }
+	local head = {
+		raidUid = "raid-live",
+		authorityEpoch = 1,
+		sequence = 3,
+		checkpointSequence = 0,
+		digest = "00000003:1",
+		status = "active",
+	}
 	local wire = assert(fixture.protocol.Encode("HEAD", "-", "-", head))
 	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
 	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
@@ -16261,8 +21998,14 @@ end
 
 function cases.raid_live_sync_real_session_monotonic_supersession(addon)
 	local fixture = installFaithfulLiveReplica(addon)
-	local rangeHead = { raidUid = "raid-live", authorityEpoch = 1, sequence = 3,
-		checkpointSequence = 0, digest = "00000003:1", status = "active" }
+	local rangeHead = {
+		raidUid = "raid-live",
+		authorityEpoch = 1,
+		sequence = 3,
+		checkpointSequence = 0,
+		digest = "00000003:1",
+		status = "active",
+	}
 	local wire = assert(fixture.protocol.Encode("HEAD", "-", "-", rangeHead))
 	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
 	local first = assert(fixture.protocol.Decode(fixture.queued[1].message))
@@ -16272,8 +22015,14 @@ function cases.raid_live_sync_real_session_monotonic_supersession(addon)
 	event.eventUid = assert(addon.DB.RaidEvents.BuildEventUid(event.raidUid, event.authorityEpoch, event.sequence))
 	wire = assert(fixture.protocol.Encode("EVENT", "-", "-", { event = event }))
 	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
-	local finalHead = { raidUid = "raid-live", authorityEpoch = 1, sequence = 4,
-		checkpointSequence = 4, digest = "00000004:1", status = "complete" }
+	local finalHead = {
+		raidUid = "raid-live",
+		authorityEpoch = 1,
+		sequence = 4,
+		checkpointSequence = 4,
+		digest = "00000004:1",
+		status = "complete",
+	}
 	wire = assert(fixture.protocol.Encode("HEAD", "-", "-", finalHead))
 	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
 	assertEqual(2, #fixture.queued, "newer conclusion did not replace range with one final request")
@@ -16295,8 +22044,14 @@ end
 
 function cases.raid_live_sync_real_session_direct_event_cancellation(addon)
 	local fixture = installFaithfulLiveReplica(addon)
-	local head = { raidUid = "raid-live", authorityEpoch = 1, sequence = 2,
-		checkpointSequence = 0, digest = "00000002:1", status = "active" }
+	local head = {
+		raidUid = "raid-live",
+		authorityEpoch = 1,
+		sequence = 2,
+		checkpointSequence = 0,
+		digest = "00000002:1",
+		status = "active",
+	}
 	local wire = assert(fixture.protocol.Encode("HEAD", "-", "-", head))
 	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
 	assertEqual("RANGE_REQ", assert(fixture.protocol.Decode(fixture.queued[1].message)).kind)
@@ -16335,8 +22090,14 @@ function cases.raid_live_sync_real_store_pending_head_digest_conflict(addon)
 	local fixture = installFaithfulLiveReplica(addon, { realStore = true })
 	local record = assert(fixture.store:GetActiveRecord())
 	local raidUid = assert(fixture.store:GetRaidUid(record.state))
-	local headA = { raidUid = raidUid, authorityEpoch = record.authorityEpoch, sequence = 2,
-		checkpointSequence = 0, digest = "aaaaaaaa:1", status = "active" }
+	local headA = {
+		raidUid = raidUid,
+		authorityEpoch = record.authorityEpoch,
+		sequence = 2,
+		checkpointSequence = 0,
+		digest = "aaaaaaaa:1",
+		status = "active",
+	}
 	local wire, encodeReason = fixture.protocol.Encode("HEAD", "-", "-", headA)
 	assert(wire, tostring(encodeReason) .. " uid=" .. tostring(raidUid) .. " digest=" .. tostring(record.digest))
 	assertTrue(fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm"))
@@ -16352,15 +22113,24 @@ function cases.raid_live_sync_real_store_pending_event_digest_conflict(addon)
 	local fixture = installFaithfulLiveReplica(addon, { realStore = true })
 	local record = assert(fixture.store:GetActiveRecord())
 	local raidUid = assert(fixture.store:GetRaidUid(record.state))
-	local head = { raidUid = raidUid, authorityEpoch = record.authorityEpoch, sequence = 2,
-		checkpointSequence = 0, digest = "aaaaaaaa:1", status = "active" }
+	local head = {
+		raidUid = raidUid,
+		authorityEpoch = record.authorityEpoch,
+		sequence = 2,
+		checkpointSequence = 0,
+		digest = "aaaaaaaa:1",
+		status = "active",
+	}
 	local wire, encodeReason = fixture.protocol.Encode("HEAD", "-", "-", head)
 	assert(wire, tostring(encodeReason) .. " uid=" .. tostring(raidUid) .. " digest=" .. tostring(record.digest))
 	assertTrue(fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm"))
 	local event = {
-		raidUid = raidUid, authorityEpoch = record.authorityEpoch, sequence = 2,
+		raidUid = raidUid,
+		authorityEpoch = record.authorityEpoch,
+		sequence = 2,
 		eventUid = assert(addon.DB.RaidEvents.BuildEventUid(raidUid, record.authorityEpoch, 2)),
-		eventType = "RAID_METADATA_UPDATED", payload = { metadata = { zone = "Ulduar" } },
+		eventType = "RAID_METADATA_UPDATED",
+		payload = { metadata = { zone = "Ulduar" } },
 		resultDigest = "bbbbbbbb:1",
 	}
 	wire = assert(fixture.protocol.Encode("EVENT", "-", "-", { event = event }))
@@ -16372,8 +22142,14 @@ end
 function cases.raid_live_sync_complete_head_consent_boundary(addon)
 	local fixture = installFaithfulLiveReplica(addon)
 	fixture.store.record.raidUid = "active-a"
-	local other = { raidUid = "complete-b", authorityEpoch = 1, sequence = 3,
-		checkpointSequence = 3, digest = "00000003:1", status = "complete" }
+	local other = {
+		raidUid = "complete-b",
+		authorityEpoch = 1,
+		sequence = 3,
+		checkpointSequence = 3,
+		digest = "00000003:1",
+		status = "complete",
+	}
 	local wire = assert(fixture.protocol.Encode("HEAD", "-", "-", other))
 	local accepted, reason = fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
 	assertEqual(false, accepted, "different completed UID was accepted for live repair")
@@ -16399,8 +22175,14 @@ function cases.raid_live_sync_conclusion_snapshot_scope()
 	local transferCount = #leader.transfers
 	network.now = 146
 	member.store.record = makeLiveRecord(2)
-	local finalHead = { raidUid = "raid-live", authorityEpoch = 1, sequence = 3,
-		checkpointSequence = 3, digest = "00000003:1", status = "complete" }
+	local finalHead = {
+		raidUid = "raid-live",
+		authorityEpoch = 1,
+		sequence = 3,
+		checkpointSequence = 3,
+		digest = "00000003:1",
+		status = "complete",
+	}
 	member.syncer:RequestSnapshot("Leader", finalHead)
 	assertEqual(transferCount, #leader.transfers, "expired final snapshot was served as history")
 	local unrelated = deepCopy(finalHead)
@@ -16521,7 +22303,9 @@ local function installAuthorityRecoveryLootFixture(addon)
 			end,
 		},
 	}
-	addon.Database.EnsureRaidByIndex = function() return fixture.raid end
+	addon.Database.EnsureRaidByIndex = function()
+		return fixture.raid
+	end
 	addon.Strings.NormalizeLower = function(value)
 		return type(value) == "string" and string.lower(value) or nil
 	end
@@ -16543,10 +22327,14 @@ local function installAuthorityRecoveryLootFixture(addon)
 	fixture.lootStore.GetActiveRecord = function()
 		return { raidUid = fixture.raidUid, status = "active", state = fixture.raid }
 	end
-	fixture.lootStore.EnsureRaidByIndex = function() return fixture.raid end
+	fixture.lootStore.EnsureRaidByIndex = function()
+		return fixture.raid
+	end
 	fixture.lootStore.CommitAuthoritativeEvent = function(_, raidUid, eventType, payload)
 		fixture.commitCalls = fixture.commitCalls + 1
-		if recovering then return nil, "AUTHORITY_RECOVERING" end
+		if recovering then
+			return nil, "AUTHORITY_RECOVERING"
+		end
 		assertEqual(fixture.raidUid, raidUid, "recovery loot commit raid UID differs")
 		if eventType == "LOOT_ADDED" and fixture.rejectNextLootAdded then
 			fixture.rejectNextLootAdded = false
@@ -16555,7 +22343,8 @@ local function installAuthorityRecoveryLootFixture(addon)
 		if eventType == "LOOT_ADDED" then
 			local loot = deepCopy(payload.loot)
 			fixture.raid.loot[#fixture.raid.loot + 1] = loot
-			fixture.raid.nextLootNid = math.max(tonumber(fixture.raid.nextLootNid) or 1, (tonumber(loot.lootNid) or 0) + 1)
+			fixture.raid.nextLootNid =
+				math.max(tonumber(fixture.raid.nextLootNid) or 1, (tonumber(loot.lootNid) or 0) + 1)
 			if loot.source == "DISTRIBUTION_AWARD" and tonumber(loot.rollType) == 1 then
 				for i = 1, #fixture.raid.players do
 					local player = fixture.raid.players[i]
@@ -16592,7 +22381,9 @@ local function installAuthorityRecoveryLootFixture(addon)
 	end
 
 	local passive = fixture.loot._PassiveGroupLoot
-	passive.IsPassiveGroupLootMethod = function() return true end
+	passive.IsPassiveGroupLootMethod = function()
+		return true
+	end
 	passive.ParseGroupLootMessage = function(msg, winnerOnly)
 		fixture.passiveParseCalls = fixture.passiveParseCalls + 1
 		fixture.passiveParseWinnerOnly[#fixture.passiveParseWinnerOnly + 1] = winnerOnly == true
@@ -16606,7 +22397,8 @@ local function installAuthorityRecoveryLootFixture(addon)
 		fixture.passiveApplyCalls = fixture.passiveApplyCalls + 1
 		local kind = tostring(parsed and parsed.kind or "none")
 		fixture.passiveApplyByKind[kind] = (fixture.passiveApplyByKind[kind] or 0) + 1
-		fixture.passiveObservationState[tostring(parsed and parsed.sessionId or parsed and parsed.rollId or "none")] = true
+		fixture.passiveObservationState[tostring(parsed and parsed.sessionId or parsed and parsed.rollId or "none")] =
+			true
 		if parsed and not skipPendingAward then
 			owner:AddPendingAward(
 				parsed.itemLink,
@@ -16626,13 +22418,17 @@ local function installAuthorityRecoveryLootFixture(addon)
 	passive.ObserveGroupLootWinnerMessage = passive.ObserveGroupLootMessage
 	passive.GetPassiveLootRollEntryByRollId = function(rollId)
 		local id = tonumber(rollId)
-		if not id then return nil end
+		if not id then
+			return nil
+		end
 		return {
 			sessionId = id == 41 and "GL:marco" or "GL:luca",
 			winner = { playerName = id == 41 and "Marco" or "Luca", rollType = 1, rollValue = 88 },
 		}
 	end
-	passive.GetPassiveLootRollEntry = function() return nil end
+	passive.GetPassiveLootRollEntry = function()
+		return nil
+	end
 	passive.HasLoggedPassiveLoot = function(_, _, rollSessionId)
 		fixture.passiveDuplicateChecks = fixture.passiveDuplicateChecks + 1
 		return fixture.loggedPassiveSession == tostring(rollSessionId or "")
@@ -16666,13 +22462,17 @@ local function installAuthorityRecoveryLootFixture(addon)
 
 	addon.Services.Raid.EnsureRaidPlayerNid = function(_, name)
 		for i = 1, #fixture.raid.players do
-			if fixture.raid.players[i].name == name then return fixture.raid.players[i].playerNid, name end
+			if fixture.raid.players[i].name == name then
+				return fixture.raid.players[i].playerNid, name
+			end
 		end
 		local playerNid = tonumber(fixture.raid.nextPlayerNid) or 1
 		local event = fixture.lootStore:CommitAuthoritativeEvent(fixture.raidUid, "PLAYER_UPDATED", {
 			player = { playerNid = playerNid, name = name, countMS = 0 },
 		})
-		if not event then return 0, name end
+		if not event then
+			return 0, name
+		end
 		fixture.playerMutationCalls = fixture.playerMutationCalls + 1
 		return playerNid, name
 	end
@@ -16694,11 +22494,21 @@ local function installAuthorityRecoveryLootFixture(addon)
 		fixture.passiveContextConsumes = fixture.passiveContextConsumes + 1
 		fixture.lootWindowContextConsumeCalls = fixture.lootWindowContextConsumeCalls + 1
 	end
-	addon.Services.Raid.GetActiveLootSource = function() return nil end
-	addon.Services.Raid.IsLootAuthority = function(_, sender) return sender == "Master" end
-	addon.Services.Raid.CanCommitRaidHistory = function() return true end
-	addon.Services.Raid.IsRaidLeader = function() return true end
-	addon.Services.Raid.CanObservePassiveLoot = function() return true end
+	addon.Services.Raid.GetActiveLootSource = function()
+		return nil
+	end
+	addon.Services.Raid.IsLootAuthority = function(_, sender)
+		return sender == "Master"
+	end
+	addon.Services.Raid.CanCommitRaidHistory = function()
+		return true
+	end
+	addon.Services.Raid.IsRaidLeader = function()
+		return true
+	end
+	addon.Services.Raid.CanObservePassiveLoot = function()
+		return true
+	end
 
 	function fixture:SetRecovering(value)
 		recovering = value == true
@@ -16757,14 +22567,32 @@ function cases.raid_handover_replays_group_loot_after_snapshot(addon)
 	local fixture = installAuthorityRecoveryLootFixture(addon)
 	local loot = fixture.loot
 	local marco = {
-		msg = "Marco receives loot: [Thunderfury]", kind = "winner", itemLink = "item:19019",
-		itemCount = 1, playerName = "Marco", rollType = 1, rollValue = 88,
-		sessionId = "GL:marco", rollId = 41, playerNid = 71, bossNid = 91, lootNid = 81,
+		msg = "Marco receives loot: [Thunderfury]",
+		kind = "winner",
+		itemLink = "item:19019",
+		itemCount = 1,
+		playerName = "Marco",
+		rollType = 1,
+		rollValue = 88,
+		sessionId = "GL:marco",
+		rollId = 41,
+		playerNid = 71,
+		bossNid = 91,
+		lootNid = 81,
 	}
 	local luca = {
-		msg = "Luca receives loot: [Thunderfury]", kind = "winner", itemLink = "item:19019",
-		itemCount = 1, playerName = "Luca", rollType = 1, rollValue = 77,
-		sessionId = "GL:luca", rollId = 42, playerNid = 72, bossNid = 92, lootNid = 82,
+		msg = "Luca receives loot: [Thunderfury]",
+		kind = "winner",
+		itemLink = "item:19019",
+		itemCount = 1,
+		playerName = "Luca",
+		rollType = 1,
+		rollValue = 77,
+		sessionId = "GL:luca",
+		rollId = 42,
+		playerNid = 72,
+		bossNid = 92,
+		lootNid = 82,
 	}
 	loot:AddLoot(marco.msg, nil, nil, marco)
 	loot:AddLoot(marco.msg, nil, nil, deepCopy(marco))
@@ -16829,18 +22657,25 @@ function cases.raid_handover_loot_chat_gate_is_side_effect_free(addon)
 	assertEqual(true, handled, "recovering CHAT_MSG_LOOT failed on cyclic parsed input: " .. tostring(reason))
 	assertEqual(1, fixture.passiveParseCalls, "recovering CHAT_MSG_LOOT did not parse once")
 	assertEqual(0, fixture.passiveApplyCalls, "recovering CHAT_MSG_LOOT applied passive observation state")
-	assertTrue(deepEqual(pendingBefore, fixture.lootState.pendingAwards or {}),
-		"recovering CHAT_MSG_LOOT changed pending award state")
-	assertTrue(deepEqual(passiveBefore, fixture.passiveObservationState),
-		"recovering CHAT_MSG_LOOT changed passive observation state")
+	assertTrue(
+		deepEqual(pendingBefore, fixture.lootState.pendingAwards or {}),
+		"recovering CHAT_MSG_LOOT changed pending award state"
+	)
+	assertTrue(
+		deepEqual(passiveBefore, fixture.passiveObservationState),
+		"recovering CHAT_MSG_LOOT changed passive observation state"
+	)
 	assertEqual(0, fixture.workflowReceipts, "recovering CHAT_MSG_LOOT changed workflow state")
 	assertEqual(0, fixture.counterCalls, "recovering CHAT_MSG_LOOT changed player counters")
 	assertEqual(0, fixture.commitCalls, "recovering CHAT_MSG_LOOT reached the canonical store")
 
 	fixture:InstallRecoveredSnapshot(false)
 	fixture:SetRecovering(false)
-	assertEqual(true, fixture.loot:ReplayAuthorityRecoveryFacts(fixture.raidUid),
-		"side-effect-free CHAT_MSG_LOOT fact did not replay")
+	assertEqual(
+		true,
+		fixture.loot:ReplayAuthorityRecoveryFacts(fixture.raidUid),
+		"side-effect-free CHAT_MSG_LOOT fact did not replay"
+	)
 	assertEqual(1, #fixture.raid.loot, "CHAT_MSG_LOOT replay did not append exactly one loot row")
 	assertEqual(3, fixture.raid.loot[1].looterNid, "staged player NID leaked through CHAT_MSG_LOOT replay")
 	assertEqual(0, fixture.raid.loot[1].bossNid, "staged boss NID leaked through CHAT_MSG_LOOT replay")
@@ -16853,12 +22688,26 @@ function cases.raid_handover_keeps_selection_and_winner_facts(addon)
 	local selectionMessage = "Marco selected Need for: [Thunderfury]"
 	local winnerMessage = "Marco receives loot: [Thunderfury]"
 	fixture.parsedLootByMessage[selectionMessage] = {
-		msg = selectionMessage, kind = "selection", itemLink = "item:19019", itemCount = 1,
-		playerName = "Marco", rollType = 1, rollValue = 0, sessionId = "GL:same-roll", rollId = 45,
+		msg = selectionMessage,
+		kind = "selection",
+		itemLink = "item:19019",
+		itemCount = 1,
+		playerName = "Marco",
+		rollType = 1,
+		rollValue = 0,
+		sessionId = "GL:same-roll",
+		rollId = 45,
 	}
 	fixture.parsedLootByMessage[winnerMessage] = {
-		msg = winnerMessage, kind = "winner", itemLink = "item:19019", itemCount = 1,
-		playerName = "Marco", rollType = 1, rollValue = 88, sessionId = "GL:same-roll", rollId = 45,
+		msg = winnerMessage,
+		kind = "winner",
+		itemLink = "item:19019",
+		itemCount = 1,
+		playerName = "Marco",
+		rollType = 1,
+		rollValue = 88,
+		sessionId = "GL:same-roll",
+		rollId = 45,
 	}
 
 	addon:CHAT_MSG_LOOT(selectionMessage)
@@ -16868,8 +22717,11 @@ function cases.raid_handover_keeps_selection_and_winner_facts(addon)
 
 	fixture:InstallRecoveredSnapshot(false)
 	fixture:SetRecovering(false)
-	assertEqual(true, fixture.loot:ReplayAuthorityRecoveryFacts(fixture.raidUid),
-		"same-roll selection and winner facts did not replay")
+	assertEqual(
+		true,
+		fixture.loot:ReplayAuthorityRecoveryFacts(fixture.raidUid),
+		"same-roll selection and winner facts did not replay"
+	)
 	assertEqual(1, fixture.passiveApplyByKind.selection or 0, "same-roll selection observation replay count differs")
 	assertEqual(1, fixture.passiveApplyByKind.winner or 0, "same-roll winner observation replay count differs")
 	assertEqual(1, #fixture.raid.loot, "same-roll winner did not append exactly one loot row")
@@ -16887,17 +22739,33 @@ function cases.raid_system_loot_parse_is_winner_only(addon)
 	local selectionMessage = "Marco selected Need for: [Thunderfury]"
 	local winnerMessage = "Marco receives loot: [Thunderfury]"
 	fixture.parsedLootByMessage[selectionMessage] = {
-		msg = selectionMessage, kind = "selection", itemLink = "item:19019", playerName = "Marco",
-		rollType = 1, rollValue = 0, sessionId = "GL:system", rollId = 46,
+		msg = selectionMessage,
+		kind = "selection",
+		itemLink = "item:19019",
+		playerName = "Marco",
+		rollType = 1,
+		rollValue = 0,
+		sessionId = "GL:system",
+		rollId = 46,
 	}
 	fixture.parsedLootByMessage[winnerMessage] = {
-		msg = winnerMessage, kind = "winner", itemLink = "item:19019", playerName = "Marco",
-		rollType = 1, rollValue = 91, sessionId = "GL:system", rollId = 46,
+		msg = winnerMessage,
+		kind = "winner",
+		itemLink = "item:19019",
+		playerName = "Marco",
+		rollType = 1,
+		rollValue = 91,
+		sessionId = "GL:system",
+		rollId = 46,
 	}
 	local forwarded = {}
-	addon.Services.Raid.CanUseCapability = function() return true end
+	addon.Services.Raid.CanUseCapability = function()
+		return true
+	end
 	addon.Services.Rolls = addon.Services.Rolls or {}
-	addon.Services.Rolls.CHAT_MSG_SYSTEM = function(_, message) forwarded[#forwarded + 1] = message end
+	addon.Services.Rolls.CHAT_MSG_SYSTEM = function(_, message)
+		forwarded[#forwarded + 1] = message
+	end
 
 	addon:CHAT_MSG_SYSTEM(selectionMessage)
 	assertEqual(true, fixture.passiveParseWinnerOnly[1], "CHAT_MSG_SYSTEM did not request winner-only parsing")
@@ -16963,11 +22831,17 @@ function cases.raid_loot_recovery_ignored_passive_winner_is_terminal(addon)
 	fixture:InstallRecoveredSnapshot(false)
 	fixture:SetRecovering(false)
 	fixture.loot:AddPendingAward("item:19019", "Marco", 1, 88, "GL:ignored-recovery", 60)
-	assertEqual(true, fixture.loot:ReplayAuthorityRecoveryFacts(fixture.raidUid),
-		"recovery ignored passive winner replay failed")
+	assertEqual(
+		true,
+		fixture.loot:ReplayAuthorityRecoveryFacts(fixture.raidUid),
+		"recovery ignored passive winner replay failed"
+	)
 	assertTerminalPassiveWinner(fixture, "recovery ignored passive winner")
-	assertEqual(true, fixture.loot:ReplayAuthorityRecoveryFacts(fixture.raidUid),
-		"empty ignored passive winner replay failed")
+	assertEqual(
+		true,
+		fixture.loot:ReplayAuthorityRecoveryFacts(fixture.raidUid),
+		"empty ignored passive winner replay failed"
+	)
 	assertEqual(1, fixture.passiveApplyCalls, "ignored passive winner fact remained queued")
 	assertEqual(1, fixture.passiveRollConsumeCalls, "ignored passive winner context repeated")
 	print("PASS raid_loot_recovery_ignored_passive_winner_is_terminal")
@@ -16999,12 +22873,18 @@ function cases.raid_loot_recovery_passive_duplicate_is_terminal(addon)
 	fixture:SetRecovering(false)
 	fixture.loggedPassiveSession = "GL:duplicate-recovery"
 	fixture.loot:AddPendingAward("item:19019", "Marco", 1, 88, "GL:duplicate-recovery", 60)
-	assertEqual(true, fixture.loot:ReplayAuthorityRecoveryFacts(fixture.raidUid),
-		"recovery passive duplicate replay failed")
+	assertEqual(
+		true,
+		fixture.loot:ReplayAuthorityRecoveryFacts(fixture.raidUid),
+		"recovery passive duplicate replay failed"
+	)
 	assertTerminalPassiveWinner(fixture, "recovery passive duplicate")
 	assertEqual(1, fixture.passiveDuplicateChecks, "recovery passive duplicate check count differs")
-	assertEqual(true, fixture.loot:ReplayAuthorityRecoveryFacts(fixture.raidUid),
-		"empty passive duplicate replay failed")
+	assertEqual(
+		true,
+		fixture.loot:ReplayAuthorityRecoveryFacts(fixture.raidUid),
+		"empty passive duplicate replay failed"
+	)
 	assertEqual(1, fixture.passiveDuplicateChecks, "passive duplicate fact remained queued")
 	assertEqual(1, fixture.passiveApplyCalls, "passive duplicate observation repeated")
 	print("PASS raid_loot_recovery_passive_duplicate_is_terminal")
@@ -17032,8 +22912,11 @@ function cases.raid_handover_group_loot_retry_is_counter_safe(addon)
 	fixture.loot:AddPendingAward("item:19019", "Marco", 1, 88, "GL:retry", 60)
 	local pendingBefore = deepCopy(fixture.lootState.pendingAwards or {})
 	fixture.rejectNextLootAdded = true
-	assertEqual(true, fixture.loot:ReplayAuthorityRecoveryFacts(fixture.raidUid),
-		"rejected Group Loot replay did not remain retryable")
+	assertEqual(
+		true,
+		fixture.loot:ReplayAuthorityRecoveryFacts(fixture.raidUid),
+		"rejected Group Loot replay did not remain retryable"
+	)
 	assertEqual(0, #fixture.raid.loot, "rejected Group Loot replay appended loot")
 	assertEqual(0, fixture.counterCalls, "rejected Group Loot replay incremented the player counter")
 	assertEqual(0, fixture.workflowReceipts, "rejected Group Loot replay consumed workflow receipt state")
@@ -17042,11 +22925,16 @@ function cases.raid_handover_group_loot_retry_is_counter_safe(addon)
 	assertEqual(0, fixture.passiveApplyCalls, "rejected Group Loot replay applied passive observation state")
 	assertEqual(0, fixture.passiveRollConsumeCalls, "rejected Group Loot replay consumed passive roll context")
 	assertEqual(0, fixture.lootWindowContextConsumeCalls, "rejected Group Loot replay consumed loot-window context")
-	assertTrue(deepEqual(pendingBefore, fixture.lootState.pendingAwards or {}),
-		"rejected Group Loot replay changed pending award state")
+	assertTrue(
+		deepEqual(pendingBefore, fixture.lootState.pendingAwards or {}),
+		"rejected Group Loot replay changed pending award state"
+	)
 
-	assertEqual(true, fixture.loot:ReplayAuthorityRecoveryFacts(fixture.raidUid),
-		"Group Loot fact did not survive one store rejection")
+	assertEqual(
+		true,
+		fixture.loot:ReplayAuthorityRecoveryFacts(fixture.raidUid),
+		"Group Loot fact did not survive one store rejection"
+	)
 	assertEqual(1, #fixture.raid.loot, "Group Loot retry did not append exactly one loot row")
 	assertEqual(1, fixture.counterCalls, "Group Loot retry incremented the player counter more than once")
 	assertEqual(1, fixture.workflowReceipts, "Group Loot retry recorded the workflow receipt more than once")
@@ -17065,11 +22953,16 @@ end
 
 function cases.raid_handover_master_loot_uses_existing_retry(addon)
 	local fixture = installAuthorityRecoveryLootFixture(addon)
-	local callbacks = assert(fixture.busCallbacks.LootDistributionSessionChanged,
-		"distribution callback was not registered")
+	local callbacks =
+		assert(fixture.busCallbacks.LootDistributionSessionChanged, "distribution callback was not registered")
 	local row = {
-		sender = "Master", itemLink = "item:19019", winnerName = "Marco",
-		rollType = 1, rollValue = 99, count = 2, reason = "master_loot:AT:recovery",
+		sender = "Master",
+		itemLink = "item:19019",
+		winnerName = "Marco",
+		rollType = 1,
+		rollValue = 99,
+		count = 2,
+		reason = "master_loot:AT:recovery",
 	}
 	local setupTimerCount = fixture.activeTimerCount()
 	local setupCallbackCount = #fixture.timerCallbacks
@@ -17110,16 +23003,28 @@ function cases.raid_live_sync_group_loot_leader_authority()
 		client.createAttempts = 0
 		client.createSuccesses = 0
 		addon.L.RaidZones = { ["Icecrown Citadel"] = true }
-		addon.Diag = { D = setmetatable({}, { __index = function() return "%s %s %s" end }) }
+		addon.Diag = { D = setmetatable({}, {
+			__index = function()
+				return "%s %s %s"
+			end,
+		}) }
 		addon.info = function() end
 		addon.Database = {
-			GetCurrentRaid = function() return client.store:GetActiveRecord() and 1 or nil end,
-			EnsureRaidByIndex = function() return client.store:GetActiveRecord() and client.store.record.state or nil end,
+			GetCurrentRaid = function()
+				return client.store:GetActiveRecord() and 1 or nil
+			end,
+			EnsureRaidByIndex = function()
+				return client.store:GetActiveRecord() and client.store.record.state or nil
+			end,
 			EnsureRaidSchema = function() end,
 		}
 		addon.Timer.BindMixin(raid, "test-recognized-instance")
-		raid._ResolveRaidDifficultyInternal = function(value) return tonumber(value) end
-		raid._GetRaidSizeFromDifficultyInternal = function(value) return tonumber(value) == 4 and 25 or nil end
+		raid._ResolveRaidDifficultyInternal = function(value)
+			return tonumber(value)
+		end
+		raid._GetRaidSizeFromDifficultyInternal = function(value)
+			return tonumber(value) == 4 and 25 or nil
+		end
 		raid.Create = function(_, zone, size, difficulty)
 			client.createAttempts = client.createAttempts + 1
 			local event, reason = client.store:CreateActiveRaid({
@@ -17142,7 +23047,9 @@ function cases.raid_live_sync_group_loot_leader_authority()
 
 	local memberRaid = installRecognizedInstanceFlow(member)
 	local leaderRaid = installRecognizedInstanceFlow(leader)
-	_G.GetInstanceInfo = function() return "Icecrown Citadel", "raid", 4 end
+	_G.GetInstanceInfo = function()
+		return "Icecrown Citadel", "raid", 4
+	end
 	memberRaid:ScheduleInstanceChecks()
 	assertEqual(1, member.createAttempts, "ordinary member did not exercise recognized-instance creation")
 	assertEqual(0, member.createSuccesses, "ordinary member created a competing raid")
@@ -17197,7 +23104,9 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 	local function installPayloadCodec(addon)
 		local function splitFields(value, sep, out)
 			out = out or {}
-			for key in pairs(out) do out[key] = nil end
+			for key in pairs(out) do
+				out[key] = nil
+			end
 			local start = 1
 			while true do
 				local index = string.find(value or "", sep, start, true)
@@ -17211,11 +23120,17 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 			return out, #out
 		end
 		addon.Comms.Payload = {
-			EncodeText = function(value) return tostring(value or "") end,
-			DecodeText = function(value) return value end,
+			EncodeText = function(value)
+				return tostring(value or "")
+			end,
+			DecodeText = function(value)
+				return value
+			end,
 			PackFields = function(sep, ...)
 				local values = { ... }
-				for i = 1, #values do values[i] = tostring(values[i]) end
+				for i = 1, #values do
+					values[i] = tostring(values[i])
+				end
 				return table.concat(values, sep)
 			end,
 			SplitFields = splitFields,
@@ -17234,29 +23149,57 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 	leaderAddon.Events.Internal.PlayerCountChanged = "PlayerCountChanged"
 	leaderAddon.Bus.TriggerEvent = function(eventName, ...)
 		local listeners = leader.callbacks[eventName] or {}
-		for i = 1, #listeners do listeners[i](eventName, ...) end
+		for i = 1, #listeners do
+			listeners[i](eventName, ...)
+		end
 	end
 	leaderAddon.C = {
 		itemColors = {},
 		rollTypes = {
-			MANUAL = 0, MAINSPEC = 1, OFFSPEC = 2, RESERVED = 3, FREE = 4,
-			BANK = 5, DISENCHANT = 6, HOLD = 7,
+			MANUAL = 0,
+			MAINSPEC = 1,
+			OFFSPEC = 2,
+			RESERVED = 3,
+			FREE = 4,
+			BANK = 5,
+			DISENCHANT = 6,
+			HOLD = 7,
 		},
 		PENDING_AWARD_TTL_SECONDS = 8,
 		GROUP_LOOT_PENDING_AWARD_TTL_SECONDS = 60,
 		BOSS_EVENT_CONTEXT_TTL_SECONDS = 30,
 		RESERVES_ITEM_FALLBACK_ICON = "texture",
 	}
-	leaderAddon.Diag = { D = setmetatable({}, { __index = function() return "%s %s %s %s %s" end }) }
-	leaderAddon.Deformat = function() return nil end
-	leaderAddon.Options.GetValue = function() return false end
-	leaderAddon.Options.NormalizeLoggerLootQualityThreshold = function(value) return tonumber(value) or 2 end
-	leaderAddon.Strings.NormalizeName = function(value) return value and (string.match(value, "^([^%-]+)") or value) or nil end
-	leaderAddon.Strings.NormalizeText = function(value) return value and value ~= "" and tostring(value) or nil end
+	leaderAddon.Diag = { D = setmetatable({}, {
+		__index = function()
+			return "%s %s %s %s %s"
+		end,
+	}) }
+	leaderAddon.Deformat = function()
+		return nil
+	end
+	leaderAddon.Options.GetValue = function()
+		return false
+	end
+	leaderAddon.Options.NormalizeLoggerLootQualityThreshold = function(value)
+		return tonumber(value) or 2
+	end
+	leaderAddon.Strings.NormalizeName = function(value)
+		return value and (string.match(value, "^([^%-]+)") or value) or nil
+	end
+	leaderAddon.Strings.NormalizeText = function(value)
+		return value and value ~= "" and tostring(value) or nil
+	end
 	local currentTime = 100
-	leaderAddon.Time = { GetCurrentTime = function() return currentTime end }
+	leaderAddon.Time = {
+		GetCurrentTime = function()
+			return currentTime
+		end,
+	}
 	leaderAddon.Item = {
-		GetItemKey = function(value, fallback) return value or fallback end,
+		GetItemKey = function(value, fallback)
+			return value or fallback
+		end,
 		GetItemStringFromLink = function(value)
 			local itemId = string.match(tostring(value or ""), "item:(%d+)")
 			return itemId and "item:" .. itemId or nil
@@ -17267,51 +23210,83 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 	}
 	local leaderLootState, leaderItemInfo, leaderRaidState = {}, {}, {}
 	leaderAddon.Database = {
-		EnsureLootRuntimeState = function() return {}, leaderLootState, leaderItemInfo, leaderRaidState end,
-		GetCurrentRaid = function() return leader.store:GetActiveRecord() and 1 or nil end,
-		EnsureRaidByIndex = function() return leader.store:GetActiveRecord() and leader.store.record.state or nil end,
+		EnsureLootRuntimeState = function()
+			return {}, leaderLootState, leaderItemInfo, leaderRaidState
+		end,
+		GetCurrentRaid = function()
+			return leader.store:GetActiveRecord() and 1 or nil
+		end,
+		EnsureRaidByIndex = function()
+			return leader.store:GetActiveRecord() and leader.store.record.state or nil
+		end,
 		EnsureRaidSchema = function() end,
-		GetRaidStore = function() return leader.store end,
-		GetPlayerName = function() return "Leader" end,
+		GetRaidStore = function()
+			return leader.store
+		end,
+		GetPlayerName = function()
+			return "Leader"
+		end,
 		GetRaidQueries = function()
-			return { ResolveLootLooterName = function(_, raid, loot)
-				for i = 1, #(raid.players or {}) do
-					if tonumber(raid.players[i].playerNid) == tonumber(loot.looterNid) then return raid.players[i].name end
-				end
-			end }
+			return {
+				ResolveLootLooterName = function(_, raid, loot)
+					for i = 1, #(raid.players or {}) do
+						if tonumber(raid.players[i].playerNid) == tonumber(loot.looterNid) then
+							return raid.players[i].name
+						end
+					end
+				end,
+			}
 		end,
 	}
-	leaderRaid.IsRaidLeader = function() return true end
-	leaderRaid.CanCommitRaidHistory = function() return leader.acceptDistributionAwards ~= false end
+	leaderRaid.IsRaidLeader = function()
+		return true
+	end
+	leaderRaid.CanCommitRaidHistory = function()
+		return leader.acceptDistributionAwards ~= false
+	end
 	leaderRaid.IsLootAuthority = function(_, sender)
 		local normalized = type(sender) == "string" and (string.match(sender, "^([^%-]+)") or sender) or nil
 		return normalized == "Master" or normalized == "Leader"
 	end
-	leaderRaid.CanUseCapability = function() return false end
+	leaderRaid.CanUseCapability = function()
+		return false
+	end
 	leaderRaid.EnsureRaidPlayerNid = function(_, name)
 		local normalized = leaderAddon.Strings.NormalizeName(name)
 		return normalized == "Other" and 2 or 1, normalized
 	end
-	leaderRaid.FindOrCreateBossNidForLoot = function() return 0 end
-	leaderRaid.GetActiveLootSource = function() return nil end
+	leaderRaid.FindOrCreateBossNidForLoot = function()
+		return 0
+	end
+	leaderRaid.GetActiveLootSource = function()
+		return nil
+	end
 	leaderRaid.GetPlayerID = function(_, name)
 		local normalized = leaderAddon.Strings.NormalizeName(name)
-		if normalized == "Winner" then return 1 end
-		if normalized == "Other" then return 2 end
+		if normalized == "Winner" then
+			return 1
+		end
+		if normalized == "Other" then
+			return 2
+		end
 		return 0
 	end
 	leaderRaid.AddPlayer = function(_, player)
-		local event = leader.store:CommitAuthoritativeEvent(leader.store.record.raidUid, "PLAYER_UPDATED", { player = player })
+		local event =
+			leader.store:CommitAuthoritativeEvent(leader.store.record.raidUid, "PLAYER_UPDATED", { player = player })
 		return event and player or nil
 	end
 	installPayloadCodec(leaderAddon)
 	local leaderDistribution
 	leaderAddon.Comms.Sync = function(prefix, message)
-		return leaderDistribution
-			and leaderDistribution.HandleMessage(prefix, message, "RAID", "Leader") == true
+		return leaderDistribution and leaderDistribution.HandleMessage(prefix, message, "RAID", "Leader") == true
 			or false
 	end
-	local noopOwner = setmetatable({}, { __index = function() return function() end end })
+	local noopOwner = setmetatable({}, {
+		__index = function()
+			return function() end
+		end,
+	})
 	local workflowReceipts = 0
 	local workflowOwner = setmetatable({
 		RecordReceipt = function()
@@ -17321,20 +23296,44 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 	leaderAddon.Services.Loot = {
 		LootAttribution = noopOwner,
 		_PassiveGroupLoot = setmetatable({
-			IsPassiveGroupLootMethod = function() return false end,
-			IsPassiveLootWinnerMessage = function() return false end,
-			GetPassiveLootRollItemKey = function(value) return value end,
+			IsPassiveGroupLootMethod = function()
+				return false
+			end,
+			IsPassiveLootWinnerMessage = function()
+				return false
+			end,
+			GetPassiveLootRollItemKey = function(value)
+				return value
+			end,
 		}, getmetatable(noopOwner)),
 		_Tracking = noopOwner,
 		_Workflow = workflowOwner,
-		_Rules = { _IsIgnoredItem = function() return false end },
+		_Rules = {
+			_IsIgnoredItem = function()
+				return false
+			end,
+		},
 		AwardPlanner = noopOwner,
 		Inventory = noopOwner,
-		_Context = { ResolveRaidRecord = function() return 1, leader.store.record.state end },
+		_Context = {
+			ResolveRaidRecord = function()
+				return 1, leader.store.record.state
+			end,
+		},
 	}
-	_G.table.wipe = _G.table.wipe or function(target) for key in pairs(target) do target[key] = nil end return target end
-	_G.GetLootThreshold = function() return 2 end
-	_G.GetItemInfo = function() return "Thunderfury", nil, 5, nil, nil, "Weapon", nil, nil, nil, "texture" end
+	_G.table.wipe = _G.table.wipe
+		or function(target)
+			for key in pairs(target) do
+				target[key] = nil
+			end
+			return target
+		end
+	_G.GetLootThreshold = function()
+		return 2
+	end
+	_G.GetItemInfo = function()
+		return "Thunderfury", nil, 5, nil, nil, "Weapon", nil, nil, nil, "texture"
+	end
 	loadAddonFile(leaderAddon, "Raid Management Addon/Services/Loot/Recording.lua")
 	loadAddonFile(leaderAddon, "Raid Management Addon/Services/Loot/DistributionSession.lua")
 	loadAddonFile(leaderAddon, "Raid Management Addon/Services/Raid/Counts.lua")
@@ -17346,38 +23345,60 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 		masterAddon.Services[name] = masterAddon.Services[name] or {}
 		return masterAddon.Services[name]
 	end
-	masterAddon.Database = { GetPlayerName = function() return "Master" end }
+	masterAddon.Database = {
+		GetPlayerName = function()
+			return "Master"
+		end,
+	}
 	masterAddon.Diag = {}
 	masterAddon.Events.Internal.LootDistributionSessionChanged = "LootDistributionSessionChanged"
 	masterAddon.Bus.TriggerEvent = function() end
 	masterAddon.Item = {
-		GetItemKey = function(value, fallback) return value or fallback end,
-		GetItemStringFromLink = function() return "item:19019" end,
+		GetItemKey = function(value, fallback)
+			return value or fallback
+		end,
+		GetItemStringFromLink = function()
+			return "item:19019"
+		end,
 	}
-	masterAddon.Strings.NormalizeText = function(value) return value and value ~= "" and tostring(value) or nil end
-	masterAddon.Services.Raid.CanUseCapability = function() return true end
-	masterAddon.Services.Raid.IsLootAuthority = function(_, sender) return sender == "Master" end
+	masterAddon.Strings.NormalizeText = function(value)
+		return value and value ~= "" and tostring(value) or nil
+	end
+	masterAddon.Services.Raid.CanUseCapability = function()
+		return true
+	end
+	masterAddon.Services.Raid.IsLootAuthority = function(_, sender)
+		return sender == "Master"
+	end
 	installPayloadCodec(masterAddon)
 	masterAddon.Comms.Sync = function(prefix, message)
 		return leaderDistribution.HandleMessage(prefix, message, "RAID", "Master") == true
 	end
 	loadAddonFile(masterAddon, "Raid Management Addon/Services/Loot/DistributionSession.lua")
 	local distribution = masterAddon.Services.Loot.DistributionSession
-	assertTrue(distribution.PublishItem({
-		itemKey = "item:19019",
-		itemLink = "item:19019",
-		itemName = "Thunderfury",
-		itemTexture = "texture",
-		quality = 5,
-		count = 1,
-	}), "master looter could not publish trade-only item facts")
+	assertTrue(
+		distribution.PublishItem({
+			itemKey = "item:19019",
+			itemLink = "item:19019",
+			itemName = "Thunderfury",
+			itemTexture = "texture",
+			quality = 5,
+			count = 1,
+		}),
+		"master looter could not publish trade-only item facts"
+	)
 	assertTrue(distribution.PublishRollStart("item:19019", 1), "master looter could not publish roll facts")
-	assertTrue(distribution.PublishRollEnd("item:19019", "Winner", 99, "master_loot:AT:1"),
-		"master looter could not publish winner facts")
+	assertTrue(
+		distribution.PublishRollEnd("item:19019", "Winner", 99, "master_loot:AT:1"),
+		"master looter could not publish winner facts"
+	)
 	leader.acceptDistributionAwards = false
 	assertTrue(distribution.PublishItemDone("item:19019", "Winner"), "master looter could not finalize the award")
 	assertEqual(0, leader.store.record.sequence, "unavailable raid authority partially committed the award")
-	assertTrue(distribution.PublishItemDone("item:19019", "Winner"), "duplicate final fact was rejected while authority settled")
+	assertTrue(
+		distribution.PublishItemDone("item:19019", "Winner"),
+		"duplicate final fact was rejected while authority settled"
+	)
 	assertEqual(1, #(leader.timers or {}), "duplicate final facts did not coalesce onto one authority retry")
 	assertTrue(leader:FireHandoverTimer(), "raid leader consumer did not run its first authority retry")
 	assertEqual(0, leader.store.record.sequence, "stale raid leader identity committed during retry")
@@ -17390,10 +23411,17 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 		assertEqual(1, client.store.record.state.loot[1].itemCount, client.name .. " trade-only item count differs")
 		assertEqual(1, client.store.record.state.loot[1].rollType, client.name .. " roll type differs")
 		assertEqual(99, client.store.record.state.loot[1].rollValue, client.name .. " roll value differs")
-		assertEqual("DISTRIBUTION_AWARD", client.store.record.state.loot[1].source, client.name .. " loot source differs")
+		assertEqual(
+			"DISTRIBUTION_AWARD",
+			client.store.record.state.loot[1].source,
+			client.name .. " loot source differs"
+		)
 		assertEqual(1, client.store.record.state.players[1].countMS, client.name .. " counter differs")
 		assertEqual(leader.store.record.digest, client.store.record.digest, client.name .. " digest differs")
-		assertTrue(deepEqual(leader.store.record.state, client.store.record.state), client.name .. " replica state differs")
+		assertTrue(
+			deepEqual(leader.store.record.state, client.store.record.state),
+			client.name .. " replica state differs"
+		)
 	end
 	assertEqual(1, #leader.store.committed, "raid leader canonical event count differs")
 	assertEqual(0, #master.store.committed, "master looter originated canonical raid events")
@@ -17423,17 +23451,32 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 	assertEqual(beforeChat, #leader.store.record.state.loot, "matching chat receipt created a duplicate loot row")
 	assertEqual(1, #leader.store.record.state.loot, "one award produced more than one canonical receipt")
 	assertEqual("reconciled", outcome, "matching chat receipt outcome differs")
-	assertEqual(beforeChatSequence + 1, leader.store.record.sequence,
-		"matching chat receipt did not commit exactly one canonical update")
-	assertEqual("LOOT_UPDATED", leader.store.committed[#leader.store.committed].eventType,
-		"matching chat reconciliation did not commit LOOT_UPDATED")
+	assertEqual(
+		beforeChatSequence + 1,
+		leader.store.record.sequence,
+		"matching chat receipt did not commit exactly one canonical update"
+	)
+	assertEqual(
+		"LOOT_UPDATED",
+		leader.store.committed[#leader.store.committed].eventType,
+		"matching chat reconciliation did not commit LOOT_UPDATED"
+	)
 	assertEqual(1, workflowReceipts, "matching chat path recorded more than one workflow receipt")
-	assertEqual(awardedLootNid, leader.store.record.state.loot[1].lootNid,
-		"matching chat receipt replaced the authoritative lootNid")
-	assertEqual(awardedRollSessionId, leader.store.record.state.loot[1].rollSessionId,
-		"matching chat receipt replaced the authoritative rollSessionId")
-	assertEqual(1, leader.store.record.state.players[1].countMS,
-		"matching chat receipt incremented the authoritative counter twice")
+	assertEqual(
+		awardedLootNid,
+		leader.store.record.state.loot[1].lootNid,
+		"matching chat receipt replaced the authoritative lootNid"
+	)
+	assertEqual(
+		awardedRollSessionId,
+		leader.store.record.state.loot[1].rollSessionId,
+		"matching chat receipt replaced the authoritative rollSessionId"
+	)
+	assertEqual(
+		1,
+		leader.store.record.state.players[1].countMS,
+		"matching chat receipt incremented the authoritative counter twice"
+	)
 
 	local otherRecipient = deepCopy(matchingChat)
 	otherRecipient.msg = "Other receives loot: [Thunderfury]."
@@ -17458,18 +23501,29 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 		local rollType = nonCountableRollTypes[i]
 		local itemKey = "item:" .. tostring(19019 + i)
 		local transactionId = "AT:direct:" .. tostring(rollType)
-		assertTrue(distribution.PublishItem({
-			itemKey = itemKey,
-			itemLink = itemKey,
-			itemName = "Direct Award " .. tostring(rollType),
-			itemTexture = "texture",
-			quality = 4,
-			count = 1,
-		}), "master looter could not publish non-countable item facts")
-		assertTrue(distribution.PublishRollStart(itemKey, rollType), "master looter could not publish non-countable roll facts")
-		assertTrue(distribution.PublishRollEnd(itemKey, "Winner", 0, "master_loot:" .. transactionId),
-			"master looter could not publish non-countable winner facts")
-		assertTrue(distribution.PublishItemDone(itemKey, "Winner"), "master looter could not finalize non-countable award")
+		assertTrue(
+			distribution.PublishItem({
+				itemKey = itemKey,
+				itemLink = itemKey,
+				itemName = "Direct Award " .. tostring(rollType),
+				itemTexture = "texture",
+				quality = 4,
+				count = 1,
+			}),
+			"master looter could not publish non-countable item facts"
+		)
+		assertTrue(
+			distribution.PublishRollStart(itemKey, rollType),
+			"master looter could not publish non-countable roll facts"
+		)
+		assertTrue(
+			distribution.PublishRollEnd(itemKey, "Winner", 0, "master_loot:" .. transactionId),
+			"master looter could not publish non-countable winner facts"
+		)
+		assertTrue(
+			distribution.PublishItemDone(itemKey, "Winner"),
+			"master looter could not finalize non-countable award"
+		)
 		local committedSequence = leader.store.record.sequence
 		assertTrue(distribution.PublishItemDone(itemKey, "Winner"), "non-countable terminal replay was rejected")
 		assertEqual(committedSequence, leader.store.record.sequence, "non-countable replay repeated canonical writes")
@@ -17479,21 +23533,47 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 		assertEqual(4, client.store.record.state.players[1].countMS, client.name .. " non-countable award changed MS")
 		assertEqual(0, client.store.record.state.players[1].countOs, client.name .. " non-countable award changed OS")
 		assertEqual(0, client.store.record.state.players[1].countSR, client.name .. " non-countable award changed SR")
-		assertEqual(0, client.store.record.state.players[1].countFree, client.name .. " non-countable award changed Free")
-		assertEqual(leader.store.record.digest, client.store.record.digest, client.name .. " non-countable digest differs")
-		assertTrue(deepEqual(leader.store.record.state, client.store.record.state), client.name .. " non-countable replica state differs")
+		assertEqual(
+			0,
+			client.store.record.state.players[1].countFree,
+			client.name .. " non-countable award changed Free"
+		)
+		assertEqual(
+			leader.store.record.digest,
+			client.store.record.digest,
+			client.name .. " non-countable digest differs"
+		)
+		assertTrue(
+			deepEqual(leader.store.record.state, client.store.record.state),
+			client.name .. " non-countable replica state differs"
+		)
 	end
 
 	local beforeExhaustedRetry = leader.store.record.sequence
 	leader.acceptDistributionAwards = false
-	assertTrue(distribution.PublishItem({
-		itemKey = "item:19100", itemLink = "item:19100", itemName = "Bounded Retry",
-		itemTexture = "texture", quality = 4, count = 1,
-	}), "master looter could not publish bounded-retry item facts")
-	assertTrue(distribution.PublishRollStart("item:19100", 0), "master looter could not publish bounded-retry roll facts")
-	assertTrue(distribution.PublishRollEnd("item:19100", "Winner", 0, "master_loot:AT:bounded"),
-		"master looter could not publish bounded-retry winner facts")
-	assertTrue(distribution.PublishItemDone("item:19100", "Winner"), "master looter could not finalize bounded-retry award")
+	assertTrue(
+		distribution.PublishItem({
+			itemKey = "item:19100",
+			itemLink = "item:19100",
+			itemName = "Bounded Retry",
+			itemTexture = "texture",
+			quality = 4,
+			count = 1,
+		}),
+		"master looter could not publish bounded-retry item facts"
+	)
+	assertTrue(
+		distribution.PublishRollStart("item:19100", 0),
+		"master looter could not publish bounded-retry roll facts"
+	)
+	assertTrue(
+		distribution.PublishRollEnd("item:19100", "Winner", 0, "master_loot:AT:bounded"),
+		"master looter could not publish bounded-retry winner facts"
+	)
+	assertTrue(
+		distribution.PublishItemDone("item:19100", "Winner"),
+		"master looter could not finalize bounded-retry award"
+	)
 	assertTrue(leader:FireHandoverTimer(), "bounded authority retry one was not scheduled")
 	assertTrue(leader:FireHandoverTimer(), "bounded authority retry two was not scheduled")
 	assertEqual(0, #(leader.timers or {}), "exhausted authority retry continued scheduling")
@@ -17502,7 +23582,9 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 
 	loadAddonFile(leaderAddon, "Raid Management Addon/Services/Loot/LootAttribution.lua")
 	local loot = leaderAddon.Services.Loot
-	leaderRaid.CanUseCapability = function(_, capability) return capability == "loot" end
+	leaderRaid.CanUseCapability = function(_, capability)
+		return capability == "loot"
+	end
 	network.now = currentTime
 
 	local function queueLocalAttribution(itemLink, rollValue, rollSessionId, transactionId)
@@ -17520,8 +23602,12 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 			1,
 			transactionId,
 			1,
-			function(callback, delay) return loot:ScheduleTimer(callback, delay) end,
-			function(handle) return loot:CancelTimer(handle) end,
+			function(callback, delay)
+				return loot:ScheduleTimer(callback, delay)
+			end,
+			function(handle)
+				return loot:CancelTimer(handle)
+			end,
 			function(award)
 				return loot:LogTradeOnlyLoot(
 					award.itemLink,
@@ -17540,21 +23626,26 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 	end
 
 	local function publishLocalDistribution(itemLink, rollValue, transactionId)
-		assertTrue(leaderDistribution.PublishItem({
-			itemKey = itemLink,
-			itemLink = itemLink,
-			itemName = "Local Award",
-			itemTexture = "texture",
-			quality = 5,
-			count = 1,
-		}), "local leader could not publish item facts")
-		assertTrue(leaderDistribution.PublishRollStart(itemLink, 4),
-			"local leader could not publish roll facts")
-		assertTrue(leaderDistribution.PublishRollEnd(
-			itemLink, "Winner", rollValue, "master_loot:" .. transactionId
-		), "local leader could not publish winner facts")
-		assertTrue(leaderDistribution.PublishItemDone(itemLink, "Winner"),
-			"local leader could not publish terminal facts")
+		assertTrue(
+			leaderDistribution.PublishItem({
+				itemKey = itemLink,
+				itemLink = itemLink,
+				itemName = "Local Award",
+				itemTexture = "texture",
+				quality = 5,
+				count = 1,
+			}),
+			"local leader could not publish item facts"
+		)
+		assertTrue(leaderDistribution.PublishRollStart(itemLink, 4), "local leader could not publish roll facts")
+		assertTrue(
+			leaderDistribution.PublishRollEnd(itemLink, "Winner", rollValue, "master_loot:" .. transactionId),
+			"local leader could not publish winner facts"
+		)
+		assertTrue(
+			leaderDistribution.PublishItemDone(itemLink, "Winner"),
+			"local leader could not publish terminal facts"
+		)
 	end
 
 	local function observeLocalChat(itemLink, rollValue)
@@ -17571,18 +23662,24 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 	end
 
 	local function assertLocalAwardConverged(beforeRows, beforeCounter, label)
-		assertEqual(beforeRows + 1, #leader.store.record.state.loot,
-			label .. " did not produce exactly one canonical row")
-		assertEqual(beforeCounter + 1, leader.store.record.state.players[1].countFree,
-			label .. " counter delta differs")
-		assertEqual(beforeRows + 1, #member.store.record.state.loot,
-			label .. " replica row count differs")
-		assertEqual(beforeCounter + 1, member.store.record.state.players[1].countFree,
-			label .. " replica counter delta differs")
-		assertEqual(leader.store.record.digest, member.store.record.digest,
-			label .. " replica digest differs")
-		assertTrue(deepEqual(leader.store.record.state, member.store.record.state),
-			label .. " replica state differs")
+		assertEqual(
+			beforeRows + 1,
+			#leader.store.record.state.loot,
+			label .. " did not produce exactly one canonical row"
+		)
+		assertEqual(
+			beforeCounter + 1,
+			leader.store.record.state.players[1].countFree,
+			label .. " counter delta differs"
+		)
+		assertEqual(beforeRows + 1, #member.store.record.state.loot, label .. " replica row count differs")
+		assertEqual(
+			beforeCounter + 1,
+			member.store.record.state.players[1].countFree,
+			label .. " replica counter delta differs"
+		)
+		assertEqual(leader.store.record.digest, member.store.record.digest, label .. " replica digest differs")
+		assertTrue(deepEqual(leader.store.record.state, member.store.record.state), label .. " replica state differs")
 	end
 
 	local beforeRows = #leader.store.record.state.loot
@@ -17590,8 +23687,10 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 	queueLocalAttribution("item:19200", 94, "RS:local:1", "AT:local:1")
 	observeLocalChat("item:19200", 94)
 	publishLocalDistribution("item:19200", 94, "AT:local:1")
-	assertTrue(leaderRaid:AddPlayerCountForRollType("Winner", 4, 1, 1),
-		"chat-first local counter owner rejected the award")
+	assertTrue(
+		leaderRaid:AddPlayerCountForRollType("Winner", 4, 1, 1),
+		"chat-first local counter owner rejected the award"
+	)
 	confirmLocalAttribution("item:19200", "RS:local:1", "AT:local:1")
 	assertLocalAwardConverged(beforeRows, beforeCounter, "chat-first local award")
 
@@ -17599,8 +23698,10 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 	beforeCounter = leader.store.record.state.players[1].countFree
 	queueLocalAttribution("item:19201", 55, "RS:local:2", "AT:local:2")
 	publishLocalDistribution("item:19201", 55, "AT:local:2")
-	assertTrue(leaderRaid:AddPlayerCountForRollType("Winner", 4, 1, 1),
-		"slot-first local counter owner rejected the award")
+	assertTrue(
+		leaderRaid:AddPlayerCountForRollType("Winner", 4, 1, 1),
+		"slot-first local counter owner rejected the award"
+	)
 	confirmLocalAttribution("item:19201", "RS:local:2", "AT:local:2")
 	observeLocalChat("item:19201", 55)
 	assertLocalAwardConverged(beforeRows, beforeCounter, "slot-first local award")
@@ -17611,8 +23712,12 @@ function cases.raid_live_sync_digest_conflict()
 	local network = newLiveReplicationNetwork()
 	local member = installLiveReplicationClient(network, "Member", makeLiveRecord(2))
 	local body = {
-		raidUid = "raid-live", authorityEpoch = 1, sequence = 2,
-		checkpointSequence = 0, digest = "ffffffff:1", status = "active",
+		raidUid = "raid-live",
+		authorityEpoch = 1,
+		sequence = 2,
+		checkpointSequence = 0,
+		digest = "ffffffff:1",
+		status = "active",
 	}
 	local wire = network:encode("HEAD", "-", "-", body)
 	member.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
@@ -17629,14 +23734,19 @@ local function installLoggerShareFixture(addon)
 		[2] = { zone = "Ulduar", startTime = 1721110000, difficulty = 3, loot = {} },
 	}
 	local records = {
-		["raid-complete"] = { status = "complete" },
-		["raid-active"] = { status = "active" },
+		["raid-complete"] = { status = "complete", state = raids[1] },
+		["raid-active"] = { status = "active", state = raids[2] },
 	}
 	local raidUids = { [raids[1]] = "raid-complete", [raids[2]] = "raid-active" }
 	local grouped = true
+	local currentRaid = 2
+	local activeRaidIndex = 2
+	local isRaidLeader = true
 	local warnings = {}
 	local offers = {}
 	local offerResult, offerReason = true, nil
+	local frameBinding
+	local scaffoldDefinition
 
 	local function noop() end
 	local function newControl(name)
@@ -17646,22 +23756,46 @@ local function installLoggerShareFixture(addon)
 			enabled = true,
 			text = "",
 			scripts = {},
-			GetName = function(self) return self.name end,
-			SetText = function(self, value) self.text = tostring(value or "") end,
-			GetText = function(self) return self.text end,
-			SetScript = function(self, scriptName, callback) self.scripts[scriptName] = callback end,
-			GetScript = function(self, scriptName) return self.scripts[scriptName] end,
-			Show = function(self) self.shown = true end,
+			GetName = function(self)
+				return self.name
+			end,
+			SetText = function(self, value)
+				self.text = tostring(value or "")
+			end,
+			GetText = function(self)
+				return self.text
+			end,
+			SetScript = function(self, scriptName, callback)
+				self.scripts[scriptName] = callback
+			end,
+			GetScript = function(self, scriptName)
+				return self.scripts[scriptName]
+			end,
+			Show = function(self)
+				self.shown = true
+			end,
 			Hide = function(self)
 				self.shown = false
 				local callback = self.scripts.OnHide
-				if callback then callback(self) end
+				if callback then
+					callback(self)
+				end
 			end,
-			IsShown = function(self) return self.shown end,
-			Enable = function(self) self.enabled = true end,
-			Disable = function(self) self.enabled = false end,
-			SetEnabled = function(self, enabled) self.enabled = enabled == true end,
-			GetWidth = function() return 335 end,
+			IsShown = function(self)
+				return self.shown
+			end,
+			Enable = function(self)
+				self.enabled = true
+			end,
+			Disable = function(self)
+				self.enabled = false
+			end,
+			SetEnabled = function(self, enabled)
+				self.enabled = enabled == true
+			end,
+			GetWidth = function()
+				return 335
+			end,
 			SetWidth = noop,
 			SetHeight = noop,
 			SetSize = noop,
@@ -17674,8 +23808,16 @@ local function installLoggerShareFixture(addon)
 
 	local listName = "RMALootHistoryRaids"
 	local listSuffixes = {
-		"Title", "HeaderNum", "HeaderDate", "HeaderZone", "HeaderSize", "CurrentBtn", "ShareBtn",
-		"DeleteBtn", "EmptyState", "ScrollFrame",
+		"Title",
+		"HeaderNum",
+		"HeaderDate",
+		"HeaderZone",
+		"HeaderSize",
+		"CurrentBtn",
+		"ShareBtn",
+		"DeleteBtn",
+		"EmptyState",
+		"ScrollFrame",
 	}
 	_G[listName] = newControl(listName)
 	for i = 1, #listSuffixes do
@@ -17706,101 +23848,236 @@ local function installLoggerShareFixture(addon)
 		RaidSyncStatusSuspended = "Suspended",
 		RaidSyncStatusFailed = "Failed",
 		StrUnknown = "Unknown",
-	}, { __index = function(_, key) return key end })
-	addon.Diag = { W = setmetatable({}, { __index = function(_, key) return key end }) }
+	}, {
+		__index = function(_, key)
+			return key
+		end,
+	})
+	addon.Diag = { W = setmetatable({}, {
+		__index = function(_, key)
+			return key
+		end,
+	}) }
 	addon.Controllers = {}
 	addon.C = { rollTypes = {}, lootTypesColored = {}, itemColors = {}, RESERVES_ITEM_FALLBACK_ICON = "fallback" }
 	addon.Options = {}
 	addon.Strings = {
-		NormalizeName = function(value) return value end,
-		NormalizeLower = function(value) return value and string.lower(value) or value end,
-		TrimText = function(value) return value end,
+		NormalizeName = function(value)
+			return value
+		end,
+		NormalizeLower = function(value)
+			return value and string.lower(value) or value
+		end,
+		TrimText = function(value)
+			return value
+		end,
 	}
 	addon.Colors = {
-		NormalizeHexColor = function(value) return value end,
-		GetClassColor = function() return 1, 1, 1 end,
+		NormalizeHexColor = function(value)
+			return value
+		end,
+		GetClassColor = function()
+			return 1, 1, 1
+		end,
 	}
 	addon.Base64 = {}
 	addon.Sort = {
-		CompareValues = function(a, b, asc) return asc and a < b or a > b end,
-		CompareNumbers = function(a, b, asc) return asc and a < b or a > b end,
-		GetLootSortName = function() return "" end,
+		CompareValues = function(a, b, asc)
+			return asc and a < b or a > b
+		end,
+		CompareNumbers = function(a, b, asc)
+			return asc and a < b or a > b
+		end,
+		GetLootSortName = function()
+			return ""
+		end,
 	}
-	addon.IgnoredMobs = { IsTrashMobName = function() return false end, GetTrashMobName = function() return nil end }
-	addon.Timer = { BindMixin = function(owner)
-		function owner:ScheduleTimer(callback) callback(); return {} end
-		function owner:CancelTimer() return true end
-	end }
-	addon.Events = { Internal = {
-		RaidCreate = "RaidCreate", LoggerSelectRaid = "LoggerSelectRaid", LoggerSelectBoss = "LoggerSelectBoss",
-		LoggerSelectPlayer = "LoggerSelectPlayer", LoggerSelectBossPlayer = "LoggerSelectBossPlayer",
-		LoggerClearPlayerSelections = "LoggerClearPlayerSelections", LoggerSelectItem = "LoggerSelectItem",
-		LoggerLootChanged = "LoggerLootChanged", LoggerDataChanged = "LoggerDataChanged",
-		RaidLootUpdate = "RaidLootUpdate", LoggerRaidOfferReceived = "LoggerRaidOfferReceived",
-		RaidRosterDelta = "RaidRosterDelta",
-	} }
+	addon.IgnoredMobs = {
+		IsTrashMobName = function()
+			return false
+		end,
+		GetTrashMobName = function()
+			return nil
+		end,
+	}
+	addon.Timer = {
+		BindMixin = function(owner)
+			function owner:ScheduleTimer(callback)
+				callback()
+				return {}
+			end
+			function owner:CancelTimer()
+				return true
+			end
+		end,
+	}
+	addon.Events = {
+		Internal = {
+			RaidCreate = "RaidCreate",
+			LoggerSelectRaid = "LoggerSelectRaid",
+			LoggerSelectBoss = "LoggerSelectBoss",
+			LoggerSelectPlayer = "LoggerSelectPlayer",
+			LoggerSelectBossPlayer = "LoggerSelectBossPlayer",
+			LoggerClearPlayerSelections = "LoggerClearPlayerSelections",
+			LoggerSelectItem = "LoggerSelectItem",
+			LoggerLootChanged = "LoggerLootChanged",
+			LoggerDataChanged = "LoggerDataChanged",
+			RaidLootUpdate = "RaidLootUpdate",
+			LoggerRaidOfferReceived = "LoggerRaidOfferReceived",
+			RaidRosterDelta = "RaidRosterDelta",
+		},
+	}
 	addon.Bus = { TriggerEvent = noop, RegisterCallback = noop }
 	addon.Services = {
 		Logger = {
-			Store = { GetRaid = function(_, raidId) return raids[raidId] end },
-			View = {}, Export = {}, Actions = {},
+			Store = {
+				GetRaid = function(_, raidId)
+					return raids[raidId]
+				end,
+			},
+			View = {},
+			Export = {},
+			Actions = {},
 			Helpers = {
-				FormatRollValueForRow = function(value) return value end,
-				NormalizeRollType = function(value) return value end,
-				GetRollTypeSortValue = function(value) return value end,
+				FormatRollValueForRow = function(value)
+					return value
+				end,
+				NormalizeRollType = function(value)
+					return value
+				end,
+				GetRollTypeSortValue = function(value)
+					return value
+				end,
 			},
 		},
 		Raid = {
 			Projections = {
 				FillRaidList = noop,
-				FormatTimestamp = function() return "2024-07-16" end,
-				GetDifficultyLabel = function() return "25 Heroic" end,
+				FormatTimestamp = function()
+					return "2024-07-16"
+				end,
+				GetDifficultyLabel = function()
+					return "25 Heroic"
+				end,
 			},
-			IsGroupMember = function(_, name) return grouped and name == "Member" end,
-			IsRaidExpired = function() return false end,
-			GetRaidSize = function() return 25 end,
-			GetPlayerClass = function() return nil end,
+			IsGroupMember = function(_, name)
+				return grouped and name == "Member"
+			end,
+			IsRaidExpired = function()
+				return false
+			end,
+			IsRaidLeader = function()
+				return isRaidLeader
+			end,
+			GetRaidSize = function()
+				return 25
+			end,
+			GetPlayerClass = function()
+				return nil
+			end,
 		},
 	}
 	local syncer = {
-		GetStatus = function() return "synchronized" end,
+		GetStatus = function()
+			return "synchronized"
+		end,
 		OfferHistoricalRaid = function(_, raidUid, target)
 			offers[#offers + 1] = { raidUid = raidUid, target = target }
 			return offerResult, offerReason
 		end,
 	}
 	local raidStore = {
-		GetRaidUid = function(_, raid) return raidUids[raid] end,
-		GetRecord = function(_, raidUid) return records[raidUid] end,
+		GetRaidUid = function(_, raid)
+			return raidUids[raid]
+		end,
+		GetRecord = function(_, raidUid)
+			return records[raidUid]
+		end,
+		GetActiveRecord = function()
+			return records[raidUids[raids[activeRaidIndex]]]
+		end,
+		GetIndexByArchiveKey = function(_, archiveKey)
+			for index = 1, #raids do
+				if raidUids[raids[index]] == archiveKey then
+					return index
+				end
+			end
+		end,
 	}
-	addon.Database.GetRaidStore = function() return raidStore end
-	addon.Database.GetSyncer = function() return syncer end
-	addon.Database.EnsureRaidByIndex = function(raidId) return raids[raidId] end
-	addon.Database.GetCurrentRaid = function() return 2 end
-	addon.Database.GetRaidNidByIndex = function(raidId) return raidId end
-	addon.IsInGroup = function() return grouped end
-	addon.IsInRaid = function() return grouped end
-	addon.Group = { GetTypeAndCount = function() return "raid", 1, 2 end }
-	addon.WrapTextInColorCode = function(value) return value end
-	addon.warn = function(_, message) warnings[#warnings + 1] = message end
+	addon.Database.GetRaidStore = function()
+		return raidStore
+	end
+	addon.Database.GetSyncer = function()
+		return syncer
+	end
+	addon.Database.EnsureRaidByIndex = function(raidId)
+		return raids[raidId]
+	end
+	addon.Database.GetCurrentRaid = function()
+		return currentRaid
+	end
+	addon.Database.GetRaidNidByIndex = function(raidId)
+		return raidId
+	end
+	addon.IsInGroup = function()
+		return grouped
+	end
+	addon.IsInRaid = function()
+		return grouped
+	end
+	addon.Group = {
+		GetTypeAndCount = function()
+			return "raid", 1, 2
+		end,
+	}
+	addon.WrapTextInColorCode = function(value)
+		return value
+	end
+	addon.warn = function(_, message)
+		warnings[#warnings + 1] = message
+	end
 
 	addon.UI = {
 		Rows = { SetLoggerRowIndex = noop, ApplyLoggerSkin = noop },
 		Popups = {
-			Define = noop, IsDefined = function() return false end, Show = noop, Hide = noop, Resize = noop,
-			ShowConfirm = noop, ShowEditBox = noop,
+			Define = noop,
+			IsDefined = function()
+				return false
+			end,
+			Show = noop,
+			Hide = noop,
+			Resize = noop,
+			ShowConfirm = noop,
+			ShowEditBox = noop,
 		},
 		Tooltips = { ShowItem = noop, ShowLines = noop, Hide = noop, Bind = noop, BindModel = noop },
 		Frames = {
-			GetRef = function() return nil end,
-			SetScriptSafely = function(control, scriptName, callback) control:SetScript(scriptName, callback) end,
+			GetRef = function()
+				return nil
+			end,
+			SetScriptSafely = function(control, scriptName, callback)
+				control:SetScript(scriptName, callback)
+			end,
 			SetFrameTitle = noop,
-			BindModuleFrame = function() return nil end,
-			MakeModuleFrameGetter = function() return function() return nil end end,
-			MakeFrameGetter = function() return function() return nil end end,
+			BindModuleFrame = function(_, frame, options)
+				frameBinding = options
+				return frame:GetName()
+			end,
+			MakeModuleFrameGetter = function()
+				return function()
+					return nil
+				end
+			end,
+			MakeFrameGetter = function()
+				return function()
+					return nil
+				end
+			end,
 		},
 		Lists = {
-			CalculateColumnWidths = function(_, minimums) return minimums end,
+			CalculateColumnWidths = function(_, minimums)
+				return minimums
+			end,
 			CreateController = function(config)
 				local controller = { config = config, data = {} }
 				function controller:Dirty() end
@@ -17808,40 +24085,97 @@ local function installLoggerShareFixture(addon)
 				function controller:Sort() end
 				return controller
 			end,
-			MakeIndexedRowName = function(prefix) return function(index) return prefix .. index end end,
-			CreateRowRenderer = function(callback) return callback end,
+			MakeIndexedRowName = function(prefix)
+				return function(index)
+					return prefix .. index
+				end
+			end,
+			CreateRowRenderer = function(callback)
+				return callback
+			end,
 			BindController = noop,
 		},
 		Selection = {
-			SetModifierPolicy = noop, EnsureState = noop, SetAnchor = noop,
-			GetCount = function() return 0 end, GetSelected = function() return {} end,
-			IsSelected = function() return false end, GetVersion = function() return 0 end,
-			ResolveModifiers = function() return false, false end,
-			Toggle = function() return nil, 0 end, SelectRange = function() return nil, 0 end,
+			SetModifierPolicy = noop,
+			EnsureState = noop,
+			SetAnchor = noop,
+			GetCount = function()
+				return 0
+			end,
+			GetSelected = function()
+				return {}
+			end,
+			IsSelected = function()
+				return false
+			end,
+			GetVersion = function()
+				return 0
+			end,
+			ResolveModifiers = function()
+				return false, false
+			end,
+			Toggle = function()
+				return nil, 0
+			end,
+			SelectRange = function()
+				return nil, 0
+			end,
 			Clear = noop,
 		},
-		ModuleState = { Ensure = function() return {} end },
-		Scaffold = { DefineModule = noop },
+		ModuleState = {
+			Ensure = function()
+				return {}
+			end,
+		},
+		Scaffold = {
+			DefineModule = function(definition)
+				scaffoldDefinition = definition
+			end,
+		},
 		Primitives = {
-			SetEnabled = function(control, enabled) if control then control.enabled = enabled == true end end,
-			SetShown = function(control, shown) if control then control.shown = shown == true end end,
+			SetEnabled = function(control, enabled)
+				if control then
+					control.enabled = enabled == true
+				end
+			end,
+			SetShown = function(control, shown)
+				if control then
+					control.shown = shown == true
+				end
+			end,
 			SetButtonCount = noop,
 		},
 		ExportDialog = {},
 	}
 
-	_G.GetItemIcon = function() return nil end
-	_G.CreateFrame = function() return newControl("DynamicFrame") end
+	_G.GetItemIcon = function()
+		return nil
+	end
+	_G.CreateFrame = function()
+		return newControl("DynamicFrame")
+	end
 	_G.UIParent = newControl("UIParent")
-	_G.UnitName = function(unit) return unit == "raid2" and "Member" or "Player" end
-	_G.UnitIsUnit = function(unit) return unit == "raid1" end
-	_G.UIDropDownMenu_Initialize = function(dropdown, callback) dropdown.initialize = callback end
-	_G.UIDropDownMenu_CreateInfo = function() return {} end
+	_G.UnitName = function(unit)
+		return unit == "raid2" and "Member" or "Player"
+	end
+	_G.UnitIsUnit = function(unit)
+		return unit == "raid1"
+	end
+	_G.UIDropDownMenu_Initialize = function(dropdown, callback)
+		dropdown.initialize = callback
+	end
+	_G.UIDropDownMenu_CreateInfo = function()
+		return {}
+	end
 	_G.UIDropDownMenu_AddButton = noop
 	_G.UIDropDownMenu_SetWidth = noop
 	_G.UIDropDownMenu_SetButtonWidth = noop
-	_G.UIDropDownMenu_SetText = function(dropdown, text) dropdown:SetText(text) end
-	_G.GetInstanceInfo = function() return "Ulduar", "raid", 3, nil, nil, 0, false end
+	_G.UIDropDownMenu_SetText = function(dropdown, text)
+		dropdown:SetText(text)
+	end
+	_G.GetInstanceInfo = function()
+		return "Ulduar", "raid", 3, nil, nil, 0, false
+	end
 
 	loadAddonFile(addon, "Raid Management Addon/Controllers/Logger.lua")
 	local raidController = addon.Controllers.Logger.Raids._ctrl
@@ -17855,9 +24189,62 @@ local function installLoggerShareFixture(addon)
 		sendButton = _G[shareName .. "SendBtn"],
 		warnings = warnings,
 		offers = offers,
-		setGrouped = function(value) grouped = value == true end,
-		setOfferResult = function(result, reason) offerResult, offerReason = result, reason end,
+		currentButton = _G[listName .. "CurrentBtn"],
+		setGrouped = function(value)
+			grouped = value == true
+		end,
+		setCurrentRaid = function(value)
+			currentRaid = value
+		end,
+		setActiveRaidIndex = function(value)
+			activeRaidIndex = value
+		end,
+		setRaidLeader = function(value)
+			isRaidLeader = value == true
+		end,
+		showLogger = function()
+			local frame = newControl("RMALootHistoryFrame")
+			assert(scaffoldDefinition and scaffoldDefinition.onLoad, "Logger frame scaffold was not defined")
+			scaffoldDefinition.onLoad(frame)
+			assert(frameBinding and frameBinding.hookOnShow, "Logger show hook was not bound")
+			frameBinding.hookOnShow()
+		end,
+		hideLogger = function()
+			assert(frameBinding and frameBinding.hookOnHide, "Logger hide hook was not bound")
+			frameBinding.hookOnHide()
+		end,
+		setOfferResult = function(result, reason)
+			offerResult, offerReason = result, reason
+		end,
 	}
+end
+
+function cases.logger_replica_defaults_to_active_archive_without_promoting_current(addon)
+	local fixture = installLoggerShareFixture(addon)
+	local logger = fixture.controller
+
+	fixture.setCurrentRaid(nil)
+	fixture.setActiveRaidIndex(2)
+	fixture.setRaidLeader(false)
+	logger._SetSelectedRaid(nil)
+	fixture.showLogger()
+	assertEqual(2, logger.selectedRaid, "read-only replica did not select the active archive row")
+	assertEqual(nil, addon.Database.GetCurrentRaid(), "viewing a replica promoted it to current raid")
+	fixture.raidController.config.postUpdate("RMALootHistoryRaids")
+	assertEqual(false, fixture.currentButton.enabled, "read-only replica enabled Set Current")
+
+	fixture.hideLogger()
+	fixture.setActiveRaidIndex(1)
+	fixture.showLogger()
+	assertEqual(1, logger.selectedRaid, "reopened read-only replica kept a stale active archive row")
+	assertEqual(nil, addon.Database.GetCurrentRaid(), "reopening a replica promoted it to current raid")
+
+	fixture.setRaidLeader(true)
+	fixture.setCurrentRaid(1)
+	logger._SetSelectedRaid(nil)
+	fixture.showLogger()
+	assertEqual(1, logger.selectedRaid, "local current raid did not take precedence over active archive row")
+	print("PASS logger_replica_defaults_to_active_archive_without_promoting_current")
 end
 
 function cases.logger_share_eligibility_is_consistent_and_observable(addon)
@@ -17952,26 +24339,36 @@ function cases.raid_history_import_outcomes(addon)
 	assertEqual(raidUid, conflictRecord.sourceRaidUid, "conflicting history lost its source UID")
 	assertEqual(raidUid, conflictRecord.conflictOfRaidUid, "conflicting history lost its conflict relation")
 	local conflictWireSnapshot = assert(store:BuildSnapshot(conflictUid))
-	assertEqual(raidUid, conflictWireSnapshot.raidUid,
-		"conflicting history leaked its local archive key on the wire")
+	assertEqual(raidUid, conflictWireSnapshot.raidUid, "conflicting history leaked its local archive key on the wire")
 	assertEqual(nil, conflictWireSnapshot.sourceRaidUid, "variant wire snapshot exposed local source provenance")
 	assertEqual(nil, conflictWireSnapshot.conflictOfRaidUid, "variant wire snapshot exposed local conflict provenance")
-	assertEqual("ALREADY_PRESENT", store:ImportHistoricalSnapshot(conflict),
-		"reimported conflict variant was not deduplicated")
+	assertEqual(
+		"ALREADY_PRESENT",
+		store:ImportHistoricalSnapshot(conflict),
+		"reimported conflict variant was not deduplicated"
+	)
 	assertEqual(2, #store:EnsureArchive().order, "reimported conflict created a third row")
-	assertEqual(1, store:GetRaidIndexByNid(snapshot.state.raidNid),
-		"conflict variant polluted the canonical raidNid index")
+	assertEqual(
+		1,
+		store:GetRaidIndexByNid(snapshot.state.raidNid),
+		"conflict variant polluted the canonical raidNid index"
+	)
 	local reloaded = deepCopy(store:EnsureArchive())
 	_G.RMA_Raids = reloaded
 	addon.Database.SavedVariables.NormalizeAfterLoad()
 	assertEqual(2, #store:EnsureArchive().order, "conflict variant did not survive SavedVariables reload")
 	assertEqual(raidUid, store:GetRecord(conflictUid).sourceRaidUid, "reload lost conflict source provenance")
-	assertTrue(addon.DB.RaidValidator:ValidateArchive(store:EnsureArchive()),
-		"reloaded archive with conflict metadata is invalid")
+	assertTrue(
+		addon.DB.RaidValidator:ValidateArchive(store:EnsureArchive()),
+		"reloaded archive with conflict metadata is invalid"
+	)
 	local invalidProvenance = deepCopy(store:EnsureArchive())
 	invalidProvenance.raids[conflictUid].sourceRaidUid = "source\nuid"
-	assertEqual(nil, addon.DB.RaidValidator:ValidateArchive(invalidProvenance),
-		"unsafe persisted source UID was accepted")
+	assertEqual(
+		nil,
+		addon.DB.RaidValidator:ValidateArchive(invalidProvenance),
+		"unsafe persisted source UID was accepted"
+	)
 	assertTrue(not deepEqual(before, store:EnsureArchive()), "conflicting history did not mutate the archive")
 	print("PASS raid_history_import_outcomes")
 end
@@ -17998,18 +24395,24 @@ local function installHistoricalConsentFixture(addon)
 	fixture.selections = {}
 	fixture.callbacks = {}
 	addon.L = {
-		WarnRaidDatabaseAuthorityReleased =
-			"Raid database authority passed to %s. This client now holds a read-only replica.",
-		WarnRaidDatabaseAuthorityReceived =
-			"Raid database authority received from %s. Recovery is in progress; raid history writes are temporarily paused.",
+		WarnRaidDatabaseAuthorityReleased = "Raid database authority passed to %s. This client now holds a read-only replica.",
+		WarnRaidDatabaseAuthorityReceived = "Raid database authority received from %s. Recovery is in progress; raid history writes are temporarily paused.",
 	}
 	addon.Diagnose = { D = { LogRaidSyncTrace = "%s %s" } }
 	addon.Diag = addon.Diagnose
-	addon.Options = { RegisterNamespace = function() end, IsDebugEnabled = function() return false end }
+	addon.Options = {
+		RegisterNamespace = function() end,
+		IsDebugEnabled = function()
+			return false
+		end,
+	}
 	addon.Events = {
 		Internal = {
-			OptionsLoaded = "OptionsLoaded", RaidCreate = "RaidCreate", RaidRosterDelta = "RaidRosterDelta",
-			RaidReplicationCommitted = "RaidReplicationCommitted", LoggerSelectRaid = "LoggerSelectRaid",
+			OptionsLoaded = "OptionsLoaded",
+			RaidCreate = "RaidCreate",
+			RaidRosterDelta = "RaidRosterDelta",
+			RaidReplicationCommitted = "RaidReplicationCommitted",
+			LoggerSelectRaid = "LoggerSelectRaid",
 			LoggerRaidOfferReceived = "LoggerRaidOfferReceived",
 			RaidAuthorityRecoveryFinished = "RaidAuthorityRecoveryFinished",
 			RaidInstanceRecognized = "RaidInstanceRecognized",
@@ -18029,17 +24432,29 @@ local function installHistoricalConsentFixture(addon)
 			end
 		end,
 	}
-	addon.Services = { Raid = {
-		GetRaidLeaderName = function() return "Leader" end,
-		IsRaidLeader = function() return false end,
-		IsGroupMember = function(_, name)
-			local short = string.lower(string.match(tostring(name or ""), "^([^%-]+)") or tostring(name or ""))
-			if short == "leader" then return fixture.leaderInGroup end
-			if short == "member" then return fixture.memberInGroup end
-			return false
-		end,
-	} }
-	addon.Comms.RegisterPrefixIfAvailable = function() return true end
+	addon.Services = {
+		Raid = {
+			GetRaidLeaderName = function()
+				return "Leader"
+			end,
+			IsRaidLeader = function()
+				return false
+			end,
+			IsGroupMember = function(_, name)
+				local short = string.lower(string.match(tostring(name or ""), "^([^%-]+)") or tostring(name or ""))
+				if short == "leader" then
+					return fixture.leaderInGroup
+				end
+				if short == "member" then
+					return fixture.memberInGroup
+				end
+				return false
+			end,
+		},
+	}
+	addon.Comms.RegisterPrefixIfAvailable = function()
+		return true
+	end
 	addon.Comms.SendAddonBatch = function(prefix, messages)
 		return addon.Comms.QueueAddonMessages(prefix, messages, "RAID")
 	end
@@ -18053,10 +24468,15 @@ local function installHistoricalConsentFixture(addon)
 	function fixture:Offer(offerId, snapshot)
 		snapshot = snapshot or self.snapshot
 		local body = {
-			raidUid = snapshot.raidUid, authorityEpoch = snapshot.authorityEpoch,
-			sequence = snapshot.sequence, digest = snapshot.digest, zone = snapshot.state.zone,
-			startTime = snapshot.state.startTime, size = snapshot.state.size,
-			difficulty = snapshot.state.difficulty, lootCount = #(snapshot.state.loot or {}),
+			raidUid = snapshot.raidUid,
+			authorityEpoch = snapshot.authorityEpoch,
+			sequence = snapshot.sequence,
+			digest = snapshot.digest,
+			zone = snapshot.state.zone,
+			startTime = snapshot.state.startTime,
+			size = snapshot.state.size,
+			difficulty = snapshot.state.difficulty,
+			lootCount = #(snapshot.state.loot or {}),
 		}
 		local wire = assert(self.protocol.Encode("OFFER", offerId, "Member", body))
 		return self.syncer:OnAddonMessage("RMARaidSync", wire, "WHISPER", "Leader-TestRealm")
@@ -18076,15 +24496,15 @@ local function installHistoricalConsentFixture(addon)
 		local serialized, serializedReason = self.protocol.EncodeBody({ snapshot = snapshot })
 		assertTrue(serialized ~= nil, "historical snapshot serialization failed: " .. tostring(serializedReason))
 		local queued, queueReason = self.session:QueueTransfer("SNAP_DATA", request.requestId, "Member", {
-			raidUid = snapshot.raidUid, authorityEpoch = snapshot.authorityEpoch, sequence = snapshot.sequence,
+			raidUid = snapshot.raidUid,
+			authorityEpoch = snapshot.authorityEpoch,
+			sequence = snapshot.sequence,
 		}, { snapshot = snapshot })
 		assertTrue(queued, "historical snapshot transfer failed: " .. tostring(queueReason))
 		local messages = self.batches[#self.batches].messages
 		local maximum = parts or #messages
 		for i = 1, maximum do
-			assert(self.syncer:OnAddonMessage(
-				"RMARaidSync", messages[i], "WHISPER", "Leader-TestRealm"
-			))
+			assert(self.syncer:OnAddonMessage("RMARaidSync", messages[i], "WHISPER", "Leader-TestRealm"))
 		end
 		return #messages
 	end
@@ -18095,7 +24515,9 @@ end
 local function latestQueuedEnvelope(fixture, kind)
 	for i = #fixture.queued, 1, -1 do
 		local envelope = fixture.protocol.Decode(fixture.queued[i].message)
-		if envelope and envelope.kind == kind then return envelope end
+		if envelope and envelope.kind == kind then
+			return envelope
+		end
 	end
 	return nil
 end
@@ -18114,9 +24536,14 @@ local function newHistoricalPeerNetwork()
 		local targetName = string.lower(string.match(tostring(target or ""), "^([^%-]+)") or "")
 		local recipient
 		for peerName, peer in pairs(self.clients) do
-			if string.lower(peerName) == targetName then recipient = peer break end
+			if string.lower(peerName) == targetName then
+				recipient = peer
+				break
+			end
 		end
-		if not recipient then return false, "UNKNOWN_TARGET" end
+		if not recipient then
+			return false, "UNKNOWN_TARGET"
+		end
 		self.messages[#self.messages + 1] = { sender = sender, envelope = envelope }
 		return recipient.syncer:OnAddonMessage(prefix, message, channel, sender .. "-TestRealm")
 	end
@@ -18148,33 +24575,57 @@ local function installHistoricalPeer(network, name, withCompletedRaid)
 		assert(store:ConcludeActiveRaid(sourceUid, 1721120200))
 	end
 	client.archive = deepCopy(store:EnsureArchive())
-	peerAddon.Database.SavedVariables.GetRaids = function() return client.archive end
+	peerAddon.Database.SavedVariables.GetRaids = function()
+		return client.archive
+	end
 	peerAddon.DB.SyncSession = nil
 	peerAddon.DB.Syncer = nil
 	client.protocol = installRaidReplicationProtocolFixture(peerAddon)
 	local channel = {
 		EncodeForWoWAddonChannel = function(_, text)
-			return (string.gsub(text, ".", function(character) return string.format("%02x", string.byte(character)) end))
+			return (
+				string.gsub(text, ".", function(character)
+					return string.format("%02x", string.byte(character))
+				end)
+			)
 		end,
 		DecodeForWoWAddonChannel = function(_, text)
-			return (string.gsub(text, "(%x%x)", function(pair) return string.char(tonumber(pair, 16)) end))
+			return (string.gsub(text, "(%x%x)", function(pair)
+				return string.char(tonumber(pair, 16))
+			end))
 		end,
 	}
-	_G.LibStub = function(libraryName) assertEqual("LibDeflate", libraryName) return channel end
-	_G.GetTime = function() return network.now end
-	_G.UnitName = function(unit) if unit == "player" then return name end end
-	peerAddon.Timer = { BindMixin = function(target)
-		target.ScheduleTimer = function(_, callback, delay)
-			local timer = { callback = callback, deadline = network.now + delay }
-			client.timers[#client.timers + 1] = timer
-			return timer
+	_G.LibStub = function(libraryName)
+		assertEqual("LibDeflate", libraryName)
+		return channel
+	end
+	_G.GetTime = function()
+		return network.now
+	end
+	_G.UnitName = function(unit)
+		if unit == "player" then
+			return name
 		end
-		target.CancelTimer = function(_, timer) timer.cancelled = true return true end
-	end }
+	end
+	peerAddon.Timer = {
+		BindMixin = function(target)
+			target.ScheduleTimer = function(_, callback, delay)
+				local timer = { callback = callback, deadline = network.now + delay }
+				client.timers[#client.timers + 1] = timer
+				return timer
+			end
+			target.CancelTimer = function(_, timer)
+				timer.cancelled = true
+				return true
+			end
+		end,
+	}
 	peerAddon.Comms.NormalizeSender = function(value)
 		return string.lower(string.match(tostring(value or ""), "^([^%-]+)") or tostring(value or ""))
 	end
-	peerAddon.Comms.RegisterPrefixIfAvailable = function() return true end
+	peerAddon.Comms.RegisterPrefixIfAvailable = function()
+		return true
+	end
 	peerAddon.Comms.QueueAddonMessage = function(prefix, message, channelName, target)
 		return network:deliver(name, prefix, message, channelName, target)
 	end
@@ -18182,7 +24633,11 @@ local function installHistoricalPeer(network, name, withCompletedRaid)
 		for i = 1, #messages do
 			if network.holdSnapshotData and assert(client.protocol.Decode(messages[i])).kind == "SNAP_DATA" then
 				network.held[#network.held + 1] = {
-					sender = name, prefix = prefix, message = messages[i], channel = channelName, target = target,
+					sender = name,
+					prefix = prefix,
+					message = messages[i],
+					channel = channelName,
+					target = target,
 				}
 			else
 				assert(network:deliver(name, prefix, messages[i], channelName, target))
@@ -18194,24 +24649,36 @@ local function installHistoricalPeer(network, name, withCompletedRaid)
 		return peerAddon.Comms.QueueAddonMessages(prefix, messages, target and "WHISPER" or "RAID", target)
 	end
 	peerAddon.L = {
-		StrLoggerHistoryShareImported = "IMPORTED %s", StrLoggerHistoryShareAlreadyPresent = "ALREADY %s",
-		StrLoggerHistoryShareConflict = "CONFLICT %s", StrLoggerHistoryShareDeclined = "DECLINED %s",
+		StrLoggerHistoryShareImported = "IMPORTED %s",
+		StrLoggerHistoryShareAlreadyPresent = "ALREADY %s",
+		StrLoggerHistoryShareConflict = "CONFLICT %s",
+		StrLoggerHistoryShareDeclined = "DECLINED %s",
 		StrLoggerHistoryShareFailed = "FAILED %s",
-		WarnRaidDatabaseAuthorityReleased =
-			"Raid database authority passed to %s. This client now holds a read-only replica.",
-		WarnRaidDatabaseAuthorityReceived =
-			"Raid database authority received from %s. Recovery is in progress; raid history writes are temporarily paused.",
+		WarnRaidDatabaseAuthorityReleased = "Raid database authority passed to %s. This client now holds a read-only replica.",
+		WarnRaidDatabaseAuthorityReceived = "Raid database authority received from %s. Recovery is in progress; raid history writes are temporarily paused.",
 	}
-	peerAddon.info = function(_, message) client.feedback[#client.feedback + 1] = message end
-	peerAddon.warn = function(_, message) client.feedback[#client.feedback + 1] = message end
+	peerAddon.info = function(_, message)
+		client.feedback[#client.feedback + 1] = message
+	end
+	peerAddon.warn = function(_, message)
+		client.feedback[#client.feedback + 1] = message
+	end
 	peerAddon.debug = function() end
 	peerAddon.Diagnose = { D = { LogRaidSyncTrace = "%s %s", LogRaidHistoryShareTrace = "%s %s" } }
 	peerAddon.Diag = peerAddon.Diagnose
-	peerAddon.Options = { RegisterNamespace = function() end, IsDebugEnabled = function() return false end }
+	peerAddon.Options = {
+		RegisterNamespace = function() end,
+		IsDebugEnabled = function()
+			return false
+		end,
+	}
 	peerAddon.Events = {
 		Internal = {
-			OptionsLoaded = "OptionsLoaded", RaidCreate = "RaidCreate", RaidRosterDelta = "RaidRosterDelta",
-			RaidReplicationCommitted = "RaidReplicationCommitted", LoggerSelectRaid = "LoggerSelectRaid",
+			OptionsLoaded = "OptionsLoaded",
+			RaidCreate = "RaidCreate",
+			RaidRosterDelta = "RaidRosterDelta",
+			RaidReplicationCommitted = "RaidReplicationCommitted",
+			LoggerSelectRaid = "LoggerSelectRaid",
 			LoggerRaidOfferReceived = "LoggerRaidOfferReceived",
 			RaidAuthorityRecoveryFinished = "RaidAuthorityRecoveryFinished",
 			RaidInstanceRecognized = "RaidInstanceRecognized",
@@ -18221,18 +24688,28 @@ local function installHistoricalPeer(network, name, withCompletedRaid)
 	peerAddon.Bus = {
 		RegisterCallback = function() end,
 		TriggerEvent = function(eventName, ...)
-			if eventName == "LoggerRaidOfferReceived" then client.offers[#client.offers + 1] = ... end
-			if eventName == "LoggerSelectRaid" then client.selections[#client.selections + 1] = { ... } end
+			if eventName == "LoggerRaidOfferReceived" then
+				client.offers[#client.offers + 1] = ...
+			end
+			if eventName == "LoggerSelectRaid" then
+				client.selections[#client.selections + 1] = { ... }
+			end
 		end,
 	}
-	peerAddon.Services = { Raid = {
-		GetRaidLeaderName = function() return "Leader" end,
-		IsRaidLeader = function() return name == "Leader" end,
-		IsGroupMember = function(_, value)
-			local short = string.lower(string.match(tostring(value or ""), "^([^%-]+)") or "")
-			return short == "leader" or short == "member"
-		end,
-	} }
+	peerAddon.Services = {
+		Raid = {
+			GetRaidLeaderName = function()
+				return "Leader"
+			end,
+			IsRaidLeader = function()
+				return name == "Leader"
+			end,
+			IsGroupMember = function(_, value)
+				local short = string.lower(string.match(tostring(value or ""), "^([^%-]+)") or "")
+				return short == "leader" or short == "member"
+			end,
+		},
+	}
 	loadAddonFile(peerAddon, "Raid Management Addon/Database/DBSyncSession.lua")
 	loadAddonFile(peerAddon, "Raid Management Addon/Database/DBSyncer.lua")
 	loadAddonFile(peerAddon, "Raid Management Addon/Database/DBRaidQueries.lua")
@@ -18256,8 +24733,11 @@ function cases.raid_history_two_peer_retry_and_result_matrix()
 	assertEqual("transferring_history", member.syncer:GetStatus(), "accepted transfer status differs")
 	local feedbackBefore = #leader.feedback
 	local wrongOffered = assert(member.protocol.Encode("RESULT", offerId, "Leader", { outcome = "IMPORTED" }))
-	assertEqual(false, leader.syncer:OnAddonMessage("RMARaidSync", wrongOffered, "WHISPER", "Member-TestRealm"),
-		"offered state accepted a completed outcome")
+	assertEqual(
+		false,
+		leader.syncer:OnAddonMessage("RMARaidSync", wrongOffered, "WHISPER", "Member-TestRealm"),
+		"offered state accepted a completed outcome"
+	)
 	assertEqual(feedbackBefore, #leader.feedback, "invalid RESULT changed visible feedback")
 	network.now = 129
 	member.syncer:GetStatus()
@@ -18266,19 +24746,37 @@ function cases.raid_history_two_peer_retry_and_result_matrix()
 	assertEqual(1, member.session:Expire(network.now), "first request timeout did not retry")
 	assertEqual(2, network.snapRequests, "retry did not traverse the real sender")
 	local messageKinds = {}
-	for i = 1, #network.messages do messageKinds[#messageKinds + 1] = network.messages[i].envelope.kind end
+	for i = 1, #network.messages do
+		messageKinds[#messageKinds + 1] = network.messages[i].envelope.kind
+	end
 	local memberStatus, memberReason = member.syncer:GetStatus()
-	assertEqual(1, #member.archive.order, "retry response did not import history; messages="
-		.. table.concat(messageKinds, ",") .. " status=" .. tostring(memberStatus) .. "/" .. tostring(memberReason)
-		.. " held=" .. tostring(#network.held) .. " pending=" .. tostring(next(member.session._pendingRequests)))
-	assertEqual("Icecrown Citadel", assert(member.addon.DB.RaidQueries:GetRaidSummary(
-		assert(member.store:GetStateByIndex(1))
-	)).zone, "real two-peer import is not visible in Loot History queries")
+	assertEqual(
+		1,
+		#member.archive.order,
+		"retry response did not import history; messages="
+			.. table.concat(messageKinds, ",")
+			.. " status="
+			.. tostring(memberStatus)
+			.. "/"
+			.. tostring(memberReason)
+			.. " held="
+			.. tostring(#network.held)
+			.. " pending="
+			.. tostring(next(member.session._pendingRequests))
+	)
+	assertEqual(
+		"Icecrown Citadel",
+		assert(member.addon.DB.RaidQueries:GetRaidSummary(assert(member.store:GetStateByIndex(1)))).zone,
+		"real two-peer import is not visible in Loot History queries"
+	)
 	assertEqual(1, #member.selections, "real import did not select Loot History once")
 	assertEqual(1, #leader.feedback, "sender did not receive terminal visible feedback")
 	assertEqual(1, #member.feedback, "receiver did not receive terminal visible feedback")
-	assertEqual(nil, leader.syncer._outgoingOffers[next(leader.syncer._outgoingOffers)],
-		"terminal result did not clean sender offer state")
+	assertEqual(
+		nil,
+		leader.syncer._outgoingOffers[next(leader.syncer._outgoingOffers)],
+		"terminal result did not clean sender offer state"
+	)
 	assertEqual(nil, member.syncer._historyTransfer, "terminal result did not clean receiver transfer state")
 	assertTrue(requestId ~= offerId, "accepted request reused the offer ID")
 	local _, graceOfferId = assert(leader.syncer:OfferHistoricalRaid(leader.sourceUid, "Member"))
@@ -18286,8 +24784,11 @@ function cases.raid_history_two_peer_retry_and_result_matrix()
 	local lateRequest = assert(member.protocol.Encode("SNAP_REQ", "late-after-grace", "Leader", {
 		raidUid = leader.sourceUid,
 	}))
-	assertEqual(false, leader.syncer:OnAddonMessage("RMARaidSync", lateRequest, "WHISPER", "Member-TestRealm"),
-		"sender retained an unaccepted offer beyond its 65-second grace")
+	assertEqual(
+		false,
+		leader.syncer:OnAddonMessage("RMARaidSync", lateRequest, "WHISPER", "Member-TestRealm"),
+		"sender retained an unaccepted offer beyond its 65-second grace"
+	)
 	assertTrue(graceOfferId ~= nil, "grace offer ID was not created")
 	print("PASS raid_history_two_peer_retry_and_result_matrix")
 end
@@ -18357,8 +24858,11 @@ function cases.raid_history_consent_transfer(addon)
 	assertEqual(0, #fixture.batches, "snapshot bytes were queued before consent")
 	local request = fixture:Accept("history-offer-1")
 	fixture:Transfer(request)
-	assertEqual("IMPORTED", assert(latestQueuedEnvelope(fixture, "RESULT")).body.outcome,
-		"terminal import result differs")
+	assertEqual(
+		"IMPORTED",
+		assert(latestQueuedEnvelope(fixture, "RESULT")).body.outcome,
+		"terminal import result differs"
+	)
 	assertEqual(1, #fixture.store:EnsureArchive().order, "imported history did not appear exactly once")
 	local imported = assert(fixture.store:GetStateByIndex(1))
 	local summary = assert(fixture.queries:GetRaidSummary(imported))
@@ -18370,8 +24874,11 @@ function cases.raid_history_consent_transfer(addon)
 	assert(fixture:Offer("history-offer-2"))
 	request = fixture:Accept("history-offer-2")
 	fixture:Transfer(request)
-	assertEqual("ALREADY_PRESENT", assert(latestQueuedEnvelope(fixture, "RESULT")).body.outcome,
-		"duplicate import result differs")
+	assertEqual(
+		"ALREADY_PRESENT",
+		assert(latestQueuedEnvelope(fixture, "RESULT")).body.outcome,
+		"duplicate import result differs"
+	)
 	assertEqual(1, #fixture.store:EnsureArchive().order, "duplicate history created another row")
 	assertEqual(1, #fixture.selections, "duplicate history selected a new row")
 	local conflicting = deepCopy(fixture.snapshot)
@@ -18380,8 +24887,11 @@ function cases.raid_history_consent_transfer(addon)
 	assert(fixture:Offer("history-offer-3", conflicting))
 	request = fixture:Accept("history-offer-3")
 	fixture:Transfer(request, conflicting)
-	assertEqual("CONFLICT", assert(latestQueuedEnvelope(fixture, "RESULT")).body.outcome,
-		"divergent import result differs")
+	assertEqual(
+		"CONFLICT",
+		assert(latestQueuedEnvelope(fixture, "RESULT")).body.outcome,
+		"divergent import result differs"
+	)
 	assertEqual(2, #fixture.store:EnsureArchive().order, "divergent import did not preserve both histories")
 	assertEqual(2, #fixture.selections, "divergent import did not select the preserved row")
 
@@ -18405,8 +24915,11 @@ function cases.raid_history_sequence_zero_consent_transfer()
 
 	local offered, offerId = leader.syncer:OfferHistoricalRaid(leader.sourceUid, "Member")
 	assertTrue(offered, "leader did not offer sequence-zero completed history")
-	assertEqual(0, network.messages[#network.messages].envelope.body.sequence,
-		"real OFFER did not preserve sequence zero")
+	assertEqual(
+		0,
+		network.messages[#network.messages].envelope.body.sequence,
+		"real OFFER did not preserve sequence zero"
+	)
 	local accepted, acceptReason = member.syncer:AcceptHistoricalOffer("Leader-TestRealm", offerId)
 	assertTrue(accepted, "member did not accept sequence-zero history: " .. tostring(acceptReason))
 
@@ -18425,8 +24938,11 @@ function cases.raid_history_sequence_zero_consent_transfer()
 	assertEqual(0, importedRecord.sequence, "imported record sequence differs")
 	assertEqual("complete", importedRecord.status, "imported record status differs")
 	assertEqual(0, #importedRecord.events, "imported sequence-zero record gained a ledger")
-	assertEqual(true, member.addon.Database.GetRaidValidator():ValidateRecord(importedRecord),
-		"sequence-zero completed record failed validation")
+	assertEqual(
+		true,
+		member.addon.Database.GetRaidValidator():ValidateRecord(importedRecord),
+		"sequence-zero completed record failed validation"
+	)
 	local invalidActive = deepCopy(importedRecord)
 	invalidActive.status = "active"
 	invalidActive.sourceRaidUid = nil
@@ -18441,8 +24957,11 @@ function cases.raid_history_sequence_zero_consent_transfer()
 	local ledgerValid, ledgerReason = member.addon.Database.GetRaidValidator():ValidateRecord(invalidLedger)
 	assertEqual(nil, ledgerValid, "sequence-zero completed record with a ledger passed validation")
 	assertEqual("INVALID_COMPLETE_LEDGER", ledgerReason, "sequence-zero ledger rejection reason differs")
-	assertEqual("Icecrown Citadel", assert(member.addon.DB.RaidQueries:GetRaidSummary(imported)).zone,
-		"sequence-zero import is not visible in Loot History queries")
+	assertEqual(
+		"Icecrown Citadel",
+		assert(member.addon.DB.RaidQueries:GetRaidSummary(imported)).zone,
+		"sequence-zero import is not visible in Loot History queries"
+	)
 	print("PASS raid_history_sequence_zero_consent_transfer")
 end
 
@@ -18451,29 +24970,40 @@ function cases.raid_history_consent_rejections(addon)
 	local pristine = deepCopy(fixture.store:EnsureArchive())
 	assert(fixture:Offer("decline-offer"))
 	assertTrue(fixture.syncer:DeclineHistoricalOffer("Leader-TestRealm", "decline-offer"))
-	assertEqual("DECLINED", assert(latestQueuedEnvelope(fixture, "RESULT")).body.outcome,
-		"decline did not send a terminal result")
+	assertEqual(
+		"DECLINED",
+		assert(latestQueuedEnvelope(fixture, "RESULT")).body.outcome,
+		"decline did not send a terminal result"
+	)
 	assertTrue(deepEqual(pristine, fixture.store:EnsureArchive()), "decline mutated history")
 
 	assert(fixture:Offer("boundary-expired-offer"))
 	local queuedBeforeBoundaryAccept = #fixture.queued
 	fixture.now = fixture.now + 30
-	assertEqual(false, fixture.syncer:AcceptHistoricalOffer("Leader-TestRealm", "boundary-expired-offer"),
-		"offer was accepted exactly at its 30-second expiry")
-	assertEqual(queuedBeforeBoundaryAccept, #fixture.queued,
-		"expired boundary acceptance queued a snapshot request")
+	assertEqual(
+		false,
+		fixture.syncer:AcceptHistoricalOffer("Leader-TestRealm", "boundary-expired-offer"),
+		"offer was accepted exactly at its 30-second expiry"
+	)
+	assertEqual(queuedBeforeBoundaryAccept, #fixture.queued, "expired boundary acceptance queued a snapshot request")
 	assertTrue(deepEqual(pristine, fixture.store:EnsureArchive()), "boundary-expired offer mutated history")
 
 	assert(fixture:Offer("expired-offer"))
 	fixture.now = fixture.now + 31
-	assertEqual(false, fixture.syncer:AcceptHistoricalOffer("Leader-TestRealm", "expired-offer"),
-		"expired offer was accepted")
+	assertEqual(
+		false,
+		fixture.syncer:AcceptHistoricalOffer("Leader-TestRealm", "expired-offer"),
+		"expired offer was accepted"
+	)
 	assertTrue(deepEqual(pristine, fixture.store:EnsureArchive()), "expired offer mutated history")
 
 	assert(fixture:Offer("left-group-offer"))
 	fixture.leaderInGroup = false
-	assertEqual(false, fixture.syncer:AcceptHistoricalOffer("Leader-TestRealm", "left-group-offer"),
-		"offer from a departed group member was accepted")
+	assertEqual(
+		false,
+		fixture.syncer:AcceptHistoricalOffer("Leader-TestRealm", "left-group-offer"),
+		"offer from a departed group member was accepted"
+	)
 	assertTrue(deepEqual(pristine, fixture.store:EnsureArchive()), "departed sender mutated history")
 	fixture.leaderInGroup = true
 
@@ -18483,8 +25013,11 @@ function cases.raid_history_consent_rejections(addon)
 	assertTrue(partCount > 1, "partial-transfer case did not create multiple chunks")
 	assertTrue(deepEqual(pristine, fixture.store:EnsureArchive()), "partial transfer mutated history")
 	assert(fixture:Offer("parallel-offer"))
-	assertEqual(false, fixture.syncer:AcceptHistoricalOffer("Leader-TestRealm", "parallel-offer"),
-		"second historical transfer replaced the bounded in-flight transfer")
+	assertEqual(
+		false,
+		fixture.syncer:AcceptHistoricalOffer("Leader-TestRealm", "parallel-offer"),
+		"second historical transfer replaced the bounded in-flight transfer"
+	)
 	assertTrue(deepEqual(pristine, fixture.store:EnsureArchive()), "parallel transfer rejection mutated history")
 	fixture.now = fixture.now + 64
 	fixture.syncer:GetStatus()

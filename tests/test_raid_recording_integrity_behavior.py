@@ -15,6 +15,10 @@ class RaidRecordingIntegrityBehaviorTests(unittest.TestCase):
         result = run_lua_case("raid_session_create_failure_is_atomic")
         self.assertIn("PASS raid_session_create_failure_is_atomic", result.stdout)
 
+    def test_raid_session_switch_failure_rolls_back_candidate(self) -> None:
+        result = run_lua_case("raid_session_switch_failure_rolls_back_candidate")
+        self.assertIn("PASS raid_session_switch_failure_rolls_back_candidate", result.stdout)
+
     def test_raid_create_preserves_store_rejection_reason(self) -> None:
         result = run_lua_case("raid_create_preserves_store_rejection_reason")
         self.assertIn("PASS raid_create_preserves_store_rejection_reason", result.stdout)
@@ -140,6 +144,14 @@ class RaidRecordingIntegrityBehaviorTests(unittest.TestCase):
     def test_real_logger_set_current_raid_calls_roster_owner(self) -> None:
         result = run_lua_case("real_logger_set_current_raid_calls_roster_owner")
         self.assertIn("PASS real_logger_set_current_raid_calls_roster_owner", result.stdout)
+
+    def test_logger_replica_defaults_to_active_archive_without_promoting_current(self) -> None:
+        result = run_lua_case("logger_replica_defaults_to_active_archive_without_promoting_current")
+        self.assertIn("PASS logger_replica_defaults_to_active_archive_without_promoting_current", result.stdout)
+
+    def test_real_logger_set_current_raid_rejects_non_leader(self) -> None:
+        result = run_lua_case("real_logger_set_current_raid_rejects_non_leader")
+        self.assertIn("PASS real_logger_set_current_raid_rejects_non_leader", result.stdout)
 
     def test_real_roster_dispatch_and_scheduled_paths_publish_once(self) -> None:
         result = run_lua_case("real_roster_dispatch_and_scheduled_paths_publish_once")
