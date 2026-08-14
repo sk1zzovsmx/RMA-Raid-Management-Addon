@@ -265,6 +265,7 @@ GetTime = function() return 1 end
 local whispers, observedStatuses, observedEligibility = {{}}, {{}}, {{}}
 local tracker = {{}}
 local trackerAcquisitions, addRollCalls = 0, 0
+local lootBanLookups = 0
 local addon = {{
     C = {{ rollTypes = {{ MAINSPEC = 1, OFFSPEC = 2, RESERVED = 3, FREE = 4 }} }},
     L = {{ StrRollBlockedTag = "BLK", StrRollLootBanTag = "BAN", StrRollDuplicateTag = "DUP",
@@ -277,7 +278,10 @@ local addon = {{
     Options = {{ GetValue = function() return false end, IsDebugEnabled = function() return false end }},
     Strings = {{ NormalizeName = function(name) return name end }},
     Services = {{ Chat = {{ Announce = function() end }}, Raid = {{
-        LootBans = {{ IsActive = function(name) return name == "Alice" end }},
+        LootBans = {{ IsActive = function(name)
+            lootBanLookups = lootBanLookups + 1
+            return name == "Alice"
+        end }},
         GetUnitID = function() return "raid1" end,
     }} }},
     warn = function() end,
@@ -711,6 +715,7 @@ class LootBansEnforcementContractTest(unittest.TestCase):
         run_banned_roll_submission_lua("""
 local ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
 assert(ok == true and reason == nil)
+assert(lootBanLookups == 1)
 assert(response.bestRoll == 87 and response.lastRoll == 87)
 assert(response.status == Responses.STATUS.INELIGIBLE)
 assert(response.reason == Responses.REASONS.LOOT_BAN)
@@ -764,33 +769,43 @@ end
 
 state.canRoll = false
 state.countdownExpired = true
+lootBanLookups = 0
 local ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
 assert(ok == false and reason == Responses.REASONS.SESSION_INACTIVE)
+assert(lootBanLookups == 0)
 assert(tracker.Alice == nil and response.bestRoll == nil)
 
 reset()
 addon.Services.Raid.GetUnitID = function() return "none" end
+lootBanLookups = 0
 ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
 assert(ok == false and reason == Responses.REASONS.NOT_IN_RAID)
+assert(lootBanLookups == 0)
 assert(tracker.Alice == nil and response.bestRoll == nil)
 
 reset()
 ctx.getManualExclusionEntry = function() return { reason = "manual" } end
+lootBanLookups = 0
 ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
 assert(ok == false and reason == Responses.REASONS.MANUAL_EXCLUSION)
+assert(lootBanLookups == 0)
 assert(tracker.Alice == nil and response.bestRoll == nil)
 
 reset()
 ctx.getCurrentRollContext = function() return { itemId = 1, itemLink = "item:1", rollType = 3 } end
 ctx.getReserveCountForItem = function() return 0 end
+lootBanLookups = 0
 ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
 assert(ok == false and reason == Responses.REASONS.INELIGIBLE)
+assert(lootBanLookups == 0)
 assert(tracker.Alice == nil and response.bestRoll == nil)
 
 reset()
 ctx.isTieRerollRestricted = function() return true end
+lootBanLookups = 0
 ok, reason = Responses.SubmitIncomingRoll(ctx, "Alice", 87, "CHAT_MSG_SYSTEM")
 assert(ok == false and reason == Responses.REASONS.REROLL_FILTERED)
+assert(lootBanLookups == 0)
 assert(tracker.Alice == nil and response.bestRoll == nil)
 """)
 
@@ -1138,6 +1153,83 @@ class LootBansUiContractTest(unittest.TestCase):
 
 
 class LootBansAttendanceContractTest(unittest.TestCase):
+    def test_attendance_uses_one_shared_loot_ban_target_binding(self) -> None:
+        source = ATTENDANCE.read_text(encoding="utf-8")
+        self.assertEqual(1, source.count("local function bindAttendanceLootBanTarget"))
+        self.assertIn("bindAttendanceLootBanTarget(hotspot, row)", source)
+        self.assertIn("bindAttendanceLootBanTarget(icon, row)", source)
+        self.assertEqual(
+            1,
+            source.count('SetScriptSafely(target, "OnEnter", showAttendanceLootBanTooltip)'),
+        )
+        self.assertEqual(1, source.count('SetScriptSafely(target, "OnLeave", HideTooltip)'))
+
+    def test_shared_attendance_binding_executes_for_both_reused_targets(self) -> None:
+        lua = shutil.which("lua")
+        if lua is None:
+            self.skipTest("lua interpreter is not installed")
+
+        source = ATTENDANCE.read_text(encoding="utf-8")
+        binding = source[
+            source.index("local function showAttendanceLootBanTooltip") : source.index(
+                "local function getAttendanceLootBanHotspot"
+            )
+        ]
+        script = f"""
+local L = {{ StrLootBanTooltipTitle = "Loot Ban" }}
+local shown = {{}}
+local hidden = 0
+local function ShowTooltipLines(target, model)
+    shown[#shown + 1] = {{ target = target, title = model.title, note = model.lines[1] and model.lines[1].text }}
+end
+local function HideTooltip() hidden = hidden + 1 end
+local bindAttempts = 0
+local function SetScriptSafely(target, scriptType, handler)
+    bindAttempts = bindAttempts + 1
+    if target.failFirst and bindAttempts == 1 then return false end
+    target[scriptType] = handler
+    return true
+end
+{binding}
+local clicks = {{}}
+local function makeRow(name)
+    local row = {{ name = name }}
+    function row:GetScript(scriptType)
+        if scriptType == "OnClick" then
+            return function(self, button) clicks[#clicks + 1] = self.name .. ":" .. button end
+        end
+    end
+    return row
+end
+local rowA, rowB = makeRow("A"), makeRow("B")
+local hotspot, icon = {{}}, {{}}
+assert(bindAttendanceLootBanTarget(hotspot, rowA) == true)
+assert(bindAttendanceLootBanTarget(icon, rowA) == true)
+hotspot._RMALootBanActive, hotspot._RMALootBanNote = true, "same note"
+icon._RMALootBanActive, icon._RMALootBanNote = true, "same note"
+hotspot.OnEnter(hotspot)
+icon.OnEnter(icon)
+assert(shown[1].title == "Loot Ban" and shown[2].title == "Loot Ban")
+assert(shown[1].note == "same note" and shown[2].note == "same note")
+bindAttendanceLootBanTarget(hotspot, rowB)
+bindAttendanceLootBanTarget(icon, rowB)
+hotspot.OnClick(hotspot, "LeftButton")
+icon.OnClick(icon, "RightButton")
+assert(clicks[1] == "B:LeftButton" and clicks[2] == "B:RightButton")
+hotspot.OnLeave()
+icon.OnLeave()
+assert(hidden == 2)
+local retry = {{ failFirst = true }}
+bindAttempts = 0
+assert(bindAttendanceLootBanTarget(retry, rowA) == false)
+assert(bindAttendanceLootBanTarget(retry, rowB) == true)
+assert(retry._RMARow == rowB)
+"""
+        completed = subprocess.run(
+            [lua, "-"], input=script, text=True, encoding="utf-8", capture_output=True
+        )
+        self.assertEqual(0, completed.returncode, completed.stderr or completed.stdout)
+
     def test_script_binding_rejects_a_font_string_like_owner(self) -> None:
         run_frames_lua(
             """
@@ -1169,27 +1261,22 @@ assert(type(button.OnEnter) == "function")
         source = ATTENDANCE.read_text(encoding="utf-8")
         self.assertIn('CreateFrame("Button", nil, row)', source)
         self.assertIn("hotspot:SetAllPoints(ui.Name)", source)
-        self.assertIn('SetScriptSafely(hotspot, "OnEnter"', source)
-        self.assertIn('SetScriptSafely(hotspot, "OnLeave"', source)
-        self.assertIn('SetScriptSafely(hotspot, "OnClick"', source)
+        self.assertIn("bindAttendanceLootBanTarget(hotspot, row)", source)
+        self.assertIn('SetScriptSafely(target, "OnEnter"', source)
+        self.assertIn('SetScriptSafely(target, "OnLeave"', source)
+        self.assertIn('SetScriptSafely(target, "OnClick"', source)
         self.assertNotIn('SetScriptSafely(ui.Name, "OnEnter"', source)
 
     def test_attendance_hotspot_binding_and_click_forwarding_are_row_safe(self) -> None:
         source = ATTENDANCE.read_text(encoding="utf-8")
         self.assertRegex(
             source,
-            r"hotspot\._RMALootBanTooltipBound\s*=\s*enterBound\s+and\s+leaveBound\s+and\s+clickBound",
+            r"target\._RMALootBanTooltipBound\s*=\s*enterBound\s+and\s+leaveBound\s+and\s+clickBound",
         )
-        self.assertIn("hotspot._RMARow = row", source)
+        self.assertIn("target._RMARow = row", source)
         self.assertIn('self._RMARow:GetScript("OnClick")', source)
         self.assertIn("rowOnClick(self._RMARow, button)", source)
-        self.assertIn('SetScriptSafely(icon, "OnEnter", showAttendanceLootBanTooltip)', source)
-        self.assertIn('SetScriptSafely(icon, "OnLeave", HideTooltip)', source)
-        self.assertIn('SetScriptSafely(icon, "OnClick"', source)
-        self.assertRegex(
-            source,
-            r"icon\._RMALootBanTooltipBound\s*=\s*enterBound\s+and\s+leaveBound\s+and\s+clickBound",
-        )
+        self.assertIn('SetScriptSafely(target, "OnClick"', source)
 
     def test_attendance_creates_pass_icon_inside_name_cell(self) -> None:
         source = ATTENDANCE.read_text(encoding="utf-8")
@@ -1218,6 +1305,58 @@ assert(type(button.OnEnter) == "function")
             original_right_edge = 3 + calculated_width
             banned_right_edge = 20 + (calculated_width - 17)
             self.assertEqual(original_right_edge, banned_right_edge)
+
+    def test_master_footer_uses_compact_two_by_two_action_grid(self) -> None:
+        xml = MASTER_XML.read_text(encoding="utf-8")
+        master = MASTER.read_text(encoding="utf-8")
+
+        self.assertRegex(xml, r'<Frame name="RMAMaster"[\s\S]*?<AbsDimension x="250" y="480"')
+        for suffix in ("LootHistoryBtn", "LootCounterBtn", "ReserveListBtn", "LootBansBtn"):
+            button = re.search(
+                rf'<Button name="\$parent{suffix}"[\s\S]*?</Button>',
+                xml,
+            )
+            self.assertIsNotNone(button, suffix)
+            self.assertIn('<AbsDimension x="113" y="25"', button.group(0))
+
+        expected_anchors = {
+            "LootHistoryBtn": ("BOTTOMLEFT", "ReserveListBtn", "TOPLEFT", "0", "4"),
+            "LootCounterBtn": ("LEFT", "LootHistoryBtn", "RIGHT", "4", "0"),
+            "LootBansBtn": ("TOPLEFT", "LootCounterBtn", "BOTTOMLEFT", "0", "-4"),
+        }
+        for suffix, (point, relative_to, relative_point, x, y) in expected_anchors.items():
+            button = re.search(
+                rf'<Button name="\$parent{suffix}"[\s\S]*?</Button>',
+                xml,
+            )
+            self.assertIsNotNone(button, suffix)
+            self.assertRegex(
+                button.group(0),
+                rf'<Anchor point="{point}" relativeTo="\$parent{relative_to}" relativePoint="{relative_point}">'
+                rf'[\s\S]*?<AbsDimension x="{x}" y="{y}"',
+            )
+        reserve_list = re.search(
+            r'<Button name="\$parentReserveListBtn"[\s\S]*?</Button>',
+            xml,
+        )
+        self.assertIsNotNone(reserve_list)
+        self.assertRegex(
+            reserve_list.group(0),
+            r'<Anchor point="BOTTOMLEFT">[\s\S]*?<AbsDimension x="10" y="10"',
+        )
+        roll_list = re.search(
+            r'<ScrollFrame name="\$parentScrollFrame"[\s\S]*?</ScrollFrame>',
+            xml,
+        )
+        self.assertIsNotNone(roll_list)
+        self.assertRegex(
+            roll_list.group(0),
+            r'<Anchor point="BOTTOMRIGHT">[\s\S]*?<AbsDimension x="-30" y="194"',
+        )
+        self.assertIn('"LootHistoryBtn",', master)
+        self.assertIn('lootHistoryBtn = GetFrameRef(frame, "LootHistoryBtn")', master)
+        self.assertIn('Controllers.Logger:ToggleLootHistory()', master)
+        self.assertIn('setPartText("LootHistoryBtn", L.StrLootHistory)', master)
 
 
 if __name__ == "__main__":

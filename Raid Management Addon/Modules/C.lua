@@ -83,13 +83,12 @@ C.RAID_TARGET_MARKERS = {
 	"{skull}",
 }
 
-C.K_COLOR = "fff58cba"
-C.RT_COLOR = "aaf49141"
-C.titleString = "|c" .. C.K_COLOR .. "K|r|c" .. C.RT_COLOR .. "RT|r : %s"
+C.R_COLOR = "fff58cba"
+C.MA_COLOR = "aaf49141"
 
 C.CHAT_OUTPUT_FORMAT = "%s: %s"
 C.CHAT_PREFIX_SHORT = "RMA"
-C.CHAT_PREFIX_HEX = C.K_COLOR
+C.CHAT_PREFIX_HEX = C.R_COLOR
 
 -- Multi-award pacing (seconds) to avoid spamming GiveMasterLoot on laggy servers.
 C.ML_MULTI_AWARD_DELAY = 0.2

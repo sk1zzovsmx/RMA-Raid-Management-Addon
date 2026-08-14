@@ -82,7 +82,7 @@
 	<!-- The Frame: Loot Manager -->
 	<Frame name="RMAMaster" inherits="RMAWindowTemplate">
 		<Size>
-			<AbsDimension x="350" y="480" />
+			<AbsDimension x="250" y="480" />
 		</Size>
 		<Layers>
 			<Layer level="ARTWORK">
@@ -290,7 +290,7 @@
 					</Anchor>
 					<Anchor point="BOTTOMRIGHT">
 						<Offset>
-							<AbsDimension x="-30" y="165" />
+							<AbsDimension x="-30" y="194" />
 						</Offset>
 					</Anchor>
 				</Anchors>
@@ -408,12 +408,24 @@
 					</Anchor>
 				</Anchors>
 			</Button>
+			<Button name="$parentLootHistoryBtn" inherits="RMAActionButtonTemplate">
+				<Size>
+					<AbsDimension x="113" y="25" />
+				</Size>
+				<Anchors>
+					<Anchor point="BOTTOMLEFT" relativeTo="$parentReserveListBtn" relativePoint="TOPLEFT">
+						<Offset>
+							<AbsDimension x="0" y="4" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+			</Button>
 			<Button name="$parentLootCounterBtn" inherits="RMAActionButtonTemplate">
 				<Size>
 					<AbsDimension x="113" y="25" />
 				</Size>
 				<Anchors>
-					<Anchor point="LEFT" relativeTo="$parentReserveListBtn" relativePoint="RIGHT">
+					<Anchor point="LEFT" relativeTo="$parentLootHistoryBtn" relativePoint="RIGHT">
 						<Offset>
 							<AbsDimension x="4" y="0" />
 						</Offset>
@@ -422,12 +434,12 @@
 			</Button>
 			<Button name="$parentLootBansBtn" inherits="RMAActionButtonTemplate">
 				<Size>
-					<AbsDimension x="96" y="25" />
+					<AbsDimension x="113" y="25" />
 				</Size>
 				<Anchors>
-					<Anchor point="LEFT" relativeTo="$parentLootCounterBtn" relativePoint="RIGHT">
+					<Anchor point="TOPLEFT" relativeTo="$parentLootCounterBtn" relativePoint="BOTTOMLEFT">
 						<Offset>
-							<AbsDimension x="4" y="0" />
+							<AbsDimension x="0" y="-4" />
 						</Offset>
 					</Anchor>
 				</Anchors>

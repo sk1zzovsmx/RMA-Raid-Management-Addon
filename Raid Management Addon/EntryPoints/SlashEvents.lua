@@ -27,7 +27,7 @@ local ConfigController = assert(Controllers.Config, "Config controller is not in
 local Comms = addon.Comms
 local Item = addon.Item
 
-local RT_COLOR = addon.C.RT_COLOR
+local MA_COLOR = addon.C.MA_COLOR
 
 local pairs, ipairs = pairs, ipairs
 local tconcat = table.concat
@@ -147,7 +147,7 @@ local cmdPerf = { "perf", "performance" }
 -- ----- Private helpers ----- --
 local helpString = "%s: %s"
 local function printHelp(cmd, desc)
-	addon:info("%s", helpString:format(addon.WrapTextInColorCode(cmd, Colors.NormalizeHexColor(RT_COLOR)), desc))
+	addon:info("%s", helpString:format(addon.WrapTextInColorCode(cmd, Colors.NormalizeHexColor(MA_COLOR)), desc))
 end
 
 local GetOption = Options.GetValue

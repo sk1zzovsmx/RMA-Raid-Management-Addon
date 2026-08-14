@@ -409,6 +409,7 @@ do
 		"FreeBtn",
 		"HoldBtn",
 		"ItemBtn",
+		"LootHistoryBtn",
 		"LootCounterBtn",
 		"LootBansBtn",
 		"MSBtn",
@@ -1169,6 +1170,7 @@ do
 			bankBtn = GetFrameRef(frame, "BankBtn"),
 			disenchantBtn = GetFrameRef(frame, "DisenchantBtn"),
 			reserveListBtn = GetFrameRef(frame, "ReserveListBtn"),
+			lootHistoryBtn = GetFrameRef(frame, "LootHistoryBtn"),
 			lootCounterBtn = GetFrameRef(frame, "LootCounterBtn"),
 			lootBansBtn = GetFrameRef(frame, "LootBansBtn"),
 		}
@@ -1309,6 +1311,9 @@ do
 				Private.BtnReserveList(self, button)
 			end)
 		)
+		SetScriptSafely(refs.lootHistoryBtn, "OnClick", function()
+			Controllers.Logger:ToggleLootHistory()
+		end)
 		SetScriptSafely(refs.lootCounterBtn, "OnClick", function(self, button)
 			Private.BtnLootCounter(self, button)
 		end)
@@ -2668,6 +2673,7 @@ do
 		setPartText("RollsHeaderCounter", L.StrCounter)
 		setPartText("RollsHeaderRoll", L.StrRolls)
 		setPartText("ReserveListBtn", L.BtnInsertList)
+		setPartText("LootHistoryBtn", L.StrLootHistory)
 		setPartText("LootCounterBtn", L.BtnLootCounter)
 		setPartText("LootBansBtn", L.BtnLootBans)
 		SetFrameTitle(frameName, L.StrLootMaster)

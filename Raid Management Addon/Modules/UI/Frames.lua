@@ -257,7 +257,7 @@ function Frames.SetFrameTitle(frameOrName, titleText, titleFormat)
 	if not titleFrame then
 		return
 	end
-	local fmt = titleFormat or (C and C.titleString) or "%s"
+	local fmt = titleFormat or "%s"
 	titleFrame:SetText(format(fmt, titleText))
 end
 
@@ -316,12 +316,12 @@ function Frames.GetRef(frameOrName, childName)
 		return _G[childName]
 	end
 
-	local owned = _G[frameName .. childName]
-	if owned then
-		return owned
+	local exact = _G[childName]
+	if exact then
+		return exact
 	end
 
-	return _G[childName]
+	return _G[frameName .. childName]
 end
 
 function Frames.GetNamedParts(widget, parts, cacheField)

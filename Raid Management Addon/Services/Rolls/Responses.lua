@@ -401,7 +401,7 @@ local function applyAcceptedRollResponse(ctx, name, roll, eligibility, source, i
 	end
 end
 
-local function applyBlockedRollResponse(ctx, name, roll, eligibility, source)
+local function applyBlockedRollResponse(ctx, name, roll, source)
 	local _, state = assertContext(ctx)
 	local response = getOrCreateResponse(state, name)
 
@@ -575,7 +575,6 @@ function Responses.BuildCandidateEligibility(ctx, name, itemId, itemLink, rollTy
 	local unitId
 	local isSyntheticPlayer
 	local manualExclusion
-	local isLootBanned
 
 	usedRolls = tracker[name] or 0
 	currentResponse = state.responsesByPlayer[name]
@@ -589,8 +588,7 @@ function Responses.BuildCandidateEligibility(ctx, name, itemId, itemLink, rollTy
 			usedRolls = 0
 		end
 	end
-	isLootBanned = LootBans.IsActive(name)
-	if not deferLootBan and isLootBanned then
+	if not deferLootBan and LootBans.IsActive(name) then
 		return buildLootBanEligibility(opts, usedRolls, currentItemId, currentItemLink)
 	end
 
@@ -688,7 +686,7 @@ function Responses.BuildCandidateEligibility(ctx, name, itemId, itemLink, rollTy
 		)
 	end
 
-	if isLootBanned then
+	if deferLootBan and LootBans.IsActive(name) then
 		return buildLootBanEligibility(opts, usedRolls, currentItemId, currentItemLink)
 	end
 
@@ -884,7 +882,7 @@ function Responses.SubmitIncomingRoll(ctx, player, roll, source)
 		if ctx.addRoll(player, numericRoll, context.itemId, tracker, trackerBefore) ~= true then
 			return false, reasonCodes.UNINITIALIZED
 		end
-		applyBlockedRollResponse(ctx, player, numericRoll, eligibility, source)
+		applyBlockedRollResponse(ctx, player, numericRoll, source)
 		return true, nil
 	end
 	if not eligibility.ok then

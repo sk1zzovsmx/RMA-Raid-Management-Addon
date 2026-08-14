@@ -28,7 +28,7 @@ local IsPlayerInRaid = assert(Raid.IsPlayerInRaid, "Minimap raid membership reso
 local CanUseCapability = assert(Raid.CanUseCapability, "Minimap raid capability resolver is not initialized")
 local CanObservePassiveLoot = assert(Raid.CanObservePassiveLoot, "Minimap passive-loot observer is not initialized")
 local ClearRaidIcons = assert(Raid.ClearRaidIcons, "Minimap raid-icon cleaner is not initialized")
-local K_COLOR = addon.C.K_COLOR
+local R_COLOR = addon.C.R_COLOR
 
 -- =========== Minimap Button Module  =========== --
 addon.Minimap = addon.Minimap or {}
@@ -293,7 +293,7 @@ local function loadMinimapFrame(frame)
 	Frames.SetScriptSafely(frame, "OnEnter", function(self)
 		ShowTooltipLines(self, {
 			defaultAnchor = true,
-			title = addon.WrapTextInColorCode("Raid Management Addon", Colors.NormalizeHexColor(K_COLOR)),
+			title = addon.WrapTextInColorCode("Raid Management Addon", Colors.NormalizeHexColor(R_COLOR)),
 			lines = {
 				L.StrMinimapLClick,
 				L.StrMinimapRClick,

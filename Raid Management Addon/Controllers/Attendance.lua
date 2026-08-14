@@ -773,6 +773,23 @@ local function showAttendanceLootBanTooltip(self)
 	end
 end
 
+local function bindAttendanceLootBanTarget(target, row)
+	target._RMARow = row
+	if target._RMALootBanTooltipBound then
+		return true
+	end
+	local enterBound = SetScriptSafely(target, "OnEnter", showAttendanceLootBanTooltip)
+	local leaveBound = SetScriptSafely(target, "OnLeave", HideTooltip)
+	local clickBound = SetScriptSafely(target, "OnClick", function(self, button)
+		local rowOnClick = self._RMARow and self._RMARow:GetScript("OnClick") or nil
+		if rowOnClick then
+			rowOnClick(self._RMARow, button)
+		end
+	end)
+	target._RMALootBanTooltipBound = enterBound and leaveBound and clickBound
+	return target._RMALootBanTooltipBound
+end
+
 local function getAttendanceLootBanHotspot(row, ui)
 	local hotspot = row._RMALootBanHotspot
 	if not hotspot then
@@ -783,18 +800,7 @@ local function getAttendanceLootBanHotspot(row, ui)
 		row._RMALootBanHotspot = hotspot
 	end
 
-	hotspot._RMARow = row
-	if not hotspot._RMALootBanTooltipBound then
-		local enterBound = SetScriptSafely(hotspot, "OnEnter", showAttendanceLootBanTooltip)
-		local leaveBound = SetScriptSafely(hotspot, "OnLeave", HideTooltip)
-		local clickBound = SetScriptSafely(hotspot, "OnClick", function(self, button)
-			local rowOnClick = self._RMARow and self._RMARow:GetScript("OnClick") or nil
-			if rowOnClick then
-				rowOnClick(self._RMARow, button)
-			end
-		end)
-		hotspot._RMALootBanTooltipBound = enterBound and leaveBound and clickBound
-	end
+	bindAttendanceLootBanTarget(hotspot, row)
 	return hotspot
 end
 
@@ -811,18 +817,7 @@ local function getAttendanceLootBanIcon(row)
 		row._RMALootBanIcon = icon
 	end
 
-	icon._RMARow = row
-	if not icon._RMALootBanTooltipBound then
-		local enterBound = SetScriptSafely(icon, "OnEnter", showAttendanceLootBanTooltip)
-		local leaveBound = SetScriptSafely(icon, "OnLeave", HideTooltip)
-		local clickBound = SetScriptSafely(icon, "OnClick", function(self, button)
-			local rowOnClick = self._RMARow and self._RMARow:GetScript("OnClick") or nil
-			if rowOnClick then
-				rowOnClick(self._RMARow, button)
-			end
-		end)
-		icon._RMALootBanTooltipBound = enterBound and leaveBound and clickBound
-	end
+	bindAttendanceLootBanTarget(icon, row)
 	return icon
 end
 
