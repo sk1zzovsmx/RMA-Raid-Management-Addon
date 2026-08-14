@@ -2,7 +2,7 @@
 -- deps: local addon = select(2, ...)
 -- shared: direct addon namespace bindings
 -- exports: addon.Services.EquipInspect
--- events: listens wow.INSPECT_TALENT_READY and wow.PLAYER_REGEN_ENABLED; emits EquipInspectStarted/EquipInspectUpdated/EquipInspectCompleted
+-- events: listens wow.INSPECT_TALENT_READY, wow.GET_ITEM_INFO_RECEIVED, and wow.PLAYER_REGEN_ENABLED; emits EquipInspectStarted/EquipInspectUpdated/EquipInspectCompleted
 
 local addon = select(2, ...)
 local Database = addon.Database
@@ -12,6 +12,7 @@ local Bus = addon.Bus
 local Timer = addon.Timer
 local Time = addon.Time
 local Strings = addon.Strings
+local InspectCoordinator = assert(Services.InspectCoordinator, "EquipInspect coordinator is not initialized")
 
 local InternalEvents = assert(Events.Internal, "EquipInspect internal events are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "EquipInspect event publisher is not initialized")
@@ -33,7 +34,6 @@ local UnitIsConnected = assert(_G.UnitIsConnected, "EquipInspect unit connection
 local CanInspect = assert(_G.CanInspect, "EquipInspect inspect capability API is not initialized")
 local CheckInteractDistance = assert(_G.CheckInteractDistance, "EquipInspect unit range API is not initialized")
 local NotifyInspect = assert(_G.NotifyInspect, "EquipInspect notify inspect API is not initialized")
-local ClearInspectPlayer = assert(_G.ClearInspectPlayer, "EquipInspect clear inspect API is not initialized")
 local UnitAffectingCombat = assert(_G.UnitAffectingCombat, "EquipInspect combat state API is not initialized")
 local GetInventoryItemLink = assert(_G.GetInventoryItemLink, "EquipInspect inventory item link API is not initialized")
 local GetInventoryItemTexture =
@@ -48,7 +48,7 @@ local tinsert = table.insert
 local tremove = table.remove
 
 local THROTTLE_SECONDS = 1.75
-local TIMEOUT_SECONDS = 8
+local ITEM_INFO_RETRY_SECONDS = 0.5
 local RAID_CREATE_DELAY_SECONDS = 3.0
 local MAX_COMBAT_ATTEMPTS = 3
 local SLOT_ORDER = { 1, 2, 3, 15, 5, 9, 10, 6, 7, 8, 11, 12, 13, 14, 16, 17, 18 }
@@ -68,6 +68,8 @@ local globalInspectRequest
 local queuedRaidOrder = {}
 local queuedRaidSet = {}
 local globalNextHandle
+local finalizeRequest
+local terminalizeQueuedTimerWork
 
 -- ----- Private helpers ----- --
 
@@ -287,24 +289,26 @@ end
 
 local function getItemIlvl(itemId, link)
 	if type(itemId) == "number" and itemId > 0 then
-		local _, _, _, itemIlvl = GetItemInfo(itemId)
-		if type(itemIlvl) == "number" and itemIlvl > 0 then
-			return itemIlvl
+		local itemName, _, _, itemIlvl = GetItemInfo(itemId)
+		if itemName ~= nil then
+			return tonumber(itemIlvl) or 0, true
 		end
 	end
 	if link then
-		local _, _, _, itemIlvl = GetItemInfo(link)
-		if type(itemIlvl) == "number" and itemIlvl > 0 then
-			return itemIlvl
+		local itemName, _, _, itemIlvl = GetItemInfo(link)
+		if itemName ~= nil then
+			return tonumber(itemIlvl) or 0, true
 		end
 	end
-	return 0
+	return 0, false
 end
 
 local function collectItems(unit)
 	local items = {}
 	local total = 0
 	local count = 0
+	local unresolvedByItem = {}
+	local unresolvedSlots = {}
 
 	for i = 1, #SLOT_ORDER do
 		local slot = SLOT_ORDER[i]
@@ -315,16 +319,22 @@ local function collectItems(unit)
 		data.itemLink = link
 		data.texture = GetInventoryItemTexture(unit, slot)
 		data.quality = tonumber(GetInventoryItemQuality(unit, slot)) or 0
-		data.ilvl = getItemIlvl(itemId, link)
+		local resolved
+		data.ilvl, resolved = getItemIlvl(itemId, link)
 
-		if data.ilvl > 0 then
+		if (link or data.texture) and not resolved then
+			unresolvedSlots[slot] = true
+			if itemId > 0 then
+				unresolvedByItem[itemId] = true
+			end
+		elseif data.ilvl > 0 then
 			total = total + data.ilvl
 			count = count + 1
 		end
 		items[slot] = data
 	end
 
-	return items, (count > 0 and (total / count) or 0)
+	return items, (count > 0 and (total / count) or 0), unresolvedByItem, unresolvedSlots
 end
 
 local function getSpecInspectSnapshot(unit, player)
@@ -355,12 +365,14 @@ local function copySpecSnapshotFields(snapshot, talentSnapshot)
 end
 
 local function buildReadyDetails(unit, player)
-	local items, avgIlvl = collectItems(unit)
+	local items, avgIlvl, unresolvedByItem, unresolvedSlots = collectItems(unit)
 	local talentSnapshot = getSpecInspectSnapshot(unit, player)
 	return {
 		items = items,
 		avgIlvl = avgIlvl,
 		talentSnapshot = talentSnapshot,
+		unresolvedByItem = unresolvedByItem,
+		unresolvedSlots = unresolvedSlots,
 	}
 end
 
@@ -451,6 +463,14 @@ local function nextQueuedRaid()
 	return nil
 end
 
+local function scheduleTimerSafely(callback, delay)
+	local scheduled, handle = pcall(module.ScheduleTimer, module, callback, delay)
+	if not scheduled or handle == nil then
+		return nil
+	end
+	return handle
+end
+
 local function scheduleNextGlobalRequest(delay)
 	if globalInspectRequest or globalNextHandle then
 		return
@@ -463,7 +483,7 @@ local function scheduleNextGlobalRequest(delay)
 	if queue and queue[1] and queue[1].retryHandle then
 		return
 	end
-	globalNextHandle = module:ScheduleTimer(function()
+	globalNextHandle = scheduleTimerSafely(function()
 		globalNextHandle = nil
 		if not globalInspectRequest then
 			local nextRaidNid = nextQueuedRaid()
@@ -472,6 +492,11 @@ local function scheduleNextGlobalRequest(delay)
 			end
 		end
 	end, delay or THROTTLE_SECONDS)
+	if not globalNextHandle then
+		terminalizeQueuedTimerWork(nil, "inspect_timer_failed")
+		return false
+	end
+	return true
 end
 
 local function cancelOrphanedRaidWork(raidNid)
@@ -482,6 +507,10 @@ local function cancelOrphanedRaidWork(raidNid)
 	if request and request.retryHandle then
 		module:CancelTimer(request.retryHandle)
 		request.retryHandle = nil
+	end
+	if request and request.itemInfoRetryHandle then
+		module:CancelTimer(request.itemInfoRetryHandle)
+		request.itemInfoRetryHandle = nil
 	end
 	local queue = queueByRaid[raidNid]
 	for i = 1, #(queue or {}) do
@@ -499,12 +528,16 @@ local function cancelOrphanedRaidWork(raidNid)
 	sessionBusyByRaid[raidNid] = nil
 	if request and globalInspectRequest == request then
 		globalInspectRequest = nil
-		pcall(ClearInspectPlayer)
+	end
+	if request and request.coordinatorOwner then
+		InspectCoordinator:Cancel(request.coordinatorOwner)
 	end
 	scheduleNextGlobalRequest(THROTTLE_SECONDS)
 end
 
-local function finalizeRequest(raidNid, playerNid, status, reason, unit, request)
+local tryFinalizeItemInfo
+
+finalizeRequest = function(raidNid, playerNid, status, reason, unit, request)
 	local raid = getRaid(raidNid)
 	if not raid then
 		cancelOrphanedRaidWork(raidNid)
@@ -518,6 +551,10 @@ local function finalizeRequest(raidNid, playerNid, status, reason, unit, request
 	if currentRequest and currentRequest.retryHandle then
 		module:CancelTimer(currentRequest.retryHandle)
 		currentRequest.retryHandle = nil
+	end
+	if currentRequest and currentRequest.itemInfoRetryHandle then
+		module:CancelTimer(currentRequest.itemInfoRetryHandle)
+		currentRequest.itemInfoRetryHandle = nil
 	end
 
 	local active = activeRequestByRaid[raidNid]
@@ -538,7 +575,7 @@ local function finalizeRequest(raidNid, playerNid, status, reason, unit, request
 	local snapshotStatus = status
 	if status == "ready" and unit then
 		local player = getPlayerByNid(raid or {}, playerNid)
-		local details = buildReadyDetails(unit, player)
+		local details = request and request.readyDetails or buildReadyDetails(unit, player)
 		local resolvedGuid = UnitGUID(unit)
 		snapshot = {
 			status = status,
@@ -613,11 +650,112 @@ local function finalizeRequest(raidNid, playerNid, status, reason, unit, request
 
 	if globalInspectRequest == request then
 		globalInspectRequest = nil
-		pcall(ClearInspectPlayer)
+	end
+	if request and request.coordinatorOwner then
+		InspectCoordinator:Release(request.coordinatorOwner, request.unitGUID)
 	end
 	scheduleNextGlobalRequest(THROTTLE_SECONDS)
 
 	return snapshot
+end
+
+terminalizeQueuedTimerWork = function(onlyRaidNid, reason)
+	local failures = {}
+	local completedRaids = {}
+	local coordinatorOwners = {}
+	globalNextHandle = nil
+
+	for raidNid, queue in pairs(queueByRaid) do
+		if (not onlyRaidNid or tonumber(raidNid) == tonumber(onlyRaidNid)) and type(queue) == "table" and #queue > 0 then
+			local seenPlayers = {}
+			local active = activeRequestByRaid[raidNid]
+			activeRequestByRaid[raidNid] = nil
+			if active and active.coordinatorOwner then
+				coordinatorOwners[#coordinatorOwners + 1] = active.coordinatorOwner
+			end
+			if active and active.playerNid then
+				seenPlayers[normalizePlayerNid(active.playerNid)] = true
+				failures[#failures + 1] = { raidNid = raidNid, request = active }
+			end
+			for i = 1, #queue do
+				local request = queue[i]
+				if request and request.retryHandle then
+					module:CancelTimer(request.retryHandle)
+					request.retryHandle = nil
+				end
+				local playerNid = request and normalizePlayerNid(request.playerNid) or 0
+				if playerNid > 0 and not seenPlayers[playerNid] then
+					seenPlayers[playerNid] = true
+					failures[#failures + 1] = { raidNid = raidNid, request = request }
+				end
+			end
+			queueByRaid[raidNid] = {}
+			queuedByPlayer[raidNid] = {}
+			untrackQueuedRaid(raidNid)
+			if sessionBusyByRaid[raidNid] then
+				completedRaids[#completedRaids + 1] = raidNid
+			end
+			sessionBusyByRaid[raidNid] = false
+		end
+	end
+
+	for i = 1, #failures do
+		local failure = failures[i]
+		local request = failure.request
+		local _, _, runtime = ensureRuntime(failure.raidNid)
+		runtime[normalizePlayerNid(request.playerNid)] = {
+			status = "failed",
+			reason = reason,
+			updatedAt = now(),
+		}
+	end
+	for i = 1, #coordinatorOwners do
+		InspectCoordinator:Cancel(coordinatorOwners[i])
+	end
+	for i = 1, #failures do
+		local failure = failures[i]
+		local request = failure.request
+		emitUpdated(failure.raidNid, request.playerNid, {
+			status = "failed",
+			reason = reason,
+			inspectedAt = now(),
+			playerNid = request.playerNid,
+		})
+	end
+	for i = 1, #completedRaids do
+		local raidNid = completedRaids[i]
+		local queue = queueByRaid[raidNid]
+		if not sessionBusyByRaid[raidNid] and not activeRequestByRaid[raidNid] and #(queue or {}) == 0 then
+			TriggerEvent(EquipInspectCompletedEvent, raidNid)
+		end
+	end
+end
+
+tryFinalizeItemInfo = function(raidNid, request)
+	if activeRequestByRaid[raidNid] ~= request or not request.inspectReady or not request.unit then
+		return false
+	end
+	local raid = getRaid(raidNid)
+	local player = getPlayerByNid(raid or {}, request.playerNid)
+	local details = buildReadyDetails(request.unit, player)
+	if not next(details.unresolvedSlots) then
+		request.readyDetails = details
+		finalizeRequest(raidNid, request.playerNid, "ready", nil, request.unit, request)
+		return true
+	end
+
+	request.unresolvedByItem = details.unresolvedByItem
+	request.unresolvedSlots = details.unresolvedSlots
+	if not request.itemInfoRetryHandle then
+		request.itemInfoRetryHandle = scheduleTimerSafely(function()
+			request.itemInfoRetryHandle = nil
+			tryFinalizeItemInfo(raidNid, request)
+		end, ITEM_INFO_RETRY_SECONDS)
+		if not request.itemInfoRetryHandle then
+			finalizeRequest(raidNid, request.playerNid, "failed", "inspect_timer_failed", nil, request)
+		end
+	end
+	return false
 end
 
 local function scheduleRetryCurrentRequest(raidNid, request, delay)
@@ -640,11 +778,22 @@ local function scheduleRetryCurrentRequest(raidNid, request, delay)
 		if request.retryHandle then
 			module:CancelTimer(request.retryHandle)
 		end
-		request.retryHandle = module:ScheduleTimer(function()
+		request.retryHandle = scheduleTimerSafely(function()
 			request.retryHandle = nil
 			module:ProcessQueue(resolved)
 		end, delay or THROTTLE_SECONDS)
+		if not request.retryHandle then
+			tremove(queue, 1)
+			if #queue == 0 then
+				untrackQueuedRaid(resolved)
+			end
+			activeRequestByRaid[resolved] = request
+			finalizeRequest(resolved, request.playerNid, "failed", "inspect_timer_failed", nil, request)
+			return false
+		end
+		return true
 	end
+	return false
 end
 
 local function queuePlayer(raidNid, playerNid, reason, force)
@@ -773,28 +922,41 @@ function module:ProcessQueue(raidNid)
 			return false, "cannot_inspect"
 		end
 		request.reason = "retry"
-		scheduleRetryCurrentRequest(resolved, request, THROTTLE_SECONDS)
+		if not scheduleRetryCurrentRequest(resolved, request, THROTTLE_SECONDS) then
+			return false, "inspect_timer_failed"
+		end
 		return true, "queued"
 	end
 	request.unit = unit
 	request.unitGUID = UnitGUID(unit)
+	request.coordinatorOwner = request
 
-	local ok, err = pcall(function()
+	local accepted, ownership = InspectCoordinator:Request(request.coordinatorOwner, unit, request.unitGUID, function()
 		NotifyInspect(unit)
-	end)
-	if not ok then
-		finalizeRequest(resolved, playerNid, "failed", "notify_failed", nil, request)
+		globalInspectRequest = request
+	end, function(reason)
+		if reason == "timeout" and activeRequestByRaid[resolved] == request then
+			local timeoutReason = request.inspectReady and "item_info_timeout" or "inspect_timeout"
+			finalizeRequest(resolved, playerNid, "timeout", timeoutReason, nil, request)
+		elseif reason == "start_failed" and activeRequestByRaid[resolved] == request then
+			finalizeRequest(resolved, playerNid, "failed", "notify_failed", nil, request)
+		elseif reason == "timer_failed" and activeRequestByRaid[resolved] == request then
+			finalizeRequest(resolved, playerNid, "failed", "inspect_timer_failed", nil, request)
+		elseif reason ~= "complete" and reason ~= "cancelled" and activeRequestByRaid[resolved] == request then
+			finalizeRequest(resolved, playerNid, "failed", reason, nil, request)
+		end
+	end, "equipment")
+	if not accepted then
+		local failureReason = ownership == "timer_failed" and "inspect_timer_failed"
+			or (ownership == "queue_full" and "inspect_queue_full")
+			or ownership
+		finalizeRequest(resolved, playerNid, "failed", failureReason, nil, request)
+		return false, failureReason
+	end
+	if activeRequestByRaid[resolved] ~= request then
 		return false, "notify_failed"
 	end
-	globalInspectRequest = request
-
-	request.timeoutHandle = module:ScheduleTimer(function()
-		local active = activeRequestByRaid[resolved]
-		if active == request then
-			finalizeRequest(resolved, playerNid, "timeout", "inspect_timeout", nil, request)
-		end
-	end, TIMEOUT_SECONDS)
-	return true, "pending"
+	return true, ownership == "active" and "pending" or "queued"
 end
 
 function module:StartRaidSnapshot(raidId, opts)
@@ -821,9 +983,13 @@ function module:StartRaidSnapshot(raidId, opts)
 	end
 
 	if #queueByRaid[resolved] > 0 then
-		module:ScheduleTimer(function()
+		local handle = scheduleTimerSafely(function()
 			module:ProcessQueue(resolved)
 		end, 0)
+		if not handle then
+			terminalizeQueuedTimerWork(resolved, "inspect_timer_failed")
+			return false, "inspect_timer_failed"
+		end
 	end
 	return true
 end
@@ -922,10 +1088,32 @@ local function handleInspectReady(guid)
 	for raidId, request in pairs(activeRequestByRaid) do
 		if request and (not readyGuid or request.unitGUID == readyGuid) then
 			if request.unit then
-				finalizeRequest(raidId, request.playerNid, "ready", nil, request.unit, request)
+				request.inspectReady = true
+				tryFinalizeItemInfo(raidId, request)
 			else
 				finalizeRequest(raidId, request.playerNid, "failed", "missing_unit", nil, request)
 			end
+			return
+		end
+	end
+end
+
+local function handleItemInfoReceived(itemId, succeeded)
+	if succeeded == false then
+		return
+	end
+	local resolvedItemId = tonumber(itemId)
+	if not resolvedItemId then
+		return
+	end
+	for raidId, request in pairs(activeRequestByRaid) do
+		if
+			request == globalInspectRequest
+			and request.inspectReady
+			and request.unresolvedByItem
+			and request.unresolvedByItem[resolvedItemId]
+		then
+			tryFinalizeItemInfo(raidId, request)
 			return
 		end
 	end
@@ -949,6 +1137,12 @@ RegisterCallback(inspectReadyEvent, function(_, guid)
 	handleInspectReady(guid)
 end)
 
+local itemInfoReceivedEvent =
+	assert(ResolveWowForwardedName("GET_ITEM_INFO_RECEIVED"), "EquipInspect item-info event is not initialized")
+RegisterCallback(itemInfoReceivedEvent, function(_, itemId, succeeded)
+	handleItemInfoReceived(itemId, succeeded)
+end)
+
 local playerRegenEnabledEvent =
 	assert(ResolveWowForwardedName("PLAYER_REGEN_ENABLED"), "EquipInspect regen-enabled event is not initialized")
 RegisterCallback(playerRegenEnabledEvent, function()
@@ -960,7 +1154,7 @@ RegisterCallback(RaidCreateEvent, function(_, raidId)
 	if not raidNid then
 		return
 	end
-	module:ScheduleTimer(function()
+	scheduleTimerSafely(function()
 		if not getRaid(raidNid) then
 			cancelOrphanedRaidWork(raidNid)
 			return

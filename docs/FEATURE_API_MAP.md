@@ -52,6 +52,23 @@ popup actions, and refresh subscriptions. `Services.Logger.Store`, `View`,
 `Services.Raid.Projections` supplies shared raid read models. The controller
 must not mutate `RMA_Raids` directly.
 
+Equipment and specialization inspection share `Services.InspectCoordinator`.
+Its `Request`, `Release`, and `Cancel` commands serialize the single WoW inspect
+target; callers retain ownership of snapshot policy and UI notifications.
+`Services.EquipInspect` never replaces a last-known-good equipment snapshot with
+cold-cache or timed-out partial data. `Services.SpecInspect` correlates talent
+completion to the queued GUID before publishing `SpecInspectUpdated`.
+
+`Modules/Dataset/LootSourcesData.lua` resolves a canonical raid identity and
+publishes `ByItemId`, `ByInstance`, active key, and generation only after a
+complete detached build. Same-key activation is a no-op. A supported different
+key publishes one generation; an unsupported/non-raid identity deliberately
+deactivates the dataset; a build error preserves the previous active roots and
+generation. `Init.lua` coordinates that lifecycle with `IgnoredMobs` and rolls
+both owners back from runtime snapshots if either activation throws or returns
+`false`. A canonical raid with no ignored-mob definitions activates an empty,
+valid ignored-mob policy rather than rejecting the recognized raid.
+
 ## Reserves
 
 `Services/Reserves.lua` is the stateful feature owner for canonical reserve

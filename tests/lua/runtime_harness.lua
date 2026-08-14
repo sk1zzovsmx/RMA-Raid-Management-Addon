@@ -747,6 +747,7 @@ local expectedRuntimeEvents = {
 	"TRADE_TARGET_ITEM_CHANGED",
 	"READY_CHECK",
 	"INSPECT_TALENT_READY",
+	"GET_ITEM_INFO_RECEIVED",
 	"PLAYER_REGEN_ENABLED",
 	"PLAYER_LOGOUT",
 }
@@ -1653,6 +1654,9 @@ local function installEquipInspectFixture(addon)
 	fixture.inCombat = false
 	fixture.notifyFails = false
 	fixture.clearInspectCount = 0
+	fixture.itemLinks = {}
+	fixture.itemInfo = {}
+	fixture.itemTextures = {}
 	fixture.currentRaid = 2
 	fixture.raids[2].players = {
 		{ playerNid = 21, name = "Beta", class = "PRIEST" },
@@ -1687,6 +1691,7 @@ local function installEquipInspectFixture(addon)
 	addon.Bus = {
 		TriggerEvent = function(eventName, ...)
 			fixture.events[#fixture.events + 1] = { name = eventName, args = { ... } }
+			if fixture.onEvent then fixture.onEvent(eventName, ...) end
 		end,
 		RegisterCallback = function(eventName, callback) callbacks[eventName] = callback end,
 	}
@@ -1712,17 +1717,547 @@ local function installEquipInspectFixture(addon)
 	_G.CheckInteractDistance = function() return fixture.unitInRange end
 	_G.ClearInspectPlayer = function() fixture.clearInspectCount = fixture.clearInspectCount + 1 end
 	_G.UnitAffectingCombat = function() return fixture.inCombat end
-	_G.GetInventoryItemLink = function() return nil end
-	_G.GetInventoryItemTexture = function() return nil end
+	_G.GetInventoryItemLink = function(_, slot) return fixture.itemLinks[slot] end
+	_G.GetInventoryItemTexture = function(_, slot) return fixture.itemTextures[slot] end
 	_G.GetInventoryItemQuality = function() return nil end
-	_G.GetItemInfo = function() return nil end
+	_G.GetItemInfo = function(itemRef)
+		local itemId = tonumber(itemRef)
+		if not itemId and type(itemRef) == "string" then
+			itemId = tonumber(string.match(itemRef, "item:(%d+)"))
+		end
+		local itemLevel = itemId and fixture.itemInfo[itemId] or nil
+		if not itemLevel then return nil end
+		return "Item " .. tostring(itemId), nil, nil, itemLevel
+	end
 	_G.NotifyInspect = function(unit)
 		if fixture.notifyFails then error("notify failed") end
 		fixture.inspectRequests[#fixture.inspectRequests + 1] = unit
 	end
+	loadAddonFile(addon, "Raid Management Addon/Services/InspectCoordinator.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/EquipInspect.lua")
 	fixture.inspectCallbacks = callbacks
 	return fixture, addon.Services.EquipInspect
+end
+
+local function itemLink(itemId)
+	return "|cff0070dd|Hitem:" .. tostring(itemId) .. ":0:0:0:0:0:0:0|h[Fixture Item]|h|r"
+end
+
+function cases.equip_inspect_waits_for_complete_item_information(addon)
+	local fixture, inspect = installEquipInspectFixture(addon)
+	local raid = fixture.raids[2]
+	fixture.itemLinks[1] = itemLink(1001)
+	assertEqual(true, inspect:ForcePlayer(2, 21), "cold-cache inspect starts")
+	fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
+	assertEqual(nil, raid.inspect, "cold item information must not persist a partial snapshot")
+	assertEqual("pending", inspect:GetSnapshot(raid, 21).status, "cold item remains runtime pending")
+	assertEqual(false, inspect:ForcePlayer(2, 21), "a cold-cache request cannot be replaced while pending")
+	assertEqual(1, #fixture.inspectRequests, "replacement attempt must not duplicate NotifyInspect")
+
+	fixture.inspectCallbacks.GET_ITEM_INFO_RECEIVED(nil, 9999, true)
+	assertEqual(nil, raid.inspect, "irrelevant item events must not finalize the snapshot")
+	fixture.itemInfo[1001] = 232
+	fixture.inspectCallbacks.GET_ITEM_INFO_RECEIVED(nil, 1001, true)
+	local ready = assert(raid.inspect.players[21])
+	assertEqual("ready", ready.status, "resolved item information persists ready")
+	assertEqual(232, ready.avgIlvl, "average uses the resolved equipped item")
+	print("PASS equip_inspect_waits_for_complete_item_information")
+end
+
+function cases.inspect_coordinator_serializes_global_ownership(addon)
+	local callbacks, timers, nowValue, clears, combat = {}, {}, 0, 0, false
+	addon.Events = { Internal = {}, ResolveWowForwardedName = function(name) return name end }
+	addon.Bus = {
+		RegisterCallback = function(name, callback) callbacks[name] = callback end,
+	}
+	addon.Timer = {
+		BindMixin = function(module)
+			function module:ScheduleTimer(callback, delay)
+				local handle = { callback = callback, deadline = nowValue + delay }
+				timers[#timers + 1] = handle
+				return handle
+			end
+			function module:CancelTimer(handle) handle.cancelled = true end
+		end,
+	}
+	addon.Services = { EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} end }
+	_G.GetTime = function() return nowValue end
+	_G.UnitAffectingCombat = function() return combat end
+	_G.ClearInspectPlayer = function() clears = clears + 1 end
+	loadAddonFile(addon, "Raid Management Addon/Services/InspectCoordinator.lua")
+	local coordinator = addon.Services.InspectCoordinator
+	local starts, finishes = {}, {}
+	assertEqual("active", select(2, coordinator:Request("equipment", "raid1", "guid-1", function() starts[#starts + 1] = "equipment" end, function(reason) finishes[#finishes + 1] = reason end)), "equipment owns first target")
+	assertEqual("queued", select(2, coordinator:Request("talents", "raid2", "guid-2", function() starts[#starts + 1] = "talents" end, function(reason) finishes[#finishes + 1] = reason end)), "talents queue behind equipment")
+	assertEqual(false, coordinator:Release("equipment", "wrong-guid"), "mismatched ready cannot release owner")
+	assertEqual(0, clears, "mismatched ready cannot clear target")
+	assertEqual(true, coordinator:Release("equipment", "guid-1"), "matching owner releases")
+	assertEqual(1, clears, "only released owner clears")
+	assertEqual(nil, starts[2], "global throttle delays the next NotifyInspect owner")
+	nowValue = 1.75
+	for i = 1, #timers do if not timers[i].cancelled and timers[i].deadline <= nowValue then timers[i].cancelled = true; timers[i].callback() end end
+	assertEqual("talents", starts[2], "queued talent request progresses after global throttle")
+	assertEqual(false, coordinator:Release("equipment", "guid-1"), "old owner cannot clear new target")
+	assertEqual(1, clears, "old owner leaves talent target intact")
+	assertEqual(true, coordinator:Cancel("talents"), "active talent work cancels")
+	assertEqual(2, clears, "cancel clears its own target once")
+	local cancelledStarts, cancelledFinishes = 0, 0
+	coordinator:Request("blocker", "raid1", "guid-block", function() end)
+	coordinator:Request("cancel-me", "raid2", "guid-cancel", function() cancelledStarts = cancelledStarts + 1 end, function(reason)
+		assertEqual("cancelled", reason, "queued cancellation has stable reason")
+		cancelledFinishes = cancelledFinishes + 1
+	end)
+	assertEqual(true, coordinator:Cancel("cancel-me"), "queued work cancels by exact owner")
+	assertEqual(0, cancelledStarts, "cancelled queued work never starts")
+	assertEqual(1, cancelledFinishes, "cancelled queued callback fires once")
+	nowValue = 3.5
+	for i = 1, #timers do if not timers[i].cancelled and timers[i].deadline <= nowValue then timers[i].cancelled = true; timers[i].callback() end end
+	coordinator:Release("blocker", "guid-block")
+
+	combat = true
+	assertEqual("queued", select(2, coordinator:Request("equipment", "raid1", "guid-3", function() starts[#starts + 1] = "combat" end, function(reason) finishes[#finishes + 1] = reason end)), "combat defers inspect")
+	assertEqual(nil, starts[3], "combat request has not started")
+	combat = false
+	callbacks.PLAYER_REGEN_ENABLED()
+	nowValue = 5.25
+	for i = 1, #timers do if not timers[i].cancelled and timers[i].deadline <= nowValue then timers[i].cancelled = true; timers[i].callback() end end
+	assertEqual("combat", starts[3], "regen starts deferred request")
+	nowValue = 12
+	for i = 1, #timers do if not timers[i].cancelled and timers[i].deadline <= nowValue then timers[i].callback() end end
+	assertEqual("timeout", finishes[#finishes], "deadline completes once with timeout")
+	assertEqual(4, clears, "timeout clears only current owner")
+
+	local expiryFinishes = 0
+	combat = true
+	coordinator:Request("combat-expiry", "raid3", "guid-expire", function() fail("expired combat request started") end, function(reason)
+		assertEqual("timeout", reason, "queued combat work uses total deadline")
+		expiryFinishes = expiryFinishes + 1
+	end)
+	nowValue = 21
+	for i = 1, #timers do if not timers[i].cancelled and timers[i].deadline <= nowValue then timers[i].cancelled = true; timers[i].callback() end end
+	assertEqual(1, expiryFinishes, "queued combat deadline completes exactly once")
+	for i = 1, 40 do
+		assertEqual(true, coordinator:Request("cap-" .. tostring(i), "raid1", "guid-cap", function() end), "bounded queue accepts capacity")
+	end
+	assertEqual("queue_full", select(2, coordinator:Request("cap-overflow", "raid1", "guid-cap", function() end)), "bounded queue rejects overflow")
+	print("PASS inspect_coordinator_serializes_global_ownership")
+end
+
+function cases.equip_and_talent_refresh_share_global_inspect_owner(addon)
+	local fixture, inspect = installEquipInspectFixture(addon)
+	fixture.itemLinks[1] = itemLink(1001)
+	fixture.itemInfo[1001] = 251
+	assertEqual("pending", select(2, inspect:ForcePlayer(2, 21)), "equipment starts first")
+	local coordinator = addon.Services.InspectCoordinator
+	local talentStarts = 0
+	assertEqual("queued", select(2, coordinator:Request("talents", "raid2", "guid-raid2", function()
+		talentStarts = talentStarts + 1
+		NotifyInspect("raid2")
+	end)), "talent refresh queues behind equipment")
+	fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid2")
+	assertEqual(nil, fixture.raids[2].inspect, "mismatched talent ready cannot finalize equipment")
+	assertEqual(0, fixture.clearInspectCount, "mismatched ready cannot clear equipment owner")
+	fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
+	assertEqual("ready", fixture.raids[2].inspect.players[21].status, "equipment completes on matching GUID")
+	assertEqual(0, talentStarts, "global throttle keeps talent refresh queued")
+	fixture:AdvanceTime(1.75)
+	assertEqual(1, talentStarts, "talent refresh starts after equipment release")
+	assertEqual("raid2", fixture.inspectRequests[2], "talent refresh owns its requested unit")
+	assertEqual(1, fixture.clearInspectCount, "equipment release clears exactly once")
+	assertEqual(false, coordinator:Release("equipment", "guid-raid1"), "released equipment cannot clear talent target")
+	assertEqual(1, fixture.clearInspectCount, "talent target remains owned")
+	assertEqual(true, coordinator:Release("talents", "guid-raid2"), "talent owner releases itself")
+	assertEqual(2, fixture.clearInspectCount, "talent release clears exactly once")
+	print("PASS equip_and_talent_refresh_share_global_inspect_owner")
+end
+
+function cases.spec_inspect_correlates_lgt_completion_by_guid(addon)
+	local fixture = newRaidRecordingFixture(addon)
+	local busCallbacks, lgtCallbacks, resolved, refreshCalls, equipmentStarts = {}, {}, false, 0, 0
+	addon.Services = {
+		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} end,
+		Raid = {
+			GetUnitID = function(_, name) return name == "Alpha" and "raid1" or "none" end,
+			GetPlayers = function() return { { name = "Alpha" } } end,
+			GetPlayerClass = function() return "PRIEST" end,
+		},
+	}
+	addon.Database.GetCurrentRaid = function() return 1 end
+	addon.Strings = { NormalizeName = function(value) return value end }
+	addon.Events = {
+		Internal = { SpecInspectUpdated = "SpecInspectUpdated" },
+		ResolveWowForwardedName = function(name) return name end,
+	}
+	addon.Bus = {
+		TriggerEvent = function() end,
+		RegisterCallback = function(name, callback) busCallbacks[name] = callback end,
+	}
+	addon.Timer = { BindMixin = function(target) fixture:InstallTimers(target) end }
+	_G.GetTime = function() return fixture.now end
+	_G.UnitAffectingCombat = function() return false end
+	_G.ClearInspectPlayer = function() fixture.clearInspectCount = (fixture.clearInspectCount or 0) + 1 end
+	_G.UnitGUID = function(unit) return unit == "raid1" and "guid-alpha" or "guid-other" end
+	local lgt = {
+		CheckInspectQueue = function() end,
+		RegisterCallback = function(_, name, callback) lgtCallbacks[name] = callback end,
+		RefreshTalentsByUnit = function(_, unit) assertEqual("raid1", unit, "SpecInspect refreshes requested unit"); refreshCalls = refreshCalls + 1 end,
+		GetNumTalentGroups = function() return 1 end,
+		GetActiveTalentGroup = function() return 1 end,
+		GetUnitTalentSpec = function() if resolved then return "Discipline", 57, 14, 0 end end,
+		GetGUIDTalentSpec = function(_, guid) if resolved and guid == "guid-alpha" then return "Discipline", 57, 14, 0 end end,
+		GetTalentTabInfo = function() return "Discipline", "spec-icon" end,
+		GetUnitRole = function() return "healer" end,
+	}
+	_G.LibStub = function(name) if name == "LibGroupTalents-1.0" or name == "LibTalentQuery-1.0" then return lgt end end
+	loadAddonFile(addon, "Raid Management Addon/Services/InspectCoordinator.lua")
+	loadAddonFile(addon, "Raid Management Addon/Services/SpecInspect.lua")
+	local spec = addon.Services.SpecInspect
+	assertEqual(true, spec:RefreshPlayer("Alpha", { force = true }), "production SpecInspect queues LGT refresh")
+	assertEqual(1, refreshCalls, "LGT refresh starts through coordinator")
+	lgtCallbacks.LibGroupTalents_UpdateComplete(nil, "guid-other")
+	assertEqual(true, addon.Services.InspectCoordinator:IsCategoryOwner("talents"), "unrelated UpdateComplete cannot release talent owner")
+	addon.Services.InspectCoordinator:Request("equipment-after-spec", "raid2", "guid-other", function() equipmentStarts = equipmentStarts + 1 end, nil, "equipment")
+	assertEqual(0, equipmentStarts, "equipment remains queued behind unresolved talent operation")
+	resolved = true
+	lgtCallbacks.LibGroupTalents_Update(nil, "guid-alpha", "raid1")
+	assertEqual(0, equipmentStarts, "matching talent data still respects global throttle")
+	fixture:AdvanceTime(1.75)
+	assertEqual(1, equipmentStarts, "matching GUID terminal data releases the talent owner")
+	addon.Services.InspectCoordinator:Release("equipment-after-spec", "guid-other")
+	local scheduleTimer = addon.Services.InspectCoordinator.ScheduleTimer
+	addon.Services.InspectCoordinator.ScheduleTimer = function() return nil end
+	local timerOk, timerReason = spec:RefreshPlayer("Alpha", { force = true })
+	assertEqual(false, timerOk, "SpecInspect reports coordinator timer failure")
+	assertEqual("inspect_timer_failed", timerReason, "SpecInspect exposes stable timer failure")
+	addon.Services.InspectCoordinator.ScheduleTimer = scheduleTimer
+	local request = addon.Services.InspectCoordinator.Request
+	addon.Services.InspectCoordinator.Request = function() return false, "queue_full" end
+	local queueOk, queueReason = spec:RefreshPlayer("Alpha", { force = true })
+	assertEqual(false, queueOk, "SpecInspect reports coordinator queue exhaustion")
+	assertEqual("inspect_queue_full", queueReason, "queue exhaustion remains distinct")
+	addon.Services.InspectCoordinator.Request = request
+	print("PASS spec_inspect_correlates_lgt_completion_by_guid")
+end
+
+function cases.equip_inspect_throttle_timer_failure_is_terminal(addon)
+	local fixture, inspect = installEquipInspectFixture(addon)
+	local raidA = fixture.raids[1]
+	raidA.inspect = { players = { [11] = { status = "ready", playerNid = 11, guid = "old-guid", avgIlvl = 200 } } }
+	fixture.itemLinks[1], fixture.itemInfo[1001] = itemLink(1001), 251
+	local coordinator = addon.Services.InspectCoordinator
+	assertEqual("active", select(2, coordinator:Request("talent-blocker", "raid1", "talent-guid", function() end, nil, "talents")), "talent flow owns active target")
+	fixture.currentRaid = 1
+	assertEqual("queued", select(2, inspect:ForcePlayer(1, 11)), "raid A replacement queues")
+	local scheduleTimer = coordinator.ScheduleTimer
+	coordinator.ScheduleTimer = function(self, callback, delay)
+		if delay == 1.75 then return nil end
+		return scheduleTimer(self, callback, delay)
+	end
+	assertEqual(true, coordinator:Release("talent-blocker", "talent-guid"), "talent owner releases")
+	assertEqual("failed", inspect:GetSnapshot(raidA, 11).status, "throttle timer failure is terminal")
+	assertEqual("inspect_timer_failed", inspect:GetSnapshot(raidA, 11).reason, "timer failure has stable reason")
+	assertEqual("old-guid", raidA.inspect.players[11].guid, "timer failure preserves last known good snapshot")
+	assertEqual(200, raidA.inspect.players[11].avgIlvl, "timer failure preserves canonical gear")
+	print("PASS equip_inspect_throttle_timer_failure_is_terminal")
+end
+
+function cases.equip_inspect_own_timer_failures_are_terminal(addon)
+	local function countTerminalUpdates(fixture, raidNid, playerNid)
+		local count = 0
+		for i = 1, #fixture.events do
+			local event = fixture.events[i]
+			local snapshot = event.args[3]
+			if event.name == "EquipInspectUpdated"
+				and event.args[1] == raidNid
+				and event.args[2] == playerNid
+				and snapshot
+				and snapshot.status == "failed"
+				and snapshot.reason == "inspect_timer_failed"
+			then
+				count = count + 1
+			end
+		end
+		return count
+	end
+
+	for _, failureMode in ipairs({ "nil", "throw" }) do
+		local fixture, inspect = installEquipInspectFixture(addon)
+		local raidA = fixture.raids[1]
+		raidA.players = { { playerNid = 11, name = "Alpha", class = "WARRIOR" } }
+		raidA.inspect = { players = { [11] = { status = "ready", playerNid = 11, guid = "old-guid", avgIlvl = 200 } } }
+		assertEqual("pending", select(2, inspect:ForcePlayer(2, 21)), failureMode .. " handoff blocker starts")
+		fixture.currentRaid = 1
+		assertEqual("queued", select(2, inspect:ForcePlayer(1, 11)), failureMode .. " handoff work queues")
+		local scheduleTimer = inspect.ScheduleTimer
+		inspect.ScheduleTimer = function(self, callback, delay)
+			if delay == 1.75 then
+				if failureMode == "throw" then error("injected EquipInspect handoff timer failure") end
+				return nil
+			end
+			return scheduleTimer(self, callback, delay)
+		end
+		local reentered = false
+		fixture.onEvent = function(eventName, raidNid, playerNid, snapshot)
+			if eventName == "EquipInspectUpdated"
+				and raidNid == 41
+				and playerNid == 11
+				and snapshot
+				and snapshot.reason == "inspect_timer_failed"
+			then
+				reentered = inspect:ForcePlayer(1, 11)
+			end
+		end
+		fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
+		local replacement = inspect:GetSnapshot(raidA, 11)
+		assertEqual("pending", replacement.status, failureMode .. " reentrant replacement owns runtime status")
+		assertEqual("old-guid", inspect:GetPersistedSnapshot(raidA, 11).guid, failureMode .. " handoff preserves last good snapshot")
+		assertEqual(1, countTerminalUpdates(fixture, 41, 11), failureMode .. " handoff finalizes once")
+		assertEqual(true, reentered, failureMode .. " terminal callback may safely enqueue replacement work")
+		assertEqual(1, #fixture.inspectRequests, failureMode .. " reentrant work respects coordinator throttle")
+		local completionCount = 0
+		for i = 1, #fixture.events do
+			if fixture.events[i].name == "EquipInspectCompleted" and fixture.events[i].args[1] == 41 then
+				completionCount = completionCount + 1
+			end
+		end
+		assertEqual(0, completionCount, failureMode .. " stale completion cannot close reentrant session")
+		fixture.onEvent = nil
+		inspect.ScheduleTimer = scheduleTimer
+		fixture:AdvanceTime(2)
+		assertEqual(2, #fixture.inspectRequests, failureMode .. " reentrant work receives coordinator ownership")
+		fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
+		fixture:AdvanceTime(20)
+		assertEqual(1, countTerminalUpdates(fixture, 41, 11), failureMode .. " handoff leaves no stale callback")
+	end
+
+	for _, failureMode in ipairs({ "nil", "throw" }) do
+		local fixture, inspect = installEquipInspectFixture(addon)
+		fixture.inCombat = true
+		local scheduleTimer = inspect.ScheduleTimer
+		inspect.ScheduleTimer = function()
+			if failureMode == "throw" then error("injected EquipInspect combat timer failure") end
+			return nil
+		end
+		local ok, reason = inspect:ForcePlayer(2, 21)
+		assertEqual(false, ok, failureMode .. " combat retry timer failure is synchronous")
+		assertEqual("inspect_timer_failed", reason, failureMode .. " combat retry reason is stable")
+		assertEqual("failed", inspect:GetSnapshot(fixture.raids[2], 21).status, failureMode .. " combat retry terminalizes")
+		assertEqual(1, countTerminalUpdates(fixture, 73, 21), failureMode .. " combat retry finalizes once")
+		inspect.ScheduleTimer = scheduleTimer
+		fixture.inCombat = false
+		fixture.inspectCallbacks.PLAYER_REGEN_ENABLED()
+		fixture:AdvanceTime(20)
+		assertEqual(0, #fixture.inspectRequests, failureMode .. " combat retry leaves no stale inspect")
+		assertEqual(1, countTerminalUpdates(fixture, 73, 21), failureMode .. " combat retry callback remains single")
+	end
+
+	for _, failureMode in ipairs({ "nil", "throw" }) do
+		local fixture, inspect = installEquipInspectFixture(addon)
+		fixture.itemLinks[1] = itemLink(1001)
+		assertEqual("pending", select(2, inspect:ForcePlayer(2, 21)), failureMode .. " cold item inspect starts")
+		local scheduleTimer = inspect.ScheduleTimer
+		inspect.ScheduleTimer = function()
+			if failureMode == "throw" then error("injected EquipInspect item timer failure") end
+			return nil
+		end
+		local callbackOk = pcall(fixture.inspectCallbacks.INSPECT_TALENT_READY, nil, "guid-raid1")
+		assertEqual(true, callbackOk, failureMode .. " item retry timer failure is contained")
+		local failed = inspect:GetSnapshot(fixture.raids[2], 21)
+		assertEqual("failed", failed.status, failureMode .. " item retry terminalizes")
+		assertEqual("inspect_timer_failed", failed.reason, failureMode .. " item retry reason is stable")
+		assertEqual(1, countTerminalUpdates(fixture, 73, 21), failureMode .. " item retry finalizes once")
+		inspect.ScheduleTimer = scheduleTimer
+		fixture.itemInfo[1001] = 251
+		fixture.inspectCallbacks.GET_ITEM_INFO_RECEIVED(nil, 1001, true)
+		fixture:AdvanceTime(20)
+		assertEqual(nil, fixture.raids[2].inspect, failureMode .. " stale item work cannot persist")
+		assertEqual(1, countTerminalUpdates(fixture, 73, 21), failureMode .. " item retry callback remains single")
+	end
+	print("PASS equip_inspect_own_timer_failures_are_terminal")
+end
+
+function cases.vendored_lgt_respects_equipment_inspect_guard(addon)
+	local frames, nowValue, notifyCount = {}, 0, 0
+	_G.UNKNOWN = "Unknown"
+	_G.strmatch = string.match
+	_G.format = string.format
+	_G.TALENT_ACTIVATION_SPELLS = {}
+	_G.IsLoggedIn = function() return true end
+	_G.GetTime = function() return nowValue end
+	_G.GetNumRaidMembers = function() return 1 end
+	_G.GetNumPartyMembers = function() return 0 end
+	_G.UnitName = function(unit) if unit == "raid1" or unit == "Alpha" then return "Alpha", "Realm" end return "Player", "Realm" end
+	_G.UnitGUID = function(unit) if unit == "raid1" or unit == "Alpha-Realm" or unit == "Alpha" then return "guid-alpha" end return "guid-player" end
+	_G.UnitExists = function(unit) return unit == "raid1" or unit == "Alpha-Realm" or unit == "player" end
+	_G.UnitIsPlayer = function() return true end
+	_G.UnitIsVisible = function() return true end
+	_G.UnitIsConnected = function() return true end
+	_G.UnitCanAttack = function() return false end
+	_G.UnitClass = function() return "Priest", "PRIEST" end
+	_G.UnitLevel = function() return 80 end
+	_G.UnitIsUnit = function(a, b) return a == b end
+	_G.UnitInRaid = function() return 1 end
+	_G.UnitInParty = function() return false end
+	_G.CanInspect = function() return true end
+	_G.CheckInteractDistance = function() return true end
+	_G.GetActiveTalentGroup = function() return 1 end
+	_G.GetNumTalentGroups = function() return 1 end
+	_G.GetNumTalentTabs = function() return 3 end
+	_G.GetTalentTabInfo = function(tab) return ({ "Discipline", "Holy", "Shadow" })[tab], "icon" .. tostring(tab), ({ 57, 14, 0 })[tab] end
+	_G.GetNumTalents = function() return 1 end
+	_G.GetTalentInfo = function(tab) return "Talent" .. tostring(tab), "talent-icon", 1, 1, ({ 5, 1, 0 })[tab], 5 end
+	_G.GetUnspentTalentPoints = function() return 0 end
+	_G.GetSpellInfo = function(id) return "Spell" .. tostring(id) end
+	_G.GetGlyphSocketInfo = function() return nil end
+	_G.SendAddonMessage = function() end
+	_G.RegisterAddonMessagePrefix = function() end
+	_G.strsplit = function(_, value) local a, b = string.match(value, "^([^-]+)%-?(.*)$"); return a, b ~= "" and b or nil end
+	_G.wipe = function(t) for key in pairs(t) do t[key] = nil end return t end
+	_G.geterrorhandler = function() return function(err) error(err) end end
+	_G.securecall = function(func, ...) return func(...) end
+	_G.CreateFrame = function(_, name)
+		local frame = { shown = false }
+		function frame:UnregisterAllEvents() end
+		function frame:RegisterEvent() end
+		function frame:SetScript(kind, callback) self[kind] = callback end
+		function frame:Show() self.shown = true end
+		function frame:Hide() self.shown = false end
+		function frame:IsShown() return self.shown end
+		frames[name] = frame
+		return frame
+	end
+	_G.NotifyInspect = function() notifyCount = notifyCount + 1 end
+	_G.hooksecurefunc = function(name, hook)
+		local original = _G[name]
+		_G[name] = function(...) local values = { original(...) }; hook(...); return unpack(values) end
+	end
+	loadAddonFile(addon, "Raid Management Addon/Libs/LibCompat-1.0/Libs/LibStub/LibStub.lua")
+	loadAddonFile(addon, "Raid Management Addon/Libs/LibCompat-1.0/Libs/CallbackHandler-1.0/CallbackHandler-1.0.lua")
+	loadAddonFile(addon, "Raid Management Addon/Libs/LibCompat-1.0/Libs/LibGroupTalents-1.0/LibTalentQuery-1.0.lua")
+	loadAddonFile(addon, "Raid Management Addon/Libs/LibCompat-1.0/Libs/LibGroupTalents-1.0/LibGroupTalents-1.0.lua")
+	local lgt = LibStub("LibGroupTalents-1.0")
+	local ltq, terminalReady = LibStub("LibTalentQuery-1.0"), 0
+	local terminalOwner = {}
+	ltq.RegisterCallback(terminalOwner, "TalentQuery_Ready", function() terminalReady = terminalReady + 1 end)
+	lgt.roster["guid-alpha"] = { unit = "raid1", name = "Alpha", realm = "Realm", class = "PRIEST", level = 80 }
+	addon.Services = {
+		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} end,
+		Raid = { GetUnitID = function() return "raid1" end, GetPlayers = function() return { { name = "Alpha" } } end, GetPlayerClass = function() return "PRIEST" end },
+	}
+	addon.Database = { GetCurrentRaid = function() return 1 end }
+	addon.Strings = { NormalizeName = function(value) return value end }
+	addon.Events = { Internal = { SpecInspectUpdated = "SpecInspectUpdated" }, ResolveWowForwardedName = function(name) return name end }
+	local callbacks = {}
+	addon.Bus = { RegisterCallback = function(name, callback) callbacks[name] = callback end, TriggerEvent = function() end }
+	addon.Timer = { BindMixin = function(target) target.ScheduleTimer = function() return {} end; target.CancelTimer = function() end end }
+	_G.UnitAffectingCombat = function() return false end
+	_G.ClearInspectPlayer = function() end
+	loadAddonFile(addon, "Raid Management Addon/Services/InspectCoordinator.lua")
+	loadAddonFile(addon, "Raid Management Addon/Services/SpecInspect.lua")
+	local coordinator = addon.Services.InspectCoordinator
+	coordinator:Request("equip-owner", "raid1", "guid-alpha", function() end, nil, "equipment")
+	lgt:RefreshTalentsByUnit("raid1")
+	LibStub("LibTalentQuery-1.0"):CheckInspectQueue()
+	assertEqual(0, notifyCount, "actual vendored LTQ queue is blocked during equipment ownership")
+	coordinator:Release("equip-owner", "guid-alpha")
+	nowValue = 1.75
+	LibStub("LibTalentQuery-1.0"):CheckInspectQueue()
+	assertEqual(1, notifyCount, "actual vendored LTQ queue resumes after equipment ownership")
+	ltq:INSPECT_TALENT_READY()
+	assertEqual(1, terminalReady, "actual vendored LTQ emits matching terminal callback")
+	print("PASS vendored_lgt_respects_equipment_inspect_guard")
+end
+
+function cases.equip_inspect_item_information_timeout_preserves_last_good(addon)
+	local fixture, inspect = installEquipInspectFixture(addon)
+	local raid = fixture.raids[2]
+	fixture.itemLinks[1] = itemLink(1001)
+	fixture.itemInfo[1001] = 226
+	inspect:ForcePlayer(2, 21)
+	fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
+	local canonical = deepCopy(raid.inspect)
+	local revision = fixture.store:GetRaidSyncRevision(raid)
+
+	fixture.itemLinks[1] = itemLink(1002)
+	assertEqual(true, inspect:ForcePlayer(2, 21), "replacement inspect starts")
+	fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
+	fixture:AdvanceTime(8)
+	assertTrue(deepEqual(canonical, raid.inspect), "item timeout preserves the last good snapshot")
+	assertEqual("timeout", inspect:GetSnapshot(raid, 21).status, "item timeout remains runtime-only")
+	assertEqual("item_info_timeout", inspect:GetSnapshot(raid, 21).reason, "item timeout has a stable reason")
+	fixture:AssertRevision(73, revision, "item timeout must not advance canonical revision")
+
+	fixture.itemInfo[1002] = 245
+	fixture.inspectCallbacks.GET_ITEM_INFO_RECEIVED(nil, 1002, true)
+	assertTrue(deepEqual(canonical, raid.inspect), "late item event after cancellation must be ignored")
+	print("PASS equip_inspect_item_information_timeout_preserves_last_good")
+end
+
+function cases.equip_inspect_cancels_cold_item_work_when_raid_disappears(addon)
+	local fixture, inspect = installEquipInspectFixture(addon)
+	fixture.itemLinks[1] = itemLink(1003)
+	inspect:ForcePlayer(2, 21)
+	fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
+	table.remove(fixture.raids, 2)
+	inspect:ProcessQueue(73)
+	local activeTimers = 0
+	for i = 1, #fixture.timers do
+		if fixture.timers[i].active then activeTimers = activeTimers + 1 end
+	end
+	assertEqual(0, activeTimers, "raid cancellation removes item-info retry and timeout timers")
+	fixture.itemInfo[1003] = 251
+	fixture.inspectCallbacks.GET_ITEM_INFO_RECEIVED(nil, 1003, true)
+	fixture:AdvanceTime(10)
+	assertEqual(1, fixture.clearInspectCount, "cancelled cold-cache work clears its inspect owner once")
+	print("PASS equip_inspect_cancels_cold_item_work_when_raid_disappears")
+end
+
+function cases.equip_inspect_distinguishes_cold_occupied_slot_from_empty(addon)
+	local fixture, inspect = installEquipInspectFixture(addon)
+	local raid = fixture.raids[2]
+	fixture.itemTextures[1] = "fixture-texture"
+	inspect:ForcePlayer(2, 21)
+	fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
+	assertEqual(nil, raid.inspect, "occupied slot with a cold link must not persist ready")
+	assertEqual("pending", inspect:GetSnapshot(raid, 21).status, "cold occupied slot remains pending")
+
+	fixture.itemLinks[1] = itemLink(1004)
+	fixture.itemInfo[1004] = 264
+	fixture:AdvanceTime(0.5)
+	assertEqual("ready", raid.inspect.players[21].status, "bounded retry resolves the occupied slot")
+	assertEqual(264, raid.inspect.players[21].avgIlvl, "resolved occupied slot contributes to average")
+
+	local emptyFixture, emptyInspect = installEquipInspectFixture(addon)
+	emptyInspect:ForcePlayer(2, 21)
+	emptyFixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
+	assertEqual("ready", emptyFixture.raids[2].inspect.players[21].status, "linkless textureless slot remains empty")
+	print("PASS equip_inspect_distinguishes_cold_occupied_slot_from_empty")
+end
+
+function cases.equip_inspect_failed_item_event_keeps_original_deadline(addon)
+	local fixture, inspect = installEquipInspectFixture(addon)
+	local raid = fixture.raids[2]
+	fixture.itemLinks[1] = itemLink(1005)
+	fixture.itemTextures[1] = "fixture-texture"
+	inspect:ForcePlayer(2, 21)
+	fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
+	local function activeTimerCount()
+		local count = 0
+		for i = 1, #fixture.timers do
+			if fixture.timers[i].active then count = count + 1 end
+		end
+		return count
+	end
+	assertEqual(2, activeTimerCount(), "cold item owns one retry and the original timeout")
+	fixture.itemInfo[1005] = 277
+	fixture.inspectCallbacks.GET_ITEM_INFO_RECEIVED(nil, 1005, false)
+	assertEqual(2, activeTimerCount(), "failed item event must not duplicate timers")
+	assertEqual("pending", inspect:GetSnapshot(raid, 21).status, "failed item event remains pending")
+	fixture.itemInfo[1005] = nil
+	fixture:AdvanceTime(8)
+	assertEqual("timeout", inspect:GetSnapshot(raid, 21).status, "failed item event must not extend the deadline")
+	assertEqual(nil, raid.inspect, "failed item event must never persist a partial average")
+	print("PASS equip_inspect_failed_item_event_keeps_original_deadline")
 end
 
 function cases.raid_inspect_persistence_compacts_only_on_explicit_save(addon)
@@ -2421,6 +2956,247 @@ function cases.nested_dispatch_preserves_outer_snapshot(addon)
 	assertEqual("third outer", calls[5])
 	print("PASS nested_dispatch_preserves_outer_snapshot")
 end
+
+function cases.localized_raid_identity_uses_instance_map_id(addon)
+	addon.LootSourceCandidates = { GetModeSignature = function() return "" end }
+	addon.LootSourcesData = { Raw = {} }
+	loadAddonFile(addon, "Raid Management Addon/Modules/Dataset/LootSources/Vanilla.lua")
+	loadAddonFile(addon, "Raid Management Addon/Modules/Dataset/LootSources/Wrath.lua")
+	loadAddonFile(addon, "Raid Management Addon/Modules/Dataset/LootSourcesData.lua")
+
+	assertEqual(
+		"icecrown citadel",
+		addon.LootSourcesData.ResolveInstanceKey("Citadelle de la Couronne de glace", 631),
+		"localized names must resolve through the stable instance map id"
+	)
+	assertEqual(
+		"molten core",
+		addon.LootSourcesData.ResolveInstanceKey("Caverne du coeur du Magma", 409),
+		"classic raid datasets must use the same locale-independent identity"
+	)
+	assertEqual(
+		"icecrown citadel",
+		addon.LootSourcesData.ResolveInstanceKey("Icecrown Citadel", nil),
+		"English and custom-server name fallback must remain supported"
+	)
+	assertEqual(
+		nil,
+		addon.LootSourcesData.ResolveInstanceKey("Unknown Custom Raid", nil),
+		"unknown instances must fail closed"
+	)
+	print("PASS localized_raid_identity_uses_instance_map_id")
+end
+
+function cases.instance_datasets_share_canonical_identity(addon)
+	installInitStubs(addon)
+	local activated = {}
+	addon.L = { RaidZones = {} }
+	addon.Diag = {
+		D = { LogRaidInstanceRecognized = "%s %s" },
+		W = { LogRaidUnmappedZone = "%s %s" },
+	}
+	addon.warn = function() end
+	addon.LootSourcesData = {
+		ResolveInstanceKey = function(name, instanceMapId)
+			assertEqual("Citadelle de la Couronne de glace", name)
+			assertEqual(631, instanceMapId)
+			return "icecrown citadel"
+		end,
+		ActivateInstance = function(key) activated.loot = key return true end,
+		DeactivateInstance = function() activated.loot = nil end,
+		GetActiveInstanceKey = function() return activated.loot end,
+	}
+	addon.IgnoredMobs = {
+		ActivateInstance = function(key) activated.ignored = key return true end,
+		DeactivateInstance = function() activated.ignored = nil end,
+		GetActiveInstanceKey = function() return activated.ignored end,
+	}
+	_G.GetInstanceInfo = function()
+		return "Citadelle de la Couronne de glace", "raid", 2, nil, 25, 0, false, 631
+	end
+	loadAddonFile(addon, "Raid Management Addon/Init.lua")
+	addon:ZONE_CHANGED_NEW_AREA()
+	assertEqual("icecrown citadel", activated.loot, "loot dataset must receive the canonical key")
+	assertEqual("icecrown citadel", activated.ignored, "ignored-mob dataset must receive the same canonical key")
+	print("PASS instance_datasets_share_canonical_identity")
+end
+
+function cases.loot_dataset_build_failure_preserves_active_generation(addon)
+	local failBuild = false
+	addon.LootSourceCandidates = {
+		GetModeSignature = function()
+			if failBuild then error("injected dataset failure") end
+			return ""
+		end,
+	}
+	addon.LootSourcesData = { Raw = {} }
+	loadAddonFile(addon, "Raid Management Addon/Modules/Dataset/LootSources/Wrath.lua")
+	loadAddonFile(addon, "Raid Management Addon/Modules/Dataset/LootSourcesData.lua")
+	local data = addon.LootSourcesData
+	assertTrue(data.ActivateInstance("icecrown citadel"))
+	local oldItems = data.ByItemId
+	local oldInstances = data.ByInstance
+	local oldGeneration = data.GetGeneration()
+	local oldCandidate = oldItems[50424] and oldItems[50424][1]
+	failBuild = true
+	local ok, err = pcall(data.ActivateInstance, "ulduar")
+	assertEqual(false, ok, "fault injection must reach the detached build")
+	assertTrue(string.find(tostring(err), "injected dataset failure", 1, true) ~= nil)
+	assertEqual(oldItems, data.ByItemId, "active item root identity must remain unchanged")
+	assertEqual(oldInstances, data.ByInstance, "active instance root identity must remain unchanged")
+	assertEqual(oldGeneration, data.GetGeneration(), "failed build must not publish a generation")
+	assertEqual("icecrown citadel", data.GetActiveInstanceKey())
+	assertEqual(oldCandidate, data.ByItemId[50424] and data.ByItemId[50424][1], "attribution identity must remain unchanged")
+	print("PASS loot_dataset_build_failure_preserves_active_generation")
+end
+
+function cases.loot_dataset_handles_duplicate_nil_and_malformed_entries(addon)
+	addon.LootSourceCandidates = { GetModeSignature = function() return "" end }
+	addon.LootSourcesData = { Raw = {
+		{ name = "Test Raid", sources = {
+			{ npcId = 7, name = "Boss", kind = "boss", items = { { 100 }, { 100 }, nil, "bad", { nil } } },
+			{ npcId = nil, name = "Malformed", items = { { 101 } } },
+		} },
+	} }
+	loadAddonFile(addon, "Raid Management Addon/Modules/Dataset/LootSourcesData.lua")
+	local data = addon.LootSourcesData
+	assertTrue(data.ActivateInstance("test raid"))
+	assertEqual(2, #data.ByItemId[100], "duplicate definitions remain explicit source candidates")
+	assertEqual(nil, data.ByItemId[101], "malformed source definitions must be skipped")
+	assertEqual(nil, data.ByItemId[nil], "nil item identifiers must not be indexed")
+	print("PASS loot_dataset_handles_duplicate_nil_and_malformed_entries")
+end
+
+function cases.dataset_activation_rolls_back_cross_owner_failure(addon)
+	installInitStubs(addon)
+	addon.L = { RaidZones = {} }
+	addon.Diag = { D = { LogRaidInstanceRecognized = "%s %s" }, W = { LogRaidUnmappedZone = "%s %s" } }
+	addon.warn = function() end
+	local lootKey = "old raid"
+	local ignoredKey = "old raid"
+	addon.LootSourcesData = {
+		ResolveInstanceKey = function() return "new raid" end,
+		GetActiveInstanceKey = function() return lootKey end,
+		ActivateInstance = function(key) lootKey = key return true end,
+		DeactivateInstance = function() lootKey = nil return true end,
+	}
+	addon.IgnoredMobs = {
+		GetActiveInstanceKey = function() return ignoredKey end,
+		ActivateInstance = function(key)
+			if key == "new raid" then error("injected ignored failure") end
+			ignoredKey = key
+			return true
+		end,
+		DeactivateInstance = function() ignoredKey = nil return true end,
+	}
+	_G.GetInstanceInfo = function() return "Localized", "raid", 1, nil, 10, 0, false, 999 end
+	loadAddonFile(addon, "Raid Management Addon/Init.lua")
+	local ok = pcall(addon.ZONE_CHANGED_NEW_AREA, addon)
+	assertEqual(false, ok, "activation failure must remain visible")
+	assertEqual("old raid", lootKey, "loot activation must roll back")
+	assertEqual("old raid", ignoredKey, "ignored-mob activation must roll back")
+	print("PASS dataset_activation_rolls_back_cross_owner_failure")
+end
+
+function cases.dataset_activation_rejects_false_owner_results(addon)
+	installInitStubs(addon)
+	addon.L = { RaidZones = {} }
+	addon.Diag = { D = { LogRaidInstanceRecognized = "%s %s" }, W = { LogRaidUnmappedZone = "%s %s" } }
+	addon.warn = function() end
+	local lootKey = "old raid"
+	local ignoredKey = "old raid"
+	local ignoredCalls = 0
+	addon.LootSourcesData = {
+		ResolveInstanceKey = function() return "new raid" end,
+		GetActiveInstanceKey = function() return lootKey end,
+		ActivateInstance = function(key)
+			if key == "new raid" then return false, "loot-rejected" end
+			lootKey = key return true
+		end,
+		DeactivateInstance = function() lootKey = nil return true end,
+	}
+	addon.IgnoredMobs = {
+		GetActiveInstanceKey = function() return ignoredKey end,
+		ActivateInstance = function(key) ignoredCalls = ignoredCalls + 1 ignoredKey = key return true end,
+		DeactivateInstance = function() ignoredKey = nil return true end,
+	}
+	_G.GetInstanceInfo = function() return "Localized", "raid", 1, nil, 10, 0, false, 999 end
+	loadAddonFile(addon, "Raid Management Addon/Init.lua")
+	local ok, err = pcall(addon.ZONE_CHANGED_NEW_AREA, addon)
+	assertEqual(false, ok)
+	assertTrue(string.find(tostring(err), "loot-rejected", 1, true) ~= nil)
+	assertEqual(0, ignoredCalls, "second owner must not run after first-owner rejection")
+	assertEqual("old raid", lootKey)
+	assertEqual("old raid", ignoredKey)
+	print("PASS dataset_activation_rejects_false_owner_results")
+end
+
+function cases.dataset_activation_reports_failed_rollback(addon)
+	installInitStubs(addon)
+	addon.L = { RaidZones = {} }
+	addon.Diag = { D = { LogRaidInstanceRecognized = "%s %s" }, W = { LogRaidUnmappedZone = "%s %s" } }
+	addon.warn = function() end
+	local lootKey = "old raid"
+	local ignoredKey = "old raid"
+	addon.LootSourcesData = {
+		ResolveInstanceKey = function() return "new raid" end,
+		GetActiveInstanceKey = function() return lootKey end,
+		ActivateInstance = function(key)
+			if key == "old raid" and lootKey == "new raid" then return false, "rollback-refused" end
+			lootKey = key return true
+		end,
+		DeactivateInstance = function() lootKey = nil return true end,
+	}
+	addon.IgnoredMobs = {
+		GetActiveInstanceKey = function() return ignoredKey end,
+		ActivateInstance = function(key)
+			if key == "new raid" then ignoredKey = nil return false, "ignored-rejected" end
+			ignoredKey = key return true
+		end,
+		DeactivateInstance = function() ignoredKey = nil return true end,
+	}
+	_G.GetInstanceInfo = function() return "Localized", "raid", 1, nil, 10, 0, false, 999 end
+	loadAddonFile(addon, "Raid Management Addon/Init.lua")
+	local ok, err = pcall(addon.ZONE_CHANGED_NEW_AREA, addon)
+	assertEqual(false, ok)
+	assertTrue(string.find(tostring(err), "dataset_rollback_failed", 1, true) ~= nil)
+	assertTrue(string.find(tostring(err), "rollback-refused", 1, true) ~= nil)
+	assertEqual("new raid", lootKey, "failed rollback may leave state changed but must be terminal")
+	assertEqual("old raid", ignoredKey, "successful peer rollback must still restore its owner")
+	print("PASS dataset_activation_reports_failed_rollback")
+end
+
+function cases.dataset_activation_snapshots_restore_exact_generation(addon)
+	addon.L = {}
+	addon.LootSourceCandidates = { GetModeSignature = function() return "" end }
+	addon.LootSourcesData = { Raw = {} }
+	loadAddonFile(addon, "Raid Management Addon/Modules/Dataset/LootSources/Wrath.lua")
+	loadAddonFile(addon, "Raid Management Addon/Modules/Dataset/LootSourcesData.lua")
+	loadAddonFile(addon, "Raid Management Addon/Modules/Dataset/IgnoredMobs.lua")
+	local loot = addon.LootSourcesData
+	local ignored = addon.IgnoredMobs
+	assertTrue(loot.ActivateInstance("icecrown citadel"))
+	assertTrue(ignored.ActivateInstance("icecrown citadel"))
+	local lootRoot = loot.ByItemId
+	local ignoredRoot = ignored.Ids
+	local lootGeneration = loot.GetGeneration()
+	local ignoredGeneration = ignored.GetGeneration()
+	local lootSnapshot = loot.CaptureActivationState()
+	local ignoredSnapshot = ignored.CaptureActivationState()
+	assertTrue(loot.ActivateInstance("ulduar"))
+	assertTrue(ignored.ActivateInstance("ulduar"))
+	assertTrue(loot.RestoreActivationState(lootSnapshot))
+	assertTrue(ignored.RestoreActivationState(ignoredSnapshot))
+	assertEqual(lootRoot, loot.ByItemId)
+	assertEqual(ignoredRoot, ignored.Ids)
+	assertEqual(lootGeneration, loot.GetGeneration())
+	assertEqual(ignoredGeneration, ignored.GetGeneration())
+	assertEqual("icecrown citadel", loot.GetActiveInstanceKey())
+	assertEqual("icecrown citadel", ignored.GetActiveInstanceKey())
+	print("PASS dataset_activation_snapshots_restore_exact_generation")
+end
+
+
 
 function cases.error_reporting_failure_cleans_dispatch_snapshot(addon)
 	local frame = installInitStubs(addon)

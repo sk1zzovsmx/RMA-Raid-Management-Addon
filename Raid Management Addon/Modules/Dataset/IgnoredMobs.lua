@@ -211,22 +211,18 @@ function IgnoredMobs.ActivateInstance(instanceName)
 		return true
 	end
 
-	local wasActive = activeInstanceKey ~= nil
-	IgnoredMobs.DeactivateInstance()
-	local rawIds = instanceKey and rawByInstance[instanceKey] or nil
-	if rawIds == nil then
-		return false, "unsupported-instance"
-	end
+	-- The canonical key is resolved by LootSourcesData before this owner is
+	-- called. A supported raid without special ignored encounters therefore has
+	-- a valid empty policy rather than an unsupported activation.
+	local rawIds = (instanceKey and rawByInstance[instanceKey]) or {}
 
 	local ids = {}
-	IgnoredMobs.Ids = ids
 	for i = 1, #rawIds do
 		ids[rawIds[i]] = true
 	end
+	IgnoredMobs.Ids = ids
 	activeInstanceKey = instanceKey
-	if not wasActive then
-		generation = generation + 1
-	end
+	generation = generation + 1
 	return true
 end
 
@@ -236,6 +232,22 @@ end
 
 function IgnoredMobs.GetGeneration()
 	return generation
+end
+
+function IgnoredMobs.CaptureActivationState()
+	return {
+		ids = IgnoredMobs.Ids,
+		activeInstanceKey = activeInstanceKey,
+		generation = generation,
+	}
+end
+
+function IgnoredMobs.RestoreActivationState(snapshot)
+	assert(type(snapshot) == "table", "IgnoredMobs activation snapshot is required")
+	IgnoredMobs.Ids = snapshot.ids
+	activeInstanceKey = snapshot.activeInstanceKey
+	generation = snapshot.generation
+	return true
 end
 
 function IgnoredMobs._SetRawForTests(raw)

@@ -12,6 +12,7 @@ local Events = addon.Events
 local Bus = addon.Bus
 local Strings = addon.Strings
 local NormalizeName = assert(Strings.NormalizeName, "SpecInspect name normalizer is not initialized")
+local InspectCoordinator = assert(Services.InspectCoordinator, "SpecInspect coordinator is not initialized")
 
 local GetTime = assert(_G.GetTime, "SpecInspect time API is not initialized")
 local UnitGUID = assert(_G.UnitGUID, "SpecInspect unit GUID API is not initialized")
@@ -32,9 +33,28 @@ local STALE_AFTER_SECONDS = 1800
 -- ----- Internal state ----- --
 
 local lgt = LibStub("LibGroupTalents-1.0", true)
+local talentQuery = LibStub("LibTalentQuery-1.0", true)
+
+-- LibTalentQuery invokes this method from its own OnUpdate. Keep that public
+-- integration point dormant while equipment owns the client-global target.
+if
+	type(talentQuery) == "table"
+	and type(talentQuery.CheckInspectQueue) == "function"
+	and not talentQuery.RMAInspectCoordinatorGuard
+then
+	local checkInspectQueue = talentQuery.CheckInspectQueue
+	talentQuery.CheckInspectQueue = function(self, ...)
+		if InspectCoordinator:IsCategoryOwner("equipment") then
+			return
+		end
+		return checkInspectQueue(self, ...)
+	end
+	talentQuery.RMAInspectCoordinatorGuard = true
+end
 
 local cache = {}
 local scratchPlayers = {}
+local pendingTalentByGuid = {}
 local emitDisplayUpdate
 
 -- ----- Private helpers ----- --
@@ -353,7 +373,32 @@ local function refreshPlayerWithCache(name, opts)
 	local needsRefresh = shouldRefreshSnapshot(cached, priorSnapshot, unit, opts)
 
 	if needsRefresh and type(lgt.RefreshTalentsByUnit) == "function" then
-		lgt:RefreshTalentsByUnit(unit)
+		local guid = UnitGUID(unit)
+		if not isNonEmptyString(guid) then
+			return false, "missing_guid"
+		end
+		if pendingTalentByGuid[guid] then
+			return true, "queued"
+		end
+		local owner = {}
+		pendingTalentByGuid[guid] = owner
+		local accepted, coordinatorState = InspectCoordinator:Request(owner, unit, guid, function()
+			lgt:RefreshTalentsByUnit(unit)
+		end, function()
+			if pendingTalentByGuid[guid] == owner then
+				pendingTalentByGuid[guid] = nil
+			end
+		end, "talents")
+		if not accepted then
+			pendingTalentByGuid[guid] = nil
+			if coordinatorState == "timer_failed" then
+				return false, "inspect_timer_failed"
+			end
+			if coordinatorState == "queue_full" then
+				return false, "inspect_queue_full"
+			end
+			return false, coordinatorState or "inspect_request_failed"
+		end
 		if type(priorSnapshot) == "table" then
 			priorSnapshot.refreshReason = reason
 		end
@@ -499,9 +544,23 @@ do
 		if not snapshot then
 			return
 		end
+		local owner = pendingTalentByGuid[guid]
+		if owner then
+			InspectCoordinator:Release(owner, guid)
+		end
 	end
 
-	local function handleUpdateComplete()
+	local function handleUpdateComplete(_, ...)
+		for i = 1, select("#", ...) do
+			local guid = select(i, ...)
+			local owner = pendingTalentByGuid[guid]
+			if owner and type(lgt.GetGUIDTalentSpec) == "function" then
+				local specName = lgt:GetGUIDTalentSpec(guid)
+				if isNonEmptyString(specName) then
+					InspectCoordinator:Release(owner, guid)
+				end
+			end
+		end
 		local raidService = Services.Raid
 		if not raidService or type(raidService.GetPlayers) ~= "function" then
 			return

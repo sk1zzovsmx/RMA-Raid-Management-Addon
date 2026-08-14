@@ -42,6 +42,13 @@ async imports and UI batches roll back atomically, import/storage limits reject
 before aggregation, and whisper signup remains pre-raid opt-in while admission
 and replies stay bounded.
 
+For inspect and instance-dataset hardening, the behavior suite proves cold item
+information cannot publish partial equipment, inspect ownership is serialized
+and GUID-correlated, localized raids resolve through stable map IDs, dataset
+build faults preserve exact active root/generation/attribution identity, and a
+cross-owner activation failure restores the prior loot-source and ignored-mob
+state.
+
 For docs-only edits, also run:
 
 ```powershell

@@ -93,6 +93,7 @@ Services\Raid\Attendance.lua
 Services\Raid\LootRecords.lua
 Services\Raid\Session.lua
 Services\Raid\Projections.lua
+Services\InspectCoordinator.lua
 Services\SpecInspect.lua
 Services\EquipInspect.lua
 Services\Chat.lua

@@ -74,6 +74,9 @@ runtime placement; the feature boundaries describe workflow and data ownership.
   `Modules/Comms.lua` owns a bounded FIFO addon-message queue (256 entries),
   draining four messages every 0.08 seconds and returning backpressure before
   accepting an atomic batch that cannot fit.
+  Instance-scoped loot-source indexes are built off-side and published as one
+  generation. Stable instance map IDs resolve localized raid names to the same
+  canonical key used by loot sources and ignored-mob policy.
 - `Services/*` owns runtime logic and models. Services must not call
   controllers, own controller frames, or reference widgets directly.
 - `Controllers/*` owns top-level feature frames and composes widgets/services.
@@ -85,9 +88,14 @@ runtime placement; the feature boundaries describe workflow and data ownership.
 ## Feature Areas
 
 - Raid attendance: `Services/Raid/Attendance.lua`,
-  `Services/EquipInspect.lua`, `Services/SpecInspect.lua`,
+  `Services/InspectCoordinator.lua`, `Services/EquipInspect.lua`,
+  `Services/SpecInspect.lua`,
   `Services/Attendance/*`, `Services/Attendance/Export.lua`,
   `Controllers/Attendance.lua`, and attendance XML.
+  `InspectCoordinator` exclusively owns the client-global inspect target,
+  combat deferral, queue, timeout, and `ClearInspectPlayer` lifecycle shared by
+  equipment snapshots and LibGroupTalents-backed spec refreshes. Equipment
+  snapshots publish only after all occupied slots have resolved item data.
 - Raid diagnostics: `Services/Raid/Debug.lua` owns synthetic roster, roll, and
   RaidGrid debug support under `addon.Services.Raid.Debug`.
 - Master loot: `Controllers/Master.lua`, `Services/Master/*`,

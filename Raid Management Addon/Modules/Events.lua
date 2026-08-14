@@ -24,6 +24,7 @@ Wow.OpenMasterLootList = Wow.OpenMasterLootList or "wow.OPEN_MASTER_LOOT_LIST"
 Wow.UpdateMasterLootList = Wow.UpdateMasterLootList or "wow.UPDATE_MASTER_LOOT_LIST"
 Wow.ReadyCheck = Wow.ReadyCheck or "wow.READY_CHECK"
 Wow.InspectTalentReady = Wow.InspectTalentReady or "wow.INSPECT_TALENT_READY"
+Wow.GetItemInfoReceived = Wow.GetItemInfoReceived or "wow.GET_ITEM_INFO_RECEIVED"
 Wow.PlayerRegenEnabled = Wow.PlayerRegenEnabled or "wow.PLAYER_REGEN_ENABLED"
 
 Internal.AddRoll = "AddRoll"

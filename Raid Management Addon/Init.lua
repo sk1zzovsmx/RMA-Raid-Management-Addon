@@ -83,6 +83,7 @@ local function seedBootstrapEvents()
 	Wow.UpdateMasterLootList = Wow.UpdateMasterLootList or "wow.UPDATE_MASTER_LOOT_LIST"
 	Wow.ReadyCheck = Wow.ReadyCheck or "wow.READY_CHECK"
 	Wow.InspectTalentReady = Wow.InspectTalentReady or "wow.INSPECT_TALENT_READY"
+	Wow.GetItemInfoReceived = Wow.GetItemInfoReceived or "wow.GET_ITEM_INFO_RECEIVED"
 	Wow.PlayerRegenEnabled = Wow.PlayerRegenEnabled or "wow.PLAYER_REGEN_ENABLED"
 	Wow.PlayerTargetChanged = Wow.PlayerTargetChanged or "wow.PLAYER_TARGET_CHANGED"
 	Wow.UiErrorMessage = Wow.UiErrorMessage or "wow.UI_ERROR_MESSAGE"
@@ -579,6 +580,7 @@ do
 		TRADE_TARGET_ITEM_CHANGED = "TRADE_TARGET_ITEM_CHANGED",
 		READY_CHECK = "READY_CHECK",
 		INSPECT_TALENT_READY = "INSPECT_TALENT_READY",
+		GET_ITEM_INFO_RECEIVED = "GET_ITEM_INFO_RECEIVED",
 		PLAYER_REGEN_ENABLED = "PLAYER_REGEN_ENABLED",
 		PLAYER_LOGOUT = "PLAYER_LOGOUT",
 	}
@@ -606,6 +608,7 @@ do
 			TRADE_TARGET_ITEM_CHANGED = WowEvents.TradeTargetItemChanged,
 			READY_CHECK = WowEvents.ReadyCheck,
 			INSPECT_TALENT_READY = WowEvents.InspectTalentReady,
+			GET_ITEM_INFO_RECEIVED = WowEvents.GetItemInfoReceived,
 			PLAYER_REGEN_ENABLED = WowEvents.PlayerRegenEnabled,
 		}
 
@@ -688,26 +691,100 @@ do
 	local activeLootSourcesData
 	local activeIgnoredMobs
 
+	local function activateDatasetOwner(owner, instanceKey)
+		local ok, activated, reason = pcall(owner.ActivateInstance, instanceKey)
+		if not ok then
+			return false, activated
+		end
+		if activated ~= true then
+			return false, reason or "activation-rejected"
+		end
+		return true
+	end
+
+	local function restoreDatasetOwner(owner, previousKey, snapshot)
+		if owner.GetActiveInstanceKey() == previousKey then
+			return true
+		end
+		if snapshot and type(owner.RestoreActivationState) == "function" then
+			local ok, restored = pcall(owner.RestoreActivationState, snapshot)
+			if not ok then
+				return false, restored
+			end
+			if restored == true and owner.GetActiveInstanceKey() == previousKey then
+				return true
+			end
+			return false, "snapshot-restore-rejected"
+		end
+		local ok, restored, reason
+		if previousKey then
+			ok, restored, reason = pcall(owner.ActivateInstance, previousKey)
+		else
+			ok, restored, reason = pcall(owner.DeactivateInstance)
+			if ok and owner.GetActiveInstanceKey() == nil then
+				return true
+			end
+		end
+		if not ok then
+			return false, restored
+		end
+		if restored ~= true or owner.GetActiveInstanceKey() ~= previousKey then
+			return false, reason or "restore-rejected"
+		end
+		return true
+	end
+
 	local function refreshActiveInstanceDatasets()
 		activeLootSourcesData = activeLootSourcesData or addon.LootSourcesData
 		activeIgnoredMobs = activeIgnoredMobs or addon.IgnoredMobs
 
-		local instanceName, instanceType, instanceDiff = GetInstanceInfo()
-		local isRecognizedRaid = instanceType == "raid" and L.RaidZones[instanceName] ~= nil
+		local instanceName, instanceType, instanceDiff, _, _, _, _, instanceMapId = GetInstanceInfo()
+		local instanceKey
+		if instanceType == "raid" then
+			instanceKey = activeLootSourcesData.ResolveInstanceKey(instanceName, instanceMapId)
+		end
+		local isRecognizedRaid = instanceKey ~= nil
 		if isRecognizedRaid then
-			activeLootSourcesData.ActivateInstance(instanceName)
-			activeIgnoredMobs.ActivateInstance(instanceName)
+			local previousLootKey = activeLootSourcesData.GetActiveInstanceKey()
+			local previousIgnoredKey = activeIgnoredMobs.GetActiveInstanceKey()
+			local lootSnapshot = type(activeLootSourcesData.CaptureActivationState) == "function"
+				and activeLootSourcesData.CaptureActivationState()
+			local ignoredSnapshot = type(activeIgnoredMobs.CaptureActivationState) == "function"
+				and activeIgnoredMobs.CaptureActivationState()
+			local lootOk, lootError = activateDatasetOwner(activeLootSourcesData, instanceKey)
+			local ignoredOk, ignoredError = false, "not-attempted"
+			if lootOk then
+				ignoredOk, ignoredError = activateDatasetOwner(activeIgnoredMobs, instanceKey)
+			end
+			if not lootOk or not ignoredOk then
+				local lootRestored, lootRestoreError =
+					restoreDatasetOwner(activeLootSourcesData, previousLootKey, lootSnapshot)
+				local ignoredRestored, ignoredRestoreError =
+					restoreDatasetOwner(activeIgnoredMobs, previousIgnoredKey, ignoredSnapshot)
+				if not lootRestored or not ignoredRestored then
+					error(
+						"dataset_rollback_failed: activation="
+							.. tostring(lootError or ignoredError)
+							.. " loot="
+							.. tostring(lootRestoreError)
+							.. " ignored="
+							.. tostring(ignoredRestoreError),
+						0
+					)
+				end
+				error(lootError or ignoredError, 0)
+			end
 		else
 			activeLootSourcesData.DeactivateInstance()
 			activeIgnoredMobs.DeactivateInstance()
 		end
 
-		return instanceName, instanceType, instanceDiff
+		return instanceName, instanceType, instanceDiff, instanceKey
 	end
 
-	local function scheduleRaidInstanceChecksIfRecognized(instanceName, instanceType, instanceDiff, emitRecognizedLog)
+	local function scheduleRaidInstanceChecksIfRecognized(instanceName, instanceType, instanceDiff, instanceKey, emitRecognizedLog)
 		local raidService = getService("Raid")
-		if instanceType ~= "raid" or L.RaidZones[instanceName] == nil then
+		if instanceType ~= "raid" or instanceKey == nil then
 			return false
 		end
 		if not raidService then
@@ -750,14 +827,14 @@ do
 	end
 
 	local function handleRaidInstanceInfoChanged(emitRecognizedLog)
-		local instanceName, instanceType, instanceDiff = refreshActiveInstanceDatasets()
-		scheduleRaidInstanceChecksIfRecognized(instanceName, instanceType, instanceDiff, emitRecognizedLog)
-		return instanceName, instanceType, instanceDiff
+		local instanceName, instanceType, instanceDiff, instanceKey = refreshActiveInstanceDatasets()
+		scheduleRaidInstanceChecksIfRecognized(instanceName, instanceType, instanceDiff, instanceKey, emitRecognizedLog)
+		return instanceName, instanceType, instanceDiff, instanceKey
 	end
 
 	-- RAID_INSTANCE_WELCOME: Triggered when entering a raid instance.
 	function addon:RAID_INSTANCE_WELCOME(...)
-		local instanceName, instanceType, instanceDiff = handleRaidInstanceInfoChanged(true)
+		local instanceName, instanceType, instanceDiff, instanceKey = handleRaidInstanceInfoChanged(true)
 		local _, nextReset = ...
 		local resolvedNextReset = Database.SetNextReset(nextReset)
 		if isTraceEnabled() then
@@ -770,7 +847,7 @@ do
 				)
 			)
 		end
-		if instanceType == "raid" and not L.RaidZones[instanceName] then
+		if instanceType == "raid" and instanceKey == nil then
 			addon:warn(Diag.W.LogRaidUnmappedZone:format(tostring(instanceName), tostring(instanceDiff)))
 		end
 		if instanceType == "raid" then
