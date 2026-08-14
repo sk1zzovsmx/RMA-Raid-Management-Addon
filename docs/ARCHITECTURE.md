@@ -98,6 +98,10 @@ runtime placement; the feature boundaries describe workflow and data ownership.
   and loot-history XML. Logger export covers logger and loot-history data only.
 - Reserves and SoftRes: `Services/Reserves.lua`, `Services/Reserves/*`,
   `Widgets/ReservesUI.lua`, and reserves XML.
+  `Services/Reserves.lua` owns canonical publication and atomic mutation;
+  `Import.lua`, `Sync.lua`, and `Chat.lua` own bounded parsing, verified wire
+  transfer, and opt-in whisper admission respectively. Runtime sync and rate
+  state never becomes SavedVariables data without successful validation.
 - Raid warnings: `Controllers/Warnings.lua`, `Services/Warnings/Store.lua`,
   and warnings XML.
 - LFM spammer: `Controllers/Spammer.lua`, `Services/Spammer/Draft.lua`, and

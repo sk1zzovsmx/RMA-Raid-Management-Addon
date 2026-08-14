@@ -56,6 +56,7 @@ local GetImportMode = assert(Reserves.GetImportMode, "Reserves UI import-mode ge
 local ParseImport = assert(Reserves.ParseImport, "Reserves UI import parser is not initialized")
 local RequestApplyImport = assert(Reserves.RequestApplyImport, "Reserves UI import-apply handler is not initialized")
 local SetImportMode = assert(Reserves.SetImportMode, "Reserves UI import-mode setter is not initialized")
+local ApplyReserveBatch = assert(Reserves.ApplyBatch, "Reserves UI batch editor is not initialized")
 local Chat = assert(Services.Chat, "Reserves UI chat service is not initialized")
 local AnnounceChat = assert(Chat.Announce, "Reserves UI chat announcer is not initialized")
 local Raid = assert(Services.Raid, "Reserves UI raid service is not initialized")
@@ -92,6 +93,7 @@ do
 	local rowsByItemID = {}
 	local collapsedItems = {}
 	local isEditMode = false
+	local editConfirmationGeneration = 0
 	local reserveHeaderHeight = 30
 	local reservePlayerRowHeight = 24
 	local lastQueryAttemptAt = 0
@@ -341,8 +343,12 @@ do
 		local raw = row.quantityEdit:GetText()
 		local nextValue = tonumber(raw)
 		if not nextValue then
-			restoreRowEditValue(row)
-			return nil, "invalid_value"
+			return {
+				itemId = row._itemId,
+				playerName = row._playerName,
+				value = raw,
+				isPlusMode = isPlusMode,
+			}
 		end
 		nextValue = math.floor(nextValue)
 		if isPlusMode then
@@ -351,7 +357,6 @@ do
 			end
 			row.quantityEdit:SetText(tostring(nextValue))
 			return {
-				editBox = row.quantityEdit,
 				itemId = row._itemId,
 				playerName = row._playerName,
 				value = nextValue,
@@ -364,30 +369,11 @@ do
 		end
 		row.quantityEdit:SetText(tostring(nextValue))
 		return {
-			editBox = row.quantityEdit,
 			itemId = row._itemId,
 			playerName = row._playerName,
 			value = nextValue,
 			isPlusMode = false,
 		}
-	end
-
-	local function applyRowEditCommit(edit)
-		if not edit or not Reserves then
-			return false
-		end
-		if edit.isPlusMode then
-			return Reserves:SetPlayerReservePlus(edit.playerName, edit.itemId, edit.value)
-		end
-		return Reserves:SetPlayerReserveQuantity(edit.playerName, edit.itemId, edit.value)
-	end
-
-	local function commitRowEdit(row)
-		local edit, reason = buildRowEditCommit(row)
-		if not edit then
-			return false, reason
-		end
-		return applyRowEditCommit(edit)
 	end
 
 	local function collectVisibleReserveEdits()
@@ -409,14 +395,87 @@ do
 		return edits
 	end
 
-	local function applyVisibleReserveEdits(edits)
-		for i = 1, #edits do
-			local edit = edits[i]
-			applyRowEditCommit(edit)
-			if edit.editBox and edit.editBox._RMAReserveEditBase then
-				edit.editBox._RMAReserveEditBase = tostring(edit.value)
+	local function findVisibleReserveEditBox(edit)
+		for i = 1, #reserveItemRows do
+			local row = reserveItemRows[i]
+			if row and row._playerName == edit.playerName and row._itemId == edit.itemId and row.quantityEdit then
+				return row.quantityEdit
 			end
 		end
+		return nil
+	end
+
+	local function clearReserveEditFeedback(edits)
+		for i = 1, #edits do
+			local editBox = findVisibleReserveEditBox(edits[i])
+			if editBox and editBox.SetTextColor then
+				editBox:SetTextColor(1, 1, 1)
+			end
+		end
+		local frameName = uiState.FrameName
+		local status = frameName and _G[frameName .. "SoftResStatusText"]
+		if status and status.SetTextColor then status:SetTextColor(1, 1, 1) end
+	end
+
+	local function getReserveEditError(reason)
+		local messages = {
+			invalid_player = L.ErrReserveEditInvalidPlayer,
+			missing_item = L.ErrReserveEditMissingItem,
+			no_change = L.ErrReserveEditNoChange,
+			invalid_quantity = L.ErrReserveEditInvalidValue,
+			invalid_plus = L.ErrReserveEditInvalidValue,
+			invalid_input = L.ErrReserveEditInvalidValue,
+			invalid_command = L.ErrReserveEditInvalidValue,
+			stale_edit = L.ErrReserveEditStale,
+			too_many_commands = L.ErrReserveEditFailed,
+			publish_failed = L.ErrReserveEditFailed,
+		}
+		return messages[reason] or L.ErrReserveEditFailed
+	end
+
+	local function showReserveEditFailure(edits, reason, rowIndex)
+		clearReserveEditFeedback(edits)
+		local edit = rowIndex and edits[rowIndex] or nil
+		local editBox = edit and findVisibleReserveEditBox(edit) or nil
+		if editBox and editBox.SetTextColor then
+			editBox:SetTextColor(1, 0.2, 0.2)
+		end
+		local frameName = uiState.FrameName
+		local status = frameName and _G[frameName .. "SoftResStatusText"]
+		if status then
+			status:SetText(format(L.ErrReserveEditRow, tonumber(rowIndex) or 0, getReserveEditError(reason)))
+			if status.SetTextColor then status:SetTextColor(1, 0.2, 0.2) end
+		end
+	end
+
+	local function applyVisibleReserveEdits(edits)
+		local commands = {}
+		for i = 1, #edits do
+			local edit = edits[i]
+			local editBox = findVisibleReserveEditBox(edit)
+			if not editBox or tostring(editBox:GetText() or "") ~= tostring(edit.value) then
+				showReserveEditFailure(edits, "stale_edit", i)
+				return nil, "stale_edit", i
+			end
+			commands[i] = {
+				kind = edit.isPlusMode and "plus" or "quantity",
+				playerName = edit.playerName,
+				itemId = edit.itemId,
+				value = edit.value,
+			}
+		end
+		local ok, result, rowIndex = ApplyReserveBatch(Reserves, commands)
+		if not ok then
+			showReserveEditFailure(edits, result, rowIndex)
+			return nil, result, rowIndex
+		end
+		clearReserveEditFeedback(edits)
+		for i = 1, #edits do
+			local edit = edits[i]
+			local editBox = findVisibleReserveEditBox(edit)
+			if editBox then editBox._RMAReserveEditBase = tostring(edit.value) end
+		end
+		return true, result
 	end
 
 	local function getReserveItemConfirmText(itemId, itemName, itemLink)
@@ -461,13 +520,23 @@ do
 			return false
 		end
 
+		editConfirmationGeneration = editConfirmationGeneration + 1
+		local generation = editConfirmationGeneration
 		local options = {
 			button1 = L.BtnSave,
 			button2 = L.BtnCancel,
+			onCancel = function()
+				if generation == editConfirmationGeneration then
+					editConfirmationGeneration = editConfirmationGeneration + 1
+				end
+			end,
 		}
 
 		local function onAccept()
-			applyVisibleReserveEdits(edits)
+			if generation ~= editConfirmationGeneration then return end
+			local ok = applyVisibleReserveEdits(edits)
+			if not ok then return end
+			editConfirmationGeneration = editConfirmationGeneration + 1
 			isEditMode = false
 			if editButton then
 				editButton._RMAReserveEditMode = false
@@ -615,6 +684,7 @@ do
 	end
 
 	function uiState.Refresh()
+		editConfirmationGeneration = editConfirmationGeneration + 1
 		local frameName = uiState.FrameName
 		if not frameName then
 			return
@@ -820,7 +890,10 @@ do
 					if not edit then
 						return
 					end
-					commitRowEdit(edit._RMAReserveRow)
+					local edits = collectVisibleReserveEdits()
+					local frameName = uiState.FrameName
+					local editButton = frameName and _G[frameName .. "EditButton"]
+					if #edits > 0 then confirmApplyVisibleReserveEditsFromUI(edits, editButton) end
 					clearReserveRowEditFocus(edit)
 				end)
 				Frames.SetScriptSafely(row.quantityEdit, "OnEscapePressed", function(edit)
@@ -1072,9 +1145,11 @@ do
 							return
 						end
 					else
+						editConfirmationGeneration = editConfirmationGeneration + 1
 						isEditMode = false
 					end
 				else
+					editConfirmationGeneration = editConfirmationGeneration + 1
 					isEditMode = true
 				end
 				refs.editButton._RMAReserveEditMode = isEditMode

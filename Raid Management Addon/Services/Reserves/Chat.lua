@@ -8,10 +8,12 @@ local addon = select(2, ...)
 local L = addon.L
 local Bus = addon.Bus
 local Comms = addon.Comms
+local Database = addon.Database
 local Events = addon.Events
 local Options = addon.Options
 local Services = addon.Services
 local Strings = addon.Strings
+local Time = addon.Time
 
 local format = string.format
 local len = string.len
@@ -39,8 +41,22 @@ local IsPlusSystem = assert(module.IsPlusSystem, "Reserves chat import-mode reso
 local AddPlayerReserve = assert(module.AddPlayerReserve, "Reserves chat add-reserve handler is not initialized")
 local GetPlayerReserveEntries =
 	assert(module.GetPlayerReserveEntries, "Reserves chat player-reserve lookup is not initialized")
+local ResolveWhisperPlayerName =
+	assert(module.ResolveWhisperPlayerName, "Reserves chat player identity resolver is not initialized")
+local NormalizeWhisperPlayerIdentity =
+	assert(module.NormalizeWhisperPlayerIdentity, "Reserves chat identity normalizer is not initialized")
+local GetCounts = assert(module.GetCounts, "Reserves chat reserve-count lookup is not initialized")
+local GetCurrentTime = assert(Time and Time.GetCurrentTime, "Reserves chat clock is not initialized")
+local GetRealmName = assert(Database and Database.GetRealmName, "Reserves chat realm resolver is not initialized")
 
 local MAX_WHISPER_LEN = 255
+local MAX_PLAYERS = 1000
+local MAX_TOTAL_RESERVES = 5000
+local MAX_RESERVES_PER_PLAYER = 20
+local MAX_ADMISSION_SENDERS = 1000
+local MAX_REQUESTS_PER_WINDOW = 5
+local ADMISSION_WINDOW_SECONDS = 10
+local MAX_QUEUED_WHISPERS = 100
 local REQUEST_COMMANDS = {
 	"+softres",
 	"+sr",
@@ -57,6 +73,8 @@ local whisperQueue = {}
 local whisperQueueHead = 1
 local whisperQueueTail = 0
 local whisperThrottleHandle = nil
+local admissionBySender = {}
+local admissionSenderCount = 0
 local processWhisperQueue
 
 local function hasQueuedWhispers()
@@ -64,11 +82,15 @@ local function hasQueuedWhispers()
 end
 
 local function pushQueuedWhisper(target, text)
+	if whisperQueueTail - whisperQueueHead + 1 >= MAX_QUEUED_WHISPERS then
+		return false
+	end
 	whisperQueueTail = whisperQueueTail + 1
 	whisperQueue[whisperQueueTail] = {
 		target = target,
 		text = text,
 	}
+	return true
 end
 
 local function popQueuedWhisper()
@@ -177,8 +199,7 @@ end
 
 local function sendWhisper(target, text)
 	if whisperThrottleHandle ~= nil then
-		pushQueuedWhisper(target, text)
-		return true
+		return pushQueuedWhisper(target, text)
 	end
 
 	local ok = sendWhisperNow(target, text)
@@ -186,9 +207,69 @@ local function sendWhisper(target, text)
 	return ok
 end
 
+local function pruneAdmission(now)
+	for key, state in pairs(admissionBySender) do
+		if now - state.startedAt >= ADMISSION_WINDOW_SECONDS then
+			admissionBySender[key] = nil
+			admissionSenderCount = admissionSenderCount - 1
+		end
+	end
+end
+
+local function admitSender(target)
+	local now = tonumber(GetCurrentTime(false)) or 0
+	local senderKey = Strings.NormalizeLower(target, true)
+	if not senderKey or senderKey == "" then
+		return false, false
+	end
+	local state = admissionBySender[senderKey]
+	if state and now - state.startedAt >= ADMISSION_WINDOW_SECONDS then
+		admissionBySender[senderKey] = nil
+		admissionSenderCount = admissionSenderCount - 1
+		state = nil
+	end
+	if not state and admissionSenderCount >= MAX_ADMISSION_SENDERS then
+		pruneAdmission(now)
+	end
+	if not state and admissionSenderCount >= MAX_ADMISSION_SENDERS then
+		return false, false
+	end
+	if not state then
+		state = { startedAt = now, count = 0, denied = false }
+		admissionBySender[senderKey] = state
+		admissionSenderCount = admissionSenderCount + 1
+	end
+	if state.count >= MAX_REQUESTS_PER_WINDOW then
+		if state.denied then
+			return false, false
+		end
+		state.denied = true
+		return false, true
+	end
+	state.count = state.count + 1
+	return true, false
+end
+
+local function hasMutationCapacity(target)
+	local entries = GetPlayerReserveEntries(module, target)
+	if #entries >= MAX_RESERVES_PER_PLAYER then
+		return false
+	end
+	local players, totalEntries = GetCounts(module)
+	if totalEntries >= MAX_TOTAL_RESERVES then
+		return false
+	end
+	if #entries == 0 and players >= MAX_PLAYERS then
+		return false
+	end
+	return true
+end
+
 local function sendReserveMessages(target, entries)
 	sendWhisper(target, L.WhisperSoftResHeader)
-	for i = 1, #entries do
+	local count = #entries
+	if count > MAX_RESERVES_PER_PLAYER then count = MAX_RESERVES_PER_PLAYER end
+	for i = 1, count do
 		local line = format(L.WhisperSoftResEntry, i, buildItemText(entries[i]))
 		if len(line) > MAX_WHISPER_LEN then
 			line = format(L.WhisperSoftResEntry, i, buildFallbackItemText(entries[i]))
@@ -220,10 +301,15 @@ requestWhisperReply = function(msg, sender)
 		return false
 	end
 
-	local target = trimText(sender or "")
-	if target == "" then
+	local target = sender
+	if type(target) ~= "string" or target == "" then
 		return true
 	end
+	local characterName, senderRealmKey, canonicalSender, localRealmKey =
+		NormalizeWhisperPlayerIdentity(module, target, GetRealmName())
+	if not canonicalSender then return true end
+	local storagePlayerName = ResolveWhisperPlayerName(module, characterName, senderRealmKey, localRealmKey)
+	if not storagePlayerName then return true end
 
 	local hasItemRef = itemRef and itemRef ~= ""
 	if hasItemRef then
@@ -238,17 +324,27 @@ requestWhisperReply = function(msg, sender)
 		return true
 	end
 
+	local admitted, notifyLimited = admitSender(canonicalSender)
+	if not admitted then
+		if notifyLimited then sendWhisper(target, L.WhisperSoftResAdmissionLimited) end
+		return true
+	end
+
 	if hasItemRef then
-		local ok, reserveEntry = AddPlayerReserve(module, target, itemRef)
+		if not hasMutationCapacity(storagePlayerName) then
+			sendWhisper(target, L.WhisperSoftResCapacity)
+			return true
+		end
+		local ok, reserveEntry = AddPlayerReserve(module, storagePlayerName, itemRef)
 		if ok and reserveEntry then
 			sendWhisper(target, buildReserveAddedMessage(reserveEntry))
-		else
+		elseif reserveEntry == "invalid_item" then
 			sendWhisper(target, L.WhisperSoftResInvalidItem)
 		end
 		return true
 	end
 
-	local entries = GetPlayerReserveEntries(module, target)
+	local entries = GetPlayerReserveEntries(module, storagePlayerName)
 	if #entries <= 0 then
 		sendWhisper(target, format(L.WhisperSoftResNone, target))
 		return true

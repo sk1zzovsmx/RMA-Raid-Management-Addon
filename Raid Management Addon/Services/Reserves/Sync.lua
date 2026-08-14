@@ -11,7 +11,6 @@ local Services = addon.Services
 local Strings = addon.Strings
 
 local floor = math.floor
-local sort = table.sort
 local tconcat = table.concat
 local pairs, tostring, tonumber, type = pairs, tostring, tonumber, type
 local _G = _G
@@ -42,11 +41,14 @@ local MSG_DATA_CHUNK = "DATA_CHUNK"
 local MSG_DATA_DONE = "DATA_DONE"
 local MSG_DATA_ERR = "DATA_ERR"
 local FORMAT_COMPACT = "C1"
+local FORMAT_VERIFIED = "C2"
 local MAX_CHUNK_SIZE = 220
 local INCOMING_TTL_SECONDS = 180
 local MAX_INCOMING_CHUNKS = 64
 local MAX_OUTGOING_CHUNKS = MAX_INCOMING_CHUNKS
 local MAX_INCOMING_BYTES = 24000
+local MAX_META_PLAYERS = 2048
+local MAX_META_ENTRIES = 4096
 
 Sync._incoming = Sync._incoming or {}
 Sync._pendingRequests = Sync._pendingRequests or {}
@@ -82,7 +84,7 @@ local function sendError(target, reason)
 	sendAddonWhisper(PREFIX, target, payload.PackFields(FIELD_SEP, MSG_DATA_ERR, tostring(reason or "unknown")))
 end
 
-local function shouldRequestRemoteData(remoteChecksum)
+local function shouldRequestRemoteData(remoteChecksum, remoteMode)
 	local checksum = tostring(remoteChecksum or "")
 	if checksum == "" then
 		return false
@@ -94,7 +96,7 @@ local function shouldRequestRemoteData(remoteChecksum)
 	end
 
 	local localMeta = service and service.GetSyncMetadata and service:GetSyncMetadata() or nil
-	return not (localMeta and localMeta.checksum == checksum)
+	return not (localMeta and localMeta.checksum == checksum and localMeta.mode == remoteMode)
 end
 
 local function requestDataFrom(target, requestId, checksum, remoteFormat)
@@ -102,7 +104,7 @@ local function requestDataFrom(target, requestId, checksum, remoteFormat)
 		return false
 	end
 	local payload = requirePayload()
-	if remoteFormat == FORMAT_COMPACT then
+	if remoteFormat == FORMAT_COMPACT or remoteFormat == FORMAT_VERIFIED then
 		sendAddonWhisper(
 			PREFIX,
 			target,
@@ -115,10 +117,13 @@ local function requestDataFrom(target, requestId, checksum, remoteFormat)
 	return true
 end
 
-local function registerPendingRequest(requestId, source, checksum)
+local function registerPendingRequest(requestId, source, checksum, mode, players, entries)
 	Sync._pendingRequests[tostring(requestId)] = {
 		source = source,
 		checksum = tostring(checksum or ""),
+		mode = mode,
+		players = tonumber(players),
+		entries = tonumber(entries),
 		createdAt = getIncomingNow(),
 	}
 end
@@ -131,13 +136,22 @@ local function clearPendingRequest(requestId)
 	Sync._pendingRequests[tostring(requestId)] = nil
 end
 
-local function sortedPlayerKeys(data)
-	local keys = {}
-	for key in pairs(data or {}) do
-		keys[#keys + 1] = key
-	end
-	sort(keys)
-	return keys
+local function parseBoundedCount(value, maximum)
+	local numeric = tonumber(value)
+	if not numeric or numeric < 0 or numeric ~= floor(numeric) or numeric > maximum then return nil end
+	return numeric
+end
+
+local function validateMetadata(fields)
+	if #fields ~= 8 or type(fields[2]) ~= "string" or fields[2] == "" or #fields[2] > 32 then return nil end
+	local checksum = tostring(fields[3] or "")
+	if #checksum > 64 or not checksum:match("^C2:%d+:%d+$") then return nil end
+	if fields[4] ~= "multi" and fields[4] ~= "plus" then return nil end
+	if fields[8] ~= FORMAT_VERIFIED then return nil end
+	local players = parseBoundedCount(fields[5], MAX_META_PLAYERS)
+	local entries = parseBoundedCount(fields[6], MAX_META_ENTRIES)
+	if not players or not entries then return nil end
+	return checksum, players, entries
 end
 
 local function cleanupIncoming()
@@ -166,13 +180,19 @@ local function cleanupIncoming()
 end
 
 local function acceptIncomingChunk(key, idx, total, chunk)
-	if idx <= 0 or total <= 0 or total > MAX_INCOMING_CHUNKS or idx > total then
+	if idx <= 0 or idx ~= floor(idx) or total <= 0 or total ~= floor(total)
+		or total > MAX_INCOMING_CHUNKS or idx > total or type(chunk) ~= "string" or chunk == "" then
 		Sync._incoming[key] = nil
 		return nil
 	end
 
 	local incoming = Sync._incoming[key]
 	if type(incoming) == "table" and incoming.total ~= total then
+		Sync._incoming[key] = nil
+		return nil
+	end
+	if type(incoming) == "table" and incoming.chunks[idx] ~= nil then
+		if incoming.chunks[idx] == chunk then return incoming end
 		Sync._incoming[key] = nil
 		return nil
 	end
@@ -207,48 +227,28 @@ local function buildPayload(data, mode, format)
 	local payload = requirePayload()
 	local useCompact = format == FORMAT_COMPACT
 	local lines = { payload.PackFields(FIELD_SEP, "H", mode or "multi", useCompact and FORMAT_COMPACT or "") }
-	local keys = sortedPlayerKeys(data)
+	local projection, reason = module.BuildCanonicalProjection(data)
+	if not projection then return nil, reason end
 
-	for i = 1, #keys do
-		local playerKey = keys[i]
-		local player = data[playerKey]
-		if type(player) == "table" and type(player.reserves) == "table" then
-			local playerName = player.playerNameDisplay or player.original or playerKey
-			if useCompact then
-				lines[#lines + 1] = payload.PackFields(FIELD_SEP, "P", i, payload.EncodeText(playerName))
-			end
-			for j = 1, #player.reserves do
-				local row = player.reserves[j]
-				if type(row) == "table" and row.rawID then
-					if useCompact then
-						lines[#lines + 1] = payload.PackFields(
-							FIELD_SEP,
-							"R",
-							i,
-							tonumber(row.rawID) or 0,
-							tonumber(row.quantity) or 1,
-							tonumber(row.plus) or 0,
-							payload.EncodeText(row.class),
-							payload.EncodeText(row.spec),
-							payload.EncodeText(row.note),
-							payload.EncodeText(row.source)
-						)
-					else
-						lines[#lines + 1] = payload.PackFields(
-							FIELD_SEP,
-							"R",
-							payload.EncodeText(playerName),
-							tonumber(row.rawID) or 0,
-							tonumber(row.quantity) or 1,
-							tonumber(row.plus) or 0,
-							payload.EncodeText(row.class),
-							payload.EncodeText(row.spec),
-							payload.EncodeText(row.note),
-							payload.EncodeText(row.source)
-						)
-					end
-				end
-			end
+	for i = 1, #projection do
+		local player = projection[i]
+		if useCompact then
+			lines[#lines + 1] = payload.PackFields(FIELD_SEP, "P", i, payload.EncodeText(player.name))
+		end
+		for j = 1, #player.rows do
+			local row = player.rows[j]
+			lines[#lines + 1] = payload.PackFields(
+				FIELD_SEP,
+				"R",
+				useCompact and i or payload.EncodeText(player.name),
+				row.rawID,
+				row.quantity,
+				row.plus,
+				payload.EncodeText(row.class),
+				payload.EncodeText(row.spec),
+				payload.EncodeText(row.note),
+				payload.EncodeText(row.source)
+			)
 		end
 	end
 
@@ -262,19 +262,37 @@ local function parsePayload(payload)
 	local fields = {}
 	local compact = false
 	local playerNamesByIndex = {}
+	local compactPlayerKeys = {}
+	local sawHeader = false
+	local playerCount = 0
+	local entryCount = 0
+	local lineNumber = 0
 
 	for line in tostring(payload or ""):gmatch("[^\n]+") do
+		lineNumber = lineNumber + 1
 		payloadCodec.SplitFields(line, FIELD_SEP, fields)
 		if fields[1] == "H" then
+			if sawHeader or lineNumber ~= 1 or #fields ~= 3 or (fields[2] ~= "multi" and fields[2] ~= "plus") then
+				return nil, "invalid_schema"
+			end
+			sawHeader = true
 			mode = (fields[2] == "plus") and "plus" or "multi"
 			compact = fields[3] == FORMAT_COMPACT
 		elseif fields[1] == "P" and compact then
 			local playerIndex = tonumber(fields[2])
 			local playerName = payloadCodec.DecodeText(fields[3])
-			if playerIndex and playerIndex > 0 and playerName and playerName ~= "" then
-				playerNamesByIndex[playerIndex] = playerName
+			local playerKey = playerName and NormalizeLower(playerName, true) or nil
+			if #fields ~= 3 or not sawHeader or playerIndex ~= (playerCount + 1) or not playerName
+				or playerName == "" or not playerKey or compactPlayerKeys[playerKey] then
+				return nil, "invalid_schema"
 			end
+			playerCount = playerCount + 1
+			playerNamesByIndex[playerIndex] = playerName
+			compactPlayerKeys[playerKey] = true
 		elseif fields[1] == "R" then
+			if not sawHeader or #fields ~= 9 then
+				return nil, "invalid_schema"
+			end
 			local playerName
 			local itemId
 			if compact then
@@ -284,30 +302,41 @@ local function parsePayload(payload)
 				playerName = payloadCodec.DecodeText(fields[2])
 				itemId = tonumber(fields[3])
 			end
-			if playerName and playerName ~= "" and itemId and itemId > 0 then
-				local playerKey = NormalizeLower(playerName, true)
-				local container = reserves[playerKey]
-				if not container then
-					container = {
-						playerNameDisplay = playerName,
-						reserves = {},
-					}
-					reserves[playerKey] = container
-				end
-				container.reserves[#container.reserves + 1] = {
-					rawID = itemId,
-					quantity = tonumber(fields[4]) or 1,
-					plus = tonumber(fields[5]) or 0,
-					class = payloadCodec.DecodeText(fields[6]),
-					spec = payloadCodec.DecodeText(fields[7]),
-					note = payloadCodec.DecodeText(fields[8]),
-					source = payloadCodec.DecodeText(fields[9]),
-				}
+			local quantity = tonumber(fields[4])
+			local plus = tonumber(fields[5])
+			local class = payloadCodec.DecodeText(fields[6])
+			local spec = payloadCodec.DecodeText(fields[7])
+			local note = payloadCodec.DecodeText(fields[8])
+			local rowSource = payloadCodec.DecodeText(fields[9])
+			if not playerName or playerName == "" or not itemId or itemId <= 0 or itemId ~= floor(itemId)
+				or not quantity or quantity <= 0 or quantity ~= floor(quantity) or not plus or plus < 0
+				or plus ~= floor(plus) or class == nil or spec == nil or note == nil or rowSource == nil then
+				return nil, "invalid_schema"
 			end
+			local playerKey = NormalizeLower(playerName, true)
+			if not playerKey or playerKey == "" then return nil, "invalid_schema" end
+			local container = reserves[playerKey]
+			if not container then
+				container = { playerNameDisplay = playerName, reserves = {} }
+				reserves[playerKey] = container
+				if not compact then playerCount = playerCount + 1 end
+			elseif container.playerNameDisplay ~= playerName then
+				return nil, "invalid_schema"
+			end
+			container.reserves[#container.reserves + 1] = {
+				rawID = itemId, quantity = quantity, plus = plus, class = class,
+				spec = spec, note = note, source = rowSource,
+			}
+			entryCount = entryCount + 1
+		else
+			return nil, "invalid_schema"
 		end
 	end
 
-	return reserves, mode
+	if not sawHeader or entryCount == 0 then
+		return nil, "invalid_schema"
+	end
+	return reserves, mode, playerCount, entryCount
 end
 
 local function sendMetadata(target, requestId)
@@ -330,7 +359,7 @@ local function sendMetadata(target, requestId)
 			meta and meta.players or 0,
 			meta and meta.entries or 0,
 			normalizeSender(UnitName("player")),
-			FORMAT_COMPACT
+			FORMAT_VERIFIED
 		)
 	)
 	return true
@@ -344,8 +373,12 @@ local function sendData(target, requestId, format)
 	end
 
 	local data, meta = Sync:GetPayload()
-	local payload =
+	local payload, payloadReason =
 		buildPayload(data, meta and meta.mode or "multi", format == FORMAT_COMPACT and FORMAT_COMPACT or nil)
+	if not payload then
+		sendError(target, payloadReason or "invalid_data")
+		return false
+	end
 	local encoded = payloadCodec.EncodeText(payload)
 	local payloadLen = #encoded
 	local totalChunks = floor((payloadLen + MAX_CHUNK_SIZE - 1) / MAX_CHUNK_SIZE)
@@ -382,17 +415,18 @@ end
 
 local function applyIncoming(sender, requestId, checksum)
 	local key = tostring(sender or "?") .. ":" .. tostring(requestId or "")
-	local pending = Sync._incoming[key]
-	if type(pending) ~= "table" then
+	local incoming = Sync._incoming[key]
+	local request = getPendingRequest(requestId)
+	if type(incoming) ~= "table" or type(request) ~= "table" then
 		return false, "missing_request"
 	end
 
 	local parts = {}
-	for i = 1, tonumber(pending.total) or 0 do
-		if pending.chunks[i] == nil then
+	for i = 1, tonumber(incoming.total) or 0 do
+		if incoming.chunks[i] == nil then
 			return false, "missing_chunk"
 		end
-		parts[i] = pending.chunks[i]
+		parts[i] = incoming.chunks[i]
 	end
 
 	local decodedPayload = requirePayload().DecodeText(tconcat(parts, ""))
@@ -401,7 +435,24 @@ local function applyIncoming(sender, requestId, checksum)
 		return false, "decode_failed"
 	end
 
-	local reserves, mode = parsePayload(decodedPayload)
+	local reserves, mode, players, entries = parsePayload(decodedPayload)
+	if not reserves then
+		Sync._incoming[key] = nil
+		return false, mode
+	end
+	if mode ~= request.mode then
+		Sync._incoming[key] = nil
+		return false, "mode_mismatch"
+	end
+	if players ~= request.players or entries ~= request.entries then
+		Sync._incoming[key] = nil
+		return false, "count_mismatch"
+	end
+	local computedChecksum = module.BuildCanonicalChecksum(reserves)
+	if tostring(computedChecksum or "") ~= tostring(checksum or "") then
+		Sync._incoming[key] = nil
+		return false, "checksum_mismatch"
+	end
 	local ok, reason = Sync:SetSyncedData(reserves, {
 		source = sender,
 		checksum = checksum,
@@ -457,18 +508,19 @@ function Sync:HandleMessage(prefix, msg, channel, sender)
 	end
 
 	if kind == MSG_META_ACK then
-		local checksum = tostring(fields[3] or "")
+		local checksum, players, entries = validateMetadata(fields)
+		if not checksum then return true end
 		addon:info(
 			L.MsgReservesSyncMeta:format(
 				source,
 				checksum,
 				tostring(fields[4] or ""),
-				tonumber(fields[5]) or 0,
-				tonumber(fields[6]) or 0
+				players,
+				entries
 			)
 		)
-		if shouldRequestRemoteData(checksum) then
-			registerPendingRequest(requestId, source, checksum)
+		if shouldRequestRemoteData(checksum, fields[4]) then
+			registerPendingRequest(requestId, source, checksum, fields[4], players, entries)
 			requestDataFrom(source, requestId, checksum, fields[8])
 		end
 		return true
@@ -482,7 +534,10 @@ function Sync:HandleMessage(prefix, msg, channel, sender)
 		local key = source .. ":" .. tostring(requestId or "")
 		local idx = tonumber(fields[3]) or 0
 		local total = tonumber(fields[4]) or 0
-		acceptIncomingChunk(key, idx, total, fields[5])
+		if #fields ~= 5 or not acceptIncomingChunk(key, idx, total, fields[5]) then
+			Sync._incoming[key] = nil
+			clearPendingRequest(requestId)
+		end
 		return true
 	end
 
@@ -505,6 +560,7 @@ function Sync:HandleMessage(prefix, msg, channel, sender)
 		end
 
 		local ok, reason = applyIncoming(source, requestId, fields[3])
+		Sync._incoming[key] = nil
 		clearPendingRequest(requestId)
 		if ok then
 			addon:info(L.MsgReservesSyncApplied:format(source))

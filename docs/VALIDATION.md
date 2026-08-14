@@ -36,6 +36,12 @@ These static gates cover:
 - Whole-addon Lua lint outside vendored `Libs/`.
 - Git whitespace errors.
 
+For Reserves integrity changes, the behavior suite additionally proves failed
+sync-cache mutations do not persist, `C2` transfers verify before publication,
+async imports and UI batches roll back atomically, import/storage limits reject
+before aggregation, and whisper signup remains pre-raid opt-in while admission
+and replies stay bounded.
+
 For docs-only edits, also run:
 
 ```powershell

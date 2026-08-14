@@ -3278,6 +3278,1202 @@ function cases.saved_variables_save_failure_stops_reserves(addon)
 	print("PASS saved_variables_save_failure_stops_reserves")
 end
 
+local function installRealReservesMutationFixture(addon)
+	local fixture = { timers = {}, events = {} }
+	table.wipe = table.wipe or function(value)
+		for key in pairs(value) do value[key] = nil end
+		return value
+	end
+	_G.GetItemInfo = function(itemRef)
+		return tostring(itemRef), "item:" .. tostring(itemRef), nil, nil, nil, nil, nil, nil, nil, "icon"
+	end
+	addon.L = setmetatable({ StrUnknown = "Unknown" }, { __index = function(_, key) return key end })
+	addon.Diag = { D = setmetatable({}, { __index = function() return "%s" end }) }
+	addon.C = { RESERVES_ITEM_FALLBACK_ICON = "fallback" }
+	addon.Events.Internal = { ReservesDataChanged = "ReservesDataChanged" }
+	addon.Bus.TriggerEvent = function(_, ...)
+		if fixture.failStage == "event" then error("injected event failure") end
+		fixture.events[#fixture.events + 1] = { ... }
+	end
+	addon.debug = function()
+		if fixture.failStage == "debug" then error("injected debug failure") end
+	end
+	addon.info = function()
+		if fixture.failStage == "info" then error("injected info failure") end
+	end
+	addon.Strings = {
+		NormalizeName = function(value) return value end,
+		NormalizeLower = function(value)
+			if type(value) ~= "string" then return nil end
+			return string.lower(value)
+		end,
+		TrimText = function(value) return value end,
+	}
+	addon.Item = {
+		GetItemIdFromLink = function(value) return tonumber(value) end,
+	}
+	addon.LootSources = {}
+	addon.Timer = {
+		BindMixin = function(target)
+			target.ScheduleTimer = function(_, callback)
+				local failure = fixture.scheduleFailures and table.remove(fixture.scheduleFailures, 1)
+				if failure == "throw" then error("injected schedule failure") end
+				if failure == "nil" then return nil end
+				local timer = { callback = callback, active = true }
+				fixture.timers[#fixture.timers + 1] = timer
+				return timer
+			end
+			target.CancelTimer = function(_, timer)
+				if not timer or not timer.active then return false end
+				timer.active = false
+				return true
+			end
+		end,
+	}
+	addon.Options = {
+		IsDebugEnabled = function() return fixture.failStage == "debug" end,
+		RegisterNamespace = function(_, defaults)
+			local values = deepCopy(defaults)
+			return {
+				Get = function(_, key) return values[key] end,
+				Set = function(_, key, value)
+					if fixture.failStage == "alias_option" and key == "nameAliases" then
+						fixture.failStage = nil
+						error("injected alias option failure")
+					end
+					values[key] = value
+					if fixture.failStage == "mode" then
+						fixture.failStage = nil
+						error("injected mode failure")
+					end
+				end,
+			}
+		end,
+	}
+	addon.tLength = function(value)
+		local count = 0
+		for _ in pairs(value or {}) do count = count + 1 end
+		return count
+	end
+	addon.Services.EnsureNamespace = function(name)
+		addon.Services[name] = addon.Services[name] or {}
+		return addon.Services[name]
+	end
+	addon.tLength = function(value) local count = 0; for _ in pairs(value) do count = count + 1 end; return count end
+	addon.warn = function() end
+	addon.debug = function() end
+	addon.Services.Reserves = {
+		_Aliases = {
+			CopyAliasMap = function(source)
+				local copied = {}; for key, value in pairs(source or {}) do copied[key] = value end; return copied
+			end,
+			SetAlias = function(target, reserveName, raidName)
+				target[string.lower(reserveName)] = raidName; return true
+			end,
+			ClearAlias = function(target, reserveName)
+				local key = string.lower(reserveName); if target[key] == nil then return false, "missing_alias" end
+				target[key] = nil; return true
+			end,
+			BuildAliasState = function() return {} end,
+			ResolveReserveKey = function(_, data, playerName)
+				local key = type(playerName) == "string" and string.lower(playerName) or nil
+				return key and data[key] and key or nil
+			end,
+			GetAliasMatches = function() return {} end,
+		},
+		_Display = {
+			RebuildIndex = function()
+				if fixture.failStage == "index" then
+					fixture.failStage = nil
+					error("injected index failure")
+				end
+			end,
+			GetDisplayList = function() return {} end,
+		},
+	}
+	loadAddonFile(addon, "Raid Management Addon/Services/Reserves/Import.lua")
+	addon.Database.GetCurrentRaid = function() return nil end
+	addon.Database.SavedVariables = {
+		GetReserves = function()
+			_G.RMA_Reserves = _G.RMA_Reserves or {}
+			return _G.RMA_Reserves
+		end,
+		ReplaceReserves = function(value)
+			if fixture.failReplace == "mutate_then_throw" then
+				local root = _G.RMA_Reserves or {}
+				for key in pairs(root) do root[key] = nil end
+				root.corrupt = { reserves = {} }
+				error("injected reserve persistence failure after mutation")
+			end
+			if fixture.failReplace then error("injected reserve persistence failure") end
+			fixture.saveCount = (fixture.saveCount or 0) + 1
+			_G.RMA_Reserves = deepCopy(value or {})
+			return _G.RMA_Reserves
+		end,
+		ClearReserves = function() _G.RMA_Reserves = nil end,
+	}
+	_G.RMA_Reserves = {}
+	loadAddonFile(addon, "Raid Management Addon/Services/Reserves.lua")
+	function fixture:RunTimer(index, includeCancelled)
+		local timer = self.timers[index]
+		assertTrue(timer ~= nil, "missing reserves fixture timer " .. tostring(index))
+		if not timer.active and not includeCancelled then return false end
+		timer.active = false
+		timer.callback()
+		return true
+	end
+	return addon.Services.Reserves, fixture
+end
+
+function cases.reserves_bulk_edits_are_atomic(addon)
+	local reserves, fixture = installRealReservesMutationFixture(addon)
+	local synced = {
+		alpha = { playerNameDisplay = "Alpha", reserves = {
+			{ rawID = 100, itemName = "Item", quantity = 2, plus = 3 },
+			{ rawID = 200, itemName = "Other", quantity = 1, plus = 0 },
+		} },
+	}
+	assertTrue(reserves:SetSyncedData(synced, { source = "Leader", checksum = "fixture", mode = "multi" }))
+	local serialized = assert(reserves.BuildCanonicalSerialization(synced))
+	local reordered = deepCopy(synced)
+	reordered.alpha.reserves[1], reordered.alpha.reserves[2] = reordered.alpha.reserves[2], reordered.alpha.reserves[1]
+	assertEqual(serialized, reserves.BuildCanonicalSerialization(reordered), "canonical equality must ignore reserve row order")
+	reordered.alpha.reserves[1].itemName = "Changed canonical field"
+	assertTrue(serialized ~= reserves.BuildCanonicalSerialization(reordered), "canonical equality must include every persisted row field")
+	local invalidSerialization, projectionReason = reserves.BuildCanonicalSerialization({ alpha = { reserves = {} } })
+	assertEqual(nil, invalidSerialization, "invalid projection must not serialize as nil equality")
+	assertEqual("invalid_reserve_sequence", projectionReason, "projection error reason differs")
+	local savedBefore = deepCopy(_G.RMA_Reserves)
+	local savesBefore, eventsBefore = fixture.saveCount or 0, #fixture.events
+	local ok, reason, rowIndex = reserves:ApplyBatch({
+		{ kind = "quantity", playerName = "Alpha", itemId = 100, value = 4 },
+		{ kind = "quantity", playerName = "Missing", itemId = 100, value = 2 },
+	})
+	assertEqual(nil, ok, "mixed invalid batch must fail")
+	assertEqual("invalid_player", reason, "mixed invalid batch reason differs")
+	assertEqual(2, rowIndex, "mixed invalid batch row differs")
+	assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "failed batch must preserve SavedVariables")
+	assertEqual(2, reserves:GetPlayerReserveEntries("Alpha")[1].quantity, "failed batch must preserve runtime data")
+	assertEqual(true, reserves:GetSyncMetadata().runtime, "failed batch must preserve synced cache ownership")
+	assertEqual(savesBefore, fixture.saveCount or 0, "failed batch must not save")
+	assertEqual(eventsBefore, #fixture.events, "failed batch must not publish")
+
+	ok, reason, rowIndex = reserves:ApplyBatch({
+		{ kind = "quantity", playerName = "Alpha", itemId = 999, value = 4 },
+	})
+	assertEqual(nil, ok, "missing item batch must fail")
+	assertEqual("missing_item", reason, "missing item reason differs")
+	assertEqual(1, rowIndex, "missing item row differs")
+	ok, reason, rowIndex = reserves:ApplyBatch({
+		{ kind = "quantity", playerName = "Alpha", itemId = 100, value = 2 },
+	})
+	assertEqual(nil, ok, "no-change batch must fail")
+	assertEqual("no_change", reason, "no-change reason differs")
+	assertEqual(1, rowIndex, "no-change row differs")
+
+	-- Duplicate commands are evaluated in order against the detached candidate.
+	ok, reason, rowIndex = reserves:ApplyBatch({
+		{ kind = "quantity", playerName = "Alpha", itemId = 100, value = 4 },
+		{ kind = "quantity", playerName = "Alpha", itemId = 100, value = 4 },
+	})
+	assertEqual(nil, ok, "duplicate no-change command must fail the whole batch")
+	assertEqual("no_change", reason, "duplicate command reason differs")
+	assertEqual(2, rowIndex, "duplicate command row differs")
+	local savedRoot = _G.RMA_Reserves
+	local runtimeRow = reserves:GetPlayerReserveEntries("Alpha")[1]
+	fixture.failReplace = "mutate_then_throw"
+	ok, reason = reserves:ApplyBatch({
+		{ kind = "quantity", playerName = "Alpha", itemId = 100, value = 4 },
+	})
+	fixture.failReplace = nil
+	assertEqual(nil, ok, "persistence failure must fail the batch")
+	assertEqual("publish_failed", reason, "persistence failure reason differs")
+	assertEqual(2, reserves:GetPlayerReserveEntries("Alpha")[1].quantity, "persistence failure must roll back runtime")
+	assertEqual(true, reserves:GetSyncMetadata().runtime, "persistence failure must retain synced cache ownership")
+	assertTrue(rawequal(savedRoot, _G.RMA_Reserves), "persistence rollback must preserve SavedVariables root identity")
+	assertTrue(rawequal(runtimeRow, reserves:GetPlayerReserveEntries("Alpha")[1]), "rollback must preserve runtime row identity")
+	assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "persistence rollback must restore exact SavedVariables values")
+	assertEqual(savesBefore, fixture.saveCount or 0, "persistence failure must not count as a save")
+	assertEqual(eventsBefore, #fixture.events, "persistence failure must not publish")
+
+	for _, malformed in ipairs({
+		{ [1] = { kind = "quantity", playerName = "Alpha", itemId = 100, value = 4 }, [3] = { kind = "plus", playerName = "Alpha", itemId = 200, value = 1 } },
+		{ alpha = { kind = "quantity", playerName = "Alpha", itemId = 100, value = 4 } },
+		{ { kind = "quantity", playerName = "Alpha", itemId = "100", value = 4 } },
+		{ { kind = "quantity", playerName = "Alpha", itemId = 100, value = 4, extra = true } },
+	}) do
+		ok, reason = reserves:ApplyBatch(malformed)
+		assertEqual(nil, ok, "malformed batch must fail")
+		assertEqual("invalid_input", reason, "malformed batch reason differs")
+	end
+	local oversized = {}
+	for i = 1, 501 do oversized[i] = { kind = "quantity", playerName = "Alpha", itemId = 100, value = i + 2 } end
+	ok, reason = reserves:ApplyBatch(oversized)
+	assertEqual(nil, ok, "oversized batch must fail")
+	assertEqual("too_many_commands", reason, "oversized batch reason differs")
+
+	ok, reason = reserves:ApplyBatch({
+		{ kind = "quantity", playerName = "Alpha", itemId = 100, value = 4 },
+		{ kind = "quantity", playerName = "Alpha", itemId = 100, value = 2 },
+	})
+	assertEqual(nil, ok, "net no-op batch must fail")
+	assertEqual("no_change", reason, "net no-op reason differs")
+	assertEqual(savesBefore, fixture.saveCount or 0, "net no-op must not save")
+	assertEqual(eventsBefore, #fixture.events, "net no-op must not publish")
+
+	local successSaves, successEvents = fixture.saveCount or 0, #fixture.events
+	reserves.BuildCanonicalChecksum = function() return "forced-collision" end
+	local summary
+	ok, summary = reserves:ApplyBatch({
+		{ kind = "quantity", playerName = "Alpha", itemId = 100, value = 4 },
+		{ kind = "quantity", playerName = "Alpha", itemId = 100, value = 2 },
+		{ kind = "plus", playerName = "Alpha", itemId = 200, value = 5 },
+	})
+	assertEqual(true, ok, "valid batch must succeed")
+	assertEqual(1, summary.changed, "batch summary must count net changed targets")
+	assertEqual(3, summary.commands, "batch summary command count differs")
+	assertEqual(successSaves + 1, fixture.saveCount or 0, "successful batch must save once")
+	assertEqual(successEvents + 1, #fixture.events, "successful batch must publish once")
+	assertEqual(2, reserves:GetPlayerReserveEntries("Alpha")[1].quantity, "reverted quantity must retain original value")
+	assertEqual(5, reserves:GetPlayerReserveEntries("Alpha")[2].plus, "plus edit missing")
+	assertEqual(false, reserves:GetSyncMetadata().runtime, "successful batch must promote synced cache once")
+	print("PASS reserves_bulk_edits_are_atomic")
+end
+
+function cases.reserves_single_edits_rollback_exact_state(addon)
+	local operations = {
+		{ name = "quantity", call = function(reserves) return reserves:SetPlayerReserveQuantity("Alpha", 100, 4) end },
+		{ name = "plus", call = function(reserves) return reserves:SetPlayerReservePlus("Alpha", 100, 7) end },
+		{ name = "remove", call = function(reserves) return reserves:RemovePlayerReserve("Alpha", 100) end },
+	}
+	for _, operation in ipairs(operations) do
+		for _, fault in ipairs({ "replace", "index" }) do
+			local reserves, fixture = installRealReservesMutationFixture(addon)
+			local player = { playerNameDisplay = "Alpha", reserves = {
+				{ rawID = 100, itemName = "Item 100", quantity = 1, plus = 0 },
+			} }
+			assertTrue(reserves:SetSyncedData({ alpha = player },
+				{ source = "Leader", checksum = "fixture", mode = "multi" }), "synced baseline must load")
+			local savedRoot = _G.RMA_Reserves
+			local payloadRoot = select(1, reserves._Sync:GetPayload())
+			local runtimeRow = reserves:GetPlayerReserveEntries("Alpha")[1]
+			local savedBefore = deepCopy(savedRoot)
+			local eventsBefore, savesBefore = #fixture.events, fixture.saveCount or 0
+			if fault == "replace" then fixture.failReplace = "mutate_then_throw" else fixture.failStage = "index" end
+			local invoked, changed, reason = pcall(operation.call, reserves)
+			fixture.failReplace, fixture.failStage = nil, nil
+			assertEqual(true, invoked, operation.name .. " must contain " .. fault .. " fault")
+			assertTrue(not changed, operation.name .. " must fail on " .. fault .. " fault")
+			assertEqual("publish_failed", reason, operation.name .. " fault reason differs")
+			assertTrue(rawequal(savedRoot, _G.RMA_Reserves), operation.name .. " must preserve SavedVariables identity")
+			assertTrue(rawequal(payloadRoot, select(1, reserves._Sync:GetPayload())),
+				operation.name .. " must preserve runtime root identity")
+			assertTrue(rawequal(runtimeRow, reserves:GetPlayerReserveEntries("Alpha")[1]),
+				operation.name .. " must preserve row identity")
+			assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), operation.name .. " must restore SavedVariables values")
+			assertEqual(true, reserves:GetSyncMetadata().runtime, operation.name .. " must preserve cache ownership")
+			assertEqual(eventsBefore, #fixture.events, operation.name .. " fault must not publish")
+			if fault == "replace" then
+				assertEqual(savesBefore, fixture.saveCount or 0, operation.name .. " fault must not report a save")
+			end
+		end
+	end
+	print("PASS reserves_single_edits_rollback_exact_state")
+end
+
+function cases.reserves_bulk_edit_ui_retains_failed_edits(addon)
+	local noop = function() end
+	local batchResult = { nil, "missing_item", 1 }
+	local batchCalls = 0
+	local deferredAccept
+	local deferredAccepts = {}
+	local deferConfirmation = false
+	addon.Widgets = {}
+	addon.L = setmetatable({
+		BtnSave = "Save", BtnCancel = "Cancel", BtnEdit = "Edit",
+		ErrReserveEditRow = "Row %d: %s", ErrReserveEditMissingItem = "missing item",
+		ErrReserveEditFailed = "failed", StrConfirmApplyReserveEdits = "Apply %d?",
+	}, { __index = function(_, key) return key end })
+	addon.Diag = { D = setmetatable({}, { __index = function() return "%s" end }) }
+	addon.C = { RESERVES_QUERY_COOLDOWN_SECONDS = 2, RESERVES_ITEM_FALLBACK_ICON = "fallback" }
+	addon.Options = { IsDebugEnabled = function() return false end, Get = function() return nil end }
+	addon.Events.Internal = { ReservesDataChanged = "ReservesDataChanged" }
+	addon.Bus.RegisterCallback = noop
+	addon.Colors = { GetClassColor = function() return 1, 1, 1 end }
+	addon.Services.Chat = { Announce = noop }
+	addon.Services.Raid = { GetPlayerClass = function() return nil end }
+	addon.Services.Reserves = {
+		HasData = function() return true end, IsPlusSystem = function() return false end,
+		HasPendingItem = function() return false end, RemovePlayerReserve = noop,
+		ClearSavedReserves = noop, GetDisplayList = function() return {} end,
+		GetImportMode = function() return "multi" end, ParseImport = noop,
+		RequestApplyImport = noop, SetImportMode = noop,
+		ApplyBatch = function(_, commands)
+			batchCalls = batchCalls + 1
+			assertEqual(1, #commands, "UI must submit one batch command")
+			assertEqual("quantity", commands[1].kind, "UI batch command kind differs")
+			return unpack(batchResult)
+		end,
+	}
+	local moduleStates = setmetatable({}, { __mode = "k" })
+	local configs = {}
+	local refreshCount = 0
+	addon.UI = {
+		Frames = {
+			MakeModuleFrameGetter = function() return function() return nil end end,
+			SetScriptSafely = function(widget, name, callback) widget[name] = callback end,
+			SetFrameTitle = noop, BindModuleFrame = noop,
+		},
+		Scaffold = { DefineModule = function(config)
+			configs[#configs + 1] = config
+			config.module.RequestRefresh = function() refreshCount = refreshCount + 1 end
+		end },
+		Popups = {
+			Define = noop, DefineConfirm = noop, IsDefined = function() return false end,
+			Show = function() return false end,
+			ShowConfirm = function(_, _, onAccept)
+				if deferConfirmation then
+					deferredAccept = onAccept
+					deferredAccepts[#deferredAccepts + 1] = onAccept
+				else onAccept() end
+				return true
+			end,
+		},
+		Primitives = { SetEnabled = noop }, EditBoxes = {},
+		Tooltips = { Hide = noop, ShowItem = noop, Bind = noop },
+		ModuleState = { Ensure = function(module)
+			local state = moduleStates[module]
+			if not state then state = { FrameName = "RMAReserveListFrame" }; moduleStates[module] = state end
+			return state
+		end },
+	}
+	_G.GetTime = function() return 0 end
+	_G.GetNumRaidMembers = function() return 0 end
+	_G.UnitName = function() return "Tester" end
+	_G.RMAReserveListFrameSoftResStatusText = {
+		SetText = function(self, value) self.text = value end,
+		SetTextColor = function(self, r, g, b) self.color = { r, g, b } end,
+	}
+	loadAddonFile(addon, "Raid Management Addon/Widgets/ReservesUI.lua")
+	local editButton = {}
+	configs[1].bind(nil, nil, { editButton = editButton })
+	assertTrue(type(editButton.OnClick) == "function", "reserve edit handler missing")
+
+	local collect
+	for i = 1, 20 do
+		local name, value = debug.getupvalue(editButton.OnClick, i)
+		if not name then break end
+		if name == "collectVisibleReserveEdits" then collect = value break end
+	end
+	assertTrue(type(collect) == "function", "reserve edit collector upvalue missing")
+	local rows
+	for i = 1, 20 do
+		local name, value = debug.getupvalue(collect, i)
+		if not name then break end
+		if name == "reserveItemRows" then rows = value break end
+	end
+	assertTrue(type(rows) == "table", "reserve row storage upvalue missing")
+	local editBox = {
+		_RMAReserveEditBase = "2", text = "4",
+		GetText = function(self) return self.text end,
+		SetText = function(self, value) self.text = value end,
+		SetTextColor = function(self, r, g, b) self.color = { r, g, b } end,
+	}
+	rows[1] = { quantityEdit = editBox, _itemId = 100, _playerName = "Alpha" }
+	local pending = collect()
+	assertEqual(nil, pending[1].editBox, "pending confirmation must not retain edit-box references")
+	editButton.OnClick()
+	local refreshAfterEntering = refreshCount
+	deferConfirmation = true
+	editButton.OnClick()
+	editButton.OnClick()
+	assertEqual(2, #deferredAccepts, "overlapping confirmations must both be observable")
+	deferredAccepts[1]()
+	assertEqual(0, batchCalls, "superseded confirmation must not apply even when text matches")
+	deferredAccepts[2]()
+	assertEqual(1, batchCalls, "only current overlapping confirmation may apply")
+	assertEqual(true, editButton._RMAReserveEditMode, "failed current confirmation must retain edit mode")
+	deferredAccepts = {}
+	batchCalls = 0
+	deferredAccept = nil
+	editButton.text = "4"
+	editButton.OnClick()
+	assertTrue(type(deferredAccept) == "function", "confirmation callback must be deferred for stale-row test")
+	local reusedBox = {
+		_RMAReserveEditBase = "8", text = "9",
+		GetText = function(self) return self.text end,
+		SetTextColor = function(self, r, g, b) self.color = { r, g, b } end,
+	}
+	rows[1] = { quantityEdit = reusedBox, _itemId = 999, _playerName = "Beta" }
+	deferredAccept()
+	assertEqual(0, batchCalls, "stale confirmation must not apply")
+	assertEqual(true, editButton._RMAReserveEditMode, "stale confirmation must retain edit mode")
+	assertEqual("2", editBox._RMAReserveEditBase, "stale confirmation must retain original baseline")
+	assertEqual(refreshAfterEntering, refreshCount, "stale confirmation must not refresh")
+	rows[1] = { quantityEdit = editBox, _itemId = 100, _playerName = "Alpha" }
+	deferConfirmation = false
+	deferredAccept = nil
+	editButton.OnClick()
+	assertEqual(1, batchCalls, "failed confirmation must invoke one batch")
+	assertEqual(true, editButton._RMAReserveEditMode, "failed batch must retain edit mode")
+	assertEqual("2", editBox._RMAReserveEditBase, "failed batch must retain edit baseline")
+	assertEqual(1, editBox.color[1], "failed row must be highlighted")
+	assertEqual(0.2, editBox.color[2], "failed row highlight differs")
+	assertEqual("Row 1: missing item", _G.RMAReserveListFrameSoftResStatusText.text, "localized row feedback differs")
+	assertEqual(refreshAfterEntering, refreshCount, "failed batch must not refresh away edits")
+
+	batchResult = { true, { changed = 1 } }
+	editButton.OnClick()
+	assertEqual(2, batchCalls, "successful retry must invoke one batch")
+	assertEqual(false, editButton._RMAReserveEditMode, "successful batch must exit edit mode")
+	assertEqual("4", editBox._RMAReserveEditBase, "successful batch must update baseline")
+	assertEqual(1, _G.RMAReserveListFrameSoftResStatusText.color[2], "successful retry must clear error color")
+	assertEqual(refreshAfterEntering + 1, refreshCount, "successful batch must refresh once")
+	print("PASS reserves_bulk_edit_ui_retains_failed_edits")
+end
+
+local function reserveImportPlayer(name, itemId)
+	return {
+		playerNameDisplay = name,
+		reserves = { { rawID = itemId, itemName = "Item " .. tostring(itemId), quantity = 1, plus = 0 } },
+	}
+end
+
+function cases.reserves_async_import_snapshots_input_and_publishes_once(addon)
+	local reserves, fixture = installRealReservesMutationFixture(addon)
+	local parsed = { mode = "multi", reservesData = {
+		alpha = reserveImportPlayer("Alpha", 100),
+		beta = reserveImportPlayer("Beta", 200),
+	} }
+	local callbacks = {}
+	local opts = { chunkSize = 1, silentInfo = true, reason = "snapshotted-reason" }
+	reserves:RequestApplyImport(parsed, 7, function(...)
+		callbacks[#callbacks + 1] = { ... }
+	end, opts)
+	opts.reason = "mutated-reason"
+	opts.silentInfo = false
+	parsed.reservesData.alpha.reserves[1].rawID = 999
+	parsed.reservesData.beta = nil
+	parsed.reservesData.gamma = reserveImportPlayer("Gamma", 300)
+	fixture:RunTimer(1)
+	fixture:RunTimer(2)
+	assertEqual(1, #callbacks, "completed import callback must run exactly once")
+	assertEqual(true, callbacks[1][1], "completed import must report success")
+	assertEqual(2, callbacks[1][2], "completed import must report snapshotted player count")
+	assertEqual(100, reserves:GetPlayerReserveEntries("Alpha")[1].rawID, "caller row mutation must not affect import")
+	assertEqual(200, reserves:GetPlayerReserveEntries("Beta")[1].rawID, "caller removal must not affect import")
+	assertEqual(0, #reserves:GetPlayerReserveEntries("Gamma"), "caller addition must not affect import")
+	local saved = deepCopy(_G.RMA_Reserves)
+	reserves:Load()
+	assertTrue(deepEqual(saved, _G.RMA_Reserves), "completed import must be reload-shaped")
+	assertEqual(1, #fixture.events, "completed import must publish one event")
+	assertEqual("snapshotted-reason", fixture.events[1][1], "caller options mutation must not affect import")
+	print("PASS reserves_async_import_snapshots_input_and_publishes_once")
+end
+
+function cases.reserves_async_import_replacement_cancel_and_stale_callbacks_are_terminal(addon)
+	local reserves, fixture = installRealReservesMutationFixture(addon)
+	local baseline = { mode = "multi", reservesData = { base = reserveImportPlayer("Base", 50) } }
+	assertTrue(reserves:ApplyImport(baseline, nil, { silentInfo = true }), "baseline import must succeed")
+	local savedBefore = deepCopy(_G.RMA_Reserves)
+	local eventsBefore = #fixture.events
+	local firstResults, secondResults = {}, {}
+	local first = reserves:RequestApplyImport({ reservesData = {
+		alpha = reserveImportPlayer("Alpha", 100), beta = reserveImportPlayer("Beta", 200),
+	} }, nil, function(...) firstResults[#firstResults + 1] = { ... } end, { chunkSize = 1, silentInfo = true })
+	local staleTimerIndex = #fixture.timers
+	local second = reserves:RequestApplyImport({ reservesData = {
+		gamma = reserveImportPlayer("Gamma", 300), delta = reserveImportPlayer("Delta", 400),
+	} }, nil, function(...) secondResults[#secondResults + 1] = { ... } end, { chunkSize = 1, silentInfo = true })
+	assertEqual(1, #firstResults, "replacement must terminate prior callback exactly once")
+	assertEqual(false, firstResults[1][1], "replacement must report non-success")
+	assertEqual("cancelled", firstResults[1][2], "replacement must use stable cancelled result")
+	assertEqual(true, first:IsCancelled(), "replaced handle must be terminal")
+	fixture:RunTimer(staleTimerIndex, true)
+	assertEqual(1, #firstResults, "stale callback must not re-complete replaced import")
+	assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "replacement and stale callback must not publish")
+	assertEqual(eventsBefore, #fixture.events, "replacement and stale callback must emit no event")
+	assertEqual(true, second:Cancel(), "explicit cancel must transition active import")
+	assertEqual(false, second:Cancel(), "repeated cancel must be idempotent")
+	assertEqual(1, #secondResults, "cancel callback must run exactly once")
+	assertEqual(false, secondResults[1][1], "cancel must report non-success")
+	assertEqual("cancelled", secondResults[1][2], "cancel must use stable result")
+	fixture:RunTimer(#fixture.timers, true)
+	assertEqual(1, #secondResults, "stale cancelled callback must not re-complete")
+	assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "cancel must preserve SavedVariables")
+	assertEqual(50, reserves:GetPlayerReserveEntries("Base")[1].rawID, "cancel must preserve runtime cache")
+	assertEqual(eventsBefore, #fixture.events, "cancel must emit no data event")
+	print("PASS reserves_async_import_replacement_cancel_and_stale_callbacks_are_terminal")
+end
+
+function cases.reserves_async_import_failure_rolls_back_and_callbacks_are_reentrant(addon)
+	local reserves, fixture = installRealReservesMutationFixture(addon)
+	assertTrue(reserves:ApplyImport({ reservesData = { base = reserveImportPlayer("Base", 50) } }, nil,
+		{ silentInfo = true }), "baseline import must succeed")
+	local savedBefore = deepCopy(_G.RMA_Reserves)
+	local eventsBefore = #fixture.events
+	fixture.failReplace = true
+	local failed = {}
+	reserves:RequestApplyImport({ reservesData = { alpha = reserveImportPlayer("Alpha", 100) } }, nil,
+		function(...) failed[#failed + 1] = { ... } end, { chunkSize = 1, silentInfo = true })
+	fixture:RunTimer(#fixture.timers)
+	assertEqual(1, #failed, "failed import callback must run exactly once")
+	assertEqual(false, failed[1][1], "persistence failure must report non-success")
+	assertEqual("failed", failed[1][2], "persistence failure must use stable result")
+	assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "failed import must preserve SavedVariables")
+	assertEqual(50, reserves:GetPlayerReserveEntries("Base")[1].rawID, "failed import must preserve runtime cache")
+	assertEqual(0, #reserves:GetPlayerReserveEntries("Alpha"), "failed import must not expose candidate")
+	assertEqual(eventsBefore, #fixture.events, "failed import must emit no data event")
+
+	fixture.failReplace = false
+	local nestedResults = {}
+	reserves:RequestApplyImport({ reservesData = {
+		old = reserveImportPlayer("Old", 200), extra = reserveImportPlayer("Extra", 201),
+	} }, nil, function(ok, result)
+		if not ok and result == "cancelled" then
+			reserves:RequestApplyImport({ reservesData = { newest = reserveImportPlayer("Newest", 300) } }, nil,
+				function(...) nestedResults[#nestedResults + 1] = { ... } end,
+				{ chunkSize = 1, silentInfo = true })
+		end
+	end, { chunkSize = 1, silentInfo = true })
+	reserves:RequestApplyImport({ reservesData = { outer = reserveImportPlayer("Outer", 400) } }, nil,
+		function() end, { chunkSize = 1, silentInfo = true })
+	fixture:RunTimer(#fixture.timers)
+	assertEqual(1, #nestedResults, "reentrant replacement must remain the active import")
+	assertEqual(true, nestedResults[1][1], "reentrant replacement must complete")
+	assertEqual(300, reserves:GetPlayerReserveEntries("Newest")[1].rawID, "reentrant callback import must win")
+	assertEqual(0, #reserves:GetPlayerReserveEntries("Outer"), "outer replacement must not clobber reentrant import")
+	print("PASS reserves_async_import_failure_rolls_back_and_callbacks_are_reentrant")
+end
+
+function cases.reserves_async_import_rejects_noncanonical_and_sparse_sources(addon)
+	local reserves, fixture = installRealReservesMutationFixture(addon)
+	assertTrue(reserves:ApplyImport({ reservesData = { base = reserveImportPlayer("Base", 50) } }, nil,
+		{ silentInfo = true }), "baseline import must succeed")
+	local savedRoot, payloadRoot = _G.RMA_Reserves, select(1, reserves._Sync:GetPayload())
+	local savedBefore = deepCopy(savedRoot)
+	local malformed = {
+		{ reservesData = { alpha = { playerNameDisplay = "Alpha", reserves = {
+			[1] = { rawID = 100, quantity = 1, plus = 0 },
+			[3] = { rawID = 300, quantity = 1, plus = 0 },
+		} } } },
+		{ reservesData = { alpha = { playerNameDisplay = "Alpha", reserves = {
+			{ rawID = 100, quantity = 1, plus = 0, source = { mutable = true } },
+		} } } },
+		{ reservesData = { alpha = { playerNameDisplay = "Alpha", reserves = {
+			{ rawID = 100, quantity = 1, plus = 0, unknown = {} },
+		} } } },
+	}
+	for i = 1, #malformed do
+		local results = {}
+		reserves:RequestApplyImport(malformed[i], nil, function(...) results[#results + 1] = { ... } end,
+			{ chunkSize = 1, silentInfo = true })
+		assertEqual(1, #results, "malformed import callback must be terminal at row " .. i)
+		assertEqual(false, results[1][1], "malformed import must fail at row " .. i)
+		assertEqual("failed", results[1][2], "malformed import must use stable result at row " .. i)
+		assertEqual("INVALID_IMPORT_DATA", results[1][3], "malformed reason differs at row " .. i)
+	end
+	assertEqual(0, #fixture.timers, "malformed imports must not schedule work")
+	assertTrue(rawequal(savedRoot, _G.RMA_Reserves), "malformed imports must preserve SavedVariables identity")
+	assertTrue(rawequal(payloadRoot, select(1, reserves._Sync:GetPayload())), "malformed imports must preserve payload identity")
+	assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "malformed imports must preserve values")
+	print("PASS reserves_async_import_rejects_noncanonical_and_sparse_sources")
+end
+
+function cases.reserves_async_import_scheduler_failures_are_terminal(addon)
+	local reserves, fixture = installRealReservesMutationFixture(addon)
+	assertTrue(reserves:ApplyImport({ reservesData = { base = reserveImportPlayer("Base", 50) } }, nil,
+		{ silentInfo = true }), "baseline import must succeed")
+	local savedRoot, savedBefore = _G.RMA_Reserves, deepCopy(_G.RMA_Reserves)
+	for _, failure in ipairs({ "throw", "nil" }) do
+		fixture.scheduleFailures = { failure }
+		local results = {}
+		reserves:RequestApplyImport({ reservesData = { alpha = reserveImportPlayer("Alpha", 100) } }, nil,
+			function(...) results[#results + 1] = { ... } end, { chunkSize = 1, silentInfo = true })
+		assertEqual(1, #results, "initial scheduler failure must callback once for " .. failure)
+		assertEqual(false, results[1][1], "initial scheduler failure must reject for " .. failure)
+		assertEqual("failed", results[1][2], "initial scheduler result differs for " .. failure)
+		assertEqual("SCHEDULE_FAILED", results[1][3], "initial scheduler reason differs for " .. failure)
+	end
+	for _, failure in ipairs({ "throw", "nil" }) do
+		fixture.scheduleFailures = { false, failure }
+		local results = {}
+		reserves:RequestApplyImport({ reservesData = {
+			alpha = reserveImportPlayer("Alpha", 100), beta = reserveImportPlayer("Beta", 200),
+		} }, nil, function(...) results[#results + 1] = { ... } end, { chunkSize = 1, silentInfo = true })
+		fixture:RunTimer(#fixture.timers)
+		assertEqual(1, #results, "interchunk scheduler failure must callback once for " .. failure)
+		assertEqual("SCHEDULE_FAILED", results[1][3], "interchunk scheduler reason differs for " .. failure)
+	end
+	assertTrue(rawequal(savedRoot, _G.RMA_Reserves), "scheduler failures must preserve SavedVariables identity")
+	assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "scheduler failures must preserve SavedVariables values")
+	assertEqual(50, reserves:GetPlayerReserveEntries("Base")[1].rawID, "scheduler failures must preserve runtime")
+	print("PASS reserves_async_import_scheduler_failures_are_terminal")
+end
+
+function cases.reserves_async_import_publish_faults_rollback_exact_state(addon)
+	local reserves, fixture = installRealReservesMutationFixture(addon)
+	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = { base = reserveImportPlayer("Base", 50) } }, nil,
+		{ silentInfo = true }), "baseline import must succeed")
+	for _, stage in ipairs({ "mode", "index" }) do
+		local savedRoot = _G.RMA_Reserves
+		local payloadRoot = select(1, reserves._Sync:GetPayload())
+		local oldRow = reserves:GetPlayerReserveEntries("Base")[1]
+		local savedBefore = deepCopy(savedRoot)
+		local eventsBefore = #fixture.events
+		fixture.failStage = stage
+		local results = {}
+		reserves:RequestApplyImport({ mode = "plus", reservesData = { alpha = reserveImportPlayer("Alpha", 100) } }, nil,
+			function(...) results[#results + 1] = { ... } end, { chunkSize = 1, silentInfo = true })
+		fixture:RunTimer(#fixture.timers)
+		assertEqual(1, #results, "publish fault callback must run once for " .. stage)
+		assertEqual(false, results[1][1], "publish fault must fail for " .. stage)
+		assertEqual("failed", results[1][2], "publish fault result differs for " .. stage)
+		assertTrue(rawequal(savedRoot, _G.RMA_Reserves), "publish fault must restore SavedVariables root for " .. stage)
+		assertTrue(rawequal(payloadRoot, select(1, reserves._Sync:GetPayload())), "publish fault must restore payload root for " .. stage)
+		assertTrue(rawequal(oldRow, reserves:GetPlayerReserveEntries("Base")[1]), "publish fault must restore row identity for " .. stage)
+		assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "publish fault must restore values for " .. stage)
+		assertEqual("multi", reserves:GetImportMode(), "publish fault must restore mode for " .. stage)
+		assertEqual(eventsBefore, #fixture.events, "publish fault must emit no event for " .. stage)
+	end
+	for _, stage in ipairs({ "debug", "info", "event" }) do
+		fixture.failStage = stage
+		local results = {}
+		reserves:RequestApplyImport({ reservesData = { ok = reserveImportPlayer("Ok", 500) } }, nil,
+			function(...) results[#results + 1] = { ... } end, { chunkSize = 1, silentInfo = stage ~= "info" })
+		fixture:RunTimer(#fixture.timers)
+		assertEqual(1, #results, "contained notification fault callback must run once for " .. stage)
+		assertEqual(true, results[1][1], "notification fault must not invalidate committed data for " .. stage)
+		fixture.failStage = nil
+	end
+	print("PASS reserves_async_import_publish_faults_rollback_exact_state")
+end
+
+function cases.reserves_direct_import_apis_revalidate_bounded_canonical_input(addon)
+	local reserves, fixture = installRealReservesMutationFixture(addon)
+	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = { base = reserveImportPlayer("Base", 50) } }, nil,
+		{ silentInfo = true }), "baseline import must succeed")
+	local savedRoot = _G.RMA_Reserves
+	local runtimeRoot = select(1, reserves._Sync:GetPayload())
+	local runtimeRow = reserves:GetPlayerReserveEntries("Base")[1]
+	local savedBefore = deepCopy(savedRoot)
+	local timersBefore, eventsBefore = #fixture.timers, #fixture.events
+	local invalid = {}
+	local tooManyPlayers = {}
+	for i = 1, 1001 do tooManyPlayers["player" .. i] = reserveImportPlayer("Player" .. i, i) end
+	invalid[#invalid + 1] = tooManyPlayers
+	local tooManyRows = { alpha = { playerNameDisplay = "Alpha", reserves = {} } }
+	for i = 1, 21 do tooManyRows.alpha.reserves[i] = { rawID = i, quantity = 1, plus = 0 } end
+	invalid[#invalid + 1] = tooManyRows
+	invalid[#invalid + 1] = { alpha = { playerNameDisplay = string.rep("A", 65), reserves = { { rawID = 1 } } } }
+	invalid[#invalid + 1] = { alpha = { playerNameDisplay = "Alpha", reserves = { { rawID = 1, note = string.rep("N", 257) } } } }
+	invalid[#invalid + 1] = { alpha = { playerNameDisplay = "Alpha", reserves = { { rawID = 1, quantity = math.huge } } } }
+	invalid[#invalid + 1] = { alpha = { playerNameDisplay = "Alpha", reserves = { [1] = { rawID = 1 }, [3] = { rawID = 3 } } } }
+	invalid[#invalid + 1] = { alpha = { playerNameDisplay = "Alpha", reserves = { { rawID = 1 }, { rawID = 1 } } } }
+	invalid[#invalid + 1] = { [1] = reserveImportPlayer("Alpha", 1) }
+	invalid[#invalid + 1] = { alpha = { playerNameDisplay = "Alpha", reserves = {} } }
+	invalid[#invalid + 1] = { ["Al" .. string.char(0xc3, 0xa9)] = reserveImportPlayer("Alpha", 1) }
+	invalid[#invalid + 1] = { alpha = reserveImportPlayer("Al" .. string.char(0xc3, 0xa9), 1) }
+	invalid[#invalid + 1] = { alpha = { playerNameDisplay = "Alpha", reserves = {
+		{ rawID = 1, source = "bad\nsource" },
+	} } }
+	invalid[#invalid + 1] = { alpha = { playerNameDisplay = "Alpha", reserves = {
+		{ rawID = 1, itemName = string.char(0xc3, 0xa9) },
+	} } }
+	for i = 1, #invalid do
+		local ok, reason = reserves:ApplyImport({ mode = "multi", reservesData = invalid[i] }, nil, { silentInfo = true })
+		assertEqual(false, ok, "sync direct import must reject invalid graph " .. i)
+		assertEqual("INVALID_IMPORT_DATA", reason, "sync rejection reason differs at " .. i)
+		local callbacks = {}
+		local handle = reserves:RequestApplyImport({ mode = "multi", reservesData = invalid[i] }, nil,
+			function(...) callbacks[#callbacks + 1] = { ... } end, { silentInfo = true })
+		assertEqual(true, handle:IsCancelled(), "invalid async request must be terminal at " .. i)
+		assertEqual(1, #callbacks, "invalid async callback must run once at " .. i)
+		assertEqual(false, callbacks[1][1], "invalid async callback must fail at " .. i)
+		assertEqual(#fixture.timers, timersBefore, "invalid async request must allocate no timer at " .. i)
+		assertTrue(rawequal(savedRoot, _G.RMA_Reserves), "invalid import must preserve SavedVariables identity at " .. i)
+		assertTrue(rawequal(runtimeRoot, select(1, reserves._Sync:GetPayload())),
+			"invalid import must preserve runtime identity at " .. i)
+		assertTrue(rawequal(runtimeRow, reserves:GetPlayerReserveEntries("Base")[1]),
+			"invalid import must preserve row identity at " .. i)
+		assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "invalid import must preserve values at " .. i)
+		assertEqual(eventsBefore, #fixture.events, "invalid import must not publish at " .. i)
+	end
+	for _, stage in ipairs({ "replace", "mode", "index" }) do
+		if stage == "replace" then fixture.failReplace = "mutate_then_throw" else fixture.failStage = stage end
+		local ok, reason = reserves:ApplyImport({ mode = "plus", reservesData = {
+			alpha = reserveImportPlayer("Alpha", 100),
+		} }, nil, { silentInfo = true })
+		fixture.failReplace, fixture.failStage = nil, nil
+		assertEqual(false, ok, "synchronous import must contain " .. stage .. " fault")
+		assertEqual("PUBLISH_FAILED", reason, "synchronous publish reason differs for " .. stage)
+		assertTrue(rawequal(savedRoot, _G.RMA_Reserves), "sync fault must preserve SavedVariables identity")
+		assertTrue(rawequal(runtimeRoot, select(1, reserves._Sync:GetPayload())), "sync fault must preserve runtime identity")
+		assertTrue(rawequal(runtimeRow, reserves:GetPlayerReserveEntries("Base")[1]), "sync fault must preserve row identity")
+		assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "sync fault must preserve values")
+		assertEqual("multi", reserves:GetImportMode(), "sync fault must restore mode")
+	end
+	local exactGraph = {}
+	for playerIndex = 1, 1000 do
+		local rows = {}
+		for rowIndex = 1, 5 do
+			rows[rowIndex] = { rawID = playerIndex * 10 + rowIndex, quantity = 100, plus = 100 }
+		end
+		exactGraph["player" .. playerIndex] = {
+			playerNameDisplay = "Player" .. playerIndex,
+			reserves = rows,
+		}
+	end
+	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = exactGraph }, nil, { silentInfo = true }),
+		"exact 1000-player/5000-row bounds must succeed")
+	local exactPlayerRows = {}
+	for i = 1, 20 do exactPlayerRows[i] = { rawID = i, note = string.rep("N", 256) } end
+	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = {
+		[string.rep("k", 64)] = { playerNameDisplay = string.rep("P", 64), reserves = exactPlayerRows },
+	} }, nil, { silentInfo = true }), "exact per-player and string bounds must succeed")
+	local successSource = { alpha = reserveImportPlayer("Alpha", 100) }
+	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = successSource }, nil, { silentInfo = true }),
+		"bounded direct import must succeed")
+	successSource.alpha.reserves[1].rawID = 999
+	successSource.alpha.reserves[1].note = "caller mutation"
+	assertEqual(100, reserves:GetPlayerReserveEntries("Alpha")[1].rawID,
+		"successful direct import must detach caller rows")
+	assertEqual(nil, reserves:GetPlayerReserveEntries("Alpha")[1].note,
+		"successful direct import must detach caller strings")
+	print("PASS reserves_direct_import_apis_revalidate_bounded_canonical_input")
+end
+
+function cases.reserves_add_player_reserve_is_transactional(addon)
+	for _, fault in ipairs({ "replace", "index" }) do
+		local reserves, fixture = installRealReservesMutationFixture(addon)
+		local synced = { alpha = reserveImportPlayer("Alpha", 100) }
+		assertTrue(reserves:SetSyncedData(synced, { source = "Leader", checksum = "fixture", mode = "multi" }),
+			"synced add baseline must load")
+		local savedRoot = _G.RMA_Reserves
+		local runtimeRoot = select(1, reserves._Sync:GetPayload())
+		local runtimeRow = reserves:GetPlayerReserveEntries("Alpha")[1]
+		local savedBefore = deepCopy(savedRoot)
+		local eventsBefore = #fixture.events
+		if fault == "replace" then fixture.failReplace = "mutate_then_throw" else fixture.failStage = "index" end
+		local invoked, ok, reason = pcall(reserves.AddPlayerReserve, reserves, "Alpha", 200)
+		fixture.failReplace, fixture.failStage = nil, nil
+		assertEqual(true, invoked, "add must contain " .. fault .. " fault")
+		assertEqual(false, ok, "add must fail on " .. fault .. " fault")
+		assertEqual("publish_failed", reason, "add publish reason differs")
+		assertTrue(rawequal(savedRoot, _G.RMA_Reserves), "add fault must preserve SavedVariables identity")
+		assertTrue(rawequal(runtimeRoot, select(1, reserves._Sync:GetPayload())),
+			"add fault must preserve runtime identity")
+		assertTrue(rawequal(runtimeRow, reserves:GetPlayerReserveEntries("Alpha")[1]),
+			"add fault must preserve row identity")
+		assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "add fault must preserve SavedVariables values")
+		assertEqual(true, reserves:GetSyncMetadata().runtime, "add fault must preserve synced cache ownership")
+		assertEqual(eventsBefore, #fixture.events, "add fault must publish no event")
+	end
+	local reserves, fixture = installRealReservesMutationFixture(addon)
+	assertTrue(reserves:SetSyncedData({ alpha = reserveImportPlayer("Alpha", 100) },
+		{ source = "Leader", checksum = "fixture", mode = "multi" }))
+	local eventsBefore = #fixture.events
+	local ok, row = reserves:AddPlayerReserve("Alpha", 200)
+	assertEqual(true, ok, "valid add must commit")
+	assertTrue(rawequal(row, reserves:GetPlayerReserveEntries("Alpha")[2]), "successful add must return committed clone")
+	assertEqual(false, reserves:GetSyncMetadata().runtime, "successful add must promote the active candidate")
+	assertEqual(eventsBefore + 1, #fixture.events, "successful add must publish exactly once")
+	print("PASS reserves_add_player_reserve_is_transactional")
+end
+
+function cases.reserves_alias_publication_is_transactional(addon)
+	for _, fault in ipairs({ "alias_option", "index" }) do
+		local reserves, fixture = installRealReservesMutationFixture(addon)
+		local eventsBefore = #fixture.events
+		fixture.failStage = fault
+		local invoked, ok, reason = pcall(reserves.SetNameAlias, reserves, "Alpha", "Bravo")
+		fixture.failStage = nil
+		assertEqual(true, invoked, "alias set must contain " .. fault .. " fault")
+		assertEqual(false, ok, "alias set must fail on " .. fault .. " fault")
+		assertEqual("publish_failed", reason, "alias set fault reason differs")
+		assertEqual(nil, reserves:GetNameAliases().alpha, "failed alias set must restore options")
+		assertEqual(eventsBefore, #fixture.events, "failed alias set must publish no event")
+	end
+	for _, fault in ipairs({ "alias_option", "index" }) do
+		local reserves, fixture = installRealReservesMutationFixture(addon)
+		assertTrue(reserves:SetNameAlias("Alpha", "Bravo"), "alias removal baseline must publish")
+		local eventsBefore = #fixture.events
+		fixture.failStage = fault
+		local invoked, ok, reason = pcall(reserves.RemoveNameAlias, reserves, "Alpha")
+		fixture.failStage = nil
+		assertEqual(true, invoked, "alias removal must contain " .. fault .. " fault")
+		assertEqual(false, ok, "alias removal must fail on " .. fault .. " fault")
+		assertEqual("publish_failed", reason, "alias removal fault reason differs")
+		assertEqual("Bravo", reserves:GetNameAliases().alpha, "failed alias removal must restore options")
+		assertEqual(eventsBefore, #fixture.events, "failed alias removal must publish no event")
+	end
+	print("PASS reserves_alias_publication_is_transactional")
+end
+
+function cases.reserves_failed_synced_mutations_do_not_promote_cache(addon)
+	local reserves = installRealReservesMutationFixture(addon)
+	local synced = {
+		alpha = {
+			playerNameDisplay = "Alpha",
+			reserves = { { rawID = 100, itemName = "Item", quantity = 2, plus = 3 } },
+		},
+	}
+	local accepted, reason = reserves:SetSyncedData(synced, { source = "Leader", checksum = "fixture", mode = "multi" })
+	assertEqual(true, accepted, "synced fixture must be accepted")
+	assertEqual(nil, reason, "accepted synced fixture must not return an error")
+
+	local failures = {
+		{ call = function() return reserves:SetPlayerReserveQuantity("Missing", 100, 4) end, reason = "invalid_player" },
+		{ call = function() return reserves:SetPlayerReserveQuantity("Alpha", 999, 4) end, reason = "missing_item" },
+		{ call = function() return reserves:SetPlayerReserveQuantity("Alpha", 100, 2) end, reason = "no_change" },
+		{ call = function() return reserves:SetPlayerReservePlus("Missing", 100, 4) end, reason = "invalid_player" },
+		{ call = function() return reserves:SetPlayerReservePlus("Alpha", 999, 4) end, reason = "missing_item" },
+		{ call = function() return reserves:SetPlayerReservePlus("Alpha", 100, 3) end, reason = "no_change" },
+		{ call = function() return reserves:RemovePlayerReserve("Missing", 100) end, reason = "invalid_player" },
+		{ call = function() return reserves:RemovePlayerReserve("Alpha", 999) end, reason = "missing_item" },
+	}
+	for i = 1, #failures do
+		local changed, mutationReason = failures[i].call()
+		assertEqual(false, changed, "failed synced mutation must remain false at row " .. i)
+		assertEqual(failures[i].reason, mutationReason, "failed synced mutation reason differs at row " .. i)
+		reserves:Save("test")
+		reserves:Load()
+		assertTrue(deepEqual({}, _G.RMA_Reserves), "failed synced mutation must not persist cache at row " .. i)
+		assertEqual(true, reserves:GetSyncMetadata().runtime, "failed synced mutation must retain cache ownership at row " .. i)
+		local entries = reserves:GetPlayerReserveEntries("Alpha")
+		assertEqual(1, #entries, "synced view must survive save/reload at row " .. i)
+		assertEqual(100, entries[1].rawID, "synced item must survive save/reload at row " .. i)
+	end
+	local changed, mutationReason = reserves:SetPlayerReserveQuantity("Alpha", 100, 4)
+	assertEqual(true, changed, "successful synced mutation must publish its candidate")
+	assertEqual(nil, mutationReason, "successful synced mutation must not return an error")
+	assertEqual(false, reserves:GetSyncMetadata().runtime, "successful synced mutation must transfer cache ownership")
+	assertEqual(4, _G.RMA_Reserves.Alpha.reserves[1].quantity, "successful synced mutation must persist its change")
+	print("PASS reserves_failed_synced_mutations_do_not_promote_cache")
+end
+
+function cases.reserves_whisper_storage_identity_resolution_is_owner_bound(addon)
+	local reserves = installRealReservesMutationFixture(addon)
+	local function player(display)
+		return { playerNameDisplay = display, reserves = { { rawID = 1, itemName = "Item", quantity = 1 } } }
+	end
+	local normalizedCharacter, normalizedRealm, normalizedIdentity =
+		reserves:NormalizeWhisperPlayerIdentity("Al" .. string.char(0xc3, 0xa9) .. "a-Quel'Thalas-East", "Local Realm")
+	assertEqual("Al" .. string.char(0xc3, 0xa9) .. "a", normalizedCharacter, "UTF-8 character must normalize")
+	assertEqual("quelthalaseast", normalizedRealm, "internal realm punctuation must normalize")
+	assertEqual("al" .. string.char(0xc3, 0xa9) .. "a-quelthalaseast", normalizedIdentity,
+		"canonical identity must share the owner contract")
+	for _, invalid in ipairs({ "", "Bad--Realm", "Bad-Realm-", "Bad- Realm", "Bad-Realm ", "'Bad-Realm",
+		"Bad|Name-Realm", "Bad\tName-Realm", string.char(0xff) .. "Bad-Realm" }) do
+		assertEqual(nil, reserves:NormalizeWhisperPlayerIdentity(invalid, "Local Realm"),
+			"invalid owner identity must fail closed")
+	end
+
+	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = { alpha = player("Alpha") } }, nil,
+		{ silentInfo = true }), "short-name fixture must import")
+	local target, reason = reserves:ResolveWhisperPlayerName("Alpha", "localrealm", "localrealm")
+	assertEqual("Alpha", target, "local qualified sender must reuse the existing short participant")
+	assertEqual(nil, reason, "unambiguous short participant must resolve")
+	assertTrue(reserves:AddPlayerReserve(target, 2), "resolved local participant must accept the reserve")
+	assertEqual(1, reserves:GetCounts(), "resolved local sender must not create a qualified duplicate participant")
+	assertEqual(2, #reserves:GetPlayerReserveEntries("Alpha"), "resolved reserve must update the existing short participant")
+
+	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = {
+		alpha = player("Alpha"), ["alpha-otherrealm"] = player("Alpha-otherrealm"),
+	} }, nil, { silentInfo = true }), "ambiguous fixture must import")
+	target, reason = reserves:ResolveWhisperPlayerName("Alpha", "localrealm", "localrealm")
+	assertEqual(nil, target, "short plus cross-realm candidates must fail closed")
+	assertEqual("ambiguous_player", reason, "ambiguous reason differs")
+	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = {
+		["alpha-otherrealm"] = player("Alpha-otherrealm"),
+	} }, nil, { silentInfo = true }), "cross-only fixture must import")
+	target, reason = reserves:ResolveWhisperPlayerName("Alpha", "localrealm", "localrealm")
+	assertEqual(nil, target, "local sender must not reuse another realm's participant")
+	assertEqual("ambiguous_player", reason, "cross-realm collision reason differs")
+
+	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = {
+		alpha = player("Alpha"), ["alpha-localrealm"] = player("Alpha-localrealm"),
+		["alpha-otherrealm"] = player("Alpha-otherrealm"),
+	} }, nil, { silentInfo = true }), "qualified fixture must import")
+	target, reason = reserves:ResolveWhisperPlayerName("Alpha", "localrealm", "localrealm")
+	assertEqual("Alpha-localrealm", target, "exact qualified participant must take precedence")
+	assertEqual(nil, reason, "exact qualified participant must resolve")
+	target = reserves:ResolveWhisperPlayerName("Alpha", "thirdrealm", "localrealm")
+	assertEqual("Alpha-thirdrealm", target, "new cross-realm participant must remain qualified")
+
+	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = {
+		["alpha-local realm"] = player("Alpha-Local Realm"),
+		["bravo-quel'thalas-east"] = player("Bravo-Quel'Thalas-East"),
+	} }, nil, { silentInfo = true }), "punctuated realm fixture must import")
+	target, reason = reserves:ResolveWhisperPlayerName("Alpha", "localrealm", "localrealm")
+	assertEqual("Alpha-Local Realm", target, "normalized local realm must reuse the exact stored display")
+	assertEqual(nil, reason, "normalized local exact identity must resolve")
+	target, reason = reserves:ResolveWhisperPlayerName("Bravo", "quelthalaseast", "localrealm")
+	assertEqual("Bravo-Quel'Thalas-East", target, "internal realm punctuation must reuse exact storage")
+	assertEqual(nil, reason, "punctuated remote exact identity must resolve")
+
+	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = {
+		["alpha-local realm"] = player("Alpha-Local Realm"),
+		["alpha-localrealm"] = player("Alpha-localrealm"),
+	} }, nil, { silentInfo = true }), "normalized collision fixture must import")
+	target, reason = reserves:ResolveWhisperPlayerName("Alpha", "localrealm", "localrealm")
+	assertEqual(nil, target, "stored identities collapsing to one normalized identity must fail closed")
+	assertEqual("ambiguous_player", reason, "normalized collision reason differs")
+
+	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = {} }, nil,
+		{ silentInfo = true }), "empty fixture must import")
+	assertEqual("Alpha", reserves:ResolveWhisperPlayerName("Alpha", "localrealm", "localrealm"),
+		"new local participant must use established short-name storage")
+	print("PASS reserves_whisper_storage_identity_resolution_is_owner_bound")
+end
+
+local function installRealReservesSyncFixture(addon)
+	local reserves = installRealReservesMutationFixture(addon)
+	addon.L.MsgReservesSyncFailed = "failed:%s"
+	addon.L.MsgReservesSyncMeta = "%s %s %s %d %d"
+	addon.L.MsgReservesSyncApplied = "applied:%s"
+	addon.info = function() end
+	local warnings = {}
+	addon.warn = function(_, message) warnings[#warnings + 1] = message end
+	local sent = {}
+	local function encodeText(value)
+		return (tostring(value or ""):gsub(".", function(char) return string.format("%02X", string.byte(char)) end))
+	end
+	local function decodeText(value)
+		if type(value) ~= "string" or (#value % 2) ~= 0 or value:find("[^0-9A-F]") then return nil end
+		return (value:gsub("..", function(pair) return string.char(tonumber(pair, 16)) end))
+	end
+	local payload = {}
+	function payload.PackFields(separator, ...)
+		local fields = { ... }
+		for i = 1, #fields do fields[i] = tostring(fields[i] or "") end
+		return table.concat(fields, separator)
+	end
+	function payload.SplitFields(text, separator, destination)
+		for key in pairs(destination) do destination[key] = nil end
+		local from = 1
+		while true do
+			local at = string.find(text, separator, from, true)
+			if not at then destination[#destination + 1] = string.sub(text, from); break end
+			destination[#destination + 1] = string.sub(text, from, at - 1)
+			from = at + #separator
+		end
+		return destination
+	end
+	payload.EncodeText = encodeText
+	payload.DecodeText = decodeText
+	addon.Comms = {
+		Payload = payload,
+		NormalizeSender = function(value) return tostring(value or ""):match("^[^-]+") or "" end,
+		SendAddonWhisper = function(prefix, target, message)
+			sent[#sent + 1] = { prefix = prefix, target = target, message = message }
+			return true
+		end,
+		RegisterPrefixIfAvailable = function() end,
+		NextRequestId = function(owner, field)
+			owner[field] = (owner[field] or 0) + 1
+			return tostring(owner[field])
+		end,
+		Sync = function() return true end,
+	}
+	addon.Services.Raid = {
+		GetPlayerRoleState = function() return { isLeader = true } end,
+		IsGroupMember = function() return true end,
+		IsReservesAuthority = function() return true end,
+	}
+	_G.UnitName = function() return "Tester" end
+	local now = 10
+	_G.GetTime = function() return now end
+	loadAddonFile(addon, "Raid Management Addon/Services/Reserves/Sync.lua")
+	return {
+		reserves = reserves,
+		sync = reserves._Sync,
+		payload = payload,
+		sent = sent,
+		setNow = function(value) now = value end,
+		warnings = warnings,
+	}
+end
+
+function cases.reserves_sync_checksums_and_payloads_are_verified(addon)
+	local fixture = installRealReservesSyncFixture(addon)
+	local first = {
+		bravo = { playerNameDisplay = "Bravo", reserves = {
+			{ rawID = 202, quantity = 1, plus = 0, class = "MAGE", spec = "Arcane", note = "b", source = "csv" },
+			{ rawID = 201, quantity = 2, plus = 1, class = "MAGE", spec = "Fire", note = "a", source = "chat" },
+		} },
+		alpha = { playerNameDisplay = "Alpha", reserves = {
+			{ rawID = 101, quantity = 1, plus = 0, class = "PRIEST", spec = "Holy", note = "", source = "csv" },
+		} },
+	}
+	local reordered = {
+		alpha = deepCopy(first.alpha),
+		bravo = { playerNameDisplay = "Bravo", reserves = {
+			deepCopy(first.bravo.reserves[2]), deepCopy(first.bravo.reserves[1]),
+		} },
+	}
+	assertEqual(
+		fixture.reserves.BuildCanonicalChecksum(first),
+		fixture.reserves.BuildCanonicalChecksum(reordered),
+		"equivalent reserve maps and rows need one canonical checksum"
+	)
+
+	local function compactPayload(data)
+		local lines = { "H|multi|C1" }
+		local playerNames = { "Alpha", "Bravo" }
+		for i = 1, #playerNames do
+			local name = playerNames[i]
+			lines[#lines + 1] = "P|" .. i .. "|" .. fixture.payload.EncodeText(name)
+			local rows = data[string.lower(name)].reserves
+			for j = 1, #rows do
+				local row = rows[j]
+				lines[#lines + 1] = table.concat({
+					"R", i, row.rawID, row.quantity, row.plus,
+					fixture.payload.EncodeText(row.class), fixture.payload.EncodeText(row.spec),
+					fixture.payload.EncodeText(row.note), fixture.payload.EncodeText(row.source),
+				}, "|")
+			end
+		end
+		return table.concat(lines, "\n")
+	end
+	local validPayload = compactPayload(first)
+	local checksum = fixture.reserves.BuildCanonicalChecksum(first)
+	local setCalls = 0
+	local originalSet = fixture.sync.SetSyncedData
+	fixture.sync.SetSyncedData = function(self, data, meta)
+		setCalls = setCalls + 1
+		return originalSet(self, data, meta)
+	end
+	local function transfer(requestId, announcedChecksum, players, entries, encoded, totalChunks)
+		fixture.sync:HandleMessage("RMAResSync", table.concat({
+			"META_ACK", requestId, announcedChecksum, "multi", players, entries, "Leader", "C2",
+		}, "|"), "WHISPER", "Leader-Realm")
+		fixture.sync:HandleMessage("RMAResSync", "DATA_CHUNK|" .. requestId .. "|1|" .. tostring(totalChunks or 1) .. "|" .. encoded, "WHISPER", "Leader-Realm")
+		fixture.sync:HandleMessage("RMAResSync", "DATA_DONE|" .. requestId .. "|" .. announcedChecksum, "WHISPER", "Leader-Realm")
+	end
+	transfer("valid", checksum, 2, 3, fixture.payload.EncodeText(validPayload))
+	assertEqual(1, setCalls, "valid verified payload must publish once; warning=" .. tostring(fixture.warnings[#fixture.warnings]))
+	local validView = fixture.reserves:GetDisplayList()
+	local validAlphaEntries = deepCopy(fixture.reserves:GetPlayerReserveEntries("Alpha"))
+	local validMeta = deepCopy(fixture.reserves:GetSyncMetadata())
+
+	local invalid = {
+		{ id = "corrupt", checksum = checksum .. "1", players = 2, entries = 3, payload = string.gsub(validPayload, "202", "999", 1) },
+		{ id = "truncated", checksum = checksum .. "2", players = 2, entries = 3, payload = string.sub(validPayload, 1, #validPayload - 8) },
+		{ id = "empty", checksum = checksum .. "3", players = 2, entries = 3, payload = "" },
+		{ id = "counts", checksum = checksum .. "4", players = 9, entries = 3, payload = validPayload },
+		{ id = "missing", checksum = checksum .. "5", players = 2, entries = 3, payload = validPayload, totalChunks = 2 },
+		{ id = "mode", checksum = checksum .. "6", players = 2, entries = 3, payload = string.gsub(validPayload, "H|multi|", "H|plus|", 1) },
+	}
+	for i = 1, #invalid do
+		transfer(invalid[i].id, invalid[i].checksum, invalid[i].players, invalid[i].entries, fixture.payload.EncodeText(invalid[i].payload), invalid[i].totalChunks)
+		assertEqual(1, setCalls, "rejected transfer must not reach SetSyncedData at row " .. i)
+		assertTrue(deepEqual(validView, fixture.reserves:GetDisplayList()), "rejected transfer changed active view at row " .. i)
+		assertTrue(deepEqual(validAlphaEntries, fixture.reserves:GetPlayerReserveEntries("Alpha")), "rejected transfer changed reserve rows at row " .. i)
+		assertTrue(deepEqual(validMeta, fixture.reserves:GetSyncMetadata()), "rejected transfer changed metadata at row " .. i)
+		assertEqual(nil, fixture.sync._pendingRequests[invalid[i].id], "rejected request was not cleared at row " .. i)
+		assertEqual(nil, fixture.sync._incoming["Leader:" .. invalid[i].id], "rejected chunks were not cleared at row " .. i)
+	end
+	fixture.sync._pendingRequests.expired = { source = "Leader", checksum = "old", createdAt = 10 }
+	fixture.sync._incoming["Leader:expired"] = { total = 1, chunks = { "old" }, createdAt = 10 }
+	fixture.setNow(190)
+	fixture.sync:HandleMessage("RMAResSync", "UNKNOWN|expired", "WHISPER", "Leader-Realm")
+	assertEqual(nil, fixture.sync._pendingRequests.expired, "expired request must be cleared deterministically")
+	assertEqual(nil, fixture.sync._incoming["Leader:expired"], "expired assembly must be cleared deterministically")
+	print("PASS reserves_sync_checksums_and_payloads_are_verified")
+end
+
+function cases.reserves_sync_protocol_projection_and_chunks_fail_closed(addon)
+	local fixture = installRealReservesSyncFixture(addon)
+	local canonical = {
+		alpha = { playerNameDisplay = "Alpha", reserves = {
+			{ rawID = 100, quantity = 1, plus = 0, class = "MAGE", spec = "Fire", note = "", source = "csv" },
+		} },
+	}
+	local wireEquivalent = {
+		alpha = { playerNameDisplay = "Alpha", reserves = {
+			{ rawID = "100", quantity = nil, plus = nil, class = "MAGE", spec = "Fire", note = "", source = "csv" },
+		} },
+	}
+	local checksum = fixture.reserves.BuildCanonicalChecksum(canonical)
+	assertTrue(type(checksum) == "string" and checksum:match("^C2:%d+:%d+$") ~= nil, "new checksums need a tagged semantic version")
+	assertEqual(checksum, fixture.reserves.BuildCanonicalChecksum(wireEquivalent), "hashing and wire defaults must share one projection")
+	local sparse = { alpha = { playerNameDisplay = "Alpha", reserves = { [1] = canonical.alpha.reserves[1], [3] = canonical.alpha.reserves[1] } } }
+	local sparseChecksum, sparseReason = fixture.reserves.BuildCanonicalChecksum(sparse)
+	assertEqual(nil, sparseChecksum, "sparse reserve sequences must be rejected")
+	assertEqual("invalid_reserve_sequence", sparseReason, "sparse rejection reason differs")
+
+	-- Legacy C1 metadata has no reproducible integrity digest; the new receiver fails closed without allocating state.
+	fixture.sync:HandleMessage("RMAResSync", "META_ACK|legacy|12345|multi|1|1|Leader|C1", "WHISPER", "Leader-Realm")
+	assertEqual(nil, fixture.sync._pendingRequests.legacy, "untagged legacy metadata must not start an unverifiable transfer")
+	-- An old receiver treats the tagged checksum as opaque and accepts a matching DATA_DONE value.
+	local oldPendingChecksum = checksum
+	assertEqual(oldPendingChecksum, checksum, "new tagged META remains opaque to an old receiver")
+	assertEqual(oldPendingChecksum, checksum, "new tagged DATA_DONE remains comparable by an old receiver")
+
+	local invalidMeta = {
+		"META_ACK|bad-mode|" .. checksum .. "|broken|1|1|Leader|C2",
+		"META_ACK|bad-count|" .. checksum .. "|multi|1.5|1|Leader|C2",
+		"META_ACK|negative|" .. checksum .. "|multi|-1|1|Leader|C2",
+		"META_ACK|huge|" .. checksum .. "|multi|999999|1|Leader|C2",
+		"META_ACK|bad-hash|C2:nope|multi|1|1|Leader|C2",
+	}
+	for i = 1, #invalidMeta do
+		fixture.sync:HandleMessage("RMAResSync", invalidMeta[i], "WHISPER", "Leader-Realm")
+	end
+	for _, id in ipairs({ "bad-mode", "bad-count", "negative", "huge", "bad-hash" }) do
+		assertEqual(nil, fixture.sync._pendingRequests[id], "invalid META allocated request " .. id)
+	end
+
+	fixture.sync:HandleMessage("RMAResSync", "META_ACK|chunks|" .. checksum .. "|multi|1|1|Leader|C2", "WHISPER", "Leader-Realm")
+	fixture.sync:HandleMessage("RMAResSync", "DATA_CHUNK|chunks|1|2|AAAA", "WHISPER", "Leader-Realm")
+	fixture.sync:HandleMessage("RMAResSync", "DATA_CHUNK|chunks|1|2|AAAA", "WHISPER", "Leader-Realm")
+	assertTrue(fixture.sync._incoming["Leader:chunks"] ~= nil, "identical duplicate chunk should be idempotent")
+	fixture.sync:HandleMessage("RMAResSync", "DATA_CHUNK|chunks|1|2|BBBB", "WHISPER", "Leader-Realm")
+	assertEqual(nil, fixture.sync._incoming["Leader:chunks"], "conflicting duplicate must invalidate assembly")
+	assertEqual(nil, fixture.sync._pendingRequests.chunks, "conflicting duplicate must invalidate request")
+
+	local malformedChunks = {
+		"DATA_CHUNK|fractional|1.5|2|AAAA",
+		"DATA_CHUNK|empty|1|1|",
+		"DATA_CHUNK|zero|0|1|AAAA",
+	}
+	for i = 1, #malformedChunks do
+		local id = malformedChunks[i]:match("DATA_CHUNK|([^|]+)")
+		fixture.sync._pendingRequests[id] = { source = "Leader", checksum = checksum, players = 1, entries = 1, createdAt = 10 }
+		fixture.sync:HandleMessage("RMAResSync", malformedChunks[i], "WHISPER", "Leader-Realm")
+		assertEqual(nil, fixture.sync._incoming["Leader:" .. id], "malformed chunk allocated assembly " .. id)
+		assertEqual(nil, fixture.sync._pendingRequests[id], "malformed chunk retained request " .. id)
+	end
+
+	-- A new sender keeps every old field position and serves the old noncompact DATA_REQ shape.
+	_G.RMA_Reserves = deepCopy(wireEquivalent)
+	fixture.reserves:Load()
+	for key in pairs(fixture.sent) do fixture.sent[key] = nil end
+	fixture.sync:HandleMessage("RMAResSync", "META_REQ|old-meta", "WHISPER", "Old-Realm")
+	local metaFields = {}
+	fixture.payload.SplitFields(fixture.sent[#fixture.sent].message, "|", metaFields)
+	assertEqual("META_ACK", metaFields[1], "new sender metadata kind changed")
+	assertEqual("C2", metaFields[8], "new sender must advertise verified checksum semantics")
+	assertEqual(fixture.reserves.BuildCanonicalChecksum(wireEquivalent), metaFields[3], "outbound META must hash serialized projection")
+	local oldPending = metaFields[3]
+	for key in pairs(fixture.sent) do fixture.sent[key] = nil end
+	fixture.sync:HandleMessage("RMAResSync", "DATA_REQ|old-data|" .. oldPending, "WHISPER", "Old-Realm")
+	local encodedParts = {}
+	local oldDoneChecksum
+	for i = 1, #fixture.sent do
+		local fields = {}
+		fixture.payload.SplitFields(fixture.sent[i].message, "|", fields)
+		if fields[1] == "DATA_CHUNK" then encodedParts[tonumber(fields[3])] = fields[5] end
+		if fields[1] == "DATA_DONE" then oldDoneChecksum = fields[3] end
+	end
+	assertEqual(oldPending, oldDoneChecksum, "old receiver must accept matching opaque META/DONE checksum")
+	local oldPayload = fixture.payload.DecodeText(table.concat(encodedParts, ""))
+	assertTrue(oldPayload:find("H|multi|", 1, true) == 1, "old DATA_REQ must receive legacy noncompact payload header")
+	assertTrue(oldPayload:find("|100|1|0|", 1, true) ~= nil, "serialization must use the same numeric defaults as hashing")
+	print("PASS reserves_sync_protocol_projection_and_chunks_fail_closed")
+end
+
 function cases.sync_fixture_models_communications_boundaries(addon)
 	local fixture = newSyncCommunicationsFixture()
 	assertEqual("Leader-Test Realm", fixture:CaptureSender("Leader-Test Realm").raw, "raw sender identity must be preserved")
@@ -4663,6 +5859,297 @@ function cases.real_delta_builder_proves_complete_revision_coverage(addon)
 	assertTrue(#fixture.sent > 0, "unavailable delta must produce a snapshot response")
 	assertTrue(string.find(fixture.sent[#fixture.sent].message, "SN\t", 1, true) == 1, "fallback response must be snapshot")
 	print("PASS real_delta_builder_proves_complete_revision_coverage")
+end
+
+function cases.reserves_import_limits_and_schema_fail_closed(addon)
+	addon.L = addon.L or {}
+	addon.tLength = function(value) local count = 0; for _ in pairs(value) do count = count + 1 end; return count end
+	addon.warn = function() end
+	addon.debug = function() end
+	addon.L.WarnNoValidRows = "no rows"
+	addon.L.WarnReservesHeaderHint = "header"
+	addon.L.WarnReservesEncodedImportCompressed = "compressed"
+	addon.L.WarnReservesEncodedImportInvalid = "invalid"
+	addon.Diag = { D = {
+		LogReservesParseStart = "start", LogReservesImportRows = "%d %d %s %d",
+		LogReservesEncodedImportStart = "encoded", LogReservesEncodedImportRows = "%d %d %s",
+	}, W = { LogReservesImportFailedEmpty = "empty", LogReservesEncodedImportFailed = "%s" } }
+	addon.Options = { IsDebugEnabled = function() return false end }
+	addon.Strings = {
+		NormalizeText = function(value) return value end,
+		NormalizeLower = function(value)
+			if type(value) ~= "string" or value == "" then return nil end
+			return string.lower(value)
+		end,
+	}
+	addon.Services.EnsureNamespace = function(name)
+		addon.Services[name] = addon.Services[name] or {}
+		return addon.Services[name]
+	end
+	addon.Services.EnsureNamespace("Reserves")
+	addon.Services.Reserves.GetImportMode = function() return "multi" end
+	loadAddonFile(addon, "Raid Management Addon/Modules/Base64.lua")
+	local jsonValue
+	addon.Json = { Decode = function() return jsonValue end }
+	loadAddonFile(addon, "Raid Management Addon/Services/Reserves/Import.lua")
+	local parser = addon.Services.Reserves._Import.BuildParser()
+	local service = addon.Services.Reserves
+
+	local csvHeader = "x,itemId,from,name,class,spec,note,plus\n"
+	local valid = csvHeader .. "x,1,raid,Alpha,WARRIOR,tank,note,0"
+	assertTrue(parser.ParseImport(service, valid, "multi", { format = "csv" }) ~= nil, "normal CSV must import")
+	local atEncodedLimit = string.rep("x", 262144)
+	local parsed, reason = parser.ParseImport(service, atEncodedLimit, "multi", { format = "csv" })
+	assertTrue(reason ~= "IMPORT_ENCODED_TOO_LARGE", "exact encoded limit must reach format validation")
+	local tooLargeCsv = atEncodedLimit .. "x"
+	parsed, reason = parser.ParseImport(service, tooLargeCsv, "multi", { format = "csv" })
+	assertEqual(nil, parsed, "oversized CSV must fail")
+	assertEqual("IMPORT_ENCODED_TOO_LARGE", reason, "oversized text reason differs")
+	local atDecodedLimit = addon.Base64.Encode(string.rep("j", 131072))
+	jsonValue = { softreserves = { { name = "Alpha", items = { { id = 1 } } } } }
+	assertTrue(parser.ParseImport(service, atDecodedLimit, "multi", { format = "json" }) ~= nil, "exact decoded limit must import")
+	local overDecodedLimit = addon.Base64.Encode(string.rep("j", 131073))
+	parsed, reason = parser.ParseImport(service, overDecodedLimit, "multi", { format = "json" })
+	assertEqual(nil, parsed, "decoded max plus one must fail")
+	assertEqual("IMPORT_DECODED_TOO_LARGE", reason, "decoded size reason differs")
+
+	jsonValue = { softreserves = { { name = "Alpha", items = { { id = 1 } } } } }
+	parsed = parser.ParseImport(service, addon.Base64.Encode("json"), "multi", { format = "json" })
+	assertTrue(parsed ~= nil, "normal encoded JSON must import")
+	parsed, reason = parser.ParseImport(service, addon.Base64.Encode(string.char(0x78, 0x9c) .. "bomb"), "multi", { format = "json" })
+	assertEqual(nil, parsed, "compressed import must fail before inflate")
+	assertEqual("COMPRESSED_UNSUPPORTED", reason, "compressed import reason differs")
+
+	jsonValue = { softreserves = { [1] = { name = "Alpha", items = { { id = 1 } } }, [3] = { name = "Beta", items = { { id = 2 } } } } }
+	parsed, reason = parser.ParseImport(service, "json", "multi", { format = "json" })
+	assertEqual(nil, parsed, "sparse JSON arrays must fail")
+	assertEqual("JSON_INVALID_SCHEMA", reason, "sparse JSON reason differs")
+	jsonValue = { softreserves = { { name = "Al" .. string.char(0xc3, 0xa9), items = { { id = 1 } } } } }
+	parsed, reason = parser.ParseImport(service, "json", "multi", { format = "json" })
+	assertEqual(nil, parsed, "non-ASCII player names must fail")
+	assertEqual("FIELD_LIMIT", reason, "non-ASCII reason differs")
+	jsonValue = { softreserves = { { name = "Alpha", items = { { id = 1.5 } } } } }
+	parsed, reason = parser.ParseImport(service, "json", "multi", { format = "json" })
+	assertEqual(nil, parsed, "fractional item IDs must fail")
+	assertEqual("ITEM_ID_INVALID", reason, "fractional item reason differs")
+	local quoted = csvHeader .. 'x,1,raid,"Alpha",WARRIOR,tank,"a,b",0\r\n'
+	assertTrue(parser.ParseImport(service, quoted, "multi", { format = "csv" }) ~= nil, "quoted CRLF CSV must import")
+	local wideHeader, wideRow = { "itemId", "name" }, { "1", "Alpha" }
+	for i = 3, 32 do wideHeader[i], wideRow[i] = "legacy" .. i, "value" .. i end
+	local exactFieldsCsv = table.concat(wideHeader, ",") .. "\n" .. table.concat(wideRow, ",")
+	assertTrue(parser.ParseImport(service, exactFieldsCsv, "multi", { format = "csv" }) ~= nil, "exact CSV field limit must import")
+	local overFieldsCsv = table.concat(wideHeader, ",") .. ",extra\n" .. table.concat(wideRow, ",") .. ",value"
+	parsed, reason = parser.ParseImport(service, overFieldsCsv, "multi", { format = "csv" })
+	assertEqual(nil, parsed, "CSV field max plus one must fail")
+	assertEqual("CSV_FIELDS_LIMIT", reason, "CSV field count reason differs")
+	parsed, reason = parser.ParseImport(service, csvHeader .. "x,1,raid," .. string.rep("A", 65) .. ",WARRIOR,tank,note,0", "multi", { format = "csv" })
+	assertEqual(nil, parsed, "overlong CSV name must fail")
+	assertEqual("FIELD_LIMIT", reason, "CSV field reason differs")
+	local duplicateRows = csvHeader
+	for _ = 1, 100 do duplicateRows = duplicateRows .. "x,1,raid,Alpha,WARRIOR,tank,note,0\n" end
+	assertTrue(parser.ParseImport(service, duplicateRows, "multi", { format = "csv" }) ~= nil, "quantity exact limit must import")
+	duplicateRows = duplicateRows .. "x,1,raid,Alpha,WARRIOR,tank,note,0\n"
+	parsed, reason = parser.ParseImport(service, duplicateRows, "multi", { format = "csv" })
+	assertEqual(nil, parsed, "quantity over limit must fail")
+	assertEqual("QUANTITY_LIMIT", reason, "quantity reason differs")
+	local hugeField = csvHeader .. "x,1,raid,Alpha,WARRIOR,tank," .. string.rep("n", 257) .. ",0"
+	parsed, reason = parser.ParseImport(service, hugeField, "multi", { format = "csv" })
+	assertEqual(nil, parsed, "huge CSV field must fail")
+	assertEqual("FIELD_LIMIT", reason, "huge field reason differs")
+	local reserveRows = csvHeader
+	for itemId = 1, 20 do reserveRows = reserveRows .. "x," .. itemId .. ",raid,Alpha,WARRIOR,tank,note,0\n" end
+	assertTrue(parser.ParseImport(service, reserveRows, "multi", { format = "csv" }) ~= nil, "reserves per player exact limit must import")
+	reserveRows = reserveRows .. "x,21,raid,Alpha,WARRIOR,tank,note,0\n"
+	parsed, reason = parser.ParseImport(service, reserveRows, "multi", { format = "csv" })
+	assertEqual(nil, parsed, "reserves per player over limit must fail")
+	assertEqual("RESERVES_PER_PLAYER_LIMIT", reason, "reserve count reason differs")
+	local playerParts = { csvHeader }
+	for i = 1, 1000 do playerParts[#playerParts + 1] = "x,1,raid,P" .. i .. ",WARRIOR,tank,note,0\n" end
+	local playerRows = table.concat(playerParts)
+	assertTrue(parser.ParseImport(service, playerRows, "multi", { format = "csv" }) ~= nil, "player exact limit must import")
+	playerRows = playerRows .. "x,1,raid,P1001,WARRIOR,tank,note,0\n"
+	parsed, reason = parser.ParseImport(service, playerRows, "multi", { format = "csv" })
+	assertEqual(nil, parsed, "player max plus one must fail")
+	assertEqual("PLAYERS_LIMIT", reason, "player limit reason differs")
+	local rowParts = { csvHeader }
+	for player = 1, 250 do
+		for itemId = 1, 20 do rowParts[#rowParts + 1] = "x," .. itemId .. ",raid,R" .. player .. ",WARRIOR,tank,note,0\n" end
+	end
+	local maxRows = table.concat(rowParts)
+	assertTrue(parser.ParseImport(service, maxRows, "multi", { format = "csv" }) ~= nil, "row exact limit must import")
+	parsed, reason = parser.ParseImport(service, maxRows .. "x,1,raid,R1,WARRIOR,tank,note,0\n", "multi", { format = "csv" })
+	assertEqual(nil, parsed, "row max plus one must fail")
+	assertEqual("ROWS_LIMIT", reason, "row limit reason differs")
+	jsonValue = { softreserves = { { name = "Alpha", items = { { id = "1" } } } } }
+	parsed, reason = parser.ParseImport(service, addon.Base64.Encode("json"), "multi", { format = "json" })
+	assertEqual(nil, parsed, "numeric string item ID must fail")
+	assertEqual("ITEM_ID_INVALID", reason, "numeric string reason differs")
+	jsonValue = { softreserves = { { name = "Alpha", items = { { id = 1 }, { id = 1 } } } } }
+	parsed, reason = parser.ParseImport(service, addon.Base64.Encode("json"), "multi", { format = "json" })
+	assertEqual(nil, parsed, "duplicate JSON item must fail")
+	assertEqual("JSON_DUPLICATE_ITEM", reason, "duplicate item reason differs")
+	jsonValue = { softreserves = { { name = "Alpha", items = { { id = math.huge } } } } }
+	parsed, reason = parser.ParseImport(service, addon.Base64.Encode("json"), "multi", { format = "json" })
+	assertEqual(nil, parsed, "infinite JSON item ID must fail")
+	assertEqual("ITEM_ID_INVALID", reason, "infinite item reason differs")
+	print("PASS reserves_import_limits_and_schema_fail_closed")
+end
+
+function cases.reserves_whisper_admission_is_bounded_and_fail_closed(addon)
+	local callbacks, timers, sent, data = {}, {}, {}, {}
+	local now = 100
+	local addCalls = 0
+	addon.L = {
+		WhisperSoftResHeader = "header", WhisperSoftResEntry = "%d. %s", WhisperSoftResNone = "none %s",
+		WhisperSoftResAdded = "added %s", WhisperSoftResInvalidItem = "invalid item",
+		WhisperSoftResAdmissionLimited = "slow down", WhisperSoftResCapacity = "full",
+		WhisperSoftResInvalidSender = "invalid sender",
+		StrReservesItemFallback = "[Item %s]",
+	}
+	addon.Strings = {
+		TrimText = function(value) return tostring(value or ""):match("^%s*(.-)%s*$") end,
+		NormalizeLower = function(value) return string.lower(tostring(value or "")) end,
+		NormalizeName = function(value) return tostring(value or "") end,
+	}
+	addon.Database = { GetRealmName = function() return "Local Realm" end }
+	addon.Options = { GetValue = function() return true end }
+	addon.Events.Wow = { ChatMsgWhisper = "CHAT_MSG_WHISPER" }
+	addon.Bus.RegisterCallback = function(_, callback) callbacks[#callbacks + 1] = callback end
+	addon.Comms = { SendWhisper = function(target, text) sent[#sent + 1] = { target, text }; return true end }
+	addon.Time = { GetCurrentTime = function() return now end }
+	addon.Services.Raid = {
+		GetPlayerRoleState = function() return { inRaid = true, isMasterLooter = true } end,
+		CanUseCapability = function() return true end,
+	}
+	addon.Services.EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} end
+	addon.Services.EnsureNamespace("Reserves")
+	local reserves = addon.Services.Reserves
+	reserves.ScheduleTimer = function(_, callback) timers[#timers + 1] = callback; return #timers end
+	reserves.IsPlusSystem = function() return false end
+	reserves.GetCounts = function()
+		local players, entries = 0, 0
+		for _, rows in pairs(data) do players = players + 1; entries = entries + #rows end
+		return players, entries
+	end
+	reserves.GetPlayerReserveEntries = function(_, name) return data[string.lower(name)] or {} end
+	reserves.NormalizeWhisperPlayerIdentity = function(_, value, localRealm)
+		if type(value) ~= "string" or value == "" or #value > 64 or value:find("[%c|]")
+			or value:find(string.char(0xff), 1, true) then return nil end
+		local character, realm = value:match("^([^-]+)%-(.+)$")
+		character, realm = character or value, realm or localRealm
+		if character:find("[^A-Za-z\128-\255']") or character:match("^'") or character:match("'$+")
+			or realm:match("^[ %'-]") or realm:match("[ %'-]$") then return nil end
+		local realmKey = string.lower((realm:gsub("[ '%-]", "")))
+		local localKey = string.lower((localRealm:gsub("[ '%-]", "")))
+		return character, realmKey, string.lower(character) .. "-" .. realmKey, localKey
+	end
+	reserves.ResolveWhisperPlayerName = function(_, character, senderRealm, localRealm)
+		if senderRealm == localRealm then return character end
+		return character .. "-" .. senderRealm
+	end
+	reserves.AddPlayerReserve = function(_, name, itemRef)
+		if itemRef == "[PublishFail]" then return false, "publish_failed" end
+		if itemRef ~= "[Valid]" then return false, "invalid_item" end
+		addCalls = addCalls + 1
+		local key = string.lower(name)
+		data[key] = data[key] or {}
+		local row = { rawID = 1, itemName = "Valid", quantity = 1 }
+		data[key][#data[key] + 1] = row
+		return true, row
+	end
+	loadAddonFile(addon, "Raid Management Addon/Services/Reserves/Chat.lua")
+	local whisper = callbacks[#callbacks]
+	local function drainTimers()
+		local timerIndex = 1
+		while timers[timerIndex] and timerIndex <= 250 do
+			timers[timerIndex]()
+			timerIndex = timerIndex + 1
+		end
+	end
+
+	-- Invalid transport identities are silent and allocate no timer, queue, rate, or mutation state.
+	whisper(nil, "+sr [Valid]", "")
+	whisper(nil, "+sr [Valid]", string.rep("A", 65))
+	whisper(nil, "+sr [Valid]", "Bad\tName-Realm")
+	whisper(nil, "+sr [Valid]", "Bad-Realm\n")
+	whisper(nil, "+sr [Valid]", "Bad|Name-Realm")
+	whisper(nil, "+sr [Valid]", string.char(0xff) .. "Bad-Realm")
+	whisper(nil, "+sr [Valid]", "Bad--Realm")
+	whisper(nil, "+sr [Valid]", "Bad-Realm-")
+	whisper(nil, "+sr [Valid]", "Bad- Realm")
+	whisper(nil, "+sr [Valid]", "Bad-Realm ")
+	whisper(nil, "+sr [Valid]", "'Bad-Realm")
+	assertEqual(0, #sent, "invalid senders must receive no response")
+	assertEqual(0, #timers, "invalid senders must allocate no timer")
+	assertEqual(0, addCalls, "invalid senders must not mutate")
+
+	whisper(nil, "+sr [Valid]", "Outside")
+	assertEqual(1, #data.outside, "out-of-group opt-in signup must reuse local short-name storage")
+	whisper(nil, "+sr [Valid]", "Al" .. string.char(0xc3, 0xa9) .. "a-R" .. string.char(0xc3, 0xa9) .. "alm")
+	assertTrue(data["al" .. string.char(0xc3, 0xa9) .. "a-r" .. string.char(0xc3, 0xa9) .. "alm"] ~= nil,
+		"valid UTF-8 player and realm bytes must be accepted")
+
+	-- Short local and explicit local realm share one admission identity.
+	drainTimers()
+	local deliveredBeforeBurst = #sent
+	for _ = 1, 5 do whisper(nil, "+sr", "Burst") end
+	whisper(nil, "+sr", "Burst-LocalRealm")
+	whisper(nil, "+sr", "Burst")
+	drainTimers()
+	assertEqual(deliveredBeforeBurst + 6, #sent, "five replies plus one denial must be delivered")
+	assertEqual("slow down", sent[#sent][2], "sixth request must receive the single denial")
+
+	local mutationsBefore = #data.outside
+	local repliesBeforePublishFailure = #sent
+	whisper(nil, "+sr [PublishFail]", "Storage-Realm")
+	assertEqual(repliesBeforePublishFailure, #sent, "publication failure must not send a success or invalid-item reply")
+	assertEqual(nil, data["storage-realm"], "publication failure must not mutate")
+	whisper(nil, "+sr [Bogus]", "Spoof-Realm")
+	assertEqual(mutationsBefore, #data.outside, "invalid admission must not mutate existing data")
+	assertEqual(nil, data["spoof-realm"], "invalid item must not create a participant")
+
+	data["capped-realm"] = {}
+	for i = 1, 20 do data["capped-realm"][i] = { rawID = i, itemName = tostring(i) } end
+	whisper(nil, "+sr [Valid]", "Capped-Realm")
+	assertEqual(20, #data["capped-realm"], "per-player reserve cap must reject before mutation")
+	for i = 1, 1000 do data["player" .. i .. "-realm"] = {} end
+	whisper(nil, "+sr [Valid]", "Overflow-Realm")
+	assertEqual(nil, data["overflow-realm"], "participant cap must reject before mutation")
+	data = {}
+	for player = 1, 250 do
+		local rows = {}
+		for item = 1, 20 do rows[item] = { rawID = item, itemName = tostring(item) } end
+		data["full" .. player .. "-realm"] = rows
+	end
+	whisper(nil, "+sr [Valid]", "Total-Realm")
+	assertEqual(nil, data["total-realm"], "total reserve cap must reject before mutation")
+	data = {}
+	whisper(nil, "+sr [Valid]", "Twin-RealmA")
+	whisper(nil, "+sr [Valid]", "Twin-RealmB")
+	assertTrue(data["twin-realma"] ~= data["twin-realmb"], "realm-qualified identities must remain distinct")
+
+	data = {}
+	for i = 1, 110 do whisper(nil, "+sr", "Query" .. i .. "-Realm") end
+	local deliveredBeforeQueue = #sent
+	drainTimers()
+	assertTrue(#sent - deliveredBeforeQueue <= 100, "response queue must retain at most 100 queued replies")
+
+	now = 111
+	local beforeExpiryReply = #sent
+	whisper(nil, "+sr", "Burst-Local Realm")
+	drainTimers()
+	assertEqual(beforeExpiryReply + 1, #sent, "expired sender must receive a fresh admission")
+	for _ = 1, 4 do whisper(nil, "+sr", "Burst") end
+	whisper(nil, "+sr", "Burst-LocalRealm")
+	drainTimers()
+	data["persisted-realm"] = { { rawID = 7, itemName = "Persisted" } }
+	loadAddonFile(addon, "Raid Management Addon/Services/Reserves/Chat.lua")
+	assertEqual(7, data["persisted-realm"][1].rawID, "runtime admission reload must not alter persisted reserves")
+	local beforeReloadReply = #sent
+	callbacks[#callbacks](nil, "+sr", "Burst-Local Realm")
+	drainTimers()
+	assertEqual(beforeReloadReply + 1, #sent, "reload-shaped admission state must start empty")
+	print("PASS reserves_whisper_admission_is_bounded_and_fail_closed")
 end
 
 function cases.sync_request_backpressure_rolls_back_pending(addon)

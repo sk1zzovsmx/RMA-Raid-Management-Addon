@@ -13,12 +13,27 @@ local Strings = addon.Strings
 local Base64 = addon.Base64
 local Json = addon.Json
 local Services = addon.Services
-local _G = _G
 local pcall = pcall
 local tostring = tostring
 local tonumber = tonumber
 local type = type
 local byte = string.byte
+local floor = math.floor
+local huge = math.huge
+
+-- Import limits are sized for a full 40-player raid plus administrative exports.
+-- Compressed input is intentionally unsupported because LibDeflate has no bounded-output inflate API.
+local MAX_ENCODED_BYTES = 262144
+local MAX_DECODED_BYTES = 131072
+local MAX_ROWS = 5000
+local MAX_PLAYERS = 1000
+local MAX_RESERVES_PER_PLAYER = 20
+local MAX_PLAYER_NAME_BYTES = 64
+local MAX_SHORT_FIELD_BYTES = 64
+local MAX_NOTE_BYTES = 256
+local MAX_QUANTITY = 100
+local MAX_CSV_FIELDS = 32
+local MAX_INTEGER = 2147483647
 
 -- ----- Internal state ----- --
 addon.Services.EnsureNamespace("Reserves")
@@ -41,28 +56,40 @@ local function cleanCSVField(field)
 end
 
 local function splitCSVLine(line)
-	local out, field = {}, ""
+	local out, fieldParts, fieldLength = {}, {}, 0
 	local inQuotes = false
 	local i = 1
+	local function appendPart(part)
+		fieldLength = fieldLength + #part
+		if fieldLength > MAX_NOTE_BYTES then return false end
+		fieldParts[#fieldParts + 1] = part
+		return true
+	end
+	local function finishField()
+		if #out >= MAX_CSV_FIELDS then return false end
+		out[#out + 1] = table.concat(fieldParts)
+		fieldParts, fieldLength = {}, 0
+		return true
+	end
 	while i <= #line do
 		local ch = line:sub(i, i)
 		if ch == '"' then
 			local nextCh = line:sub(i + 1, i + 1)
 			if inQuotes and nextCh == '"' then
-				field = field .. '"'
+				if not appendPart('"') then return nil, "FIELD_LIMIT" end
 				i = i + 1
 			else
 				inQuotes = not inQuotes
 			end
 		elseif ch == "," and not inQuotes then
-			out[#out + 1] = field
-			field = ""
+			if not finishField() then return nil, "CSV_FIELDS_LIMIT" end
 		else
-			field = field .. ch
+			if not appendPart(ch) then return nil, "FIELD_LIMIT" end
 		end
 		i = i + 1
 	end
-	out[#out + 1] = field
+	if inQuotes then return nil, "CSV_INVALID" end
+	if not finishField() then return nil, "CSV_FIELDS_LIMIT" end
 	return out
 end
 
@@ -92,6 +119,74 @@ local function normalizeOptionalCSVField(value)
 		return nil
 	end
 	return value
+end
+
+local function isAsciiText(value, maxBytes, allowEmpty)
+	if type(value) ~= "string" or #value > maxBytes or (not allowEmpty and value == "") then
+		return false
+	end
+	return value:find("[^\32-\126]") == nil
+end
+
+local function isPositiveInteger(value)
+	return type(value) == "number" and value > 0 and value < huge and value == floor(value)
+end
+
+local function isBoundedNumber(value, minimum, maximum)
+	return type(value) == "number" and value >= minimum and value <= maximum and value < huge and value == floor(value)
+end
+
+local function denseArrayLength(value)
+	if type(value) ~= "table" then return false end
+	local count, highest = 0, 0
+	for key in pairs(value) do
+		if not isPositiveInteger(key) then return nil end
+		count = count + 1
+		if key > highest then highest = key end
+	end
+	if count ~= highest then return nil end
+	return count
+end
+
+local function validateRow(row)
+	if type(row) ~= "table" or not isPositiveInteger(row.itemId) then return false, "ITEM_ID_INVALID" end
+	if not isAsciiText(row.player, MAX_PLAYER_NAME_BYTES, false)
+		or not isAsciiText(row.playerKey, MAX_PLAYER_NAME_BYTES, false)
+		or (row.source == nil or isAsciiText(row.source, MAX_SHORT_FIELD_BYTES, true)) == false
+		or (row.class == nil or isAsciiText(row.class, MAX_SHORT_FIELD_BYTES, true)) == false
+		or (row.spec == nil or isAsciiText(row.spec, MAX_SHORT_FIELD_BYTES, true)) == false
+		or (row.note == nil or isAsciiText(row.note, MAX_NOTE_BYTES, true)) == false then
+		return false, "FIELD_LIMIT"
+	end
+	if not isBoundedNumber(row.plus, 0, MAX_QUANTITY) then return false, "QUANTITY_LIMIT" end
+	return true
+end
+
+local function validateRows(rows)
+	local players, playerCount = {}, 0
+	for i = 1, #rows do
+		local row = rows[i]
+		local ok, reason = validateRow(row)
+		if not ok then return false, reason end
+		local player = players[row.playerKey]
+		if not player then
+			playerCount = playerCount + 1
+			if playerCount > MAX_PLAYERS then return false, "PLAYERS_LIMIT" end
+			player = { itemCount = 0, quantities = {} }
+			players[row.playerKey] = player
+		end
+		local quantity = player.quantities[row.itemId]
+		if quantity then
+			quantity = quantity + 1
+			if quantity > MAX_QUANTITY then return false, "QUANTITY_LIMIT" end
+			player.quantities[row.itemId] = quantity
+		else
+			player.itemCount = player.itemCount + 1
+			if player.itemCount > MAX_RESERVES_PER_PLAYER then return false, "RESERVES_PER_PLAYER_LIMIT" end
+			player.quantities[row.itemId] = 1
+		end
+	end
+	return true
 end
 
 local function buildParsedCSVRow(fields, headerMap)
@@ -150,12 +245,14 @@ local function parseCSVRows(csv)
 		line = line:gsub("\r$", "")
 		if firstLine then
 			firstLine = false
-			local maybeHeader = splitCSVLine(line)
+			local maybeHeader, splitReason = splitCSVLine(line)
+			if not maybeHeader then return nil, stats, splitReason end
 			local map, isHeader = buildHeaderMap(maybeHeader)
 			if isHeader then
 				stats.headerDetected = true
 				headerMap = map
 			else
+				if #rows >= MAX_ROWS then return nil, stats, "ROWS_LIMIT" end
 				stats.dataLines = stats.dataLines + 1
 				if appendParsedCSVRow(rows, maybeHeader, headerMap, line, false) then
 					stats.validRows = stats.validRows + 1
@@ -165,7 +262,9 @@ local function parseCSVRows(csv)
 			end
 		else
 			stats.dataLines = stats.dataLines + 1
-			local fields = splitCSVLine(line)
+			if #rows >= MAX_ROWS then return nil, stats, "ROWS_LIMIT" end
+			local fields, splitReason = splitCSVLine(line)
+			if not fields then return nil, stats, splitReason end
 			if appendParsedCSVRow(rows, fields, headerMap, line, true) then
 				stats.validRows = stats.validRows + 1
 			else
@@ -200,37 +299,19 @@ local function looksLikeZlibPayload(text)
 end
 
 local function decodeBase64Text(text)
+	if type(text) ~= "string" or #text > MAX_ENCODED_BYTES then
+		return nil, "IMPORT_ENCODED_TOO_LARGE"
+	end
 	local codec = getBase64()
 	if not (codec and type(codec.Decode) == "function") then
 		return nil, "BASE64_UNAVAILABLE"
 	end
 	local ok, decoded = pcall(codec.Decode, tostring(text or ""))
 	if ok and type(decoded) == "string" and decoded ~= "" then
+		if #decoded > MAX_DECODED_BYTES then return nil, "IMPORT_DECODED_TOO_LARGE" end
 		return decoded
 	end
 	return nil, "BASE64_FAILED"
-end
-
-local function maybeDecompressZlib(text)
-	local libstub = _G and _G.LibStub
-	if type(libstub) ~= "function" and type(libstub) ~= "table" then
-		return nil, "DEFLATE_UNAVAILABLE"
-	end
-
-	local ok, lib
-	if type(libstub) == "table" and type(libstub.GetLibrary) == "function" then
-		ok, lib = pcall(libstub.GetLibrary, libstub, "LibDeflate", true)
-	else
-		ok, lib = pcall(libstub, "LibDeflate")
-	end
-	if not ok or type(lib) ~= "table" or type(lib.DecompressZlib) ~= "function" then
-		return nil, "DEFLATE_UNAVAILABLE"
-	end
-	local okDecompress, decompressed = pcall(lib.DecompressZlib, lib, text)
-	if okDecompress and type(decompressed) == "string" and decompressed ~= "" then
-		return decompressed
-	end
-	return nil, "DEFLATE_FAILED"
 end
 
 local function parseJsonText(text)
@@ -277,45 +358,66 @@ local function getJsonItemId(item)
 	if type(item) ~= "table" then
 		return nil
 	end
-	return tonumber(item.id or item.itemId or item.itemID or item.item_id)
+	return item.id or item.itemId or item.itemID or item.item_id
 end
 
 local function getJsonPlus(item, entry)
 	if type(item) == "table" then
-		local value = tonumber(item.sr_plus or item.srPlus or item.plus)
-		if value then
+		local value = item.sr_plus or item.srPlus or item.plus
+		if value ~= nil then
 			return value
 		end
 	end
 	if type(entry) == "table" then
-		return tonumber(entry.sr_plus or entry.srPlus or entry.plus or entry.plusOnes) or 0
+		return entry.sr_plus or entry.srPlus or entry.plus or entry.plusOnes or 0
 	end
 	return 0
 end
 
 local function appendSoftResJsonRows(rows, data)
 	local softreserves = getSoftResArray(data)
-	if type(softreserves) ~= "table" then
-		return false, "JSON_NO_SOFTRESERVES"
+	local softreserveCount = denseArrayLength(softreserves)
+	if not softreserveCount then
+		return false, "JSON_INVALID_SCHEMA"
 	end
+	if softreserveCount > MAX_PLAYERS then return false, "PLAYERS_LIMIT" end
 
 	local playerKeys = {}
 	local playerCount = 0
 	for i = 1, #softreserves do
 		local entry = softreserves[i]
+		if type(entry) ~= "table" then return false, "JSON_INVALID_SCHEMA" end
 		local playerName = getJsonPlayerName(entry)
 		local playerKey = normalizeLower(playerName)
 		local items = getJsonItems(entry)
-		if playerKey and type(items) == "table" then
-			if not playerKeys[playerKey] then
-				playerKeys[playerKey] = true
-				playerCount = playerCount + 1
-			end
+		local itemCount = denseArrayLength(items)
+		if not itemCount then return false, "JSON_INVALID_SCHEMA" end
+		if not isAsciiText(playerName, MAX_PLAYER_NAME_BYTES, false)
+			or not isAsciiText(playerKey, MAX_PLAYER_NAME_BYTES, false)
+			or (entry.class ~= nil and not isAsciiText(entry.class, MAX_SHORT_FIELD_BYTES, true))
+			or (entry.role ~= nil and not isAsciiText(entry.role, MAX_SHORT_FIELD_BYTES, true))
+			or (entry.spec ~= nil and not isAsciiText(entry.spec, MAX_SHORT_FIELD_BYTES, true))
+			or (entry.note ~= nil and not isAsciiText(entry.note, MAX_NOTE_BYTES, true)) then
+			return false, "FIELD_LIMIT"
+		end
+		if itemCount > MAX_RESERVES_PER_PLAYER then return false, "RESERVES_PER_PLAYER_LIMIT" end
+		if playerKey then
+			if playerKeys[playerKey] then return false, "JSON_DUPLICATE_PLAYER" end
+			playerKeys[playerKey] = true
+			playerCount = playerCount + 1
+			local itemKeys = {}
 
 			for j = 1, #items do
 				local item = items[j]
 				local itemId = getJsonItemId(item)
-				if itemId and itemId > 0 then
+				local plus = getJsonPlus(item, entry)
+				if type(item) ~= "table" or not isPositiveInteger(itemId) then return false, "ITEM_ID_INVALID" end
+				if not isBoundedNumber(plus, 0, MAX_QUANTITY) then return false, "QUANTITY_LIMIT" end
+				if item.note ~= nil and not isAsciiText(item.note, MAX_NOTE_BYTES, true) then return false, "FIELD_LIMIT" end
+				if itemKeys[itemId] then return false, "JSON_DUPLICATE_ITEM" end
+				itemKeys[itemId] = true
+				if itemId then
+					if #rows >= MAX_ROWS then return false, "ROWS_LIMIT" end
 					rows[#rows + 1] = {
 						itemId = itemId,
 						player = playerName,
@@ -324,7 +426,7 @@ local function appendSoftResJsonRows(rows, data)
 						class = entry.class,
 						spec = entry.role or entry.spec,
 						note = item.note or entry.note,
-						plus = getJsonPlus(item, entry),
+						plus = plus,
 					}
 				end
 			end
@@ -338,21 +440,14 @@ local function appendSoftResJsonRows(rows, data)
 end
 
 local function parseDecodedJsonPayload(decoded)
+	if #decoded > MAX_DECODED_BYTES then return nil, "IMPORT_DECODED_TOO_LARGE" end
+	if looksLikeZlibPayload(decoded) then return nil, "COMPRESSED_UNSUPPORTED", "COMPRESSED_UNSUPPORTED" end
 	local data, reason = parseJsonText(decoded)
 	if data then
 		return data
 	end
 
-	local decompressed, decompressReason = maybeDecompressZlib(decoded)
-	if not decompressed then
-		return nil, reason or decompressReason, decompressReason
-	end
-
-	data, reason = parseJsonText(decompressed)
-	if data then
-		return data
-	end
-	return nil, reason or "JSON_INVALID", decompressReason
+	return nil, reason or "JSON_INVALID"
 end
 
 local function parseEncodedRows(text)
@@ -468,6 +563,83 @@ local function aggregateRows(rows, allowMulti)
 	return newReservesData
 end
 
+local function isBoundedInteger(value, minimum, maximum)
+	return type(value) == "number" and value == value and value ~= huge and value == floor(value)
+		and value >= minimum and value <= maximum
+end
+
+local function isBoundedCanonicalText(value, maximum)
+	return value == nil or isAsciiText(value, maximum, true)
+end
+
+function Import.ValidateCanonicalData(sourceData)
+	if type(sourceData) ~= "table" then return nil, "INVALID_IMPORT_DATA" end
+	local snapshot, seenPlayers = {}, {}
+	local playerCount, totalRows = 0, 0
+	for playerKey, player in pairs(sourceData) do
+		playerCount = playerCount + 1
+		if playerCount > MAX_PLAYERS then return nil, "INVALID_IMPORT_DATA" end
+		if not isAsciiText(playerKey, MAX_PLAYER_NAME_BYTES, false)
+			or type(player) ~= "table" or type(player.reserves) ~= "table" then
+			return nil, "INVALID_IMPORT_DATA"
+		end
+		for key in pairs(player) do
+			if key ~= "playerNameDisplay" and key ~= "reserves" then return nil, "INVALID_IMPORT_DATA" end
+		end
+		local displayName = player.playerNameDisplay or playerKey
+		if not isAsciiText(displayName, MAX_PLAYER_NAME_BYTES, false) then
+			return nil, "INVALID_IMPORT_DATA"
+		end
+		local canonicalPlayer = normalizeLower(displayName)
+		if not canonicalPlayer or canonicalPlayer == "" or seenPlayers[canonicalPlayer] then
+			return nil, "INVALID_IMPORT_DATA"
+		end
+		seenPlayers[canonicalPlayer] = true
+		local rowCount, maxIndex = 0, 0
+		for key in pairs(player.reserves) do
+			if type(key) ~= "number" or key < 1 or key ~= floor(key) then return nil, "INVALID_IMPORT_DATA" end
+			rowCount = rowCount + 1
+			if rowCount > MAX_RESERVES_PER_PLAYER then return nil, "INVALID_IMPORT_DATA" end
+			if key > maxIndex then maxIndex = key end
+		end
+		if rowCount < 1 or rowCount ~= maxIndex then return nil, "INVALID_IMPORT_DATA" end
+		totalRows = totalRows + rowCount
+		if totalRows > MAX_ROWS then return nil, "INVALID_IMPORT_DATA" end
+		local copiedPlayer, seenItems = { playerNameDisplay = displayName, reserves = {} }, {}
+		for i = 1, rowCount do
+			local row = player.reserves[i]
+			if type(row) ~= "table" then return nil, "INVALID_IMPORT_DATA" end
+			for key in pairs(row) do
+				if key ~= "rawID" and key ~= "itemLink" and key ~= "itemName" and key ~= "itemIcon"
+					and key ~= "quantity" and key ~= "class" and key ~= "spec" and key ~= "note"
+					and key ~= "plus" and key ~= "source" then return nil, "INVALID_IMPORT_DATA" end
+			end
+			local rawID = row.rawID
+			local quantity = row.quantity == nil and 1 or row.quantity
+			local plus = row.plus == nil and 0 or row.plus
+			if not isBoundedInteger(rawID, 1, MAX_INTEGER) or not isBoundedInteger(quantity, 1, MAX_QUANTITY)
+				or not isBoundedInteger(plus, 0, MAX_QUANTITY) or seenItems[rawID]
+				or not isBoundedCanonicalText(row.itemLink, MAX_NOTE_BYTES)
+				or not isBoundedCanonicalText(row.itemName, MAX_SHORT_FIELD_BYTES)
+				or not isBoundedCanonicalText(row.itemIcon, MAX_NOTE_BYTES)
+				or not isBoundedCanonicalText(row.class, MAX_SHORT_FIELD_BYTES)
+				or not isBoundedCanonicalText(row.spec, MAX_SHORT_FIELD_BYTES)
+				or not isBoundedCanonicalText(row.note, MAX_NOTE_BYTES)
+				or not isBoundedCanonicalText(row.source, MAX_SHORT_FIELD_BYTES) then
+				return nil, "INVALID_IMPORT_DATA"
+			end
+			seenItems[rawID] = true
+			local copied = { rawID = rawID, quantity = quantity, plus = plus }
+			for _, key in ipairs({ "itemLink", "itemName", "itemIcon", "class", "spec", "note", "source" }) do
+				if row[key] ~= nil then copied[key] = row[key] end
+			end
+			copiedPlayer.reserves[i] = copied
+		end
+		snapshot[playerKey] = copiedPlayer
+	end
+	return snapshot
+end
+
 -- ----- Public methods ----- --
 function Import.BuildParser()
 	local importStrategies = {
@@ -499,6 +671,9 @@ function Import.BuildParser()
 			addon:warn(Diag.W.LogReservesImportFailedEmpty)
 			return nil, "EMPTY"
 		end
+		if #text > MAX_ENCODED_BYTES then
+			return nil, "IMPORT_ENCODED_TOO_LARGE"
+		end
 
 		local resolvedMode = (mode == "plus" or mode == "multi") and mode or service:GetImportMode()
 		local requestedFormat = type(opts) == "table" and opts.format or nil
@@ -510,11 +685,12 @@ function Import.BuildParser()
 		end
 
 		local csvAttempted = requestedFormat == "csv" or (not requestedFormat and looksLikeCSV(text))
-		local rows, importStats
+		local rows, importStats, csvReason
 		local encodedData
 		if csvAttempted then
-			rows, importStats = parseCSVRows(text)
+			rows, importStats, csvReason = parseCSVRows(text)
 		end
+		if csvReason then return nil, csvReason end
 		if requestedFormat == "csv" and (not rows or #rows == 0) then
 			addon:warn(L.WarnNoValidRows)
 			return nil, "NO_ROWS"
@@ -528,18 +704,22 @@ function Import.BuildParser()
 			rows, importStats, encodedData, encodedReason, decompressionReason, decodedText = parseEncodedRows(text)
 			if not rows or #rows == 0 then
 				if requestedFormat == "json" then
-					addon:warn(L.WarnReservesEncodedImportInvalid)
+					if encodedReason == "COMPRESSED_UNSUPPORTED" then
+						addon:warn(L.WarnReservesEncodedImportCompressed)
+					else
+						addon:warn(L.WarnReservesEncodedImportInvalid)
+					end
 					if isDebugEnabled() then
 						addon:warn(
 							Diag.W.LogReservesEncodedImportFailed:format(tostring(encodedReason or "JSON_INVALID"))
 						)
 					end
-					return nil, "JSON_INVALID"
+					return nil, encodedReason or "JSON_INVALID"
 				elseif csvAttempted then
 					addon:warn(L.WarnNoValidRows)
 					return nil, "NO_ROWS"
 				end
-				if decompressionReason == "DEFLATE_UNAVAILABLE" and looksLikeZlibPayload(decodedText) then
+				if decompressionReason == "COMPRESSED_UNSUPPORTED" and looksLikeZlibPayload(decodedText) then
 					addon:warn(L.WarnReservesEncodedImportCompressed)
 				else
 					addon:warn(L.WarnReservesEncodedImportInvalid)
@@ -563,6 +743,9 @@ function Import.BuildParser()
 		end
 
 		importStats = importStats or {}
+		if #rows > MAX_ROWS then return nil, "IMPORT_TOO_MANY_ROWS" end
+		local rowsValid, rowsReason = validateRows(rows)
+		if not rowsValid then return nil, rowsReason end
 		if isDebugEnabled() then
 			addon:debug(
 				Diag.D.LogReservesImportRows:format(

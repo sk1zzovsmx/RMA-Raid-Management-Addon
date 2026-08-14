@@ -61,11 +61,21 @@ data and import application. Its children have distinct roles:
 - `Reserves/Aliases.lua`: resolve player aliases.
 - `Reserves/Display.lua`: derive display/read models.
 - `Reserves/Sync.lua`: reserve-specific payload and metadata protocol.
-- `Reserves/Chat.lua`: whisper responses and chat behavior.
+- `Reserves/Chat.lua`: bounded, opt-in pre-raid whisper signup and responses.
 
 The parent publishes `ReservesDataChanged` only after a successful state
 transition. Splitting the parent is not a goal by itself; a child is justified
 only when it owns one of these durable concepts.
+
+Reserve sync publishes only checksum-verified `C2` projections. Imports and UI
+batches build detached candidates and publish atomically. Import, participant,
+per-player, batch, whisper-admission, and response-queue limits are documented
+in `RESERVES_INTEGRITY_REPORT.md`. The Reserves owner also resolves whisper
+admission identities to canonical storage participants so Chat never inspects
+reserve tables or creates local short/qualified duplicates itself. Inbound and
+stored identities share `Reserves:NormalizeWhisperPlayerIdentity`; realm spaces,
+apostrophes, and hyphens normalize identically without losing the selected
+stored display name.
 
 ## Database Synchronization
 

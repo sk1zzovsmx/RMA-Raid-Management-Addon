@@ -19,22 +19,25 @@ local Item = addon.Item
 local LootSources = addon.LootSources
 local Timer = addon.Timer
 
-local tconcat, twipe = table.concat, table.wipe
+local tconcat, twipe, sort = table.concat, table.wipe, table.sort
 local pairs, ipairs, type, next = pairs, ipairs, type, next
 local format = string.format
 local match = string.match
+local byte, find, gsub, len, lower, strsub = string.byte, string.find, string.gsub, string.len, string.lower, string.sub
 
 local tostring, tonumber = tostring, tonumber
 local _G = _G
 local GetItemInfo = assert(_G.GetItemInfo, "Reserves item info API is not initialized")
 local NormalizeName = assert(Strings.NormalizeName, "Reserves display name normalizer is not initialized")
+local NormalizeLower = assert(Strings.NormalizeLower, "Reserves canonical name normalizer is not initialized")
 
 local InternalEvents = assert(Events.Internal, "Reserves internal events are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Reserves event publisher is not initialized")
 local ReservesDataChangedEvent =
 	assert(InternalEvents.ReservesDataChanged, "Reserves data-changed event is not initialized")
-local IMPORT_APPLY_CHUNK_SIZE = 25
-local IMPORT_APPLY_DELAY_SECONDS = 0.01
+	local IMPORT_APPLY_CHUNK_SIZE = 25
+	local IMPORT_APPLY_DELAY_SECONDS = 0.01
+	local MAX_BATCH_COMMANDS = 500
 
 -- =========== Reserves Module  =========== --
 -- Manages item reserves, import, and display.
@@ -87,6 +90,7 @@ do
 	local RebuildIndex
 	local hasPendingItem
 	local activeImportApply
+	local importApplyGeneration = 0
 
 	-- ----- Private helpers ----- --
 
@@ -192,6 +196,90 @@ do
 			return "?"
 		end
 		return candidate
+	end
+
+	local function hasUnsafeIdentityBytes(text)
+		for i = 1, len(text) do
+			local value = byte(text, i)
+			if value < 32 or value == 127 then return true end
+		end
+		return find(text, "|", 1, true) ~= nil
+	end
+
+	local function isUtf8Continuation(value)
+		return value and value >= 128 and value <= 191
+	end
+
+	local function isValidIdentityUtf8(text)
+		local i = 1
+		while i <= len(text) do
+			local first = byte(text, i)
+			if first < 128 then
+				i = i + 1
+			elseif first >= 194 and first <= 223 and isUtf8Continuation(byte(text, i + 1)) then
+				i = i + 2
+			elseif first >= 224 and first <= 239 then
+				local second, third = byte(text, i + 1), byte(text, i + 2)
+				if not (isUtf8Continuation(second) and isUtf8Continuation(third)) then return false end
+				if (first == 224 and second < 160) or (first == 237 and second > 159) then return false end
+				i = i + 3
+			elseif first >= 240 and first <= 244 then
+				local second, third, fourth = byte(text, i + 1), byte(text, i + 2), byte(text, i + 3)
+				if not (isUtf8Continuation(second) and isUtf8Continuation(third)
+					and isUtf8Continuation(fourth)) then return false end
+				if (first == 240 and second < 144) or (first == 244 and second > 143) then return false end
+				i = i + 4
+			else
+				return false
+			end
+		end
+		return true
+	end
+
+	local function isValidCharacterIdentity(text)
+		if text == "" or byte(text, 1) == 39 or byte(text, len(text)) == 39 then return false end
+		for i = 1, len(text) do
+			local value = byte(text, i)
+			if value < 128
+				and not ((value >= 65 and value <= 90) or (value >= 97 and value <= 122) or value == 39) then
+				return false
+			end
+		end
+		return true
+	end
+
+	local function normalizeIdentityRealm(realm)
+		if type(realm) ~= "string" or realm == "" then return nil end
+		local clean = Strings.TrimText(realm, true)
+		if clean ~= realm then return nil end
+		local first, last = byte(clean, 1), byte(clean, len(clean))
+		if first == 32 or first == 39 or first == 45 or last == 32 or last == 39 or last == 45 then return nil end
+		for i = 1, len(clean) do
+			local value = byte(clean, i)
+			if value < 128
+				and not ((value >= 48 and value <= 57) or (value >= 65 and value <= 90)
+					or (value >= 97 and value <= 122) or value == 32 or value == 39 or value == 45) then
+				return nil
+			end
+		end
+		return lower(gsub(clean, "[ '%-]", ""))
+	end
+
+	function module:NormalizeWhisperPlayerIdentity(value, defaultRealm)
+		if type(value) ~= "string" or value == "" or len(value) > 64
+			or hasUnsafeIdentityBytes(value) or not isValidIdentityUtf8(value) then return nil end
+		local separator = find(value, "-", 1, true)
+		local character = separator and strsub(value, 1, separator - 1) or value
+		local realm = separator and strsub(value, separator + 1) or defaultRealm
+		if not isValidCharacterIdentity(character) then return nil end
+		local displayName = NormalizeName(character, true)
+		if not displayName or displayName == "" then return nil end
+		if realm == nil then return displayName, nil, Strings.NormalizeLower(displayName, true), nil end
+		local realmKey = normalizeIdentityRealm(realm)
+		local defaultRealmKey = defaultRealm and normalizeIdentityRealm(defaultRealm) or nil
+		if not realmKey or realmKey == "" or (defaultRealm ~= nil and not defaultRealmKey) then return nil end
+		local characterKey = Strings.NormalizeLower(displayName, true)
+		return displayName, realmKey, characterKey .. "-" .. realmKey, defaultRealmKey
 	end
 
 	local function copyReserveEntryForSave(src)
@@ -415,7 +503,7 @@ do
 
 	local function cancelImportApply(state)
 		if state and state.handle then
-			module:CancelTimer(state.handle)
+			pcall(module.CancelTimer, module, state.handle)
 			state.handle = nil
 		end
 		if activeImportApply == state then
@@ -423,32 +511,195 @@ do
 		end
 	end
 
-	local function buildReservesChecksum(sourceData, mode)
-		local parts = { normalizeImportMode(mode) }
-		for playerKey, player in pairs(sourceData or {}) do
-			if type(player) == "table" then
-				parts[#parts + 1] = tostring(playerKey)
-				parts[#parts + 1] = tostring(player.playerNameDisplay or "")
-				local rows = player.reserves
-				if type(rows) == "table" then
-					for i = 1, #rows do
-						local row = rows[i]
-						if type(row) == "table" then
-							parts[#parts + 1] = tostring(row.rawID or "")
-							parts[#parts + 1] = tostring(row.quantity or "")
-							parts[#parts + 1] = tostring(row.plus or "")
-							parts[#parts + 1] = tostring(row.class or "")
-						end
-					end
-				end
+	local MAX_SYNC_INTEGER = 2147483647
+
+	local function normalizeSyncInteger(value, defaultValue, minimum)
+		if value == nil then value = defaultValue end
+		local numeric = tonumber(value)
+		if not numeric or numeric ~= math.floor(numeric) or numeric < minimum or numeric > MAX_SYNC_INTEGER then
+			return nil
+		end
+		return numeric
+	end
+
+	local function captureTableGraph(roots)
+		local graph = {}
+		local function capture(value)
+			if type(value) ~= "table" or graph[value] then return end
+			local entries = {}
+			graph[value] = entries
+			for key, child in pairs(value) do
+				entries[#entries + 1] = { key, child }
+				capture(key)
+				capture(child)
 			end
 		end
-		local text = tconcat(parts, "|")
-		local checksum = 0
-		for i = 1, #text do
-			checksum = (checksum + (text:byte(i) * i)) % 1000000007
+		for i = 1, #roots do capture(roots[i]) end
+		return graph
+	end
+
+	local function restoreTableGraph(graph)
+		for target in pairs(graph) do twipe(target) end
+		for target, entries in pairs(graph) do
+			for i = 1, #entries do target[entries[i][1]] = entries[i][2] end
 		end
-		return tostring(checksum)
+	end
+
+	local function normalizeSyncText(value)
+		if value == nil then return "" end
+		if type(value) ~= "string" then return nil end
+		return value
+	end
+
+	local function buildCanonicalProjection(sourceData)
+		if type(sourceData) ~= "table" then return nil, "invalid_data" end
+		local players = {}
+		local seenPlayerKeys = {}
+		for playerKey, player in pairs(sourceData or {}) do
+			if type(player) ~= "table" or type(player.reserves) ~= "table" then
+				return nil, "invalid_player"
+			end
+			local displayName = player.playerNameDisplay or player.original or playerKey
+			if type(displayName) ~= "string" or displayName == "" then return nil, "invalid_player" end
+			local canonicalKey = NormalizeLower(displayName, true)
+			if not canonicalKey or canonicalKey == "" or seenPlayerKeys[canonicalKey] then
+				return nil, "invalid_player"
+			end
+			seenPlayerKeys[canonicalKey] = true
+			local reserveRows = player.reserves
+			local rowCount, maxIndex = 0, 0
+			for key in pairs(reserveRows) do
+				if type(key) ~= "number" or key < 1 or key ~= math.floor(key) then
+					return nil, "invalid_reserve_sequence"
+				end
+				rowCount = rowCount + 1
+				if key > maxIndex then maxIndex = key end
+			end
+			if rowCount ~= maxIndex then return nil, "invalid_reserve_sequence" end
+			if rowCount == 0 then return nil, "invalid_player" end
+			local canonicalRows = {}
+			for i = 1, rowCount do
+				local row = reserveRows[i]
+				if type(row) ~= "table" then return nil, "invalid_reserve_row" end
+				local rawID = normalizeSyncInteger(row.rawID, nil, 1)
+				local quantity = normalizeSyncInteger(row.quantity, 1, 1)
+				local plus = normalizeSyncInteger(row.plus, 0, 0)
+				local class = normalizeSyncText(row.class)
+				local spec = normalizeSyncText(row.spec)
+				local note = normalizeSyncText(row.note)
+				local source = normalizeSyncText(row.source)
+				if not rawID or not quantity or not plus or not class or not spec or not note or not source then
+					return nil, "invalid_reserve_row"
+				end
+				local fields = { tostring(rawID), tostring(quantity), tostring(plus), class, spec, note, source }
+				local encoded = {}
+				for j = 1, #fields do encoded[j] = tostring(#fields[j]) .. ":" .. fields[j] end
+				canonicalRows[#canonicalRows + 1] = {
+					rawID = rawID, quantity = quantity, plus = plus, class = class,
+					spec = spec, note = note, source = source, framed = tconcat(encoded, ""),
+				}
+			end
+			sort(canonicalRows, function(left, right) return left.framed < right.framed end)
+			players[#players + 1] = { key = canonicalKey, name = displayName, rows = canonicalRows }
+		end
+		sort(players, function(left, right)
+			if left.key == right.key then return left.name < right.name end
+			return left.key < right.key
+		end)
+		return players
+	end
+
+	local function buildReservesChecksum(sourceData)
+		local projection, reason = buildCanonicalProjection(sourceData)
+		if not projection then return nil, reason end
+		local players = {}
+		for playerIndex = 1, #projection do
+			local player = projection[playerIndex]
+			local canonicalRows = player.rows
+			local encodedRows = {}
+			for i = 1, #canonicalRows do
+				encodedRows[i] = tostring(#canonicalRows[i].framed) .. ":" .. canonicalRows[i].framed
+			end
+			players[#players + 1] = tostring(#player.key)
+				.. ":"
+				.. player.key
+				.. tostring(#player.name)
+				.. ":"
+				.. player.name
+				.. tostring(#canonicalRows)
+				.. ":"
+				.. tconcat(encodedRows, "")
+		end
+		local encodedPlayers = { tostring(#players), ":" }
+		for i = 1, #players do
+			encodedPlayers[#encodedPlayers + 1] = tostring(#players[i]) .. ":" .. players[i]
+		end
+		local text = tconcat(encodedPlayers, "")
+		local first, second = 1, 7
+		for i = 1, #text do
+			local byte = text:byte(i)
+			first = ((first * 131) + byte) % 1000000007
+			second = ((second * 257) + byte + i) % 1000000009
+		end
+		return "C2:" .. tostring(first) .. ":" .. tostring(second)
+	end
+
+	local function buildCanonicalDataSerialization(sourceData)
+		if type(sourceData) ~= "table" then return nil, "invalid_data" end
+		local players = {}
+		local seenPlayers = {}
+		for playerKey, player in pairs(sourceData) do
+			if type(playerKey) ~= "string" or type(player) ~= "table" or type(player.reserves) ~= "table" then
+				return nil, "invalid_player"
+			end
+			local displayName = resolvePlayerNameDisplay(playerKey, player, playerKey)
+			local canonicalKey = NormalizeLower(displayName, true)
+			if not canonicalKey or canonicalKey == "" or seenPlayers[canonicalKey] then return nil, "invalid_player" end
+			seenPlayers[canonicalKey] = true
+			local rows = {}
+			local rowCount, maxIndex = 0, 0
+			for key in pairs(player.reserves) do
+				if type(key) ~= "number" or key < 1 or key ~= math.floor(key) then return nil, "invalid_reserve_sequence" end
+				rowCount = rowCount + 1
+				if key > maxIndex then maxIndex = key end
+			end
+			if rowCount == 0 or rowCount ~= maxIndex then return nil, "invalid_reserve_sequence" end
+			for i = 1, rowCount do
+				local row = copyReserveEntryForSave(player.reserves[i])
+				if not row then return nil, "invalid_reserve_row" end
+				local fields = {}
+				for j = 1, #RESERVE_ENTRY_PERSISTED_FIELDS do
+					local field = RESERVE_ENTRY_PERSISTED_FIELDS[j]
+					local value = row[field]
+					local encoded = value == nil and "n" or (type(value) .. ":" .. tostring(#tostring(value)) .. ":" .. tostring(value))
+					fields[#fields + 1] = tostring(#field) .. ":" .. field .. tostring(#encoded) .. ":" .. encoded
+				end
+				rows[#rows + 1] = tconcat(fields, "")
+			end
+			sort(rows)
+			local encodedRows = {}
+			for i = 1, #rows do encodedRows[i] = tostring(#rows[i]) .. ":" .. rows[i] end
+			local body = tostring(#canonicalKey) .. ":" .. canonicalKey
+				.. tostring(#displayName) .. ":" .. displayName
+				.. tostring(#rows) .. ":" .. tconcat(encodedRows, "")
+			players[#players + 1] = body
+		end
+		sort(players)
+		local encodedPlayers = {}
+		for i = 1, #players do encodedPlayers[i] = tostring(#players[i]) .. ":" .. players[i] end
+		return tostring(#players) .. ":" .. tconcat(encodedPlayers, "")
+	end
+
+	function module.BuildCanonicalProjection(sourceData)
+		return buildCanonicalProjection(sourceData)
+	end
+
+	function module.BuildCanonicalChecksum(sourceData)
+		return buildReservesChecksum(sourceData)
+	end
+
+	function module.BuildCanonicalSerialization(sourceData)
+		return buildCanonicalDataSerialization(sourceData)
 	end
 
 	local function getActiveSyncMetadata()
@@ -630,18 +881,6 @@ do
 		return first, changed
 	end
 
-	local function ensureMutableLocalReserves()
-		if not syncedCacheActive then
-			return false
-		end
-		local normalized = buildRuntimeReservesData(reservesData, "edit")
-		copyReservesData(normalized, persistedReservesData)
-		copyReservesData(persistedReservesData, reservesData)
-		syncedCacheMeta = nil
-		syncedCacheActive = false
-		return true
-	end
-
 	local function normalizeEditNumber(value)
 		local n = tonumber(value)
 		if n == nil then
@@ -650,17 +889,84 @@ do
 		return math.floor(n)
 	end
 
-	local function getPlayerReserveContainer(playerName)
-		local playerKey = resolveReservePlayerKey(playerName)
+	local function getPlayerReserveContainer(playerName, sourceData)
+		local data = sourceData or persistedReservesData
+		local playerKey = Strings.NormalizeLower(playerName, true)
+		if not (playerKey and data[playerKey]) then
+			playerKey = AliasHelpers.ResolveReserveKey(getAliasState(), data, playerName)
+		end
 		if not playerKey then
 			return nil, "invalid_player"
 		end
-		local player = persistedReservesData[playerKey]
+		local player = data[playerKey]
 		if type(player) ~= "table" then
 			return nil, "invalid_player"
 		end
 		return player, playerKey
 	end
+
+	local function inspectReserveRow(player, itemId)
+		if type(player) ~= "table" or type(player.reserves) ~= "table" then
+			return nil, false
+		end
+		local first
+		local matches = 0
+		for i = 1, #player.reserves do
+			local row = player.reserves[i]
+			if type(row) == "table" and row.rawID == itemId then
+				first = first or row
+				matches = matches + 1
+			end
+		end
+		return first, matches > 1
+	end
+
+	local function buildMutationCandidate()
+		return buildRuntimeReservesData(reservesData, "edit")
+	end
+
+	local function commitCandidate(candidate, nextMode)
+		local savedRoot = _G.RMA_Reserves
+		if type(savedRoot) ~= "table" then savedRoot = SavedVariables.GetReserves() end
+		local oldMode = importMode
+		local oldOptionMode = nextMode ~= nil and reservesNs:Get("srImportMode") or nil
+		local oldSyncedMeta, oldSyncedActive, oldDirty = syncedCacheMeta, syncedCacheActive, reservesDirty
+		local graph = captureTableGraph({
+			savedRoot,
+			persistedReservesData, reservesData, reservesByItemID, reservesByItemPlayer,
+			playerItemsByName, reservesDisplayList, reservesDisplayRowsByKey,
+			reservesDisplayActiveKeys, grouped, oldSyncedMeta,
+		})
+		local published = pcall(function()
+			SavedVariables.ReplaceReserves(buildSavedReservesData(candidate))
+			copyReservesData(candidate, persistedReservesData)
+			copyReservesData(persistedReservesData, reservesData)
+			syncedCacheMeta = nil
+			syncedCacheActive = false
+			if nextMode ~= nil then setImportMode(nextMode, true) end
+			rebuildReserveIndexes()
+		end)
+		if not published then
+			restoreTableGraph(graph)
+			if _G.RMA_Reserves ~= savedRoot then _G.RMA_Reserves = savedRoot end
+			importMode = oldMode
+			syncedCacheMeta, syncedCacheActive, reservesDirty = oldSyncedMeta, oldSyncedActive, oldDirty
+			if nextMode ~= nil then pcall(reservesNs.Set, reservesNs, "srImportMode", oldOptionMode) end
+			return nil, "publish_failed"
+		end
+		return true
+	end
+
+	local function publishMutationCandidate(candidate, eventReason)
+		local published, reason = commitCandidate(candidate)
+		if not published then return nil, reason end
+		-- Observers run after persistence and are not part of the transaction.
+		pcall(notifyReservesDataChanged, eventReason or "edit-reserve", nil,
+			module:GetImportMode(), addon.tLength(reservesData))
+		return true
+	end
+
+	local publishBatchCandidate = publishMutationCandidate
 
 	local function upsertPlayerReserve(target, playerKey, displayName, reserveEntry)
 		local player = target[playerKey]
@@ -733,29 +1039,29 @@ do
 	end
 
 	local function finishApplyImport(parsed, raidId, opts, normalized, perfLabel, perfStart, extraDetails)
-		clearDisplayRefreshQueue()
 		local mode = (parsed.mode == "plus" or parsed.mode == "multi") and parsed.mode or module:GetImportMode()
-		copyReservesData(normalized, persistedReservesData)
-		copyReservesData(persistedReservesData, reservesData)
-		syncedCacheMeta = nil
-		syncedCacheActive = false
-		setImportMode(mode, true)
-		saveCanonicalReservesData(normalized)
+		local published, publishError = commitCandidate(normalized, mode)
+		if not published then
+			pcall(finishPerf, perfLabel, perfStart, "ok=0 reason=PUBLISH_FAILED")
+			return false, "PUBLISH_FAILED", tostring(publishError)
+		end
+		pcall(clearDisplayRefreshQueue)
 
 		local nPlayers = tonumber(parsed.nPlayers) or addon.tLength(reservesData)
-		if isDebugEnabled() then
-			addon:debug(Diag.D.LogReservesParseComplete:format(nPlayers))
-		end
+		if isDebugEnabled() then pcall(addon.debug, addon, Diag.D.LogReservesParseComplete:format(nPlayers)) end
 		if not (opts and opts.silentInfo) then
-			addon:info(format(L.SuccessReservesParsed, tostring(nPlayers)))
+			pcall(addon.info, addon, format(L.SuccessReservesParsed, tostring(nPlayers)))
 			local stats = parsed.importStats or {}
-			addon:info(L.MsgReservesImportRows:format(tonumber(stats.validRows) or 0, tonumber(stats.skippedRows) or 0))
+			pcall(addon.info, addon,
+				L.MsgReservesImportRows:format(tonumber(stats.validRows) or 0, tonumber(stats.skippedRows) or 0))
 		end
 
 		local reason = (opts and opts.reason) or "import"
-		notifyReservesDataChanged(reason, raidId, mode, nPlayers)
+		-- Notification failures are contained after commit: observers are not a
+		-- transactional boundary and may already have seen the event.
+		pcall(notifyReservesDataChanged, reason, raidId, mode, nPlayers)
 		local players, entries = countReserves(reservesData)
-		finishPerf(
+		pcall(finishPerf,
 			perfLabel,
 			perfStart,
 			"mode="
@@ -959,17 +1265,33 @@ do
 		return AliasHelpers.CopyAliasMap(getNameAliasMap())
 	end
 
+	local function publishAliasMap(nextMap)
+		local oldMap = getNameAliasMap()
+		local published = pcall(function()
+			reservesNs:Set("nameAliases", nextMap)
+			invalidateAliasState()
+			rebuildReserveIndexes()
+		end)
+		if not published then
+			pcall(reservesNs.Set, reservesNs, "nameAliases", oldMap)
+			invalidateAliasState()
+			pcall(rebuildReserveIndexes)
+			return false, "publish_failed"
+		end
+		pcall(notifyReservesDataChanged, "alias", nil, module:GetImportMode(), addon.tLength(reservesData))
+		return true
+	end
+
 	function module:SetNameAlias(reserveName, raidName)
 		local nextMap = AliasHelpers.CopyAliasMap(getNameAliasMap())
 		local ok, reason = AliasHelpers.SetAlias(nextMap, reserveName, raidName)
 		if not ok then
 			return false, reason
 		end
-		reservesNs:Set("nameAliases", nextMap)
-		invalidateAliasState()
-		rebuildReserveIndexes("alias", nil, self:GetImportMode(), addon.tLength(reservesData))
+		local published, publishReason = publishAliasMap(nextMap)
+		if not published then return false, publishReason end
 		if isDebugEnabled() then
-			addon:debug(Diag.D.LogReservesAliasSet:format(tostring(reserveName), tostring(raidName)))
+			pcall(addon.debug, addon, Diag.D.LogReservesAliasSet:format(tostring(reserveName), tostring(raidName)))
 		end
 		return true
 	end
@@ -980,11 +1302,10 @@ do
 		if not ok then
 			return false, reason
 		end
-		reservesNs:Set("nameAliases", nextMap)
-		invalidateAliasState()
-		rebuildReserveIndexes("alias", nil, self:GetImportMode(), addon.tLength(reservesData))
+		local published, publishReason = publishAliasMap(nextMap)
+		if not published then return false, publishReason end
 		if isDebugEnabled() then
-			addon:debug(Diag.D.LogReservesAliasCleared:format(tostring(reserveName)))
+			pcall(addon.debug, addon, Diag.D.LogReservesAliasCleared:format(tostring(reserveName)))
 		end
 		return true
 	end
@@ -1005,6 +1326,49 @@ do
 		return entries
 	end
 
+	function module:ResolveWhisperPlayerName(characterName, senderRealmKey, localRealmKey)
+		local characterKey = Strings.NormalizeLower(characterName, true)
+		local realmKey = Strings.NormalizeLower(senderRealmKey, true)
+		local localKey = Strings.NormalizeLower(localRealmKey, true)
+		if not characterKey or characterKey == "" or not realmKey or realmKey == "" or not localKey or localKey == "" then
+			return nil, "invalid_player"
+		end
+
+		local qualifiedKey = characterKey .. "-" .. realmKey
+		local exactDisplay, exactCount = nil, 0
+		local matches = {}
+		for rawKey, player in pairs(reservesData) do
+			if type(player) == "table" then
+				local displayName = resolvePlayerNameDisplay(rawKey, player, rawKey)
+				local storedCharacter, storedRealm, identityKey = self:NormalizeWhisperPlayerIdentity(displayName)
+				if not storedCharacter then
+					storedCharacter, storedRealm, identityKey = self:NormalizeWhisperPlayerIdentity(tostring(rawKey))
+				end
+				local storedCharacterKey = Strings.NormalizeLower(storedCharacter, true)
+				if identityKey == qualifiedKey then
+					exactCount = exactCount + 1
+					exactDisplay = displayName
+				elseif storedCharacterKey == characterKey then
+					matches[rawKey] = { displayName = displayName, isShort = storedRealm == nil }
+				end
+			end
+		end
+		if exactCount > 1 then return nil, "ambiguous_player" end
+		if exactDisplay then return exactDisplay end
+		if realmKey ~= localKey then return NormalizeName(characterName, true) .. "-" .. realmKey end
+
+		local match
+		for _, candidate in pairs(matches) do
+			if match then return nil, "ambiguous_player" end
+			match = candidate
+		end
+		if match then
+			if not match.isShort then return nil, "ambiguous_player" end
+			return match.displayName
+		end
+		return NormalizeName(characterName, true)
+	end
+
 	function module:SetPlayerReserveQuantity(playerName, itemId, quantity)
 		if not playerName or not itemId then
 			return false, "invalid_input"
@@ -1020,14 +1384,13 @@ do
 			numericQuantity = 1
 		end
 
-		ensureMutableLocalReserves()
-
-		local player, playerKey = getPlayerReserveContainer(playerName)
+		local player, playerKey = getPlayerReserveContainer(playerName, reservesData)
 		if not player then
 			return false, playerKey
 		end
 
-		local row, changed = getCanonicalReserveRow(player, tonumber(itemId))
+		local itemKey = tonumber(itemId)
+		local row, changed = inspectReserveRow(player, itemKey)
 		if not row then
 			return false, "missing_item"
 		end
@@ -1035,10 +1398,12 @@ do
 			return false, "no_change"
 		end
 
-		row.quantity = numericQuantity
-		copyReservesData(persistedReservesData, reservesData)
-		saveCanonicalReservesData(persistedReservesData)
-		rebuildReserveIndexes("edit-reserve", nil, self:GetImportMode(), addon.tLength(reservesData))
+		local candidate = buildMutationCandidate()
+		local candidatePlayer = candidate[playerKey]
+		local candidateRow = getCanonicalReserveRow(candidatePlayer, itemKey)
+		candidateRow.quantity = numericQuantity
+		local published, reason = publishMutationCandidate(candidate)
+		if not published then return false, reason end
 		return true
 	end
 
@@ -1056,14 +1421,13 @@ do
 			numericPlus = 0
 		end
 
-		ensureMutableLocalReserves()
-
-		local player, playerKey = getPlayerReserveContainer(playerName)
+		local player, playerKey = getPlayerReserveContainer(playerName, reservesData)
 		if not player then
 			return false, playerKey
 		end
 
-		local row, changed = getCanonicalReserveRow(player, tonumber(itemId))
+		local itemKey = tonumber(itemId)
+		local row, changed = inspectReserveRow(player, itemKey)
 		if not row then
 			return false, "missing_item"
 		end
@@ -1071,11 +1435,105 @@ do
 			return false, "no_change"
 		end
 
-		row.plus = numericPlus
-		copyReservesData(persistedReservesData, reservesData)
-		saveCanonicalReservesData(persistedReservesData)
-		rebuildReserveIndexes("edit-reserve", nil, self:GetImportMode(), addon.tLength(reservesData))
+		local candidate = buildMutationCandidate()
+		local candidatePlayer = candidate[playerKey]
+		local candidateRow = getCanonicalReserveRow(candidatePlayer, itemKey)
+		candidateRow.plus = numericPlus
+		local published, reason = publishMutationCandidate(candidate)
+		if not published then return false, reason end
 		return true
+	end
+
+	function module:ApplyBatch(commands)
+		if type(commands) ~= "table" then
+			return nil, "invalid_input"
+		end
+		local commandCount = 0
+		for key in pairs(commands) do
+			if type(key) ~= "number" or key < 1 or key ~= math.floor(key) then return nil, "invalid_input" end
+			commandCount = commandCount + 1
+		end
+		if commandCount == 0 or commandCount > MAX_BATCH_COMMANDS or commandCount ~= #commands then
+			return nil, commandCount > MAX_BATCH_COMMANDS and "too_many_commands" or "invalid_input"
+		end
+
+		local candidate = buildMutationCandidate()
+		local changedTargets = {}
+		for i = 1, #commands do
+			local command = commands[i]
+			if type(command) ~= "table" then
+				return nil, "invalid_input", i
+			end
+			local fieldCount = 0
+			for key in pairs(command) do
+				if key ~= "kind" and key ~= "playerName" and key ~= "itemId" and key ~= "value" then
+					return nil, "invalid_input", i
+				end
+				fieldCount = fieldCount + 1
+			end
+			if fieldCount ~= 4 or type(command.playerName) ~= "string" or command.playerName == ""
+				or type(command.itemId) ~= "number" or command.itemId < 1 or command.itemId ~= math.floor(command.itemId)
+				or type(command.value) ~= "number" or command.value ~= math.floor(command.value)
+			then return nil, "invalid_input", i end
+
+			local player, playerKey = getPlayerReserveContainer(command.playerName, candidate)
+			if not player then
+				return nil, playerKey, i
+			end
+			local itemId = tonumber(command.itemId)
+			local row, duplicateRows = inspectReserveRow(player, itemId)
+			if not row then
+				return nil, "missing_item", i
+			end
+
+			local value = normalizeEditNumber(command.value)
+			if command.kind == "quantity" then
+				if value == nil then
+					return nil, "invalid_quantity", i
+				end
+				if value < 1 then value = 1 end
+				if tonumber(row.quantity) == value and not duplicateRows then
+					return nil, "no_change", i
+				end
+				row = getCanonicalReserveRow(candidate[playerKey], itemId)
+				row.quantity = value
+				changedTargets[playerKey .. "\031" .. tostring(itemId) .. "\031quantity"] = {
+					playerKey = playerKey, itemId = itemId, kind = "quantity",
+				}
+			elseif command.kind == "plus" then
+				if value == nil then
+					return nil, "invalid_plus", i
+				end
+				if value < 0 then value = 0 end
+				if tonumber(row.plus) == value and not duplicateRows then
+					return nil, "no_change", i
+				end
+				row = getCanonicalReserveRow(candidate[playerKey], itemId)
+				row.plus = value
+				changedTargets[playerKey .. "\031" .. tostring(itemId) .. "\031plus"] = {
+					playerKey = playerKey, itemId = itemId, kind = "plus",
+				}
+			else
+				return nil, "invalid_command", i
+			end
+		end
+		local beforeCanonical, beforeReason = buildCanonicalDataSerialization(reservesData)
+		if not beforeCanonical then return nil, "projection_failed:" .. tostring(beforeReason) end
+		local afterCanonical, afterReason = buildCanonicalDataSerialization(candidate)
+		if not afterCanonical then return nil, "projection_failed:" .. tostring(afterReason) end
+		if beforeCanonical == afterCanonical then return nil, "no_change" end
+		local changed = 0
+		for _, target in pairs(changedTargets) do
+			local beforeRow = inspectReserveRow(reservesData[target.playerKey], target.itemId)
+			local afterRow = inspectReserveRow(candidate[target.playerKey], target.itemId)
+			if beforeRow and afterRow and tonumber(beforeRow[target.kind]) ~= tonumber(afterRow[target.kind]) then
+				changed = changed + 1
+			end
+		end
+
+		local published, publishReason = publishBatchCandidate(candidate)
+		if not published then return nil, publishReason end
+		return true, { commands = #commands, changed = changed }
 	end
 
 	function module:RemovePlayerReserve(playerName, itemId)
@@ -1083,9 +1541,7 @@ do
 			return false, "invalid_input"
 		end
 
-		ensureMutableLocalReserves()
-
-		local player, playerKey = getPlayerReserveContainer(playerName)
+		local player, playerKey = getPlayerReserveContainer(playerName, reservesData)
 		if not player then
 			return false, playerKey
 		end
@@ -1095,31 +1551,29 @@ do
 		end
 
 		local itemKey = tonumber(itemId)
-		local keep = {}
-		local removed = false
-		for i = 1, #player.reserves do
-			local row = player.reserves[i]
-			if type(row) == "table" and row.rawID == itemKey then
-				removed = true
-			else
-				keep[#keep + 1] = row
-			end
-		end
-
-		if not removed then
+		local row = inspectReserveRow(player, itemKey)
+		if not row then
 			return false, "missing_item"
 		end
 
-		if #keep > 0 then
-			player.reserves = keep
-		else
-			persistedReservesData[playerKey] = nil
-			reservesData[playerKey] = nil
+		local candidate = buildMutationCandidate()
+		local candidatePlayer = candidate[playerKey]
+		local keep = {}
+		for i = 1, #candidatePlayer.reserves do
+			local candidateRow = candidatePlayer.reserves[i]
+			if not (type(candidateRow) == "table" and candidateRow.rawID == itemKey) then
+				keep[#keep + 1] = candidateRow
+			end
 		end
 
-		copyReservesData(persistedReservesData, reservesData)
-		saveCanonicalReservesData(persistedReservesData)
-		rebuildReserveIndexes("edit-reserve", nil, self:GetImportMode(), addon.tLength(reservesData))
+		if #keep > 0 then
+			candidatePlayer.reserves = keep
+		else
+			candidate[playerKey] = nil
+		end
+
+		local published, reason = publishMutationCandidate(candidate)
+		if not published then return false, reason end
 		return true
 	end
 
@@ -1141,16 +1595,14 @@ do
 			return false, "invalid_player"
 		end
 
-		local row = upsertPlayerReserve(persistedReservesData, playerKey, displayName, reserveEntry)
+		local candidate = buildMutationCandidate()
+		local row = upsertPlayerReserve(candidate, playerKey, displayName, reserveEntry)
 		if not row then
 			return false, "invalid_item"
 		end
 
-		syncedCacheMeta = nil
-		syncedCacheActive = false
-		copyReservesData(persistedReservesData, reservesData)
-		saveCanonicalReservesData(persistedReservesData)
-		notifyReservesDataChanged("whisper-reserve", nil, self:GetImportMode(), addon.tLength(reservesData))
+		local published, reason = publishMutationCandidate(candidate, "whisper-reserve")
+		if not published then return false, reason end
 		return true, row
 	end
 
@@ -1289,12 +1741,23 @@ do
 			return false, "INVALID_PARSED"
 		end
 
-		local normalized = buildRuntimeReservesData(parsed.reservesData, "import")
+		local sourceSnapshot, validationReason = ImportHelpers.ValidateCanonicalData(parsed.reservesData)
+		if not sourceSnapshot then
+			finishPerf("Reserves.ApplyImport", perfStart, "ok=0 reason=INVALID_IMPORT_DATA")
+			return false, validationReason or "INVALID_IMPORT_DATA"
+		end
+		local normalized = buildRuntimeReservesData(sourceSnapshot, "import")
 		return finishApplyImport(parsed, raidId, opts, normalized, "Reserves.ApplyImport", perfStart)
 	end
 
 	function module:RequestApplyImport(parsed, raidId, callback, opts)
 		opts = (type(opts) == "table") and opts or {}
+		local optsSnapshot = {
+			chunkSize = opts.chunkSize,
+			delaySeconds = opts.delaySeconds,
+			reason = opts.reason,
+			silentInfo = opts.silentInfo,
+		}
 		local perfStart = addon.hasPerf and addon._PerfStart and addon:_PerfStart() or nil
 		if type(parsed) ~= "table" or type(parsed.reservesData) ~= "table" then
 			finishPerf("Reserves.RequestApplyImport", perfStart, "ok=0 reason=INVALID_PARSED")
@@ -1311,33 +1774,84 @@ do
 			}
 		end
 
-		if activeImportApply then
-			activeImportApply.cancelled = true
-			cancelImportApply(activeImportApply)
+		local snapshotOk, sourceSnapshot, snapshotReason = pcall(ImportHelpers.ValidateCanonicalData, parsed.reservesData)
+		if not snapshotOk or not sourceSnapshot then
+			finishPerf("Reserves.RequestApplyImport", perfStart, "ok=0 reason=SNAPSHOT_FAILED")
+			if type(callback) == "function" then
+				pcall(callback, false, "failed", snapshotOk and snapshotReason or "INVALID_IMPORT_DATA")
+			end
+			return {
+				Cancel = function() return false end,
+				IsCancelled = function() return true end,
+			}
 		end
 
+		importApplyGeneration = importApplyGeneration + 1
+		local generation = importApplyGeneration
+		local importStatsSnapshot = {}
+		for key, value in pairs(parsed.importStats or {}) do
+			if type(value) ~= "table" then importStatsSnapshot[key] = value end
+		end
 		local state = {
-			parsed = parsed,
+			parsed = {
+				mode = parsed.mode,
+				nPlayers = parsed.nPlayers,
+				importStats = importStatsSnapshot,
+			},
 			raidId = raidId,
 			callback = callback,
-			opts = opts,
+			opts = optsSnapshot,
 			normalized = {},
-			sourceData = parsed.reservesData,
+			sourceData = sourceSnapshot,
 			nextKey = nil,
-			chunkSize = normalizeImportApplyChunkSize(opts.chunkSize),
-			delay = normalizeImportApplyDelay(opts.delaySeconds),
+			chunkSize = normalizeImportApplyChunkSize(optsSnapshot.chunkSize),
+			delay = normalizeImportApplyDelay(optsSnapshot.delaySeconds),
 			processed = 0,
 			chunks = 0,
 			perfStart = perfStart,
 			cancelled = false,
+			generation = generation,
+			terminal = false,
 		}
-		activeImportApply = state
+		local function finishState(ok, result, detail)
+			if state.terminal then return false end
+			state.terminal = true
+			state.cancelled = not ok
+			state.completed = ok == true
+			cancelImportApply(state)
+			local terminalCallback = state.callback
+			state.callback = nil
+			state.parsed = nil
+			state.opts = nil
+			state.normalized = nil
+			state.sourceData = nil
+			state.nextKey = nil
+			if type(terminalCallback) == "function" then pcall(terminalCallback, ok, result, detail) end
+			return true
+		end
+
+		local function cancelState(reason)
+			if state.terminal then return false end
+			pcall(finishPerf,
+				"Reserves.RequestApplyImport",
+				state.perfStart,
+				"ok=0 reason=" .. tostring(reason or "CANCELLED") .. " chunks=" .. tostring(state.chunks)
+					.. " processed=" .. tostring(state.processed)
+			)
+			return finishState(false, "cancelled", reason or "CANCELLED")
+		end
+
+		local replaced = activeImportApply
+		if replaced and replaced.cancel then replaced.cancel("REPLACED") end
+		if importApplyGeneration ~= generation then
+			cancelState("REENTRANT_REPLACEMENT")
+		else
+			activeImportApply = state
+		end
 
 		local function completeImportApply()
-			if activeImportApply == state then
-				activeImportApply = nil
-			end
-			local ok, nPlayers = finishApplyImport(
+			if state.terminal or activeImportApply ~= state or importApplyGeneration ~= state.generation then return end
+			local applied, ok, nPlayers = pcall(finishApplyImport,
 				state.parsed,
 				state.raidId,
 				state.opts,
@@ -1346,16 +1860,23 @@ do
 				state.perfStart,
 				" chunks=" .. tostring(state.chunks) .. " processed=" .. tostring(state.processed)
 			)
-			if type(state.callback) == "function" then
-				state.callback(ok, nPlayers)
+			if not applied then
+				finishState(false, "failed", tostring(ok))
+				return
 			end
+			if not ok then
+				finishState(false, "failed", nPlayers or "PUBLISH_FAILED")
+				return
+			end
+			finishState(true, nPlayers, "completed")
 		end
 
 		local runChunk
 
 		runChunk = function()
 			state.handle = nil
-			if state.cancelled then
+			if state.terminal or state.cancelled or activeImportApply ~= state
+				or importApplyGeneration ~= state.generation then
 				return
 			end
 
@@ -1377,27 +1898,29 @@ do
 				completeImportApply()
 				return
 			end
-			state.handle = module:ScheduleTimer(runChunk, state.delay)
+			local scheduled, handle = pcall(module.ScheduleTimer, module, runChunk, state.delay)
+			if not scheduled or handle == nil then
+				finishState(false, "failed", "SCHEDULE_FAILED")
+				return
+			end
+			state.handle = handle
 		end
-
-		state.handle = module:ScheduleTimer(runChunk, state.delay)
 
 		local handle = {}
 		function handle:Cancel()
-			if state.cancelled then
-				return false
-			end
-			state.cancelled = true
-			cancelImportApply(state)
-			finishPerf(
-				"Reserves.RequestApplyImport",
-				state.perfStart,
-				"ok=0 reason=CANCELLED chunks=" .. tostring(state.chunks) .. " processed=" .. tostring(state.processed)
-			)
-			return true
+			return cancelState("CANCELLED")
 		end
 		function handle:IsCancelled()
-			return state.cancelled == true or activeImportApply ~= state
+			return state.cancelled == true or (state.terminal and state.completed ~= true)
+		end
+		state.cancel = cancelState
+		if not state.terminal then
+			local scheduled, timerHandle = pcall(module.ScheduleTimer, module, runChunk, state.delay)
+			if not scheduled or timerHandle == nil then
+				finishState(false, "failed", "SCHEDULE_FAILED")
+			else
+				state.handle = timerHandle
+			end
 		end
 		return handle
 	end
