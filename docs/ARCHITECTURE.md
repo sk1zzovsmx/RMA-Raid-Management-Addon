@@ -2,8 +2,8 @@
 
 Raid Management Addon targets WotLK 3.3.5a, Interface `30300`, and Lua 5.1. The
 TOC is the authoritative load order and the addon folder is `Raid Management
-Addon/`. This document reflects the reset baseline at
-`f964f6c9501e23ac894605fbd19068b462ac8477` plus the preserved docs contract.
+Addon/`. This document reflects the current progressive-refactor baseline and
+the preserved external contract.
 
 ## Runtime Identity
 
@@ -102,6 +102,18 @@ runtime placement; the feature boundaries describe workflow and data ownership.
   `Services/Loot/*` with runtime loot state owned by
   `Services/Loot/State.lua`, `Services/Rolls/*`, `Widgets/RaidGrid.lua`,
   `Widgets/LootHints.lua`, and master/raid-grid XML.
+  `Services.Rolls` freezes one final award model before winner execution.
+  `AwardAttempt` owns the runtime transaction state and retry-safe checkpoints;
+  `AwardConfirmation` owns the single in-flight confirmation, the 4-second
+  initial timeout, and the following bounded 8-second reconciliation window.
+  `Inventory` owns strict loot-slot identity and pre/post-trade evidence, while
+  `LootAttribution` owns transaction-addressable provisional cancellation.
+  `AwardSequence` owns only single/multi sequencing and cancellation of future
+  awards. `TradeExecution` and `Trade` require a positive matching inventory
+  delta before award history, counters, RMADist completion, or success feedback.
+  `DistributionSession` is the RMADist session/transport reducer: complete
+  windows are staged by session and revision before commit, and protocol v2's
+  `WINDOW_BEGIN` may carry an additive expected-row count.
 - Loot history/logger: `Services/Logger/*`, `Controllers/Logger.lua`,
   and loot-history XML. Logger export covers logger and loot-history data only.
 - Reserves and SoftRes: `Services/Reserves.lua`, `Services/Reserves/*`,

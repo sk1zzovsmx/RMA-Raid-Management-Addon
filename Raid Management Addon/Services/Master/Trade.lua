@@ -15,6 +15,7 @@ local Database = addon.Database
 local L = addon.L
 local Diag = addon.Diag
 local LoggerActions = assert(Services.Logger.Actions, "Master trade logger actions service is not initialized")
+local Inventory = assert(Services.Loot and Services.Loot.Inventory, "Master trade inventory owner is not initialized")
 
 local type = type
 local tonumber = tonumber
@@ -97,6 +98,8 @@ local function ensureState()
 	featureManualTrade.localAccepted = featureManualTrade.localAccepted == true
 	featureManualTrade.failed = featureManualTrade.failed == true
 	featureManualTrade.failureMessage = featureManualTrade.failureMessage
+	featureManualTrade.state = featureManualTrade.state or "idle"
+	featureManualTrade.uncertainWarned = featureManualTrade.uncertainWarned == true
 	return featureManualTrade
 end
 
@@ -305,6 +308,8 @@ function Trade.Reset(hideDropdowns, keepAcceptProcessed)
 	state.localAccepted = false
 	state.failed = false
 	state.failureMessage = nil
+	state.state = "idle"
+	state.uncertainWarned = false
 	if keepAcceptProcessed ~= true then
 		state.acceptProcessed = false
 		state.selectedReasonByLootNid = {}
@@ -349,6 +354,8 @@ function Trade.RefreshCandidate(opts)
 	state.localAccepted = false
 	state.failed = false
 	state.failureMessage = nil
+	state.state = "idle"
+	state.uncertainWarned = false
 
 	if not state.raidId then
 		debugDiagnostic(Diag.W.LogManualTradeNoCurrentRaid)
@@ -398,6 +405,11 @@ function Trade.RefreshCandidate(opts)
 					lootNid = lootNid,
 					reason = state.selectedReasonByLootNid[lootNid],
 				}
+				local evidence = Inventory.CaptureTradeEvidence(c.itemLink)
+				if evidence then
+					evidence.expectedPartner = partnerName
+					c.tradeEvidence = evidence
+				end
 				state.candidatesBySlot[slot] = c
 				state.candidates[#state.candidates + 1] = c
 				state.candidatesByLootNid[lootNid] = c
@@ -478,6 +490,7 @@ function Trade.ApplyAccept(playerAccepted, targetAccepted, isAddonDriven)
 		state.acceptProcessed = true
 		state.active = false
 		state.pendingConfirm = true
+		state.state = "accepted"
 		state.failed = false
 		state.failureMessage = nil
 		state.raidId = raidId
@@ -506,6 +519,7 @@ function Trade.MarkFailure(message)
 	end
 
 	state.failed = true
+	state.state = "failed"
 	state.failureMessage = message
 	state.active = false
 	state.pendingConfirm = false
@@ -588,8 +602,28 @@ function Trade.CompletePending()
 		return false
 	end
 
-	state.pendingConfirm = false
+	state.state = "verifying"
 	local loggedAny = false
+	local completedAny = false
+	for i = 1, #candidates do
+		local candidate = candidates[i]
+		if type(candidate) == "table" then
+			local verified, awardedCountOrReason = Inventory.VerifyTradeEvidence(
+				candidate.tradeEvidence,
+				state.partnerName
+			)
+			if not verified then
+				state.state = "uncertain"
+				state.pendingConfirm = true
+				state.failureMessage = awardedCountOrReason
+				if not state.uncertainWarned then
+					state.uncertainWarned = true
+					addon:warn(L.WarnTradeTransferUnverified:format(tostring(candidate.itemLink), tostring(state.partnerName)))
+				end
+				return false
+			end
+		end
+	end
 
 	for i = 1, #candidates do
 		local candidate = candidates[i]
@@ -597,8 +631,15 @@ function Trade.CompletePending()
 			local lootNid = tonumber(candidate.lootNid) or 0
 			local reason = candidate.reason or state.selectedReasonByLootNid[lootNid]
 			if reason then
-				if logCandidate(state, candidate, reason, raidId) then
+				if state.loggedLootNids[lootNid] then
+					completedAny = true
+				elseif logCandidate(state, candidate, reason, raidId) then
 					loggedAny = true
+					completedAny = true
+				else
+					state.state = "uncertain"
+					state.pendingConfirm = true
+					return false
 				end
 			end
 		end
@@ -614,8 +655,10 @@ function Trade.CompletePending()
 			end
 		end
 	end
+	state.pendingConfirm = false
+	state.state = "confirmed"
 
-	return loggedAny
+	return loggedAny or completedAny
 end
 
 return Trade

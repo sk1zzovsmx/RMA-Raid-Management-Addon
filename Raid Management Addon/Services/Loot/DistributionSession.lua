@@ -332,6 +332,10 @@ local function clearState(sessionId)
 	state.sessionId = normalizeText(sessionId, true) or buildSessionId()
 	state.order = {}
 	state.itemsByKey = {}
+	state.revision = 0
+	state.ownerKey = nil
+	state.ownerSender = nil
+	state.transitionSender = nil
 	triggerChanged("clear", nil)
 end
 state.nextRevision = tonumber(state.nextRevision) or 1
@@ -352,6 +356,33 @@ local function validRevision(value)
 		return nil
 	end
 	return revision
+end
+
+local function validExpectedRows(value)
+	local expectedRows = tonumber(value)
+	if
+		not expectedRows
+		or expectedRows ~= expectedRows
+		or expectedRows < 0
+		or expectedRows > MAX_WINDOW_ROWS
+		or expectedRows ~= math.floor(expectedRows)
+	then
+		return nil
+	end
+	return expectedRows
+end
+
+local function isNewerSessionId(candidate, current)
+	local _, candidateOrdinal, candidateTime = tostring(candidate or ""):match("^(.-):(%d+):([%d%.]+)$")
+	local _, currentOrdinal, currentTime = tostring(current or ""):match("^(.-):(%d+):([%d%.]+)$")
+	candidateOrdinal = tonumber(candidateOrdinal)
+	currentOrdinal = tonumber(currentOrdinal)
+	candidateTime = tonumber(candidateTime)
+	currentTime = tonumber(currentTime)
+	if not candidateOrdinal or not currentOrdinal or not candidateTime or not currentTime then
+		return false
+	end
+	return candidateOrdinal > currentOrdinal or (candidateOrdinal == currentOrdinal and candidateTime > currentTime)
 end
 
 local function boundedNow()
@@ -527,6 +558,22 @@ local function touchActiveStream(key, revision)
 	stream.endedAt = nil
 end
 
+local function tombstoneSupersededOwner(nextKey)
+	local previousKey = state.ownerKey
+	if not previousKey or previousKey == nextKey then
+		return
+	end
+	local previous = streams[previousKey]
+	local previousRevision = tonumber(previous and previous.committedRevision) or 0
+	addStreamTombstone(previousKey, previousRevision)
+	previous = streams[previousKey]
+	if previous then
+		previous.committedRevision = nil
+		previous.lastActivity = nil
+		previous.window = nil
+	end
+end
+
 local function removeIncomingWindow(key)
 	local stream = streams[key]
 	if stream then
@@ -535,7 +582,7 @@ local function removeIncomingWindow(key)
 	end
 end
 
-local function stageIncomingWindow(sender, sessionId, revision)
+local function stageIncomingWindow(sender, sessionId, revision, expectedRows)
 	local key = incomingWindowKey(sender, sessionId)
 	cleanupStreams()
 	local stream = ensureStream(key)
@@ -563,6 +610,7 @@ local function stageIncomingWindow(sender, sessionId, revision)
 		order = {},
 		itemsByKey = {},
 		bytes = 0,
+		expectedRows = expectedRows,
 		createdAt = now,
 		sequence = takeStreamSequence(),
 	}
@@ -570,6 +618,89 @@ local function stageIncomingWindow(sender, sessionId, revision)
 	stream.lastSeenAt = now
 	stream.lastSeenSequence = stream.window.sequence
 	return stream.window
+end
+
+local function acceptIncomingMutation(sender, sessionId, revision, messageState)
+	sender = normalizeText(sender, true)
+	sessionId = normalizeText(sessionId, true)
+	if not sender or sender ~= trustedAuthority then
+		return nil, "untrusted_authority"
+	end
+	if not sessionId then
+		return nil, "invalid_session"
+	end
+	local key = incomingWindowKey(sender, sessionId)
+	local stream = streams[key]
+	if stream and stream.tombstoneRevision then
+		return nil, "session_ended"
+	end
+	if messageState == "snapshot" then
+		if stream and (stream.atomicSeenAt or stream.window or stream.committedRevision) then
+			return nil, "atomic_stream_active"
+		end
+		if state.ownerKey and key ~= state.ownerKey and sender == state.ownerSender then
+			return nil, "session_transition_required"
+		end
+		if
+			not state.ownerKey
+			and state.sessionId
+			and sessionId ~= state.sessionId
+			and (not state.transitionSender or sender == state.transitionSender)
+		then
+			return nil, "session_transition_required"
+		end
+		return true, key, stream
+	end
+	if messageState == "clear" then
+		local currentSender = state.ownerSender or state.transitionSender
+		if
+			state.sessionId
+			and sessionId ~= state.sessionId
+			and currentSender == sender
+			and not isNewerSessionId(sessionId, state.sessionId)
+		then
+			return nil, "stale_session"
+		end
+		return true, key, stream
+	end
+	if messageState == "legacy" then
+		if state.ownerKey and key ~= state.ownerKey then
+			return nil, "session_not_active"
+		end
+		return true, key, stream
+	end
+	revision = validRevision(revision)
+	if not revision then
+		return nil, "invalid_revision"
+	end
+	local committedRevision = tonumber(stream and stream.committedRevision)
+	if messageState == "window_begin" then
+		if committedRevision and revision ~= committedRevision + 1 then
+			return nil, revision <= committedRevision and "stale_revision" or "revision_gap"
+		end
+		local stagedRevision = tonumber(stream and stream.window and stream.window.revision)
+		if stagedRevision and revision < stagedRevision then
+			return nil, "stale_revision"
+		end
+		return true, key, stream, revision
+	end
+	if messageState == "window_item" or messageState == "window_end" then
+		local window = stream and stream.window
+		if not window or revision ~= window.revision then
+			return nil, "window_not_staged"
+		end
+		if committedRevision and revision ~= committedRevision + 1 then
+			return nil, "revision_gap"
+		end
+		return true, key, stream, revision
+	end
+	if messageState == "session_end" then
+		if key ~= state.ownerKey or not committedRevision or revision ~= committedRevision then
+			return nil, "session_not_active"
+		end
+		return true, key, stream, revision
+	end
+	return nil, "invalid_message_state"
 end
 
 local function cleanupIncomingWindows()
@@ -716,6 +847,9 @@ local function handleItemMessage(fields, sender)
 		return true
 	end
 	local sessionId = normalizeText(fields[3], true)
+	if not acceptIncomingMutation(sender, sessionId, nil, "legacy") then
+		return true
+	end
 	local streamKey = incomingWindowKey(sender, sessionId)
 	local stream = streams[streamKey]
 	if stream and (stream.atomicSeenAt or stream.window or stream.committedRevision) then
@@ -743,15 +877,18 @@ local function handleWindowItemMessage(fields, sender, messageBytes)
 	end
 	cleanupIncomingWindows()
 	local sessionId = normalizeText(fields[3], true)
-	local revision = validRevision(fields[4])
-	local key = incomingWindowKey(sender, sessionId)
-	local stream = streams[key]
-	local window = stream and stream.window
-	if not window or not revision or revision ~= window.revision then
+	local accepted, key, stream = acceptIncomingMutation(sender, sessionId, fields[4], "window_item")
+	if not accepted then
 		return true
 	end
+	local window = stream.window
 	window.bytes = (tonumber(window.bytes) or 0) + (tonumber(messageBytes) or 0)
 	if window.bytes > MAX_WINDOW_BYTES or #window.order >= MAX_WINDOW_ROWS then
+		removeIncomingWindow(key)
+		return true
+	end
+	local itemKey = resolveItemKey(fields[5], decodeText(fields[8]))
+	if not itemKey or window.itemsByKey[itemKey] then
 		removeIncomingWindow(key)
 		return true
 	end
@@ -777,22 +914,15 @@ local function handleWindowBeginMessage(fields, sender)
 	end
 	cleanupIncomingWindows()
 	local sessionId = normalizeText(fields[3], true)
-	local revision = validRevision(fields[4])
-	local key = incomingWindowKey(sender, sessionId)
-	local stream = streams[key]
-	if
-		not sessionId
-		or not revision
-		or revision <= (tonumber(stream and stream.committedRevision) or 0)
-		or revision <= (tonumber(stream and stream.tombstoneRevision) or 0)
-	then
+	local expectedRows = fields[5] ~= nil and validExpectedRows(fields[5]) or nil
+	if fields[5] ~= nil and expectedRows == nil then
 		return true
 	end
-	local staged = stream and stream.window
-	if staged and revision <= staged.revision then
+	local accepted, _, _, revision = acceptIncomingMutation(sender, sessionId, fields[4], "window_begin")
+	if not accepted then
 		return true
 	end
-	stageIncomingWindow(sender, sessionId, revision)
+	stageIncomingWindow(sender, sessionId, revision, expectedRows)
 	return true
 end
 
@@ -801,23 +931,23 @@ local function handleWindowEndMessage(fields, sender)
 		return true
 	end
 	local sessionId = normalizeText(fields[3], true)
-	local revision = validRevision(fields[4])
-	local key = incomingWindowKey(sender, sessionId)
-	local stream = streams[key]
-	local window = stream and stream.window
-	if
-		not window
-		or not revision
-		or revision ~= window.revision
-		or revision <= (tonumber(stream and stream.committedRevision) or 0)
-	then
+	local accepted, key, stream, revision = acceptIncomingMutation(sender, sessionId, fields[4], "window_end")
+	if not accepted then
 		return true
 	end
+	local window = stream.window
+	if window.expectedRows ~= nil and #window.order ~= window.expectedRows then
+		removeIncomingWindow(key)
+		return true
+	end
+	tombstoneSupersededOwner(key)
 	state.sessionId = sessionId
 	state.revision = revision
 	state.order = window.order
 	state.itemsByKey = window.itemsByKey
 	state.ownerKey = key
+	state.ownerSender = sender
+	state.transitionSender = sender
 	touchActiveStream(key, revision)
 	removeIncomingWindow(key)
 	triggerChanged("window", nil)
@@ -829,13 +959,8 @@ local function handleSessionEndMessage(fields, sender)
 		return true
 	end
 	local sessionId = normalizeText(fields[3], true)
-	local revision = validRevision(fields[4])
-	local key = incomingWindowKey(sender, sessionId)
-	if not revision then
-		return true
-	end
-	local stream = streams[key]
-	if key == state.ownerKey and revision == tonumber(stream and stream.committedRevision) then
+	local accepted, key, stream, revision = acceptIncomingMutation(sender, sessionId, fields[4], "session_end")
+	if accepted then
 		removeIncomingWindow(key)
 		addStreamTombstone(key, revision)
 		stream = streams[key]
@@ -845,8 +970,10 @@ local function handleSessionEndMessage(fields, sender)
 		end
 		state.order = {}
 		state.itemsByKey = {}
-		state.revision = tonumber(fields[4]) or state.revision or 0
+		state.revision = revision or state.revision or 0
 		state.ownerKey = nil
+		state.ownerSender = nil
+		state.transitionSender = sender
 		triggerChanged("session_end", nil)
 		return true, true
 	end
@@ -857,7 +984,11 @@ local function handleRollStartMessage(fields, sender)
 	if not isSupportedVersion(fields[2]) then
 		return true
 	end
-	local sessionId = setSessionId(fields[3])
+	local sessionId = normalizeText(fields[3], true)
+	if not acceptIncomingMutation(sender, sessionId, nil, "legacy") then
+		return true
+	end
+	sessionId = setSessionId(sessionId)
 	local duration = normalizeNumber(fields[6])
 	local row = upsertRow({
 		protocolVersion = fields[2],
@@ -878,7 +1009,11 @@ local function handleRollEndMessage(fields, sender)
 	if not isSupportedVersion(fields[2]) then
 		return true
 	end
-	local sessionId = setSessionId(fields[3])
+	local sessionId = normalizeText(fields[3], true)
+	if not acceptIncomingMutation(sender, sessionId, nil, "legacy") then
+		return true
+	end
+	sessionId = setSessionId(sessionId)
 	local winnerName = decodeText(fields[5])
 	local row = upsertRow({
 		sessionId = sessionId,
@@ -896,7 +1031,11 @@ local function handleItemDoneMessage(fields, sender)
 	if not isSupportedVersion(fields[2]) then
 		return true
 	end
-	local sessionId = setSessionId(fields[3])
+	local sessionId = normalizeText(fields[3], true)
+	if not acceptIncomingMutation(sender, sessionId, nil, "legacy") then
+		return true
+	end
+	sessionId = setSessionId(sessionId)
 	local row = upsertRow({
 		sessionId = sessionId,
 		itemKey = fields[4],
@@ -911,8 +1050,12 @@ local function handleItemCancelledMessage(fields, sender)
 	if not isSupportedVersion(fields[2]) then
 		return true
 	end
+	local sessionId = normalizeText(fields[3], true)
+	if not acceptIncomingMutation(sender, sessionId, nil, "legacy") then
+		return true
+	end
 	local row = upsertRow({
-		sessionId = setSessionId(fields[3]),
+		sessionId = setSessionId(sessionId),
 		itemKey = fields[4],
 		winnerName = decodeText(fields[5]),
 		failureReason = decodeText(fields[6]),
@@ -927,7 +1070,11 @@ local function handleRollTickMessage(fields, sender)
 	if not isSupportedVersion(fields[2]) then
 		return true
 	end
-	local sessionId = setSessionId(fields[3])
+	local sessionId = normalizeText(fields[3], true)
+	if not acceptIncomingMutation(sender, sessionId, nil, "legacy") then
+		return true
+	end
+	sessionId = setSessionId(sessionId)
 	local row = upsertRow({
 		protocolVersion = fields[2],
 		sessionId = sessionId,
@@ -943,7 +1090,11 @@ local function handleTieStartMessage(fields, sender)
 	if not isSupportedVersion(fields[2]) then
 		return true
 	end
-	local sessionId = setSessionId(fields[3])
+	local sessionId = normalizeText(fields[3], true)
+	if not acceptIncomingMutation(sender, sessionId, nil, "legacy") then
+		return true
+	end
+	sessionId = setSessionId(sessionId)
 	local row = upsertRow({
 		protocolVersion = fields[2],
 		sessionId = sessionId,
@@ -959,7 +1110,11 @@ local function handleAwardedMessage(fields, sender)
 	if not isSupportedVersion(fields[2]) then
 		return true
 	end
-	local sessionId = setSessionId(fields[3])
+	local sessionId = normalizeText(fields[3], true)
+	if not acceptIncomingMutation(sender, sessionId, nil, "legacy") then
+		return true
+	end
+	sessionId = setSessionId(sessionId)
 	local row = upsertRow({
 		protocolVersion = fields[2],
 		sessionId = sessionId,
@@ -978,14 +1133,28 @@ local function applySnapshot(protocolVersion, sessionId, decodedSnapshot, sender
 		return true
 	end
 
+	local accepted, key = acceptIncomingMutation(sender, sessionId, nil, "snapshot")
+	if not accepted then
+		return true
+	end
+	if string.len(decodedSnapshot or "") > MAX_INCOMING_SNAPSHOT_BYTES then
+		return true
+	end
 	local rows, rowCount = splitText(decodedSnapshot, SNAP_ROW_SEP, snapshotRowsScratch)
+	if rowCount > MAX_WINDOW_ROWS then
+		return true
+	end
+	local candidate = { sessionId = sessionId, revision = 0, order = {}, itemsByKey = {} }
 	local applied = 0
 
-	clearState(sessionId)
 	for i = 1, rowCount do
 		local rowText = rows[i]
 		if rowText and rowText ~= "" then
 			local rowFields = splitText(rowText, SEP, snapshotFieldScratch)
+			local itemKey = resolveItemKey(rowFields[1], decodeText(rowFields[4]))
+			if not itemKey or candidate.itemsByKey[itemKey] then
+				return true
+			end
 			local row = upsertRow({
 				protocolVersion = protocolVersion,
 				sessionId = sessionId,
@@ -1005,12 +1174,31 @@ local function applySnapshot(protocolVersion, sessionId, decodedSnapshot, sender
 				remaining = rowFields[14],
 				tieNamesText = decodeText(rowFields[15]),
 				sender = sender,
-			}, "snapshot")
+			}, "snapshot", candidate, true)
 			if row then
 				applied = applied + 1
+			else
+				return true
 			end
 		end
 	end
+	accepted = acceptIncomingMutation(sender, sessionId, nil, "snapshot")
+	if not accepted then
+		return true
+	end
+	tombstoneSupersededOwner(key)
+	state.sessionId = sessionId
+	state.revision = 0
+	state.order = candidate.order
+	state.itemsByKey = candidate.itemsByKey
+	state.ownerKey = key
+	state.ownerSender = sender
+	state.transitionSender = sender
+	local stream = ensureStream(key)
+	stream.lastActivity = boundedNow()
+	stream.lastSeenAt = stream.lastActivity
+	stream.lastSeenSequence = takeStreamSequence()
+	triggerChanged("snapshot", nil)
 
 	if addon.hasDebug and Diag and Diag.D and Diag.D.LogDistributionSnapshotApplied then
 		addon:debug(Diag.D.LogDistributionSnapshotApplied:format(applied, tostring(sender or "?")))
@@ -1024,7 +1212,10 @@ local function handleSnapshotMessage(fields, sender)
 	end
 
 	local protocolVersion = normalizeNumber(fields[2])
-	local sessionId = normalizeText(fields[4], true) or buildSessionId()
+	local sessionId = normalizeText(fields[4], true)
+	if not acceptIncomingMutation(sender, sessionId, nil, "snapshot") then
+		return true
+	end
 	local decoded = decodeText(fields[5])
 	return applySnapshot(protocolVersion, sessionId, decoded, sender)
 end
@@ -1038,7 +1229,10 @@ local function handleSnapshotChunkMessage(fields, sender)
 	end
 
 	local requestId = normalizeText(fields[3], true) or ""
-	local sessionId = normalizeText(fields[4], true) or buildSessionId()
+	local sessionId = normalizeText(fields[4], true)
+	if not acceptIncomingMutation(sender, sessionId, nil, "snapshot") then
+		return true
+	end
 	local chunkIndex = tonumber(fields[5])
 	local totalChunks = tonumber(fields[6])
 	local chunk = fields[7] or ""
@@ -1129,29 +1323,45 @@ function DistributionSession.Clear()
 	end
 	local sessionId = buildSessionId()
 	clearState(sessionId)
-	for token in pairs(sessionOwners) do
-		sessionOwners[token] = nil
-	end
 	sessionEndRequested = false
 	return publishMessage(MSG_CLEAR, PROTOCOL_VERSION, sessionId)
 end
 
-function DistributionSession.BeginWindow()
+function DistributionSession.BeginWindow(expectedRows)
 	if not canPublish() then
-		return nil
+		return nil, "publish_not_allowed"
+	end
+	expectedRows = validExpectedRows(expectedRows)
+	if expectedRows == nil then
+		return nil, "invalid_expected_rows"
 	end
 	local revision = tonumber(state.nextRevision) or 1
-	state.nextRevision = revision + 1
+	if not publishMessage(MSG_WINDOW_BEGIN, PROTOCOL_VERSION, ensureSessionId(), revision, expectedRows) then
+		return nil, "window_begin_send_failed"
+	end
 	state.revision = revision
-	return publishMessage(MSG_WINDOW_BEGIN, PROTOCOL_VERSION, ensureSessionId(), revision) and revision or nil
+	state.pendingWindow = { revision = revision, expectedRows = expectedRows }
+	return revision
 end
 
 function DistributionSession.EndWindow(revision)
 	revision = tonumber(revision)
-	if not revision or revision ~= state.revision then
+	local pending = state.pendingWindow
+	if
+		not revision
+		or revision ~= state.revision
+		or not pending
+		or pending.revision ~= revision
+		or not pending.readyToEnd
+	then
 		return false
 	end
-	return publishMessage(MSG_WINDOW_END, PROTOCOL_VERSION, ensureSessionId(), revision)
+	local sent = publishMessage(MSG_WINDOW_END, PROTOCOL_VERSION, ensureSessionId(), revision)
+	if sent then
+		state.pendingWindow = nil
+		state.nextRevision = revision + 1
+	end
+	return sent
 end
 
 function DistributionSession.PublishSessionEnd()
@@ -1182,24 +1392,39 @@ function DistributionSession.RequestSessionEnd()
 	if not state.sessionId then
 		return false
 	end
-	sessionEndRequested = true
 	if next(sessionOwners) then
+		sessionEndRequested = true
 		return false
 	end
-	return DistributionSession.PublishSessionEnd()
+	local sent = DistributionSession.PublishSessionEnd()
+	if sent then
+		sessionEndRequested = false
+	end
+	return sent
 end
 
 function DistributionSession.ReleaseSessionOwnership(token)
 	if not token or sessionOwners[token] ~= true then
 		return false
 	end
-	sessionOwners[token] = nil
 	if sessionEndRequested then
-		if next(sessionOwners) then
+		local hasOtherOwner = false
+		for ownerToken in pairs(sessionOwners) do
+			if ownerToken ~= token then
+				hasOtherOwner = true
+				break
+			end
+		end
+		if hasOtherOwner then
+			sessionOwners[token] = nil
 			return true
 		end
-		DistributionSession.PublishSessionEnd()
+		if not DistributionSession.PublishSessionEnd() then
+			return false
+		end
+		sessionEndRequested = false
 	end
+	sessionOwners[token] = nil
 	return true
 end
 
@@ -1219,24 +1444,50 @@ end
 
 function DistributionSession.PublishWindowItems(items, revision)
 	if type(items) ~= "table" or not canPublish() then
-		return false
+		return nil, "invalid_window_items"
 	end
 	revision = tonumber(revision)
-	if revision and revision ~= state.revision then
-		return false
+	local pending = state.pendingWindow
+	if not revision or revision ~= state.revision or not pending or pending.revision ~= revision then
+		return nil, "invalid_window_revision"
 	end
-
-	local sent = false
+	if #items ~= pending.expectedRows then
+		state.pendingWindow = nil
+		return nil, "window_row_count_mismatch"
+	end
+	local candidate = { sessionId = ensureSessionId(), order = {}, itemsByKey = {} }
 	for i = 1, #items do
-		local publishedLegacy = DistributionSession.PublishItem(items[i])
-		local row = publishedLegacy
-			and state.itemsByKey[resolveItemKey(items[i].itemKey or items[i].itemLink, items[i].itemLink)]
-		local publishedWindow = not revision or (row and publishWindowItemRow(row, revision))
-		if publishedLegacy and publishedWindow then
-			sent = true
+		local item = items[i]
+		local itemKey = type(item) == "table" and resolveItemKey(item.itemKey or item.itemLink, item.itemLink) or nil
+		if not itemKey or candidate.itemsByKey[itemKey] then
+			state.pendingWindow = nil
+			return nil, "invalid_window_item"
+		end
+		if not upsertRow(item, "window_item", candidate, true) then
+			state.pendingWindow = nil
+			return nil, "invalid_window_item"
 		end
 	end
-	return sent
+	state.order = candidate.order
+	state.itemsByKey = candidate.itemsByKey
+	for i = 1, #candidate.order do
+		local row = candidate.itemsByKey[candidate.order[i]]
+		if not publishItemRow(row) then
+			state.pendingWindow = nil
+			return nil, "legacy_item_send_failed"
+		end
+		if not publishWindowItemRow(row, revision) then
+			state.pendingWindow = nil
+			return nil, "window_item_send_failed"
+		end
+	end
+	pending.readyToEnd = true
+	if not DistributionSession.EndWindow(revision) then
+		state.pendingWindow = nil
+		return nil, "window_end_send_failed"
+	end
+	triggerChanged("window", nil)
+	return true
 end
 
 function DistributionSession.PublishRollStart(itemKeyOrLink, rollType, duration)
@@ -1294,10 +1545,15 @@ function DistributionSession.PublishItemDone(itemKeyOrLink, winnerName)
 	if not itemKey then
 		return false
 	end
+	local normalizedWinner = normalizeText(winnerName, true)
+	local committed = state.itemsByKey[itemKey]
+	if committed and committed.state == STATE_DONE and committed.winnerName == normalizedWinner then
+		return publishItemDoneRow(committed)
+	end
 
 	local row = upsertRow({
 		itemKey = itemKey,
-		winnerName = winnerName,
+		winnerName = normalizedWinner,
 		state = STATE_DONE,
 	}, "item_done")
 	if not row then
@@ -1430,7 +1686,12 @@ function DistributionSession.HandleMessage(prefix, msg, _channel, sender)
 		if not isSupportedVersion(fields[2]) then
 			return true
 		end
-		clearState(fields[3])
+		local accepted, key = acceptIncomingMutation(sender, fields[3], nil, "clear")
+		if accepted then
+			tombstoneSupersededOwner(key)
+			clearState(fields[3])
+			state.transitionSender = sender
+		end
 		return true
 	end
 	if kind == MSG_ITEM then

@@ -129,6 +129,26 @@ local function consumePendingAwardAt(list, key, index, itemLink, looter, ttl)
 	return pending
 end
 
+local function consumePendingAwardReference(target)
+	if not target then
+		return false
+	end
+	for key, list in pairs(lootState.pendingAwards) do
+		if type(list) == "table" then
+			for i = #list, 1, -1 do
+				if list[i] == target then
+					tremove(list, i)
+					if #list == 0 then
+						lootState.pendingAwards[key] = nil
+					end
+					return true
+				end
+			end
+		end
+	end
+	return false
+end
+
 local function pruneExpiredPendingAwards(list, now, ttl)
 	if type(list) ~= "table" then
 		return
@@ -289,6 +309,30 @@ function LootAttribution.Add(itemLink, looter, rollType, rollValue, rollSessionI
 	}
 end
 
+function LootAttribution.Cancel(transactionId)
+	local resolvedTransactionId = transactionId and tostring(transactionId) or ""
+	if resolvedTransactionId == "" then
+		return false
+	end
+
+	local changed = false
+	for key, list in pairs(lootState.pendingAwards) do
+		if type(list) == "table" then
+			for i = #list, 1, -1 do
+				local pending = list[i]
+				if pending and tostring(pending.transactionId or "") == resolvedTransactionId then
+					tremove(list, i)
+					changed = true
+				end
+			end
+			if #list == 0 then
+				lootState.pendingAwards[key] = nil
+			end
+		end
+	end
+	return changed
+end
+
 local function canonicalWinner(looter)
 	local normalized = Strings and Strings.NormalizeName and Strings.NormalizeName(looter, true) or looter
 	return strlower(tostring(normalized or "")):match("^([^%-]+)") or ""
@@ -354,6 +398,41 @@ local function findPendingForConfirmation(itemLink, looter, rollSessionId, trans
 	return nil
 end
 
+function LootAttribution.StageAuthoritative(itemLink, looter, authoritative, onReconcile)
+	local _, list = getPendingAwardList(itemLink, looter)
+	if not list then
+		return nil
+	end
+	local now = GetTime()
+	local matched
+	for i = 1, #list do
+		local pending = list[i]
+		if
+			isPendingAwardValid(pending, now, PENDING_AWARD_TTL_SECONDS)
+			and pending.transactionId
+			and tostring(pending.transactionId) ~= ""
+		then
+			if matched then
+				return nil
+			end
+			matched = pending
+		end
+	end
+	if not matched then
+		return nil
+	end
+	local transactionId = tostring(matched.transactionId)
+	local provisionalEntries = pruneProvisionalAwards(now)
+	for i = 1, #provisionalEntries do
+		if tostring(provisionalEntries[i].transactionId or "") == transactionId then
+			return nil
+		end
+	end
+	matched.authoritative = authoritative
+	matched.onAuthoritative = onReconcile
+	return matched
+end
+
 local function findProvisional(itemLink, looter, rollSessionId, transactionId)
 	local entries = pruneProvisionalAwards(GetTime())
 	local resolvedTransactionId = transactionId and tostring(transactionId) or nil
@@ -384,6 +463,24 @@ local function findProvisional(itemLink, looter, rollSessionId, transactionId)
 	return nil
 end
 
+local function finalizeAuthoritative(provisional, pending)
+	if provisional.finalized then
+		return provisional
+	end
+	if type(provisional.onFinalize) == "function" then
+		provisional.recordIndex = provisional.onFinalize(provisional)
+	end
+	if type(provisional.onAuthoritative) == "function" then
+		provisional.onAuthoritative(provisional, provisional.authoritative)
+	end
+	provisional.finalized = true
+	provisional.reconciled = true
+	provisional.finalizedSource = "CHAT_MSG_LOOT"
+	provisional.retainUntil = GetTime() + PROVISIONAL_RETENTION_SECONDS
+	consumePendingAwardReference(pending)
+	return provisional
+end
+
 function LootAttribution.ConfirmProvisional(
 	itemLink,
 	looter,
@@ -401,6 +498,9 @@ function LootAttribution.ConfirmProvisional(
 	end
 	local existing = findProvisional(itemLink, looter, rollSessionId, transactionId)
 	if existing then
+		if existing.authoritative and not existing.finalized then
+			return finalizeAuthoritative(existing, pending)
+		end
 		return existing
 	end
 	local now = GetTime()
@@ -420,10 +520,15 @@ function LootAttribution.ConfirmProvisional(
 		createdAt = now,
 		retainUntil = now + PROVISIONAL_RETENTION_SECONDS,
 		onFinalize = onFinalize,
+		authoritative = pending.authoritative,
+		onAuthoritative = pending.onAuthoritative,
 	}
 	local entries = pruneProvisionalAwards(now)
 	entries[#entries + 1] = provisional
 	pruneProvisionalAwards(now)
+	if provisional.authoritative then
+		return finalizeAuthoritative(provisional, pending)
+	end
 	if type(scheduleTimer) ~= "function" then
 		return provisional
 	end

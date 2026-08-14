@@ -165,7 +165,7 @@ local function completeInventoryAwardProgress(controller, completedWinner, rollT
 	return done, true
 end
 
-local function tryInitiateTrade(controller, itemLink, playerName, isAwardRoll)
+local function tryInitiateTrade(controller, itemLink, playerName, isAwardRoll, pending)
 	local unit = controller.raid:GetUnitID(playerName)
 	if unit == "none" then
 		return true, nil, false
@@ -187,12 +187,28 @@ local function tryInitiateTrade(controller, itemLink, playerName, isAwardRoll)
 		return false, nil, false
 	end
 
-	local _, startCount = controller.wow.GetContainerItemInfo(controller.itemInfo.bagID, controller.itemInfo.slotID)
-	controller.itemInfo.tradeStartCount = tonumber(startCount) or tonumber(controller.itemInfo.slotCount) or 1
-	controller.itemInfo.tradeStartBag = controller.itemInfo.bagID
-	controller.itemInfo.tradeStartSlot = controller.itemInfo.slotID
-	controller.itemInfo.tradeStartItemLink =
-		controller.wow.GetContainerItemLink(controller.itemInfo.bagID, controller.itemInfo.slotID)
+	local evidence, evidenceReason
+	if type(controller.inventory.CaptureTradeEvidence) == "function" then
+		evidence, evidenceReason = controller.inventory.CaptureTradeEvidence(
+			itemLink,
+			controller.itemInfo.bagID,
+			controller.itemInfo.slotID
+		)
+	else
+		local _, sourceCount = controller.wow.GetContainerItemInfo(controller.itemInfo.bagID, controller.itemInfo.slotID)
+		evidence = {
+			itemLink = itemLink,
+			bagId = controller.itemInfo.bagID,
+			slotId = controller.itemInfo.slotID,
+			sourceLink = controller.wow.GetContainerItemLink(controller.itemInfo.bagID, controller.itemInfo.slotID),
+			sourceCount = tonumber(sourceCount) or tonumber(controller.itemInfo.slotCount) or 1,
+		}
+	end
+	if not evidence then
+		return false, evidenceReason, false
+	end
+	evidence.expectedPartner = playerName
+	pending.tradeEvidence = evidence
 
 	controller.wow.ClearCursor()
 	controller.wow.PickupContainerItem(controller.itemInfo.bagID, controller.itemInfo.slotID)
@@ -317,6 +333,7 @@ function TradeExecution.CreateController(opts)
 		getItemKey = assert(opts.getItemKey, "Master trade item-key resolver is not initialized"),
 	}
 	local pendingAcceptedTrade
+	local lastTradeState
 
 	local function createAwardAttempt(itemLink, winner, onConfirm, onFail)
 		local session = controller.lootState.rollSession
@@ -340,10 +357,20 @@ function TradeExecution.CreateController(opts)
 	local function releaseSessionOwnership(distribution, pending)
 		local token = pending and pending.sessionOwnershipToken
 		if not token then
+			return true
+		end
+		local released = distribution.ReleaseSessionOwnership(token)
+		if released ~= true then
 			return false
 		end
 		pending.sessionOwnershipToken = nil
-		return distribution.ReleaseSessionOwnership(token)
+		pending.releasePending = false
+		if pending.state == "confirmed" then
+			pending.failureReason = nil
+		elseif pending.terminalFailureReason then
+			pending.failureReason = pending.terminalFailureReason
+		end
+		return true
 	end
 
 	function controller:ResolveWinner(playerName, isAwardRoll)
@@ -437,10 +464,6 @@ function TradeExecution.CreateController(opts)
 			end
 		end
 		self.lootState.tradeWinner = winnerName
-		if isAwardRoll then
-			self.distribution.PublishRollEnd(itemLink, winnerName, rollValue, "inventory_trade")
-		end
-
 		if type(self.debug) == "function" then
 			self.debug(
 				Diag.D.LogTradeStart:format(
@@ -551,12 +574,50 @@ function TradeExecution.CreateController(opts)
 		if not pending then
 			return false
 		end
+		if pending.state ~= "shown" and pending.state ~= "accepted" then
+			return false
+		end
 		pending.playerAccepted = playerAccepted == 1
 		pending.targetAccepted = targetAccepted == 1
 		pending.accepted = pending.playerAccepted and pending.targetAccepted
 		if not pending.accepted then
 			return false
 		end
+		pending.state = "accepted"
+		return true
+	end
+
+	function controller:GetPendingState()
+		local pending = pendingAcceptedTrade or lastTradeState
+		if not pending then
+			return nil
+		end
+		return {
+			state = pending.state,
+			winner = pending.winner,
+			itemLink = pending.itemLink,
+			accepted = pending.accepted == true,
+			failureReason = pending.failureReason,
+			releasePending = pending.releasePending == true,
+		}
+	end
+
+	function controller:HandleTradeShow(partnerName)
+		local pending = pendingAcceptedTrade
+		if not pending or pending.state ~= "requested" then
+			return false
+		end
+		local verified, reason = self.inventory.VerifyTradeEvidence(pending.tradeEvidence, partnerName)
+		if reason == "trade_partner_unavailable" then
+			return nil, reason
+		end
+		if reason == "trade_partner_changed" then
+			self:FailAcceptedTrade(reason)
+			return true
+		end
+		pending.shownPartner = partnerName
+		pending.tradeEvidence.actualPartner = partnerName
+		pending.state = "shown"
 		return true
 	end
 
@@ -568,16 +629,58 @@ function TradeExecution.CreateController(opts)
 		return pendingAcceptedTrade ~= nil and pendingAcceptedTrade.accepted == true
 	end
 
-	function controller:SettleAcceptedTrade()
+	function controller:SettleAcceptedTrade(partnerName)
 		local pending = pendingAcceptedTrade
 		if not pending or pending.accepted ~= true then
 			return false
 		end
+		if pending.state == "confirmed" and pending.releasePending == true then
+			if not releaseSessionOwnership(self.distribution, pending) then
+				return nil, "session_ownership_release_failed"
+			end
+			lastTradeState = pending
+			pendingAcceptedTrade = nil
+			return true
+		end
+		pending.state = "verifying"
+		local verified, awardedCountOrReason
+		if type(self.inventory.VerifyTradeEvidence) == "function" then
+			verified, awardedCountOrReason = self.inventory.VerifyTradeEvidence(
+				pending.tradeEvidence,
+				partnerName or pending.shownPartner
+			)
+		else
+			verified, awardedCountOrReason = nil, "trade_evidence_unavailable"
+		end
+		if not verified then
+			if awardedCountOrReason == "trade_partner_changed" then
+				self:FailAcceptedTrade(awardedCountOrReason)
+				return false
+			end
+			pending.state = "uncertain"
+			pending.failureReason = awardedCountOrReason
+			if pending.effect.MarkUncertain then
+				pending.effect:MarkUncertain(awardedCountOrReason)
+			end
+			if not pending.uncertainWarned and type(self.warn) == "function" then
+				pending.uncertainWarned = true
+				self.warn(L.WarnTradeTransferUnverified:format(tostring(pending.itemLink), tostring(pending.winner)))
+			end
+			return nil, awardedCountOrReason
+		end
+		pending.awardedCount = awardedCountOrReason
 		local confirmed = pending.effect:Confirm()
 		if not confirmed then
-			return false
+			pending.state = "uncertain"
+			return nil, "trade_commit_failed"
 		end
-		releaseSessionOwnership(self.distribution, pending)
+		pending.state = "confirmed"
+		if not releaseSessionOwnership(self.distribution, pending) then
+			pending.releasePending = true
+			pending.failureReason = "session_ownership_release_failed"
+			return nil, pending.failureReason
+		end
+		lastTradeState = pending
 		pendingAcceptedTrade = nil
 		return confirmed
 	end
@@ -587,11 +690,27 @@ function TradeExecution.CreateController(opts)
 		if not pending then
 			return false
 		end
+		if pending.state == "failed" and pending.releasePending == true then
+			if not releaseSessionOwnership(self.distribution, pending) then
+				return nil, "session_ownership_release_failed"
+			end
+			lastTradeState = pending
+			pendingAcceptedTrade = nil
+			return true
+		end
 		local failed = pending.effect:Fail(reason)
 		if not failed then
 			return false
 		end
-		releaseSessionOwnership(self.distribution, pending)
+		pending.state = "failed"
+		pending.failureReason = reason
+		pending.terminalFailureReason = reason
+		if not releaseSessionOwnership(self.distribution, pending) then
+			pending.releasePending = true
+			pending.failureReason = "session_ownership_release_failed"
+			return nil, pending.failureReason
+		end
+		lastTradeState = pending
 		pendingAcceptedTrade = nil
 		return failed == true
 	end
@@ -696,6 +815,20 @@ function TradeExecution.CreateController(opts)
 								)
 							)
 						end
+						local rollEndRan, rollEndPublished = runCheckpoint(checkpoints, "publishRollEnd", function()
+							return self.distribution.PublishRollEnd(
+								pendingContext.itemLink,
+								pendingContext.winner,
+								pendingContext.rollValue,
+								"inventory_trade"
+							)
+						end)
+						if not rollEndRan or rollEndPublished ~= true then
+							if rollEndRan then
+								checkpoints.publishRollEnd = nil
+							end
+							return false
+						end
 						local _, progressComplete = completeInventoryAwardProgress(
 							self,
 							pendingContext.winner,
@@ -707,39 +840,94 @@ function TradeExecution.CreateController(opts)
 						if not progressComplete then
 							return false
 						end
+						local notified = runCheckpoint(checkpoints, "notifications", function()
+							return finalizeTradeNotifications(
+								self,
+								pendingContext.itemLink,
+								pendingContext.winner,
+								pendingContext.rollType,
+								pendingContext.rollValue,
+								pendingContext.output,
+								pendingContext.whisper
+							)
+						end)
+						if not notified then
+							return false
+						end
 					end
 					return true
 				end, function(reason)
 					return true
 				end)
 			end
+			if not effect then
+				local transient = {}
+				ok, output = tryInitiateTrade(self, itemLink, tradeTarget, isAwardRoll, transient)
+				if not ok then
+					return false
+				end
+				return finalizeTradeNotifications(
+					self,
+					itemLink,
+					winnerName or playerName,
+					rollType,
+					rollValue,
+					output,
+					whisper
+				)
+			end
+			local sessionOwnershipToken = self.distribution.AcquireSessionOwnership("inventory-award")
+			pendingAcceptedTrade = {
+				winner = winnerName,
+				itemLink = itemLink,
+				rollType = rollType,
+				rollValue = rollValue,
+				raidNid = self.database.GetCurrentRaid(),
+				currentRollItem = self.lootState.currentRollItem,
+				tradeItemId = self.lootState.tradeItemId,
+				accepted = false,
+				state = "requested",
+				effectCheckpoints = {},
+				effect = effect,
+				output = output,
+				whisper = whisper,
+				sessionOwnershipToken = sessionOwnershipToken,
+			}
+			pendingContext = pendingAcceptedTrade
+			lastTradeState = pendingAcceptedTrade
 			local initiated
-			ok, output, initiated = tryInitiateTrade(self, itemLink, winnerName, isAwardRoll)
+			ok, output, initiated = tryInitiateTrade(self, itemLink, winnerName, isAwardRoll, pendingAcceptedTrade)
 			if not ok then
 				if effect then
 					effect:Fail("trade_initiation_failed")
 				end
+				pendingAcceptedTrade.state = "failed"
+				pendingAcceptedTrade.failureReason = output or "trade_initiation_failed"
+				pendingAcceptedTrade.terminalFailureReason = pendingAcceptedTrade.failureReason
+				if not releaseSessionOwnership(self.distribution, pendingAcceptedTrade) then
+					pendingAcceptedTrade.releasePending = true
+					pendingAcceptedTrade.failureReason = "session_ownership_release_failed"
+					return nil, pendingAcceptedTrade.failureReason
+				end
+				lastTradeState = pendingAcceptedTrade
+				pendingAcceptedTrade = nil
 				return false
 			end
-			if initiated and effect then
-				local awardedCount = self.inventory.ResolveTradeAwardedCount()
-				local sessionOwnershipToken = self.distribution.AcquireSessionOwnership("inventory-award")
-				pendingAcceptedTrade = {
-					winner = winnerName,
-					itemLink = itemLink,
-					rollType = rollType,
-					rollValue = rollValue,
-					awardedCount = awardedCount,
-					raidNid = self.database.GetCurrentRaid(),
-					currentRollItem = self.lootState.currentRollItem,
-					tradeItemId = self.lootState.tradeItemId,
-					accepted = false,
-					effectCheckpoints = {},
-					effect = effect,
-					sessionOwnershipToken = sessionOwnershipToken,
-				}
-				pendingContext = pendingAcceptedTrade
+			if not initiated then
+				effect:Fail("trade_not_started")
+				pendingAcceptedTrade.state = "failed"
+				pendingAcceptedTrade.failureReason = "trade_not_started"
+				pendingAcceptedTrade.terminalFailureReason = pendingAcceptedTrade.failureReason
+				if not releaseSessionOwnership(self.distribution, pendingAcceptedTrade) then
+					pendingAcceptedTrade.releasePending = true
+					pendingAcceptedTrade.failureReason = "session_ownership_release_failed"
+					return nil, pendingAcceptedTrade.failureReason
+				end
+				lastTradeState = pendingAcceptedTrade
+				pendingAcceptedTrade = nil
+				return finalizeTradeNotifications(self, itemLink, winnerName, rollType, rollValue, output, whisper)
 			end
+			return true
 		end
 
 		return finalizeTradeNotifications(

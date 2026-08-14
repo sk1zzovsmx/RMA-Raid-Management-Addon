@@ -245,7 +245,7 @@ function Sessions.EnsureAdHocRollSession(ctx)
 	local itemLink
 	local itemId
 
-	if session then
+	if session and session.active == true then
 		return session
 	end
 
@@ -280,6 +280,13 @@ function Sessions.EnsureRollSession(ctx, itemLink, rollType, source)
 
 	if not session then
 		return Sessions.OpenRollSession(ctx, itemLink, rollType, source)
+	end
+	if session.active ~= true then
+		local nextItemKey = getRollSessionItemKey(itemLink)
+		if nextItemKey and session.itemKey and nextItemKey ~= session.itemKey then
+			return Sessions.OpenRollSession(ctx, itemLink, rollType, source)
+		end
+		return session
 	end
 
 	if itemLink then
@@ -340,10 +347,26 @@ function Sessions.CloseRollSession(ctx)
 	local _, lootState = assertContext(ctx)
 	local session = Sessions.GetRollSession(ctx)
 
-	if session and session.endsAt == nil then
-		session.endsAt = GetTime()
+	if session then
+		session.active = false
+		if session.endsAt == nil then
+			session.endsAt = GetTime()
+		end
 	end
 	lootState.rollSession = nil
+end
+
+function Sessions.FreezeRollSession(ctx)
+	local session = Sessions.GetRollSession(ctx)
+
+	if not session or session.active ~= true then
+		return nil
+	end
+	session.active = false
+	if session.endsAt == nil then
+		session.endsAt = GetTime()
+	end
+	return session
 end
 
 function Sessions.GetSelectionTargetCount(ctx)

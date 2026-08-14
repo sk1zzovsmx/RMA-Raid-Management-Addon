@@ -5,13 +5,14 @@ from pathlib import Path
 import re
 import unittest
 
+from tests.lua_test_runner import run_lua_case
+
 
 ROOT = Path(__file__).resolve().parents[1]
 ADDON = ROOT / "Raid Management Addon"
 TOC = ADDON / "Raid Management Addon.toc"
 LOOT_SOURCE_DIR = ADDON / "Modules" / "Dataset" / "LootSources"
 LOOT_SOURCE_DATA = ADDON / "Modules" / "Dataset" / "LootSourcesData.lua"
-MASTER_CONTROLLER = ADDON / "Controllers" / "Master.lua"
 DB_SYNCER = ADDON / "Database" / "DBSyncer.lua"
 APPROVED_AWARD_SERVICE_FILES = {
     r"Services\Loot\LootAttribution.lua",
@@ -96,12 +97,12 @@ class RuntimeBootstrapContractTest(unittest.TestCase):
         self.assertNotIn("duplicate normalized loot-source raid name", source)
         self.assertIn("rawByInstance[raidKey] = raid", source)
 
-    def test_master_loot_assignment_always_has_an_award_attempt(self) -> None:
-        source = MASTER_CONTROLLER.read_text(encoding="utf-8")
-        assign_item = source[source.index("\tfunction assignItem(") :]
-        assign_item = assign_item[: assign_item.index("\n\tend\n", assign_item.index("GiveMasterLoot"))]
-
-        self.assertRegex(assign_item, r"effect\s*=\s*effect\s*or\s*createAwardAttempt\(\{")
+    def test_master_loot_entrypoints_share_transaction_admission(self) -> None:
+        result = run_lua_case("loot_duplicate_award_is_rejected_in_flight")
+        self.assertIn(
+            "PASS loot_duplicate_award_is_rejected_in_flight",
+            result.stdout,
+        )
 
 
 if __name__ == "__main__":

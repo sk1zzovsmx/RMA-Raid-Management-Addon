@@ -116,6 +116,21 @@ TOC load order, XML frame identities, or the persisted raid schema version.
 - Events and UI success feedback occur only after the corresponding canonical
   transaction reaches a successful terminal state.
 
+### Loot Award And Trade Completion
+
+- Master Loot now freezes roll intake, revalidates permission, winner, Loot Ban,
+  candidate, and exact loot-slot identity immediately before the protected
+  client effect, then records success only after confirmation checkpoints.
+- Known award failures cancel only their transaction-scoped pending attribution.
+  An initial 4-second timeout enters evidence-based handling and, when still
+  ambiguous, retains ownership for a bounded 8-second reconciliation period
+  without recording or announcing success.
+- Addon-driven and manual Hold trades require a positive matching source-stack
+  or total-owned inventory delta. Accepted/closed trade events alone cannot
+  mutate raid history, counters, or RMADist completion state.
+- Logger mutations remain store-owned and atomic; the new effect boundary
+  ensures those mutations are not requested from unconfirmed physical awards.
+
 ## External Contract And Coherence Review
 
 - TOC metadata is unchanged: title `Raid Management Addon`, Interface `30300`,
@@ -124,28 +139,30 @@ TOC load order, XML frame identities, or the persisted raid schema version.
   existing frame identities remain unchanged.
 - No SavedVariables declaration or persisted raid schema-version change exists.
   Inspect save admission only removes non-canonical/transient legacy fields.
-- No `RMAVersion`, `RMAResSync`, `RMADist`, or `RMALogSync` prefix or wire-format
-  change exists.
+- No prefix or breaking wire-format change exists. RMADist remains protocol v2;
+  `WINDOW_BEGIN` adds an optional expected-row field that old v2 receivers may
+  ignore and updated receivers enforce before committing a staged window.
 - Every changed runtime Lua file is explicitly referenced by the authoritative
   TOC. The TOC validator also reports no missing file or unsupported directive.
 - `docs/ARCHITECTURE.md`, `docs/FEATURE_API_MAP.md`, and `docs/VALIDATION.md`
-  remain consistent with the implementation, so no contract edits were needed.
+  now include the subsequent loot-distribution owner, evidence, timing, and
+  validation contracts.
 
 ## Fresh Validation Evidence
 
-Commands were run against the final `raid-recording-integrity` branch state.
+Commands were rerun against the final `loot-distribution-hardening` Task 7
+worktree state.
 
 | Command | Result |
 |---|---|
-| `py -3 -m unittest discover -s tests -p 'test_*.py'` | PASS: 127 tests, 0 failures/errors |
+| `py -3 -m unittest discover -s tests -q` | PASS: 234 tests, 0 failures/errors |
 | `py -3 C:\Users\ferra\Downloads\RMA-Raid Management Addon\.agents\skills\wow-addon-dev-wotlk-v335a\scripts\validate_toc.py 'Raid Management Addon/Raid Management Addon.toc'` | PASS: 0 errors, 0 warnings |
-| `py -3 C:\Users\ferra\Downloads\RMA-Raid Management Addon\.agents\skills\wow-addon-dev-wotlk-v335a\scripts\lint_lua51.py 'Raid Management Addon'` | PASS: 132 files clean |
-| `py -3 C:\Users\ferra\Downloads\RMA-Raid Management Addon\.agents\skills\wow-addon-dev-wotlk-v335a\scripts\scan_xpcall.py 'Raid Management Addon'` | PASS: 132 files clean of variadic `xpcall` |
+| `py -3 C:\Users\ferra\Downloads\RMA-Raid Management Addon\.agents\skills\wow-addon-dev-wotlk-v335a\scripts\lint_lua51.py 'Raid Management Addon'` | PASS: 134 files clean |
+| `py -3 C:\Users\ferra\Downloads\RMA-Raid Management Addon\.agents\skills\wow-addon-dev-wotlk-v335a\scripts\scan_xpcall.py 'Raid Management Addon'` | PASS: 134 files clean of variadic `xpcall` |
 | `rg -n '<Scripts>\|<On[A-Za-z]+>' 'Raid Management Addon/UI' -g '*.xml'` | PASS: no matches |
-| `luacheck 'Raid Management Addon' 'tests/lua/runtime_harness.lua'` | PASS: 0 warnings, 0 errors in 120 files |
-| `stylua --check 'Raid Management Addon/Database/DBRaidStore.lua' 'Raid Management Addon/Services/Logger/Actions.lua'` | PASS |
-| `stylua --check` on all 13 touched runtime Lua files | NON-BLOCKING BASELINE: exit 1; formatter proposes legacy whole-file/CRLF normalization, so no runtime formatting rewrite was applied |
-| `git diff --check bed1956..HEAD` | PASS |
+| whole-addon `luacheck` excluding `Libs/**` | PASS: 0 warnings, 0 errors in 121 files |
+| `stylua --check` on the 14 changed loot-distribution runtime Lua files | NON-BLOCKING BASELINE: exit 1; formatter proposes legacy whole-file/CRLF normalization and broad pre-existing formatting changes, so no runtime formatting rewrite was applied |
+| `git diff --check 04163f5` | PASS |
 
 The ignored `.agents` directory is absent from this isolated worktree. The same
 project-local validator scripts were therefore invoked from the parent checkout
@@ -159,10 +176,18 @@ with addon paths still rooted in this worktree, as allowed by `VALIDATION.md`.
   SavedVariables behavior in the actual 3.3.5a client.
 - Sync transport authorization, PUSH consent, chunk/payload limits, remote
   revision monotonicity, and atomic remote import remain deferred.
-- Loot/roll/award/trade effect safety outside logger recording remains deferred.
+- The offline loot/roll/award/trade integrity matrices are complete, including
+  a full production-owner chain where chat-first and slot-first attribution
+  converge on one record without premature pending consumption, duplicate
+  checkpoints, retained confirmation ownership, or blocked next admission.
+  Remaining risk is live-client behavior around
+  protected `GiveMasterLoot`, real `LOOT_SLOT_CLEARED` and trade event timing,
+  bag visibility after trade close,
+  mixed-version addon-channel delivery, and reload/crash during the narrow
+  runtime-only uncertain interval; no persistent recovery journal was added.
 - SpecInspect unresolved-GUID callbacks and unrelated UI redesign remain
   deferred.
 - Broad StyLua conformance remains legacy cleanup work; applying it in this batch
   would create unrelated whole-file and line-ending churn.
 
-runtime smoke: not run; manual acceptance pending
+runtime smoke: deferred by user until the full refactoring program is complete

@@ -15,18 +15,19 @@ the load-order authority and all runtime code targets WotLK 3.3.5a / Lua 5.1.
 ## Master Loot
 
 `Controllers/Master.lua` is the feature composition root. It owns frame binding,
-WoW-event composition, user actions, and the transient UI state. It directly
-uses these domain owners:
+WoW-event composition, user actions, and the transient UI state. The table
+separates methods called by the controller from dependencies that it injects
+into cohesive child owners:
 
-| Caller | Owner | Current calls | Kind | Purpose |
+| Caller | Owner | Direct calls / composed dependencies | Kind | Purpose |
 |---|---|---|---|---|
-| Master controller | `Services.Loot` | `AddItem`, `AddLoot`, `FetchLoot`, `PrepareItem`, `SelectItem`, `ClearLoot`, `AddPendingAward`, `PurgePendingAwards`, `GetLootWindowItems` | command/query | Build and maintain the active loot context. |
-| Master controller | `Services.Loot.DistributionSession` | session publish/receive APIs | command/notification | Coordinate distribution state and addon messages. |
-| Master controller | `Services.Loot.Inventory` | inventory candidate APIs | query/command | Resolve local inventory award candidates. |
-| Master controller | `Services.Loot.AwardPlanner` | award-plan APIs | query | Build deterministic award targets before side effects. |
-| Master controller | `Services.Rolls` | `EnsureLootRollSession`, `Roll`, `StartCountdown`, `StopCountdown`, `FinalizeRollSession`, `GetDisplayModel`, `GetResolvedWinner`, `ValidateWinner`, `SyncSessionState` | command/query | Run and resolve one roll session. |
+| Master controller | `Services.Loot` | Direct: `AddItem`, `FetchLoot`, `PrepareItem`, `SelectItem`, `ClearLoot`, `AddPendingAward`, `CancelPendingAward`, `GetAutoLootSuggestion`, `GetCurrentItemCount`, `GetItem`, `GetItemLink`, `GetItemName`, `GetItemTexture`, `GetLootWindowItems`, `ItemExists`, `LogTradeOnlyLoot`, `ScheduleTimer`, `CancelTimer`. `Init.lua`, not Master, calls `AddLoot` for forwarded chat events. | command/query | Build the active loot context, schedule its reconciliation, and cancel only the attribution transaction named by a known terminal failure. |
+| Master controller | `Services.Loot.DistributionSession` | Direct: roll/item publication, `RequestSessionEnd`, `Clear`. Composed: award/trade ownership and completion publication. `Services.Loot:FetchLoot` separately owns `BeginWindow`/`PublishWindowItems`. | command/notification | Publish controller-visible distribution transitions while the injected owners retain their own session lifecycles. |
+| Master controller | `Services.Loot.Inventory` | Direct: `FindLootSlotIndex`, `ValidateLootSlot`. Composed into `AwardSequence`, `TradeExecution`, and item selection for candidate and inventory-evidence operations. | query/command | Revalidate the irreversible loot-slot boundary and supply evidence APIs to the owners that execute award/trade policy. |
+| Master controller | `Services.Loot.AwardPlanner` | Direct: `ValidateInventoryTradeSelection`, `BuildAwardTargetPlan`. Composed into award sequence, trade execution, and item selection. | query | Build deterministic award targets before side effects. |
+| Master controller | `Services.Rolls` | `EnsureLootRollSession`, `Roll`, `StartCountdown`, `StopCountdown`, `FreezeRollIntake`, `FinalizeRollSession`, `GetDisplayModel`, `GetResolvedWinner`, `ValidateWinner`, `SyncSessionState` | command/query | Run one roll session and freeze its final immutable award context before any winner effect. |
 | Master controller | `Services.Raid` | capability, candidate, context, roster, player-count, and group-loot APIs | command/query | Enforce raid permissions and bridge WoW loot context. |
-| Master controller | `Services.Master.*` | `FlowState`, `ButtonState`, `RollRows`, `RollSelection`, `Award`, `Assignment`, `Messages`, `Trade`, `TradeExecution`, `AwardCounter` | query/command | Keep pure view models and award/trade policy out of the controller where already extracted. |
+| Master controller | `Services.Master.*` | `FlowState`, `ButtonState`, `RollRows`, `RollSelection`, `AwardAttempt`, `AwardSequence`, `AwardConfirmation`, `Assignment`, `Messages`, `Trade`, `TradeExecution`, `AwardCounter` | query/command | Own checkpointed award state, single-confirmation admission, future multi-award cancellation, and evidence-gated trade policy outside the controller. |
 | Master controller | `Services.Logger.Actions` | `RecordLoot` | command | Persist the completed award in raid history. |
 | Master controller | `addon.Bus` | forwarded WoW events, roster delta, set-item, reserves, roll, options, inspect | notification | Refresh UI after completed state transitions. |
 
@@ -37,8 +38,15 @@ needs them. They are domain-shaped and do not create a generic facade:
 
 - `DistributionSession`: lifecycle and transport for an active loot
   distribution; payloads carry `sessionId`, item identity, mode, and revision.
+  Protocol v2 `WINDOW_BEGIN` accepts an optional expected-row field; new
+  receivers enforce it and older v2 receivers ignore the additive field.
 - `Rolls`: lifecycle and read model of one roll session; its display model is
   immutable from the controller's perspective.
+- `AwardAttempt` and `AwardConfirmation`: runtime-only transaction/checkpoint
+  state and one bounded in-flight confirmation. They are internal contracts,
+  not persistent recovery records or supported `_G.RMA` API.
+- `Inventory`: strict loot-slot comparison and trade evidence capture/query;
+  trade acceptance/closure alone is never physical-transfer evidence.
 - `AwardPlanner`: pure plan from item, candidates, rule, and selected winners;
   executing the plan remains an explicit side effect.
 - `Logger.Actions:RecordLoot`: the single persistence command after an award is

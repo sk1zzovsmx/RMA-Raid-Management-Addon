@@ -15,6 +15,7 @@ local tremove = table.remove
 local tonumber = tonumber
 local tostring = tostring
 local type = type
+local pcall = pcall
 
 local function requireFunction(deps, name)
 	local value = deps[name]
@@ -28,11 +29,42 @@ function AwardConfirmation.Create(deps)
 	local cancelTimer = requireFunction(deps, "cancelTimer")
 	local requestRefresh = requireFunction(deps, "requestRefresh")
 	local warnFailure = requireFunction(deps, "warnFailure")
+	local warnUncertain = requireFunction(deps, "warnUncertain")
 	local warnTimeout = requireFunction(deps, "warnTimeout")
+	local warnUnresolved = requireFunction(deps, "warnUnresolved")
+	local onUnresolved = requireFunction(deps, "onUnresolved")
 	local confirmProvisional = requireFunction(deps, "confirmProvisional")
+	local resolveTimeoutEvidence = deps.resolveTimeoutEvidence or function()
+		return "unavailable"
+	end
+	local cancelAttribution = deps.cancelAttribution or function()
+		return false
+	end
 	local timeoutSeconds = tonumber(deps.timeoutSeconds) or 4
+	local reconciliationSeconds = tonumber(deps.reconciliationSeconds) or 8
+	if reconciliationSeconds <= 0 then
+		reconciliationSeconds = 8
+	end
 	local confirmations = {}
 	local owner = {}
+
+	local function safeCall(callback, ...)
+		local ok, result = pcall(callback, ...)
+		return ok and result
+	end
+
+	local function present(callback, ...)
+		safeCall(callback, ...)
+		safeCall(requestRefresh)
+	end
+
+	local function reportUncertain(pending, reason)
+		if pending.reconciliationWarned then
+			return
+		end
+		pending.reconciliationWarned = true
+		present(warnUncertain, pending, reason)
+	end
 
 	local function remove(index)
 		local pending = confirmations[index]
@@ -40,8 +72,12 @@ function AwardConfirmation.Create(deps)
 			return nil
 		end
 		if pending.timeoutHandle then
-			cancelTimer(pending.timeoutHandle)
+			safeCall(cancelTimer, pending.timeoutHandle)
 			pending.timeoutHandle = nil
+		end
+		if pending.reconciliationHandle then
+			safeCall(cancelTimer, pending.reconciliationHandle)
+			pending.reconciliationHandle = nil
 		end
 		tremove(confirmations, index)
 		return pending
@@ -58,7 +94,14 @@ function AwardConfirmation.Create(deps)
 		return nil, nil
 	end
 
+	local resolveUnresolved
+	local handleTimeout
+
 	function owner:Queue(opts)
+		if owner:HasInFlight() then
+			return nil, "award_in_flight"
+		end
+
 		opts = opts or {}
 		local pending = {
 			itemLink = opts.itemLink,
@@ -70,35 +113,104 @@ function AwardConfirmation.Create(deps)
 			transactionId = opts.transactionId and tostring(opts.transactionId) or nil,
 			effect = assert(opts.effect, "Award confirmation requires an effect"),
 		}
-		tinsert(confirmations, pending)
 		if timeoutSeconds > 0 then
-			pending.timeoutHandle = scheduleTimer(function()
-				for i = #confirmations, 1, -1 do
-					if confirmations[i] == pending then
-						remove(i)
-						pending.effect:Fail("timeout")
-						warnTimeout(timeoutSeconds, pending)
-						requestRefresh()
-						return
-					end
-				end
+			local scheduled, handle = pcall(scheduleTimer, function()
+				handleTimeout(pending)
 			end, timeoutSeconds)
+			if not scheduled or not handle then
+				return nil, "confirmation_schedule_failed"
+			end
+			pending.timeoutHandle = handle
 		end
+		tinsert(confirmations, pending)
 		return pending
 	end
 
-	function owner:HasPending()
+	resolveUnresolved = function(pending)
+		for i = #confirmations, 1, -1 do
+			if confirmations[i] == pending then
+				pending.reconciliationHandle = nil
+				remove(i)
+				safeCall(cancelAttribution, pending.transactionId)
+				pending.effect:MarkUncertain("confirmation_unresolved")
+				safeCall(onUnresolved, pending)
+				if not pending.unresolvedWarned then
+					pending.unresolvedWarned = true
+					present(warnUnresolved, pending)
+				end
+				return true
+			end
+		end
+		return false
+	end
+
+	handleTimeout = function(pending)
+		local pendingIndex
+		for i = #confirmations, 1, -1 do
+			if confirmations[i] == pending then
+				pendingIndex = i
+				break
+			end
+		end
+		if not pendingIndex then
+			return false
+		end
+
+		pending.timeoutHandle = nil
+		local evidenceOk, evidence = pcall(resolveTimeoutEvidence, pending)
+		if evidenceOk and evidence == "present" then
+			remove(pendingIndex)
+			safeCall(cancelAttribution, pending.transactionId)
+			pending.effect:Fail("confirmation_timeout_item_present")
+			safeCall(warnFailure, pending, "confirmation_timeout_item_present")
+			return true
+		end
+		if evidenceOk and evidence == "absent" then
+			local confirmed = owner:Confirm(pending.itemIndex)
+			if confirmed == true then
+				return true
+			end
+		else
+			pending.effect:MarkUncertain("timeout")
+		end
+
+		local expiryOk, expiryHandle = pcall(scheduleTimer, function()
+			resolveUnresolved(pending)
+		end, reconciliationSeconds)
+		if expiryOk and expiryHandle then
+			pending.reconciliationHandle = expiryHandle
+		else
+			resolveUnresolved(pending)
+		end
+		if not pending.reconciliationWarned then
+			pending.reconciliationWarned = true
+			present(warnTimeout, timeoutSeconds, pending)
+		end
+		return true
+	end
+
+	function owner:HasInFlight()
 		return confirmations[1] ~= nil
 	end
 
-	function owner:Fail(reason)
+	function owner:HasPending()
+		return owner:HasInFlight()
+	end
+
+	function owner:Fail(reason, transactionId)
 		local failed = false
+		local resolvedTransactionId = transactionId and tostring(transactionId) or nil
 		for i = #confirmations, 1, -1 do
-			local pending = remove(i)
-			if pending then
+			local candidate = confirmations[i]
+			if
+				candidate
+				and (not resolvedTransactionId or tostring(candidate.transactionId or "") == resolvedTransactionId)
+			then
+				local pending = remove(i)
 				failed = true
+				safeCall(cancelAttribution, pending.transactionId)
 				pending.effect:Fail(reason)
-				warnFailure(pending, reason)
+				safeCall(warnFailure, pending, reason)
 			end
 		end
 		return failed
@@ -109,9 +221,25 @@ function AwardConfirmation.Create(deps)
 		if not pending then
 			return false
 		end
+		local provisionalOk, provisionalReason = pending.effect:RunCheckpoint(
+			"provisional_attribution",
+			confirmProvisional,
+			pending,
+			clearedSlot
+		)
+		if not provisionalOk then
+			pending.effect:MarkUncertain(provisionalReason)
+			reportUncertain(pending, provisionalReason)
+			return nil, provisionalReason
+		end
+
+		local confirmed, confirmReason = pending.effect:Confirm()
+		if not confirmed then
+			reportUncertain(pending, confirmReason)
+			return nil, confirmReason
+		end
 		remove(index)
-		confirmProvisional(pending, clearedSlot)
-		return pending.effect:Confirm()
+		return true
 	end
 
 	return owner

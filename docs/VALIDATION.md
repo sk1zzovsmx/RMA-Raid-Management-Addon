@@ -60,6 +60,16 @@ clear, pending callbacks, direct Runtime ownership, contained callback failures,
 concrete transport reasons, exactly-once controller feedback, and a later headless
 start from canonical SavedVariables.
 
+For loot-distribution hardening, the behavior suite proves roll intake freezes
+before award execution, every award entry shares one in-flight admission gate,
+terminal effects retry by named checkpoint, and known failures cancel only their
+transaction attribution. It also covers strict final loot-slot validation,
+4-second confirmation plus bounded 8-second reconciliation, atomic/current
+RMADist windows, inventory-evidenced addon and manual Hold trades, truthful
+multi-award cancellation, closed performance spans, and the measured 20-slot
+bound of 19 loot-count scans, 20 candidate scans, 20 completion sends, and 39
+refresh requests.
+
 For docs-only edits, also run:
 
 ```powershell

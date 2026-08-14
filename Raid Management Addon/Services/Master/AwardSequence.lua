@@ -85,22 +85,27 @@ end
 
 local function announceCompletion(controller, ma)
 	if not (ma and ma.announceOnWin and not ma.congratsSent) then
-		return
+		return true
 	end
 
 	local names = collectWinnerNames(ma)
 	if #names <= 0 then
-		return
+		return true
 	end
 
 	if type(controller.announce) == "function" then
+		local result
 		if #names == 1 then
-			controller.announce(L.ChatAward:format(names[1], ma.itemLink))
+			result = controller.announce(L.ChatAward:format(names[1], ma.itemLink))
 		else
-			controller.announce(L.ChatAwardMutiple:format(tconcat(names, ", "), ma.itemLink))
+			result = controller.announce(L.ChatAwardMutiple:format(tconcat(names, ", "), ma.itemLink))
+		end
+		if result == false then
+			return nil, "sequence_announcement_rejected"
 		end
 	end
 	ma.congratsSent = true
+	return true
 end
 
 local function armProgressTimeout(controller, ma)
@@ -157,6 +162,7 @@ function AwardSequence.CreateController(opts)
 		debug = opts.debug,
 		warn = opts.warn,
 		registerAwardedItem = assert(opts.registerAwardedItem, "Master award awarded-item recorder is not initialized"),
+		beginAwardSequence = opts.beginAwardSequence or function() return true end,
 		refresh = opts.refresh,
 		awardExecutor = assert(opts.awardExecutor, "Master award executor is not initialized"),
 		itemCount = assert(opts.itemCount, "Master award item-count owner is not initialized"),
@@ -164,6 +170,8 @@ function AwardSequence.CreateController(opts)
 		multiAwardTimeoutSeconds = opts.multiAwardTimeoutSeconds,
 		multiAwardDelaySeconds = opts.multiAwardDelaySeconds,
 		createAttempt = assert(opts.createAttempt, "Master award attempt factory is not initialized"),
+		admitAward = opts.admitAward or function() return true end,
+		hasInFlight = opts.hasInFlight or function() return false end,
 		getRollSessionId = assert(opts.getRollSessionId, "Master award roll-session resolver is not initialized"),
 		getItemKey = assert(opts.getItemKey, "Master award item-key resolver is not initialized"),
 		getRaidNid = assert(opts.getRaidNid, "Master award raid resolver is not initialized"),
@@ -207,6 +215,91 @@ function AwardSequence.CreateController(opts)
 		return attempt
 	end
 
+	local function confirmMultiAttempt(self, attempt, ma, nextPosition)
+		local registered, registerReason = attempt:RunCheckpoint("sequence_register_awarded_item", function()
+			self.registerAwardedItem(1, ma.total)
+			return true
+		end)
+		if not registered then
+			return nil, registerReason
+		end
+		if ma.cancelled then
+			return true
+		end
+
+		if nextPosition ~= nil then
+			local advanced, advanceReason = attempt:RunCheckpoint("sequence_position_advance", function()
+				ma.pos = nextPosition
+				return true
+			end)
+			if not advanced then
+				return nil, advanceReason
+			end
+		end
+
+		local total = tonumber(ma.total) or (ma.winners and #ma.winners) or 0
+		local pos = tonumber(ma.pos) or 1
+		if pos > total then
+			local announced, announceReason = attempt:RunCheckpoint("sequence_completion_announce", function()
+				return announceCompletion(self, ma)
+			end)
+			if not announced then
+				return nil, announceReason
+			end
+			local timeoutCancelled, timeoutReason =
+				attempt:RunCheckpoint("sequence_cancel_progress_timeout", function()
+					cancelTimeout(self, ma)
+					ma.waitingForDecrement = false
+					return true
+				end)
+			if not timeoutCancelled then
+				return nil, timeoutReason
+			end
+			local delayCancelled, delayReason = attempt:RunCheckpoint("sequence_cancel_delay", function()
+				cancelDelay(self, ma)
+				return true
+			end)
+			if not delayCancelled then
+				return nil, delayReason
+			end
+			local cleared, clearReason = attempt:RunCheckpoint("sequence_clear_state", function()
+				ma.active = false
+				if self.lootState.multiAward == ma then
+					self.lootState.multiAward = nil
+				end
+				return true
+			end)
+			if not cleared then
+				return nil, clearReason
+			end
+			local reset, resetReason = attempt:RunCheckpoint("sequence_item_count_reset", function()
+				self.itemCount:Reset()
+				return true
+			end)
+			if not reset then
+				return nil, resetReason
+			end
+		else
+			local armed, armReason = attempt:RunCheckpoint("sequence_progress_timeout", function()
+				armProgressTimeout(self, ma)
+				return true
+			end)
+			if not armed then
+				return nil, armReason
+			end
+		end
+
+		return attempt:RunCheckpoint("sequence_refresh", function()
+			if type(self.refresh) == "function" then
+				local result = self.refresh()
+				if result == false then
+					return nil, "sequence_refresh_rejected"
+				end
+			end
+			return true
+		end)
+	end
+
 	function controller:Clear(resetItemCount)
 		local ma = self.lootState.multiAward
 		if ma then
@@ -218,6 +311,32 @@ function AwardSequence.CreateController(opts)
 		if resetItemCount then
 			self.itemCount:Reset()
 		end
+	end
+
+	function controller:CancelRemaining(reason)
+		local ma = self.lootState.multiAward
+		if not (ma and ma.active and not ma.cancelled) then
+			return false, "no_active_multi_award"
+		end
+
+		local currentAwardInFlight = self.hasInFlight() == true
+		ma.cancelled = true
+		ma.cancelReason = reason
+		ma.active = false
+		ma.waitingForDecrement = false
+		cancelTimeout(self, ma)
+		cancelDelay(self, ma)
+		if self.lootState.multiAward == ma then
+			self.lootState.multiAward = nil
+		end
+		self.itemCount:Reset()
+		if type(self.refresh) == "function" then
+			self.refresh()
+		end
+		if currentAwardInFlight then
+			return true, "current_award_in_flight"
+		end
+		return true
 	end
 
 	function controller:BuildWinners(target)
@@ -237,6 +356,10 @@ function AwardSequence.CreateController(opts)
 	end
 
 	function controller:Start(itemLink, available, winners)
+		local admitted, admissionReason = self.admitAward()
+		if not admitted then
+			return nil, admissionReason
+		end
 		if type(winners) ~= "table" or #winners <= 0 then
 			return false
 		end
@@ -277,16 +400,10 @@ function AwardSequence.CreateController(opts)
 			return nil, "loot_ban"
 		end
 
-		local effect = buildEffect(itemLink, winners[1].name, function()
-			self.registerAwardedItem(1)
-			local done = self:FinalizeIfDone()
-			if not done and self.lootState.multiAward and self.lootState.multiAward.active then
-				armProgressTimeout(self, self.lootState.multiAward)
-			end
-			if type(self.refresh) == "function" then
-				self.refresh()
-			end
-			return true
+		local multiState = self.lootState.multiAward
+		self.beginAwardSequence(#winners)
+		local effect = buildEffect(itemLink, winners[1].name, function(attempt)
+			return confirmMultiAttempt(self, attempt, multiState, nil)
 		end, function(_, reason)
 			self:Clear(true)
 			if type(self.refresh) == "function" then
@@ -296,23 +413,6 @@ function AwardSequence.CreateController(opts)
 		end)
 		self.awardExecutor.effect = effect
 		return self.awardExecutor:Assign(itemLink, winners[1].name, self.lootState.currentRollType, winners[1].roll)
-	end
-
-	function controller:FinalizeIfDone()
-		local ma = self.lootState.multiAward
-		if not ma then
-			return false
-		end
-
-		local total = tonumber(ma.total) or (ma.winners and #ma.winners) or 0
-		local pos = tonumber(ma.pos) or 1
-		if pos <= total then
-			return false
-		end
-
-		announceCompletion(self, ma)
-		self:Clear(true)
-		return true
 	end
 
 	function controller:TryMultipleCopies(itemLink, target, available)
@@ -352,6 +452,10 @@ function AwardSequence.CreateController(opts)
 	end
 
 	function controller:TrySingleCopy(itemLink, winnerName)
+		local admitted, admissionReason = self.admitAward()
+		if not admitted then
+			return nil, admissionReason
+		end
 		local selectedWinner = winnerName or self.lootState.winner
 		if not selectedWinner or selectedWinner == "" then
 			self.itemCount:Reset()
@@ -364,13 +468,30 @@ function AwardSequence.CreateController(opts)
 			return nil, "loot_ban"
 		end
 
-		local effect = buildEffect(itemLink, selectedWinner, function()
-			self.registerAwardedItem(1)
-			self.itemCount:Reset()
-			if type(self.refresh) == "function" then
-				self.refresh()
+		local effect = buildEffect(itemLink, selectedWinner, function(attempt)
+			local registered, registerReason = attempt:RunCheckpoint("single_register_awarded_item", function()
+				self.registerAwardedItem(1, 1)
+				return true
+			end)
+			if not registered then
+				return nil, registerReason
 			end
-			return true
+			local reset, resetReason = attempt:RunCheckpoint("single_item_count_reset", function()
+				self.itemCount:Reset()
+				return true
+			end)
+			if not reset then
+				return nil, resetReason
+			end
+			return attempt:RunCheckpoint("single_refresh", function()
+				if type(self.refresh) == "function" then
+					local result = self.refresh()
+					if result == false then
+						return nil, "single_refresh_rejected"
+					end
+				end
+				return true
+			end)
 		end, function(_, reason)
 			self.itemCount:Reset()
 			if type(self.refresh) == "function" then
@@ -379,13 +500,16 @@ function AwardSequence.CreateController(opts)
 			return reason ~= nil
 		end)
 		self.awardExecutor.effect = effect
-		local result = self.awardExecutor:Assign(
+		local result, reason = self.awardExecutor:Assign(
 			itemLink,
 			selectedWinner,
 			self.lootState.currentRollType,
 			findWinnerRoll(self, selectedWinner)
 		)
-		return result and true or false
+		if result then
+			return true
+		end
+		return result, reason
 	end
 
 	function controller:ContinueOnLootSlotCleared(clearedSlot)
@@ -455,6 +579,14 @@ function AwardSequence.CreateController(opts)
 				end
 				return nil, "loot_ban"
 			end
+			local admitted, admissionReason = self.admitAward()
+			if not admitted then
+				self:Clear(true)
+				if type(self.refresh) == "function" then
+					self.refresh()
+				end
+				return nil, admissionReason
+			end
 
 			ma2.currentWinner = e2.name
 			self.lootState.currentRollType = ma2.rollType
@@ -462,17 +594,8 @@ function AwardSequence.CreateController(opts)
 				self.refresh()
 			end
 
-			local effect = buildEffect(ma2.itemLink, e2.name, function()
-				self.registerAwardedItem(1)
-				ma2.pos = idx2 + 1
-				local done = self:FinalizeIfDone()
-				if not done and self.lootState.multiAward and self.lootState.multiAward.active then
-					armProgressTimeout(self, self.lootState.multiAward)
-				end
-				if type(self.refresh) == "function" then
-					self.refresh()
-				end
-				return true
+			local effect = buildEffect(ma2.itemLink, e2.name, function(attempt)
+				return confirmMultiAttempt(self, attempt, ma2, idx2 + 1)
 			end, function(_, reason)
 				self:Clear(true)
 				if type(self.refresh) == "function" then

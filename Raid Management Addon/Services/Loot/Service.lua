@@ -913,6 +913,29 @@ do
 		notifyRaidLootUpdate(currentRaidId, loot)
 		return true
 	end
+
+	local function applyAuthoritativeProvisional(award, authoritative)
+		local _, raid = resolveRaidRecord()
+		if not (raid and type(raid.loot) == "table") then
+			return
+		end
+		for i = 1, #raid.loot do
+			local row = raid.loot[i]
+			if row and tonumber(row.lootNid) == tonumber(award.recordIndex) then
+				row.source = "CHAT_MSG_LOOT"
+				if type(authoritative) == "table" then
+					row.itemCount = tonumber(authoritative.itemCount) or row.itemCount
+					row.itemName = authoritative.itemName or row.itemName
+					row.itemRarity = authoritative.itemRarity or row.itemRarity
+					row.itemTexture = authoritative.itemTexture or row.itemTexture
+					row.itemString = authoritative.itemString or row.itemString
+				end
+				notifyRaidLootUpdate(Database.GetCurrentRaid(), row)
+				return
+			end
+		end
+	end
+
 	-- Adds a loot item to the active raid log.
 	function module:AddLoot(msg, rollType, rollValue, parsedGroupLoot)
 		local player
@@ -951,6 +974,19 @@ do
 		local passiveGroupLoot = PassiveGroupLoot.IsPassiveGroupLootMethod()
 		local isPassiveWinnerMessage = isParsedGroupLootResult(parsedGroupLoot, msg, "winner")
 			or PassiveGroupLoot.IsPassiveLootWinnerMessage(msg)
+		local authoritative = {
+			itemCount = itemCount,
+			itemName = itemName,
+			itemRarity = itemRarity,
+			itemTexture = itemTexture,
+			itemString = itemString,
+		}
+		if
+			not passiveGroupLoot
+			and LootAttribution.StageAuthoritative(itemLink, player, authoritative, applyAuthoritativeProvisional)
+		then
+			return
+		end
 		local rollSessionId
 		local rollOutcome
 		rollType, rollValue, rollSessionId, rollOutcome =
@@ -1229,29 +1265,19 @@ do
 		return LootAttribution.Add(itemLink, looter, rollType, rollValue, rollSessionId, expiresAt, options)
 	end
 
+	function module:CancelPendingAward(transactionId)
+		local resolvedTransactionId = transactionId and tostring(transactionId) or ""
+		if resolvedTransactionId == "" then
+			return false
+		end
+		return LootAttribution.Cancel(resolvedTransactionId)
+	end
+
 	function module:ReconcileProvisionalAward(itemLink, looter, rollSessionId, authoritative)
 		local pending = LootAttribution.ReconcileProvisional(itemLink, looter, rollSessionId, nil, function(handle)
 			return module:CancelTimer(handle)
 		end, function(award)
-			local _, raid = resolveRaidRecord()
-			if not (raid and type(raid.loot) == "table") then
-				return
-			end
-			for i = 1, #raid.loot do
-				local row = raid.loot[i]
-				if row and tonumber(row.lootNid) == tonumber(award.recordIndex) then
-					row.source = "CHAT_MSG_LOOT"
-					if type(authoritative) == "table" then
-						row.itemCount = tonumber(authoritative.itemCount) or row.itemCount
-						row.itemName = authoritative.itemName or row.itemName
-						row.itemRarity = authoritative.itemRarity or row.itemRarity
-						row.itemTexture = authoritative.itemTexture or row.itemTexture
-						row.itemString = authoritative.itemString or row.itemString
-					end
-					notifyRaidLootUpdate(Database.GetCurrentRaid(), row)
-					return
-				end
-			end
+			applyAuthoritativeProvisional(award, authoritative)
 		end)
 		return pending ~= nil
 	end
@@ -1301,10 +1327,11 @@ do
 
 		lootState.currentItemIndex = findTrackedLootItemIndex(oldItem) or 1
 		self:PrepareItem()
-		local distributionRevision = DistributionSession.BeginWindow()
-		DistributionSession.PublishWindowItems(buildDistributionWindowItems(), distributionRevision)
+		local distributionItems = buildDistributionWindowItems()
+		local distributionRevision, publicationReason = DistributionSession.BeginWindow(#distributionItems)
+		local publicationOk
 		if distributionRevision then
-			DistributionSession.EndWindow(distributionRevision)
+			publicationOk, publicationReason = DistributionSession.PublishWindowItems(distributionItems, distributionRevision)
 		end
 		if addon.hasTrace then
 			addon:trace(Diag.D.LogLootFetchDone:format(lootState.lootCount or 0, lootState.currentItemIndex or 0))
@@ -1316,6 +1343,10 @@ do
 				"slots=" .. tostring(lootItemCount) .. " items=" .. tostring(lootState.lootCount or 0)
 			)
 		end
+		if not distributionRevision or publicationOk ~= true then
+			return nil, publicationReason or "distribution_publication_failed"
+		end
+		return true
 	end
 
 	-- Adds an item to the loot table.

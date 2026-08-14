@@ -265,6 +265,10 @@ do
 		Sessions.CloseRollSession(getSessionsContext())
 	end
 
+	local function freezeRollSession()
+		return Sessions.FreezeRollSession(getSessionsContext())
+	end
+
 	local function getExpectedWinnerCount()
 		return Sessions.GetExpectedWinnerCount(getSessionsContext())
 	end
@@ -677,6 +681,19 @@ do
 	-- `resolution` table is a stable part of this API, not an internal detail.
 	function module:GetDisplayModel()
 		return Display.BuildModel(getDisplayContext())
+	end
+
+	function module:FreezeRollIntake(reason)
+		local session = getRollSession()
+		if not session or session.active ~= true then
+			return nil, "no_active_roll_session"
+		end
+
+		finishRollIntake()
+		Countdown.Stop(state)
+		freezeRollSession()
+		local model = Display.BuildModel(getDisplayContext())
+		return model, reason or "frozen"
 	end
 
 	function module:GetRollSession()

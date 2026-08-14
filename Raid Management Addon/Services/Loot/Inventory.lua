@@ -6,7 +6,6 @@
 -- notes: Inventory and awarded-count helpers for loot trade flows
 
 local addon = select(2, ...)
-local Database = addon.Database
 local Services = addon.Services
 -- ----- Internal state ----- --
 
@@ -20,8 +19,6 @@ local GetContainerItemLink =
 local GetContainerItemInfo =
 	assert(_G.GetContainerItemInfo, "Loot inventory container item info API is not initialized")
 
-local debugDiag = addon.Diag and addon.Diag.D or {}
-local _, lootState, itemInfo = Database.EnsureLootRuntimeState()
 local Item = addon.Item
 
 addon.Services.EnsureNamespace("Loot")
@@ -31,7 +28,41 @@ local Inventory = Loot.Inventory
 
 -- ----- Private helpers ----- --
 
-local type, tonumber, tostring = type, tonumber, tostring
+local type, tonumber = type, tonumber
+local strlower = string.lower
+
+local function normalizePartner(name)
+	if type(name) ~= "string" or name == "" then
+		return nil
+	end
+	return strlower((name:gsub("%s*%-[^%-]+$", "")))
+end
+
+local function itemMatches(link, wantedKey, wantedId)
+	if not link then
+		return false
+	end
+	local key = Item.GetItemStringFromLink(link)
+	if wantedKey and key then
+		return wantedKey == key
+	end
+	local itemId = Item.GetItemIdFromLink(link)
+	return wantedId ~= nil and itemId ~= nil and wantedId == itemId
+end
+
+local function countOwnedItem(wantedKey, wantedId)
+	local total = 0
+	for bag = 0, 4 do
+		for slot = 1, GetContainerNumSlots(bag) do
+			local link = GetContainerItemLink(bag, slot)
+			if itemMatches(link, wantedKey, wantedId) then
+				local _, count = GetContainerItemInfo(bag, slot)
+				total = total + (tonumber(count) or 1)
+			end
+		end
+	end
+	return total
+end
 
 -- ----- Public methods ----- --
 
@@ -45,6 +76,29 @@ function Inventory.FindLootSlotIndex(itemLink)
 		end
 	end
 	return nil
+end
+
+function Inventory.ValidateLootSlot(slot, itemLink)
+	local current = GetLootSlotLink(tonumber(slot) or 0)
+	if not current then
+		return nil, "loot_slot_missing"
+	end
+
+	local wantedKey = Item.GetItemStringFromLink(itemLink)
+	local currentKey = Item.GetItemStringFromLink(current)
+	if wantedKey and currentKey then
+		if wantedKey == currentKey then
+			return true
+		end
+		return nil, "loot_slot_changed"
+	end
+
+	local wantedId = Item.GetItemIdFromLink(itemLink)
+	local currentId = Item.GetItemIdFromLink(current)
+	if wantedId and currentId and wantedId == currentId then
+		return true
+	end
+	return nil, "loot_slot_changed"
 end
 
 function Inventory.LootLinkMatchesTarget(slotLink, itemLink, wantedKey, wantedId)
@@ -155,55 +209,80 @@ function Inventory.ResolveTradeableInventoryItem(itemLink, cachedBag, cachedSlot
 	}
 end
 
-function Inventory.ResolveTradeAwardedCount()
-	local selected = tonumber(lootState.selectedItemCount) or 1
-	if selected < 1 then
-		selected = 1
+function Inventory.CaptureTradeEvidence(itemLink, bagId, slotId)
+	local itemKey = Item.GetItemStringFromLink(itemLink)
+	local itemId = Item.GetItemIdFromLink(itemLink)
+	if not itemKey and not itemId then
+		return nil, "trade_item_invalid"
 	end
 
-	local before = tonumber(itemInfo.tradeStartCount)
-	local after = nil
-	local source = "fallback"
-	local awarded = 1
-
-	local bag = tonumber(itemInfo.tradeStartBag) or tonumber(itemInfo.bagID)
-	local slot = tonumber(itemInfo.tradeStartSlot) or tonumber(itemInfo.slotID)
-	if bag and slot and before and before > 0 then
-		local currentIndex = tonumber(lootState.currentItemIndex) or 1
-		local expectedLink = itemInfo.tradeStartItemLink
-			or lootState.tradeItemLink
-			or (Loot.GetItemLink and Loot.GetItemLink(currentIndex))
-		local expectedKey = expectedLink and (Item.GetItemStringFromLink(expectedLink) or expectedLink) or nil
-		local afterLink = GetContainerItemLink(bag, slot)
-		if not afterLink then
-			after = 0
-		else
-			local afterKey = Item.GetItemStringFromLink(afterLink) or afterLink
-			if expectedKey and afterKey == expectedKey then
-				local _, count = GetContainerItemInfo(bag, slot)
-				after = tonumber(count) or 1
-			else
-				after = 0
+	local bag = tonumber(bagId)
+	local slot = tonumber(slotId)
+	if bag == nil or slot == nil then
+		for candidateBag = 0, 4 do
+			for candidateSlot = 1, GetContainerNumSlots(candidateBag) do
+				if itemMatches(GetContainerItemLink(candidateBag, candidateSlot), itemKey, itemId) then
+					bag = candidateBag
+					slot = candidateSlot
+					break
+				end
+			end
+			if bag ~= nil then
+				break
 			end
 		end
-
-		local delta = before - (after or 0)
-		if delta > 0 then
-			awarded = delta
-			source = "delta"
-		end
+	end
+	if bag == nil or slot == nil then
+		return nil, "trade_item_missing"
 	end
 
-	if awarded < 1 then
-		awarded = 1
+	local sourceLink = GetContainerItemLink(bag, slot)
+	if not itemMatches(sourceLink, itemKey, itemId) then
+		return nil, "trade_item_changed"
+	end
+	local _, sourceCount = GetContainerItemInfo(bag, slot)
+	return {
+		itemLink = itemLink,
+		itemKey = itemKey,
+		itemId = itemId,
+		bagId = bag,
+		slotId = slot,
+		sourceLink = sourceLink,
+		sourceCount = tonumber(sourceCount) or 1,
+		totalCount = countOwnedItem(itemKey, itemId),
+	}
+end
+
+function Inventory.VerifyTradeEvidence(evidence, partnerName)
+	if type(evidence) ~= "table" then
+		return nil, "trade_evidence_missing"
+	end
+	local expectedPartner = normalizePartner(evidence.expectedPartner)
+	local actualPartner = normalizePartner(partnerName or evidence.actualPartner)
+	if not actualPartner then
+		return nil, "trade_partner_unavailable"
+	end
+	if expectedPartner and actualPartner ~= expectedPartner then
+		return nil, "trade_partner_changed"
 	end
 
-	if addon.hasDebug then
-		addon:debug(
-			debugDiag.LogTradeAwardedCountResolved:format(awarded, source, tostring(before), tostring(after), selected)
-		)
+	local currentLink = GetContainerItemLink(evidence.bagId, evidence.slotId)
+	local sourceAfter = 0
+	if itemMatches(currentLink, evidence.itemKey, evidence.itemId) then
+		local _, currentCount = GetContainerItemInfo(evidence.bagId, evidence.slotId)
+		sourceAfter = tonumber(currentCount) or 1
 	end
-	return awarded
+	local sourceDelta = (tonumber(evidence.sourceCount) or 0) - sourceAfter
+	local totalAfter = countOwnedItem(evidence.itemKey, evidence.itemId)
+	local totalDelta = (tonumber(evidence.totalCount) or 0) - totalAfter
+	local awardedCount = sourceDelta
+	if totalDelta > awardedCount then
+		awardedCount = totalDelta
+	end
+	if awardedCount > 0 then
+		return true, awardedCount
+	end
+	return nil, "trade_transfer_unverified"
 end
 
 function Inventory.ResolveInventoryAwardedCount(selectedItemCount, fromInventory)

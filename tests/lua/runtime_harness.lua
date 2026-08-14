@@ -715,7 +715,1114 @@ local function installRaidCreationFixture(addon, failureMode)
 	return fixture, raid
 end
 
+local function installLootHardeningRollsFixture(addon)
+	local lootState = {
+		lootCount = 1,
+		rollsCount = 0,
+		selectedItemCount = 1,
+		currentRollType = 4,
+		currentRollItem = 1,
+		fromInventory = false,
+	}
+	local scheduled = {}
+	local now = 10
+
+	_G.GetTime = function()
+		return now
+	end
+	_G.table.wipe = _G.table.wipe or function(target)
+		for key in pairs(target) do
+			target[key] = nil
+		end
+		return target
+	end
+
+	addon.C = {
+		rollTypes = { MAINSPEC = 1, OFFSPEC = 2, RESERVED = 3, FREE = 4, MANUAL = 5 },
+	}
+	addon.L = setmetatable({}, {
+		__index = function(_, key)
+			return key .. " %s %s %s %s %s %s"
+		end,
+	})
+	addon.L.ChatCountdownTic = "%d"
+	addon.L.ChatCountdownEnd = "end"
+	addon.Diag = { D = setmetatable({}, { __index = function() return "%s %s %s %s %s %s" end }) }
+	addon.Diag.W = setmetatable({}, { __index = function() return "%s %s %s %s %s %s" end })
+	addon.Options = {
+		RegisterNamespace = function() end,
+		GetValue = function(_, key)
+			if key == "countdownRollsBlock" then
+				return false
+			end
+			return false
+		end,
+		IsDebugEnabled = function()
+			return false
+		end,
+	}
+	addon.Database = {
+		EnsureLootRuntimeState = function()
+			return {}, lootState
+		end,
+		GetItemIndex = function()
+			return 1
+		end,
+		GetCurrentRaid = function()
+			return 1
+		end,
+		GetPlayerName = function()
+			return "Tester"
+		end,
+	}
+	addon.Item = {
+		GetItemIdFromLink = function()
+			return 19019
+		end,
+		GetItemStringFromLink = function()
+			return "item:19019"
+		end,
+	}
+	addon.Strings = {
+		NormalizeName = function(name)
+			return name
+		end,
+		NormalizeLower = function(name)
+			return name and string.lower(name) or nil
+		end,
+	}
+	addon.Deformat = function(message)
+		local player, roll = string.match(message or "", "^(%S+) (%d+)$")
+		return player, tonumber(roll), 1, 100
+	end
+	addon.Comms = { SendWhisper = function() end }
+	addon.Events = { Internal = { AddRoll = "AddRoll" } }
+	addon.Bus = { TriggerEvent = function() end }
+	addon.Services = {
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+			return addon.Services[name]
+		end,
+		Chat = { Announce = function() end },
+		Loot = {
+			GetItem = function()
+				return { itemLink = "|cffa335ee|Hitem:19019:0:0:0:0:0:0:0|h[Test Item]|h|r" }
+			end,
+			GetCurrentItemCount = function()
+				return 1
+			end,
+		},
+		Raid = {
+			LootBans = {
+				IsActive = function() return false end,
+				Get = function() return false end,
+			},
+			GetUnitID = function(_, name)
+				return name and "raid1" or "none"
+			end,
+			GetPlayerClass = function()
+				return "WARRIOR"
+			end,
+		},
+	}
+	addon.Timer = {
+		BindMixin = function(target)
+			function target:ScheduleRepeatingTimer(callback)
+				local handle = { callback = callback, repeating = true }
+				scheduled[#scheduled + 1] = handle
+				return handle
+			end
+			function target:ScheduleTimer(callback)
+				local handle = { callback = callback }
+				scheduled[#scheduled + 1] = handle
+				return handle
+			end
+			function target:CancelTimer(handle)
+				handle.cancelled = true
+			end
+		end,
+	}
+	addon.info = function() end
+	addon.debug = function() end
+
+	loadAddonFile(addon, "Raid Management Addon/Services/Rolls/Countdown.lua")
+	loadAddonFile(addon, "Raid Management Addon/Services/Rolls/Sessions.lua")
+	loadAddonFile(addon, "Raid Management Addon/Services/Rolls/History.lua")
+	loadAddonFile(addon, "Raid Management Addon/Services/Rolls/Responses.lua")
+	loadAddonFile(addon, "Raid Management Addon/Services/Rolls/Strategies.lua")
+	loadAddonFile(addon, "Raid Management Addon/Services/Rolls/Resolution.lua")
+	loadAddonFile(addon, "Raid Management Addon/Services/Rolls/Display.lua")
+	loadAddonFile(addon, "Raid Management Addon/Services/Rolls/Service.lua")
+
+	return addon.Services.Rolls, lootState, scheduled
+end
+
+local function installLootHardeningMasterFixture(addon, options)
+	options = options or {}
+	local fixture = {
+		attempts = 0,
+		assignments = 0,
+		timers = 0,
+		timerCallbacks = {},
+		distributionCalls = 0,
+		counterCalls = 0,
+		refreshCalls = 0,
+		cancelledTimerHandles = {},
+		candidateScans = 0,
+		lootCountScans = 0,
+	}
+	local lootState = {
+		lootCount = 1,
+		opened = true,
+		rollsCount = 1,
+		selectedItemCount = 1,
+		currentRollType = 4,
+		fromInventory = false,
+		holder = "Winner",
+		winner = "Winner",
+	}
+	local noop = function() end
+	local dummyController = setmetatable({}, { __index = function() return noop end })
+	local frameApi = {
+		GetRef = function() return nil end,
+		SetScriptSafely = noop,
+		BindModuleFrame = function() return "RMAMaster" end,
+		MakeModuleFrameGetter = function() return function() return nil end end,
+		SetFrameTitle = noop,
+	}
+
+	_G.table.wipe = _G.table.wipe or function(target) for key in pairs(target) do target[key] = nil end return target end
+	_G.CreateFrame = function() return setmetatable({}, { __index = function() return noop end }) end
+	_G.UnitName = function() return "Tester" end
+	_G.GetMasterLootCandidate = function() return "Winner" end
+	_G.GetRaidRosterInfo = function() return "Winner", 0, 1, 80, "Warrior", "WARRIOR" end
+	_G.GetLootSlotInfo = function() return nil, "Test Item", 1, 4 end
+	_G.GiveMasterLoot = function()
+		fixture.assignments = fixture.assignments + 1
+		if fixture.throwGiveMasterLoot then
+			error("GiveMasterLoot exploded")
+		end
+		if fixture.rejectGiveMasterLoot then
+			return false
+		end
+	end
+	_G.UIDropDownMenu_AddButton = noop
+	_G.UIDropDownMenu_CreateInfo = function() return {} end
+	_G.UIDropDownMenu_Initialize = noop
+	_G.UIDropDownMenu_JustifyText = noop
+	_G.UIDropDownMenu_SetButtonWidth = noop
+	_G.UIDropDownMenu_SetSelectedValue = noop
+	_G.UIDropDownMenu_SetText = noop
+	_G.UIDropDownMenu_SetWidth = noop
+	_G.ClearCursor = noop
+	_G.CursorHasItem = function() return false end
+	_G.GetCursorInfo = noop
+	_G.GetContainerItemInfo = noop
+	_G.GetContainerItemLink = noop
+	_G.InitiateTrade = noop
+	_G.PickupContainerItem = noop
+	_G.SetRaidTarget = noop
+	_G.CheckInteractDistance = function() return true end
+
+	addon.L = setmetatable({}, { __index = function(_, key) return key .. " %s %s %s %s %s %s" end })
+	addon.L.WarnMLAwardConfirmationUncertain = "uncertain %s %s %s"
+	addon.L.WarnMLAwardConfirmationUnresolved = "unresolved %s %s"
+	addon.L.ErrMLWinnerLootBanned = "banned %s"
+	addon.L.ErrMLWinnerLootBannedWithNote = "banned %s %s"
+	addon.L.WarnMLWinnerNoCandidate = "no candidate %s"
+	addon.L.ChatAward = "%s won %s"
+	addon.L.ChatAwardMutiple = "%s won %s"
+	addon.Diag = {
+		D = setmetatable({}, { __index = function() return "%s %s %s %s %s %s" end }),
+		E = setmetatable({}, { __index = function() return "%s %s %s %s %s %s" end }),
+		I = setmetatable({}, { __index = function() return "%s %s %s %s %s %s" end }),
+		W = setmetatable({}, { __index = function() return "%s %s %s %s %s %s" end }),
+	}
+	addon.EntryPoints = { Debug = { RegisterCommand = noop } }
+	addon.UI = {
+		Frames = frameApi,
+		Tooltips = { Bind = noop, Hide = noop },
+		Lists = {
+			CreateController = function() return dummyController end,
+			CreateRowRenderer = function() return noop end,
+			MakeIndexedRowName = function() return "Row" end,
+		},
+		Primitives = setmetatable({}, { __index = function() return noop end }),
+		Rows = setmetatable({}, { __index = function() return noop end }),
+		Popups = { Define = function() return true end, IsDefined = function() return true end, Show = noop, ShowConfirm = noop },
+		ModuleState = { Ensure = function() return {} end },
+		Scaffold = { DefineModule = noop },
+		EditBoxes = { SetValue = noop },
+	}
+	addon.Item = { GetItemStringFromLink = function() return "item:19019" end }
+	addon.UnitIterator = function() return function() return nil end end
+	addon.Colors = {}
+	addon.Comms = { SendWhisper = function()
+		fixture.whisperCalls = (fixture.whisperCalls or 0) + 1
+		return true
+	end }
+	addon.Events = {
+		Internal = setmetatable({}, { __index = function(_, key) return key end }),
+		ResolveWowForwardedName = function(name) return name end,
+	}
+	addon.C = setmetatable({
+		rollTypes = { MAINSPEC = 1, OFFSPEC = 2, RESERVED = 3, FREE = 4, MANUAL = 5, HOLD = 6, BANK = 7, DISENCHANT = 8 },
+		ML_AWARD_CONFIRM_TIMEOUT_SECONDS = 4,
+		ML_MULTI_AWARD_TIMEOUT_SECONDS = 4,
+		ML_MULTI_AWARD_DELAY = 0,
+	}, { __index = function() return 30 end })
+	addon.Database = {
+		EnsureLootRuntimeState = function() return {}, lootState, {} end,
+		RequireServiceMethod = function(_, owner, method)
+			return function(target, ...)
+				return owner[method](target, ...)
+			end
+		end,
+		GetCurrentRaid = function() return 1 end,
+		GetPlayerName = function() return "Tester" end,
+		GetRaidStore = function() return { EnsureRaidByIndex = function() return {} end } end,
+	}
+	addon.Options = {
+		IsDebugEnabled = function() return false end,
+		RegisterNamespace = noop,
+		GetValue = function(_, key) return key == "announceOnWin" and fixture.announceOnWin == true end,
+	}
+	addon.Bus = { TriggerEvent = noop, RegisterCallback = noop }
+	addon.Controllers = { Logger = {}, Config = {} }
+	addon.Widgets = {
+		RaidGrid = { Hide = noop },
+		LootHints = { ApplyLootFrameReserveHints = noop, ClearLootFrameReserveHints = noop },
+		TradeMenu = setmetatable({}, { __index = function() return noop end }),
+		ItemSelection = { CreateController = function() return dummyController end },
+	}
+	addon.Timer = {
+		BindMixin = function(target)
+			function target:ScheduleTimer(callback)
+				if fixture.throwNextSchedule then
+					fixture.throwNextSchedule = false
+					error("schedule exploded")
+				end
+				if fixture.nilNextSchedule then
+					fixture.nilNextSchedule = false
+					return nil
+				end
+				fixture.timers = fixture.timers + 1
+				fixture.timerCallbacks[#fixture.timerCallbacks + 1] = callback
+				return callback
+			end
+			function target:CancelTimer(handle)
+				fixture.cancelledTimerHandles[#fixture.cancelledTimerHandles + 1] = handle
+			end
+		end,
+	}
+	addon.warn = noop
+	addon.info = noop
+	addon.debug = noop
+	addon.error = noop
+	addon.Services = {
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+			return addon.Services[name]
+		end,
+		Chat = { Announce = function()
+			fixture.announcementCalls = (fixture.announcementCalls or 0) + 1
+			if fixture.throwAnnouncement then error("announcement exploded") end
+			if fixture.rejectAnnouncement then return nil, "send_failed" end
+			return true
+		end },
+		Logger = { Actions = {} },
+		Loot = {
+			DistributionSession = {
+				PublishItemDone = function()
+					fixture.distributionCalls = fixture.distributionCalls + 1
+					return fixture.rejectDistribution ~= true
+				end,
+				PublishItemCancelled = function() fixture.cancelledPublications = (fixture.cancelledPublications or 0) + 1 return true end,
+				PublishRollEnd = function()
+					fixture.rollEndCalls = (fixture.rollEndCalls or 0) + 1
+					return fixture.rejectRollEnd ~= true
+				end,
+			},
+			Inventory = {
+				FindLootSlotIndex = function() return 1 end,
+				ValidateLootSlot = function()
+					if fixture.slotValidationResult == nil and fixture.slotValidationReason then
+						return nil, fixture.slotValidationReason
+					end
+					return true
+				end,
+				BuildMultiAwardSlotCandidates = function()
+					fixture.candidateScans = fixture.candidateScans + 1
+					return { 1 }, { [1] = true }
+				end,
+			},
+			AwardPlanner = {
+				BuildAwardTargetPlan = function() return { target = 1, available = 1 } end,
+				BuildMultiAwardWinnersPlan = function(opts) return { winners = opts.pickedWinners } end,
+				BuildMultiAwardState = function(opts)
+					return { state = { active = true, itemLink = opts.itemLink, winners = opts.winners, total = #opts.winners, pos = 2, rollType = opts.rollType, itemKey = "item:19019", lastCount = opts.available, announceOnWin = opts.announceOnWin } }
+				end,
+			},
+			LootAttribution = {
+				ConfirmProvisional = function() return true end,
+				IsMasterLootAwardFailureMessage = function(message)
+					return message == "Inventory is full"
+				end,
+			},
+			GetItemLink = function() return "item:19019" end,
+			GetCurrentItemCount = function() return 1 end,
+			FetchLoot = function() fixture.fetchCalls = (fixture.fetchCalls or 0) + 1 end,
+			GetLootWindowItemCountByKey = function()
+				fixture.lootCountScans = fixture.lootCountScans + 1
+				return fixture.windowItemCount or 1
+			end,
+			AddPendingAward = function(_, _, _, _, _, _, _, options)
+				fixture.pendingAttributions = fixture.pendingAttributions or {}
+				fixture.pendingAttributions[tostring(options and options.transactionId)] = true
+			end,
+			CancelPendingAward = function(_, transactionId)
+				local key = tostring(transactionId or "")
+				if key == "" or not (fixture.pendingAttributions and fixture.pendingAttributions[key]) then
+					return false
+				end
+				fixture.pendingAttributions[key] = nil
+				fixture.cancelledTransactions = fixture.cancelledTransactions or {}
+				fixture.cancelledTransactions[#fixture.cancelledTransactions + 1] = key
+				return true
+			end,
+		},
+		Raid = {
+			LootBans = { Get = function()
+				fixture.lootBanChecks = (fixture.lootBanChecks or 0) + 1
+				return fixture.lootBanAtCheck == fixture.lootBanChecks, "changed ban"
+			end },
+			Debug = {},
+			AddPlayerCountForRollType = function()
+				fixture.counterCalls = fixture.counterCalls + 1
+				return fixture.rejectCounter ~= true
+			end,
+			GetRosterVersion = function() return 1 end,
+			RequestMasterLootCandidateRefresh = noop,
+			FindMasterLootCandidateIndex = function()
+				if fixture.candidateUnavailable then return nil end
+				return 1
+			end,
+			CanResolveMasterLootCandidates = function() return true end,
+			CanUseCapability = function() return true end,
+			EnsureMasterOnlyAccess = function() return true end,
+			IsMasterLooter = function() return fixture.permissionDenied ~= true end,
+		},
+		Rolls = {
+			GetRollSession = function() return { id = "RS:1" } end,
+			GetDisplayModel = function() return { resolution = {}, requiredWinnerCount = 1, winner = "Winner", rows = { { name = "Winner", roll = 90 } } } end,
+			BeginTieReroll = function() return false end,
+			IsCountdownRunning = function() return false end,
+			StopCountdown = noop,
+			ShouldUseTieReroll = function() return false end,
+			FreezeRollIntake = function() return { resolution = {}, requiredWinnerCount = 1, winner = "Winner", rollWinner = "Winner" }, "award" end,
+			GetHighestRoll = function() return 90 end,
+			ValidateWinner = function()
+				return fixture.winnerIneligible and { ok = false, warnMessage = "ineligible" } or { ok = true }
+			end,
+			EnsureLootRollSession = function() return { id = "RS:1" } end,
+			ClearRolls = function() fixture.rollClearCalls = (fixture.rollClearCalls or 0) + 1 end,
+			SetRollRecordingEnabled = noop,
+			SetExpectedWinners = noop,
+			FinalizeRollSession = noop,
+		},
+	}
+	if options.realLootFlow then
+		fixture.raid = { loot = {} }
+		lootState.pendingAwards = {}
+		lootState.lootCount = 0
+		lootState.currentItemIndex = 0
+		addon.C.itemColors = { [5] = "ffff8000" }
+		addon.C.RESERVES_ITEM_FALLBACK_ICON = "texture"
+		_G.GetLootThreshold = function() return 2 end
+		_G.GetNumLootItems = function() return 0 end
+		_G.GetTime = function() return 10 end
+		_G.GetItemInfo = function()
+			return "Thunderfury", nil, 5, nil, nil, "Weapon", nil, nil, nil, "texture"
+		end
+		addon.Deformat = function() return nil end
+		addon.Strings = { NormalizeName = function(value) return value end }
+		addon.Time = { GetCurrentTime = function() return 10 end }
+		addon.Item.GetItemIdFromLink = function() return 19019 end
+		addon.Item.GetItemKey = function() return "item:19019" end
+		addon.Options.NormalizeLoggerLootQualityThreshold = function(value) return tonumber(value) or 2 end
+		addon.Database.EnsureLootRuntimeState = function() return {}, lootState, {}, {} end
+		addon.Database.GetRaidQueries = function()
+			return { ResolveLootLooterName = function() return "Winner" end }
+		end
+		addon.Database.GetRaidStore = function()
+			return {
+				EnsureRaidByIndex = function() return fixture.raid end,
+				UpsertLootIndex = function() return true end,
+			}
+		end
+		addon.Services.Raid.EnsureRaidPlayerNid = function(_, name) return 1, name end
+		addon.Services.Raid.FindOrCreateBossNidForLoot = function() return 1 end
+		addon.Services.Raid.GetActiveLootSource = function() return nil end
+		local noopLootOwner = setmetatable({}, { __index = function() return function() end end })
+		addon.Services.Loot._PassiveGroupLoot = setmetatable({
+			IsPassiveGroupLootMethod = function() return false end,
+			IsPassiveLootWinnerMessage = function() return false end,
+			ParseGroupLootWinner = function() return nil end,
+			GetPassiveLootRollItemKey = function(link) return link end,
+		}, getmetatable(noopLootOwner))
+		addon.Services.Loot._Tracking = noopLootOwner
+		addon.Services.Loot._Workflow = setmetatable({
+			QueueAward = function() end,
+			RecordReceipt = function() end,
+			BeginLootWindow = function() end,
+			SelectItem = function() end,
+		}, getmetatable(noopLootOwner))
+		addon.Services.Loot._Recording = setmetatable({
+			FindTradeOnlyFallback = function() return nil end,
+			Append = function(raid, row)
+				row.lootNid = #raid.loot + 1
+				raid.loot[#raid.loot + 1] = row
+				return row, row.lootNid, #raid.loot
+			end,
+		}, getmetatable(noopLootOwner))
+		addon.Services.Loot._Rules = {
+			_IsIgnoredItem = function() return false end,
+			GetItemSuggestion = function() return nil end,
+		}
+		addon.Services.Loot._Context = { ResolveRaidRecord = function() return 1, fixture.raid end }
+		addon.Services.Loot.DistributionSession.BeginWindow = function() return 1 end
+		addon.Services.Loot.DistributionSession.PublishWindowItems = function() return true end
+		loadAddonFile(addon, "Raid Management Addon/Services/Loot/LootAttribution.lua")
+		local addAttribution = addon.Services.Loot.LootAttribution.Add
+		addon.Services.Loot.LootAttribution.Add = function(...)
+			fixture.realAttributionAddCalls = (fixture.realAttributionAddCalls or 0) + 1
+			return addAttribution(...)
+		end
+		local confirmProvisional = addon.Services.Loot.LootAttribution.ConfirmProvisional
+		addon.Services.Loot.LootAttribution.ConfirmProvisional = function(...)
+			fixture.realProvisionalConfirmCalls = (fixture.realProvisionalConfirmCalls or 0) + 1
+			return confirmProvisional(...)
+		end
+		loadAddonFile(addon, "Raid Management Addon/Services/Loot/Service.lua")
+		fixture.loot = addon.Services.Loot
+		fixture.loot:AddItem("item:19019", 1, "Thunderfury", 5, "texture")
+		fixture.loot:SelectItem(1)
+		fixture.realLootSetupTimers = fixture.timers
+		local addPendingAward = fixture.loot.AddPendingAward
+		function fixture.loot:AddPendingAward(itemLink, looter, ...)
+			fixture.realAddPendingCalls = (fixture.realAddPendingCalls or 0) + 1
+			fixture.realAddPendingItem, fixture.realAddPendingWinner = itemLink, looter
+			return addPendingAward(self, itemLink, looter, ...)
+		end
+	end
+	addon.Services.Master = {}
+	loadAddonFile(addon, "Raid Management Addon/Services/Master/AwardConfirmation.lua")
+	loadAddonFile(addon, "Raid Management Addon/Services/Master/AwardAttempt.lua")
+	local createExecuting = addon.Services.Master.AwardAttempt.CreateExecuting
+	addon.Services.Master.AwardAttempt.CreateExecuting = function(opts)
+		fixture.attempts = fixture.attempts + 1
+		local attempt = createExecuting(opts)
+		fixture.lastAttempt = attempt
+		return attempt
+	end
+	addon.Services.Master.RollSelection = {
+		Mode = { AUTO = "AUTO" },
+		CreateController = function()
+			return {
+				BuildModel = function() return addon.Services.Rolls:GetDisplayModel() end,
+				GetSelectedCount = function() return 0 end,
+				GetSelectedWinnersOrdered = function() return {} end,
+				ResetSelection = noop,
+				ClearAnchor = noop,
+				CopyVisibleRows = function() return {} end,
+				GetFocusedRowId = function() return nil end,
+			}
+		end,
+	}
+	addon.Services.Master.Assignment = { BuildCandidateRows = function() return {} end }
+	addon.Services.Master.Messages = { BuildAssignMessages = function() return "award output", "award whisper" end }
+	addon.Services.Master.Trade = {
+		ApplyAccept = function() return nil end,
+		CancelClose = function() return false end,
+		HasClosePending = function() return false end,
+		IsFailureMessage = function() return false end,
+		Reset = noop,
+		SettleClose = noop,
+	}
+	addon.Services.Master.TradeExecution = { CreateController = function() return dummyController end }
+	loadAddonFile(addon, "Raid Management Addon/Services/Master/ButtonState.lua")
+	loadAddonFile(addon, "Raid Management Addon/Services/Master/AwardSequence.lua")
+	local realCreate = addon.Services.Master.AwardSequence.CreateController
+	addon.Services.Master.AwardSequence.CreateController = function(opts)
+		fixture.awardSequence = realCreate(opts)
+		return fixture.awardSequence
+	end
+
+	loadAddonFile(addon, "Raid Management Addon/Controllers/Master.lua")
+	fixture.master = addon.Controllers.Master
+	local resetItemCount = fixture.master._Private.ResetItemCount
+	fixture.master._Private.ResetItemCount = function(...)
+		fixture.itemResetCalls = (fixture.itemResetCalls or 0) + 1
+		if fixture.mutateSelectedCountOnReset then
+			fixture.lootState.selectedItemCount = fixture.resetSelectedItemCount or 1
+		end
+		if fixture.throwItemReset then
+			fixture.throwItemReset = false
+			error("item reset exploded")
+		end
+		return resetItemCount(...)
+	end
+	fixture.master.RequestRefresh = function()
+		fixture.refreshCalls = fixture.refreshCalls + 1
+		if fixture.throwRefresh then error("refresh exploded") end
+		return true
+	end
+	fixture.lootState = lootState
+	return fixture
+end
+
 local cases = {}
+
+local function createDistributionSessionFixture(addon)
+	local fixture = {
+		now = 10,
+		authority = "LeaderA",
+		failKind = nil,
+		failOccurrence = nil,
+		kindAttempts = {},
+		sent = {},
+		events = {},
+	}
+	_G.GetTime = function() return fixture.now end
+	addon.Database = { GetPlayerName = function() return "Tester" end }
+	addon.Diag = {}
+	addon.Events = { Internal = { LootDistributionSessionChanged = "LootDistributionSessionChanged" } }
+	addon.Bus = {
+		TriggerEvent = function(_, reason, row)
+			fixture.events[#fixture.events + 1] = { reason = reason, row = deepCopy(row) }
+		end,
+	}
+	local function splitFields(text, sep, out)
+		out = out or {}
+		for key in pairs(out) do out[key] = nil end
+		local start = 1
+		while true do
+			local index = string.find(text or "", sep, start, true)
+			if not index then
+				out[#out + 1] = string.sub(text or "", start)
+				break
+			end
+			out[#out + 1] = string.sub(text, start, index - 1)
+			start = index + string.len(sep)
+		end
+		return out, #out
+	end
+	addon.Comms = {
+		Payload = {
+			EncodeText = function(value) return tostring(value or "") end,
+			DecodeText = function(value) return value end,
+			PackFields = function(sep, ...)
+				local values = { ... }
+				for i = 1, #values do values[i] = tostring(values[i]) end
+				return table.concat(values, sep)
+			end,
+			SplitFields = splitFields,
+		},
+		RegisterPrefixIfAvailable = function() return true end,
+		Sync = function(prefix, message)
+			local fields = splitFields(message, "|", {})
+			local kind = fields[1]
+			fixture.kindAttempts[kind] = (fixture.kindAttempts[kind] or 0) + 1
+			if kind == fixture.failKind and fixture.kindAttempts[kind] == fixture.failOccurrence then
+				return false
+			end
+			fixture.sent[#fixture.sent + 1] = { prefix = prefix, message = message, kind = kind, fields = deepCopy(fields) }
+			return true
+		end,
+		QueueAddonMessage = function() return true end,
+	}
+	addon.Item = { GetItemKey = function(value) return value and tostring(value) or nil end }
+	addon.Strings = { NormalizeText = function(value) return value and value ~= "" and tostring(value) or nil end }
+	addon.Services = {
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+			return addon.Services[name]
+		end,
+		Raid = {
+			IsGroupMember = function() return true end,
+			IsLootAuthority = function(_, sender) return sender == fixture.authority end,
+			CanUseCapability = function() return true end,
+		},
+		Loot = {},
+	}
+	loadAddonFile(addon, "Raid Management Addon/Services/Loot/DistributionSession.lua")
+	fixture.owner = addon.Services.Loot.DistributionSession
+	function fixture:Deliver(message, sender)
+		return self.owner.HandleMessage("RMADist", message, "RAID", sender or self.authority)
+	end
+	function fixture:CountSent(kind)
+		local count = 0
+		for i = 1, #self.sent do if self.sent[i].kind == kind then count = count + 1 end end
+		return count
+	end
+	return fixture
+end
+
+local function distributionItem(key, slot)
+	return {
+		itemKey = key,
+		itemLink = key,
+		itemName = key,
+		itemTexture = "texture",
+		count = 1,
+		quality = 4,
+		slot = slot,
+	}
+end
+
+function cases.loot_distribution_window_sender_is_atomic(addon)
+	local fixture = createDistributionSessionFixture(addon)
+	local owner = fixture.owner
+	assertEqual(nil, owner.BeginWindow(-1), "negative expected rows must reject")
+	assertEqual("invalid_expected_rows", select(2, owner.BeginWindow(1.5)), "fractional rows reason differs")
+	assertEqual("invalid_expected_rows", select(2, owner.BeginWindow(129)), "oversized rows reason differs")
+
+	fixture.failKind = "WINDOW_ITEM"
+	fixture.failOccurrence = 2
+	local revision, reason = owner.BeginWindow(3)
+	assertTrue(revision ~= nil, reason or "window begin failed")
+	assertEqual(false, owner.EndWindow(revision), "window end must reject before all rows enqueue")
+	local ok
+	ok, reason = owner.PublishWindowItems({
+		distributionItem("item:1", 1),
+		distributionItem("item:2", 2),
+		distributionItem("item:3", 3),
+	}, revision)
+	assertEqual(nil, ok, "partial item enqueue must reject")
+	assertEqual("window_item_send_failed", reason, "partial enqueue reason differs")
+	assertEqual(0, fixture:CountSent("WINDOW_END"), "partial window must not commit")
+	fixture.failKind = nil
+	local retryRevision, retryReason = owner.BeginWindow(3)
+	assertEqual(revision, retryRevision, retryReason or "retry consumed the failed revision")
+	assertEqual(true, owner.PublishWindowItems({
+		distributionItem("item:1", 1),
+		distributionItem("item:2", 2),
+		distributionItem("item:3", 3),
+	}, retryRevision), "complete same-revision retry must commit")
+	assertEqual(1, fixture:CountSent("WINDOW_END"), "same-revision retry must end once")
+
+	revision, reason = owner.BeginWindow(0)
+	assertEqual(retryRevision + 1, revision, "successful END must consume exactly one revision")
+	assertTrue(revision ~= nil, reason or "zero-row begin failed")
+	fixture.failKind = "WINDOW_END"
+	fixture.failOccurrence = 2
+	ok, reason = owner.PublishWindowItems({}, revision)
+	assertEqual(nil, ok, "END enqueue failure must reject")
+	assertEqual("window_end_send_failed", reason, "END failure reason differs")
+	local endRetryRevision
+	endRetryRevision, reason = owner.BeginWindow(0)
+	assertEqual(revision, endRetryRevision, reason or "END failure consumed the revision")
+	fixture.failKind = nil
+	assertEqual(true, owner.PublishWindowItems({}, endRetryRevision), "zero-row END retry must commit")
+	assertEqual(2, fixture:CountSent("WINDOW_END"), "complete zero-row window must end once")
+	local begin = fixture.sent[#fixture.sent - 1]
+	assertEqual("0", begin.fields[5], "WINDOW_BEGIN must append expected row count")
+	local nextRevision = assert(owner.BeginWindow(0))
+	assertEqual(endRetryRevision + 1, nextRevision, "successful END retry did not advance revision")
+	assertEqual(true, owner.PublishWindowItems({}, nextRevision), "post-retry next revision must commit")
+	print("PASS loot_distribution_window_sender_is_atomic")
+end
+
+function cases.loot_distribution_window_receiver_is_session_scoped(addon)
+	local fixture = createDistributionSessionFixture(addon)
+	local owner = fixture.owner
+	fixture:Deliver("WINDOW_BEGIN|2|session-a|1|1")
+	fixture:Deliver("WINDOW_ITEM|2|session-a|1|item:old|1|4|item:old|Old|texture|1")
+	fixture:Deliver("WINDOW_END|2|session-a|1")
+	local committed = owner.GetDisplayModel()
+	assertEqual(1, committed.revision, "initial complete revision did not commit")
+	assertEqual("item:old", committed.rows[1].itemKey, "initial row differs")
+
+	fixture:Deliver("WINDOW_BEGIN|2|session-a|2|2")
+	fixture:Deliver("WINDOW_ITEM|2|session-a|2|item:new|1|4|item:new|New|texture|1")
+	fixture:Deliver("WINDOW_END|2|session-a|2")
+	assertTrue(deepEqual(committed, owner.GetDisplayModel()), "missing row replaced complete display")
+
+	fixture:Deliver("WINDOW_BEGIN|2|session-a|2|1")
+	fixture:Deliver("WINDOW_ITEM|2|session-a|2|item:dup|1|4|item:dup|Dup|texture|1")
+	fixture:Deliver("WINDOW_ITEM|2|session-a|2|item:dup|1|4|item:dup|Changed|texture|1")
+	fixture:Deliver("WINDOW_END|2|session-a|2")
+	assertTrue(deepEqual(committed, owner.GetDisplayModel()), "duplicate row replaced complete display")
+
+	fixture:Deliver("WINDOW_BEGIN|2|session-a|2|0")
+	fixture:Deliver("WINDOW_END|2|session-a|2")
+	local empty = owner.GetDisplayModel()
+	assertEqual(2, empty.revision, "complete zero-row revision did not commit")
+	assertEqual(0, #empty.rows, "zero-row window retained rows")
+
+	fixture:Deliver("WINDOW_BEGIN|2|session-a|3|129")
+	fixture:Deliver("WINDOW_ITEM|2|session-a|3|item:oversized|1|4|item:oversized|Oversized|texture|1")
+	fixture:Deliver("WINDOW_END|2|session-a|3")
+	assertTrue(deepEqual(empty, owner.GetDisplayModel()), "oversized expected row count mutated display")
+
+	fixture:Deliver("WINDOW_BEGIN|2|session-a|2|1")
+	fixture:Deliver("WINDOW_BEGIN|2|session-a|4|1")
+	fixture:Deliver("WINDOW_ITEM|2|session-a|4|item:gap|1|4|item:gap|Gap|texture|1")
+	fixture:Deliver("WINDOW_END|2|session-a|4")
+	assertTrue(deepEqual(empty, owner.GetDisplayModel()), "equal or gapped revision mutated display")
+	fixture:Deliver("WINDOW_BEGIN|2|session-next|1|0")
+	fixture:Deliver("WINDOW_END|2|session-next|1")
+	local nextSession = owner.GetDisplayModel()
+	assertEqual("session-next", nextSession.sessionId, "same authority could not advance to a new session")
+	fixture:Deliver("WINDOW_BEGIN|2|session-a|3|0")
+	fixture:Deliver("WINDOW_END|2|session-a|3")
+	assertTrue(deepEqual(nextSession, owner.GetDisplayModel()), "superseded same-authority session resurrected")
+
+	fixture.authority = "LeaderB"
+	fixture:Deliver("WINDOW_BEGIN|2|session-b|1|1", "LeaderB")
+	assertTrue(owner._streams["LeaderB|session-b"] and owner._streams["LeaderB|session-b"].window, "new authority begin was rejected")
+	fixture:Deliver("WINDOW_ITEM|2|session-b|1|item:b|1|4|item:b|B|texture|1", "LeaderB")
+	assertEqual(1, #owner._streams["LeaderB|session-b"].window.order, "new authority row was rejected")
+	fixture:Deliver("WINDOW_END|2|session-b|1", "LeaderB")
+	local authorityDisplay = owner.GetDisplayModel()
+	assertEqual("session-b", authorityDisplay.sessionId, "new authority did not replace session")
+	fixture:Deliver("WINDOW_BEGIN|2|session-a|4|0", "LeaderA")
+	fixture:Deliver("WINDOW_END|2|session-a|4", "LeaderA")
+	assertTrue(deepEqual(authorityDisplay, owner.GetDisplayModel()), "delayed old-authority window mutated display")
+	print("PASS loot_distribution_window_receiver_is_session_scoped")
+end
+
+function cases.loot_distribution_snapshot_cannot_resurrect_ended_session(addon)
+	local fixture = createDistributionSessionFixture(addon)
+	local owner = fixture.owner
+	fixture:Deliver("WINDOW_BEGIN|2|ended|1|1")
+	fixture:Deliver("WINDOW_ITEM|2|ended|1|item:old|1|4|item:old|Old|texture|1")
+	fixture:Deliver("WINDOW_END|2|ended|1")
+	fixture:Deliver("SESSION_END|2|ended|1")
+	local ended = owner.GetDisplayModel()
+	assertEqual(0, #ended.rows, "session end must clear owned display")
+	local snapshot = "item:resurrect|1|4|item:resurrect|Resurrect|texture|1|active|||||||"
+	fixture:Deliver("SNAP|2|request|ended|" .. snapshot)
+	assertTrue(deepEqual(ended, owner.GetDisplayModel()), "snapshot resurrected ended session")
+	fixture:Deliver("WINDOW_BEGIN|2|ended|2|0")
+	fixture:Deliver("WINDOW_END|2|ended|2")
+	assertTrue(deepEqual(ended, owner.GetDisplayModel()), "atomic traffic resurrected tombstoned session")
+	fixture:Deliver("ROLL_END|2|ended|item:old|Winner|100|late")
+	assertTrue(deepEqual(ended, owner.GetDisplayModel()), "legacy state traffic resurrected tombstoned session")
+	print("PASS loot_distribution_snapshot_cannot_resurrect_ended_session")
+end
+
+function cases.loot_distribution_clear_requires_ordered_owner_transition(addon)
+	local fixture = createDistributionSessionFixture(addon)
+	local owner = fixture.owner
+	local function commit(sessionId, revision, itemKey)
+		fixture:Deliver("WINDOW_BEGIN|2|" .. sessionId .. "|" .. revision .. "|1")
+		fixture:Deliver("WINDOW_ITEM|2|" .. sessionId .. "|" .. revision .. "|" .. itemKey .. "|1|4|" .. itemKey .. "|Item|texture|1")
+		fixture:Deliver("WINDOW_END|2|" .. sessionId .. "|" .. revision)
+	end
+	commit("LeaderA:3:30", 1, "item:c")
+	local ownerC = owner.GetDisplayModel()
+	fixture:Deliver("CLEAR|2|LeaderA:2:20")
+	assertTrue(deepEqual(ownerC, owner.GetDisplayModel()), "delayed CLEAR replaced the newer owner")
+	fixture:Deliver("SNAP|2|request|LeaderA:4:40|item:snap|1|4|item:snap|Snap|texture|1|active|||||||")
+	assertTrue(deepEqual(ownerC, owner.GetDisplayModel()), "snapshot changed session without an explicit transition")
+	fixture:Deliver("CLEAR|2|LeaderA:4:40")
+	local cleared = owner.GetDisplayModel()
+	assertEqual("LeaderA:4:40", cleared.sessionId, "newer ordered CLEAR did not transition session")
+	fixture:Deliver("SNAP|2|request|LeaderA:4:40|item:snap|1|4|item:snap|Snap|texture|1|active|||||||")
+	local snapshotOwner = owner.GetDisplayModel()
+	assertEqual("item:snap", snapshotOwner.rows[1].itemKey, "snapshot after explicit CLEAR did not apply")
+	fixture:Deliver("CLEAR|2|LeaderA:5:50")
+	local afterSnapshotClear = owner.GetDisplayModel()
+	fixture:Deliver("SNAP|2|late|LeaderA:4:40|item:late|1|4|item:late|Late|texture|1|active|||||||")
+	assertTrue(deepEqual(afterSnapshotClear, owner.GetDisplayModel()), "superseded snapshot-only owner resurrected")
+	print("PASS loot_distribution_clear_requires_ordered_owner_transition")
+end
+
+function cases.loot_distribution_ownership_and_session_end_are_retry_safe(addon)
+	local fixture = createDistributionSessionFixture(addon)
+	local owner = fixture.owner
+	local revision = assert(owner.BeginWindow(0))
+	assertEqual(true, owner.PublishWindowItems({}, revision), "local window must initialize session")
+	local token = assert(owner.AcquireSessionOwnership("award"))
+	assertEqual(true, owner.Clear(), "display clear must publish")
+	assertEqual(true, owner.ReleaseSessionOwnership(token), "display clear erased ownership token")
+
+	fixture.failKind = "SESSION_END"
+	fixture.failOccurrence = 1
+	local retryToken = assert(owner.AcquireSessionOwnership("retry"))
+	assertEqual(false, owner.RequestSessionEnd(), "owned session end must defer")
+	assertEqual(false, owner.ReleaseSessionOwnership(retryToken), "failed last-owner end send must propagate")
+	assertEqual(true, owner._sessionOwners[retryToken], "failed last-owner end send consumed ownership")
+	fixture.failKind = nil
+	assertEqual(true, owner.ReleaseSessionOwnership(retryToken), "same-token end retry must succeed")
+	assertEqual(nil, owner._sessionOwners[retryToken], "successful end retry retained ownership")
+	assertEqual(2, fixture.kindAttempts.SESSION_END, "session end retry count differs")
+	print("PASS loot_distribution_ownership_and_session_end_are_retry_safe")
+end
+
+function cases.loot_fetch_propagates_distribution_failure(addon)
+	local lootState, itemInfo, raidState = {}, {}, {}
+	local beginResult, beginReason = nil, "window_begin_send_failed"
+	local publishResult, publishReason = nil, "window_item_send_failed"
+	local publishCalls = 0
+	_G.table.wipe = _G.table.wipe or function(target) for key in pairs(target) do target[key] = nil end return target end
+	_G.GetLootThreshold = function() return 2 end
+	_G.GetNumLootItems = function() return 0 end
+	addon.C = { itemColors = {}, rollTypes = {}, RESERVES_ITEM_FALLBACK_ICON = "fallback" }
+	addon.L = {}
+	addon.Diag = { D = setmetatable({}, { __index = function() return "%s %s %s %s" end }) }
+	addon.Events = { Internal = { RaidLootUpdate = "RaidLootUpdate", SetItem = "SetItem" } }
+	addon.Bus = { TriggerEvent = function() end }
+	addon.Deformat = function() end
+	addon.Options = {
+		GetValue = function() return false end,
+		NormalizeLoggerLootQualityThreshold = function(value) return tonumber(value) or 2 end,
+	}
+	addon.Strings = { NormalizeName = function(value) return value end }
+	addon.Time = { GetCurrentTime = function() return 10 end }
+	addon.Timer = {
+		BindMixin = function(target)
+			function target:ScheduleTimer() return {} end
+			function target:CancelTimer() return true end
+		end,
+	}
+	addon.Item = {
+		GetItemStringFromLink = function(value) return value end,
+		GetItemIdFromLink = function() return 1 end,
+		GetItemKey = function(value) return value end,
+	}
+	addon.Database = {
+		EnsureLootRuntimeState = function() return {}, lootState, itemInfo, raidState end,
+		GetCurrentRaid = function() return 1 end,
+		GetPlayerName = function() return "Tester" end,
+		GetRaidQueries = function() return { ResolveLootLooterName = function() end } end,
+	}
+	local noopOwner = setmetatable({}, { __index = function() return function() end end })
+	local distribution = {
+		BeginWindow = function() return beginResult, beginReason end,
+		PublishWindowItems = function()
+			publishCalls = publishCalls + 1
+			return publishResult, publishReason
+		end,
+	}
+	addon.Services = {
+		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} return addon.Services[name] end,
+		Loot = {
+			LootAttribution = noopOwner,
+			_PassiveGroupLoot = noopOwner,
+			_Tracking = noopOwner,
+			_Workflow = setmetatable({ BeginLootWindow = function() end }, getmetatable(noopOwner)),
+			_Recording = noopOwner,
+			_Rules = { _IsIgnoredItem = function() return false end },
+			AwardPlanner = noopOwner,
+			Inventory = noopOwner,
+			DistributionSession = distribution,
+			_Context = { ResolveRaidRecord = function() return nil end },
+		},
+	}
+	loadAddonFile(addon, "Raid Management Addon/Services/Loot/Service.lua")
+	local ok, reason = addon.Services.Loot:FetchLoot()
+	assertEqual(nil, ok, "begin failure must reject FetchLoot")
+	assertEqual("window_begin_send_failed", reason, "begin failure reason was hidden")
+	assertEqual(0, publishCalls, "publish ran after begin failure")
+	beginResult, beginReason = 1, nil
+	ok, reason = addon.Services.Loot:FetchLoot()
+	assertEqual(nil, ok, "item publication failure must reject FetchLoot")
+	assertEqual("window_item_send_failed", reason, "item publication reason was hidden")
+	assertEqual(1, publishCalls, "publication attempt count differs")
+	publishResult, publishReason = true, nil
+	assertEqual(true, addon.Services.Loot:FetchLoot(), "successful publication must confirm FetchLoot")
+	print("PASS loot_fetch_propagates_distribution_failure")
+end
+
+function cases.loot_distribution_done_retries_wire_without_duplicate_state(addon)
+	local events, sends = {}, 0
+	_G.GetTime = function() return 10 end
+	addon.Database = { GetPlayerName = function() return "Tester" end }
+	addon.Diag = {}
+	addon.Events = { Internal = { LootDistributionSessionChanged = "LootDistributionSessionChanged" } }
+	addon.Bus = { TriggerEvent = function(_, reason, row) events[#events + 1] = { reason = reason, row = row } end }
+	addon.Comms = {
+		Payload = {
+			EncodeText = function(value) return tostring(value or "") end,
+			DecodeText = function(value) return value end,
+			PackFields = function(sep, ...) local values = { ... } for i = 1, #values do values[i] = tostring(values[i]) end return table.concat(values, sep) end,
+			SplitFields = function() return {} end,
+		},
+		RegisterPrefixIfAvailable = function() return true end,
+		Sync = function() sends = sends + 1 return sends > 1 end,
+		QueueAddonMessage = function() return true end,
+	}
+	addon.Item = { GetItemKey = function(value) return value end }
+	addon.Strings = { NormalizeText = function(value) return value and tostring(value) or nil end }
+	addon.Services = {
+		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} return addon.Services[name] end,
+		Raid = {
+			IsGroupMember = function() return true end,
+			IsLootAuthority = function() return true end,
+			CanUseCapability = function() return true end,
+		},
+		Loot = {},
+	}
+	loadAddonFile(addon, "Raid Management Addon/Services/Loot/DistributionSession.lua")
+	local owner = addon.Services.Loot.DistributionSession
+	assertEqual(false, owner.PublishItemDone("item:19019", "Winner"), "first wire send must fail")
+	assertEqual(true, owner.PublishItemDone("item:19019", "Winner"), "identical done retry must resend")
+	assertEqual(1, #events, "identical done retry duplicated local state notification")
+	assertEqual(2, sends, "wire retry count differs")
+	assertEqual("item_done", events[1].reason, "local done reason differs")
+	assertEqual("Winner", owner._state.itemsByKey["item:19019"].winnerName, "done winner changed")
+	assertEqual(true, owner.PublishItemDone("item:19019", "Other"), "different winner must update normally")
+	assertEqual(2, #events, "different winner did not publish a local state change")
+	assertEqual("Other", owner._state.itemsByKey["item:19019"].winnerName, "different winner was ignored")
+	print("PASS loot_distribution_done_retries_wire_without_duplicate_state")
+end
+
+function cases.loot_award_attempt_checkpoints_are_retry_safe(addon)
+	addon.Services = {
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+			return addon.Services[name]
+		end,
+	}
+	loadAddonFile(addon, "Raid Management Addon/Services/Master/AwardAttempt.lua")
+	local AwardAttempt = addon.Services.Master.AwardAttempt
+	local publishCalls, confirmCalls, reentrantConfirm, reentrantFail = 0, 0
+	local attempt
+	attempt = AwardAttempt.CreateExecuting({
+		transactionId = "AT:test",
+		executorContext = { rollType = 1, callback = function() end },
+		onConfirm = function()
+			confirmCalls = confirmCalls + 1
+			if confirmCalls == 1 then
+				assertEqual(true, attempt:RunCheckpoint("publish", function()
+					publishCalls = publishCalls + 1
+					return true
+				end), "successful checkpoint must commit")
+				reentrantConfirm = attempt:Confirm()
+				reentrantFail = attempt:Fail("reentrant")
+				return nil, "confirmation_rejected"
+			end
+			assertEqual(true, attempt:RunCheckpoint("publish", function()
+				publishCalls = publishCalls + 1
+				return true
+			end), "retry must accept completed checkpoint")
+			return true
+		end,
+	})
+
+	local throwOk, throwReason = attempt:RunCheckpoint("throw", function() error("checkpoint exploded") end)
+	assertEqual(nil, throwOk, "throwing checkpoint must reject")
+	assertTrue(tostring(throwReason):find("checkpoint exploded", 1, true) ~= nil, "throw reason must be stable")
+	local rejectCalls = 0
+	local rejectOk, rejectReason = attempt:RunCheckpoint("reject", function()
+		rejectCalls = rejectCalls + 1
+		return nil, "checkpoint_rejected_by_owner"
+	end)
+	assertEqual(nil, rejectOk, "rejected checkpoint must reject")
+	assertEqual("checkpoint_rejected_by_owner", rejectReason, "checkpoint rejection reason differs")
+	assertEqual(nil, attempt:Confirm(), "first confirm must become uncertain")
+	assertEqual("uncertain", attempt:GetState().state, "rejected confirm must be uncertain")
+	assertEqual(nil, reentrantConfirm, "reentrant confirm must reject")
+	assertEqual(nil, reentrantFail, "reentrant fail must reject")
+	assertEqual(true, attempt:Confirm(), "uncertain attempt must retry")
+	assertEqual(1, publishCalls, "successful checkpoint repeated")
+	assertEqual(2, confirmCalls, "confirm retry count differs")
+	local state = attempt:GetState()
+	assertEqual("confirmed", state.state, "successful retry must confirm")
+	assertEqual(true, state.checkpoints.publish, "state must expose completed checkpoint names")
+	assertEqual(nil, state.onConfirm, "state must contain data only")
+	assertEqual(nil, state.executorContext.callback, "nested callback must not escape through state")
+	assertEqual(false, attempt:Confirm(), "terminal confirm must reject")
+	assertEqual(false, attempt:Fail("late"), "terminal fail must reject")
+
+	local failCalls, failReentry = 0, nil
+	local failed
+	failed = AwardAttempt.CreateExecuting({
+		onFail = function()
+			failCalls = failCalls + 1
+			failReentry = failed:Fail("again")
+			error("failure callback exploded")
+		end,
+	})
+	local failedOk, failedReason = failed:Fail("execution_failed")
+	assertEqual(nil, failedOk, "throwing failure callback must be contained")
+	assertTrue(tostring(failedReason):find("failure callback exploded", 1, true) ~= nil, "failure callback reason missing")
+	assertEqual("failed", failed:GetState().state, "failure must commit terminal state before callback")
+	assertEqual(nil, failReentry, "failure callback must not reenter")
+	assertEqual(false, failed:Fail("duplicate"), "failure must be terminal once")
+	assertEqual(1, failCalls, "failure callback repeated")
+	print("PASS loot_award_attempt_checkpoints_are_retry_safe")
+end
+
+function cases.loot_award_confirmation_retains_uncertain_effect(addon)
+	addon.Services = {
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+			return addon.Services[name]
+		end,
+	}
+	loadAddonFile(addon, "Raid Management Addon/Services/Master/AwardAttempt.lua")
+	loadAddonFile(addon, "Raid Management Addon/Services/Master/AwardConfirmation.lua")
+	local scheduled, cancelled, refreshes, warnings, provisionalCalls = {}, 0, 0, 0, 0
+	local confirmCalls = 0
+	local effect = addon.Services.Master.AwardAttempt.CreateExecuting({
+		onConfirm = function()
+			confirmCalls = confirmCalls + 1
+			if confirmCalls == 1 then return nil, "effect_rejected" end
+			return true
+		end,
+	})
+	local confirmation = addon.Services.Master.AwardConfirmation.Create({
+		timeoutSeconds = 4,
+		scheduleTimer = function(callback)
+			scheduled[#scheduled + 1] = callback
+			return callback
+		end,
+		cancelTimer = function() cancelled = cancelled + 1 end,
+		requestRefresh = function() refreshes = refreshes + 1 end,
+		warnFailure = function() warnings = warnings + 1 end,
+		warnUncertain = function() warnings = warnings + 1 end,
+		warnTimeout = function() warnings = warnings + 1 end,
+		warnUnresolved = function() warnings = warnings + 1 end,
+		onUnresolved = function() end,
+		confirmProvisional = function()
+			provisionalCalls = provisionalCalls + 1
+			return true
+		end,
+	})
+	assertTrue(confirmation:Queue({ itemLink = "item:19019", itemIndex = 1, playerName = "Winner", effect = effect }), "confirmation must queue")
+	assertEqual(1, #scheduled, "queue must schedule one timer")
+	assertEqual(nil, confirmation:Confirm(1), "rejected effect must remain unresolved")
+	assertEqual(true, confirmation:HasInFlight(), "rejected effect must retain ownership")
+	assertEqual("uncertain", effect:GetState().state, "rejected effect must be uncertain")
+	assertEqual(1, provisionalCalls, "provisional attribution must run once")
+	assertEqual(1, warnings, "rejection must warn once")
+	assertEqual(1, refreshes, "rejection must request one refresh")
+	assertEqual(1, #scheduled, "retry must not schedule a second timer")
+	assertEqual(true, confirmation:Confirm(1), "later slot clear must retry successfully")
+	assertEqual(false, confirmation:HasInFlight(), "successful retry must release ownership")
+	assertEqual(1, provisionalCalls, "successful provisional checkpoint must not repeat")
+	assertEqual(1, cancelled, "successful retry must cancel the original timer")
+	assertEqual(false, confirmation:Confirm(1), "duplicate slot clear must be ignored")
+	assertEqual(2, confirmCalls, "duplicate slot clear repeated effect confirmation")
+	assertEqual(1, warnings, "successful retry must not duplicate warning")
+	assertEqual(1, refreshes, "successful retry must not duplicate recovery refresh")
+
+	local timeoutEffect = addon.Services.Master.AwardAttempt.CreateExecuting({ onConfirm = function() return true end })
+	assertTrue(confirmation:Queue({ itemLink = "item:2", itemIndex = 2, playerName = "Runner", effect = timeoutEffect }), "timeout confirmation must queue")
+	assertEqual(2, #scheduled, "second entry must own one timer")
+	scheduled[2]()
+	assertEqual("uncertain", timeoutEffect:GetState().state, "timeout must become uncertain")
+	assertEqual(true, confirmation:HasInFlight(), "timeout must retain reconciliation ownership")
+	assertEqual(2, warnings, "timeout must warn once")
+	assertEqual(2, refreshes, "timeout must refresh once")
+	assertEqual(true, confirmation:Confirm(2), "timed-out effect must remain reconcilable")
+	assertEqual(false, confirmation:HasInFlight(), "reconciled timeout must release ownership")
+	assertEqual(2, cancelled, "reconciled timeout must cancel only the outstanding expiry handle")
+	print("PASS loot_award_confirmation_retains_uncertain_effect")
+end
 
 local expectedRuntimeEvents = {
 	"CHAT_MSG_SYSTEM",
@@ -7836,6 +8943,1468 @@ function cases.chat_delivery_uses_live_destinations_and_reports_failures(addon)
 	assertEqual(nil, ok, "warning facade must propagate announcement failure")
 	assertEqual("send_failed", reason, "warning facade failure reason differs")
 	print("PASS chat_delivery_uses_live_destinations_and_reports_failures")
+end
+
+function cases.loot_award_freezes_roll_intake(addon)
+	local Rolls, lootState, scheduled = installLootHardeningRollsFixture(addon)
+	local itemLink = "|cffa335ee|Hitem:19019:0:0:0:0:0:0:0|h[Test Item]|h|r"
+	local session = Rolls:EnsureRollSession(itemLink, addon.C.rollTypes.FREE, "lootWindow")
+	assertTrue(session and session.active == true, "roll session must start active")
+	Rolls:SetExpectedWinners(2)
+
+	Rolls:SetRollRecordingEnabled(true)
+	assertTrue(Rolls:SubmitDebugRoll("Winner", 90), "initial roll must enter")
+	assertTrue(Rolls:SubmitDebugRoll("Runner", 80), "second roll must enter")
+	local beforeFreeze = Rolls:GetDisplayModel()
+	assertEqual("Winner", Rolls:GetResolvedWinner(beforeFreeze), "initial winner differs")
+	assertTrue(Rolls:StartCountdown(1, nil, function()
+		Rolls:SetRollRecordingEnabled(true)
+	end), "countdown must start")
+	local staleCountdownEnd = scheduled[#scheduled].callback
+	staleCountdownEnd()
+	local _, expiredRecord, expiredCanRoll = Rolls:GetRollStatus()
+	assertEqual(true, expiredRecord, "non-blocking countdown expiry must leave intake open")
+	assertEqual(true, expiredCanRoll, "non-blocking countdown expiry must accept rolls")
+
+	local frozen, reason = Rolls:FreezeRollIntake("award")
+	assertTrue(frozen ~= nil, reason or "freeze failed")
+	assertEqual("award", reason, "freeze reason differs")
+	local _, record, canRoll = Rolls:GetRollStatus()
+	assertEqual(false, record, "award freeze must stop recording")
+	assertEqual(false, canRoll, "award freeze must close intake")
+	assertEqual(false, session.active, "award freeze must close the session window")
+	assertTrue(session.endsAt ~= nil, "award freeze must record the closed session time")
+	assertEqual(session, Rolls:GetRollSession(), "frozen session context must remain available to award consumers")
+	local rebuilt = Rolls:GetDisplayModel()
+	assertEqual("Winner", Rolls:GetResolvedWinner(rebuilt), "forced rebuild lost frozen winner")
+	local rebuiltAgain = Rolls:GetDisplayModel()
+	assertEqual("Winner", Rolls:GetResolvedWinner(rebuiltAgain), "repeated rebuild lost frozen winner")
+
+	local selectionState = {}
+	local selected = {}
+	local selection = {
+		EnsureState = function()
+			for key in pairs(selected) do selected[key] = nil end
+		end,
+		SetAnchor = function(_, name) selectionState.anchor = name end,
+		GetAnchor = function() return selectionState.anchor end,
+		GetCount = function()
+			local count = 0
+			for _ in pairs(selected) do count = count + 1 end
+			return count
+		end,
+		GetSelected = function()
+			local names = {}
+			for name in pairs(selected) do names[#names + 1] = name end
+			table.sort(names)
+			return names
+		end,
+		IsSelected = function(_, name) return selected[name] == true end,
+		Toggle = function(_, name, preserve)
+			if not preserve then
+				for key in pairs(selected) do selected[key] = nil end
+			end
+			selected[name] = not selected[name]
+		end,
+	}
+	local rollRows = {
+		IsSelectableRow = function(row) return row and row.selectionAllowed ~= false end,
+		BuildSelectionState = function(opts)
+			local winners = opts.selectedWinners or {}
+			return {
+				pickMode = opts.selectionAllowed == true,
+				msCount = #winners,
+				winnerName = #winners == 1 and winners[1].name or nil,
+				selectionAllowed = opts.selectionAllowed == true,
+			}
+		end,
+		BuildModel = function(opts) return opts.rows, opts.rows end,
+	}
+	loadAddonFile(addon, "Raid Management Addon/Services/Master/RollSelection.lua")
+	local rollSelection = addon.Services.Master.RollSelection.CreateController({
+		getDisplayModel = function() return Rolls:GetDisplayModel() end,
+		getSessionKey = function()
+			local current = Rolls:GetRollSession()
+			return current and current.id or nil
+		end,
+		isFromInventory = function() return true end,
+		rollRows = rollRows,
+		selection = selection,
+		state = {},
+	})
+	local selectionModel = rollSelection:BuildModel(true)
+	assertEqual(2, rollSelection:GetSelectedCount(), "forced selection rebuild lost selected count")
+	local selectedWinners = rollSelection:GetSelectedWinnersOrdered(selectionModel.rows)
+	assertEqual("Winner", selectedWinners[1].name, "forced selection rebuild changed first selected winner")
+	assertEqual(90, selectedWinners[1].roll, "forced selection rebuild lost winner roll")
+	assertEqual("Runner", selectedWinners[2].name, "forced selection rebuild changed second selected winner")
+
+	loadAddonFile(addon, "Raid Management Addon/Services/Master/AwardSequence.lua")
+	local assignedRoll
+	local awardSequence = addon.Services.Master.AwardSequence.CreateController({
+		awardPlanner = {
+			BuildMultiAwardWinnersPlan = function(opts)
+				return { winners = opts.pickedWinners }
+			end,
+			BuildMultiAwardState = function() return { state = nil } end,
+		},
+		inventory = { BuildMultiAwardSlotCandidates = function() return {}, {} end },
+		lootState = lootState,
+		rollSelection = rollSelection,
+		scheduleTimer = function() return {} end,
+		cancelTimer = function() end,
+		registerAwardedItem = function() end,
+		awardExecutor = { Assign = function(_, _, _, _, roll) assignedRoll = roll return true end },
+		itemCount = { Set = function() end, Reset = function() end },
+		createAttempt = function()
+			return { Confirm = function() return true end, Fail = function() return true end }
+		end,
+		getRollSessionId = function() return session.id end,
+		getItemKey = function() return "item:19019" end,
+		getRaidNid = function() return 1 end,
+	})
+	local planned = awardSequence:BuildWinners(2)
+	assertEqual(2, #planned, "AwardSequence lost frozen multi-selection")
+	assertEqual("Winner", planned[1].name, "AwardSequence changed first frozen winner")
+	assertTrue(awardSequence:TrySingleCopy(itemLink, "Winner"), "single award lookup must execute")
+	assertEqual(90, assignedRoll, "single award lookup lost frozen winner roll")
+
+	Rolls:CHAT_MSG_SYSTEM("LatePlayer 100")
+	staleCountdownEnd()
+	local _, recordAfter, canRollAfter = Rolls:GetRollStatus()
+	assertEqual(false, recordAfter, "stale countdown callback reopened recording")
+	assertEqual(false, canRollAfter, "stale countdown callback reopened intake")
+	assertEqual("Winner", Rolls:GetResolvedWinner(rebuiltAgain), "late roll changed frozen winner")
+	assertEqual(2, #Rolls:GetRolls(), "late roll mutated frozen history")
+	Rolls:SetRollRecordingEnabled(true)
+	local replacement = Rolls:GetRollSession()
+	assertTrue(replacement ~= session, "new intake must replace the frozen session")
+	assertTrue(replacement.active == true, "replacement session must be active")
+	Rolls:ClearRolls()
+	assertEqual(nil, Rolls:GetRollSession(), "normal clear must detach the replacement session")
+	print("PASS loot_award_freezes_roll_intake")
+end
+
+function cases.loot_duplicate_award_is_rejected_in_flight(addon)
+	local admissions = {
+		{ "button", function(fixture) return fixture.master._Private.BtnAward(nil, nil) end },
+		{ "manual-grid", function(fixture)
+			return fixture.master._Private.AcceptManualGridAward({
+				itemLink = "item:19019",
+				playerName = "Winner",
+				rollType = 4,
+				rollValue = 90,
+			})
+		end },
+		{ "hold", function(fixture) return fixture.master._Private.BtnHold(nil, nil) end },
+		{ "single", function(fixture) return fixture.awardSequence:TrySingleCopy("item:19019", "Winner") end },
+		{ "multi", function(fixture)
+			return fixture.awardSequence:Start("item:19019", 2, {
+				{ name = "Winner", roll = 90 },
+				{ name = "Runner", roll = 80 },
+			})
+		end },
+	}
+	for i = 1, #admissions do
+		local name, enter = admissions[i][1], admissions[i][2]
+		local admitted = installLootHardeningMasterFixture(newAddon())
+		local ok, reason = enter(admitted)
+		assertTrue(ok, name .. " admission failed: " .. tostring(reason))
+		assertEqual(1, admitted.attempts, name .. " admission created the wrong attempt count")
+		assertEqual(1, admitted.assignments, name .. " admission created the wrong physical effect count")
+		assertEqual(1, admitted.timers, name .. " admission created the wrong confirmation timer count")
+	end
+
+	local fixture = installLootHardeningMasterFixture(addon)
+	local master = fixture.master
+	local confirmation = master._awardConfirmation
+	local pendingEffect = {
+		RunCheckpoint = function(_, _, callback, ...) return callback(...) end,
+		Confirm = function() return true end,
+		Fail = function() return true end,
+	}
+	assertTrue(confirmation:Queue({
+		itemLink = "item:19019",
+		itemIndex = 1,
+		playerName = "Winner",
+		effect = pendingEffect,
+	}), "initial confirmation must enter")
+	local baselineTimers = fixture.timers
+	local baselineAttempts = fixture.attempts
+
+	local ok, reason = master._Private.BtnAward(nil, nil)
+	assertEqual(nil, ok, "button reentry must fail closed")
+	assertEqual("award_in_flight", reason, "button reentry reason differs")
+	ok, reason = master._Private.AcceptManualGridAward({ itemLink = "item:19019", playerName = "Winner" })
+	assertEqual(nil, ok, "manual-grid reentry must fail closed")
+	assertEqual("award_in_flight", reason, "manual-grid reentry reason differs")
+	ok, reason = master._Private.BtnHold(nil, nil)
+	assertEqual(nil, ok, "direct assignment reentry must fail closed")
+	assertEqual("award_in_flight", reason, "direct assignment reentry reason differs")
+	ok, reason = fixture.awardSequence:TrySingleCopy("item:19019", "Winner")
+	assertEqual(nil, ok, "single sequence reentry must fail closed")
+	assertEqual("award_in_flight", reason, "single sequence reentry reason differs")
+	ok, reason = fixture.awardSequence:Start("item:19019", 2, { { name = "Winner", roll = 90 }, { name = "Runner", roll = 80 } })
+	assertEqual(nil, ok, "multi sequence reentry must fail closed")
+	assertEqual("award_in_flight", reason, "multi sequence reentry reason differs")
+	assertEqual(0, fixture.assignments, "duplicate award reached physical assignment")
+	assertEqual(baselineAttempts, fixture.attempts, "duplicate award created another attempt")
+	assertEqual(baselineTimers, fixture.timers, "duplicate award created another timer")
+
+	assertTrue(confirmation:Confirm(1), "first award must confirm")
+	assertEqual(false, confirmation:HasInFlight(), "confirmation must release in-flight guard")
+	assertTrue(fixture.awardSequence:Start(
+		"item:19019",
+		2,
+		{ { name = "Winner", roll = 90 }, { name = "Runner", roll = 80 } }
+	), "confirmed multi sequence must start")
+	assertEqual(1, fixture.assignments, "first legitimate multi assignment did not execute")
+	assertTrue(confirmation:Confirm(1), "first multi assignment must confirm")
+	local checkpoints = fixture.lastAttempt:GetState().checkpoints
+	assertEqual(true, checkpoints.provisional_attribution, "provisional attribution checkpoint differs")
+	assertEqual(true, checkpoints.distribution_notification, "distribution notification checkpoint differs")
+	assertEqual(true, checkpoints.player_counter, "player counter checkpoint differs")
+	assertTrue(fixture.awardSequence:ContinueOnLootSlotCleared(1), "next multi assignment must schedule")
+	fixture.timerCallbacks[#fixture.timerCallbacks]()
+	assertEqual(2, fixture.assignments, "legitimate next multi assignment did not execute")
+	assertEqual(baselineAttempts + 2, fixture.attempts, "legitimate multi entries must create exactly two attempts")
+	print("PASS loot_duplicate_award_is_rejected_in_flight")
+end
+
+function cases.loot_award_prerequisites_and_sequence_retry_are_ordered(addon)
+	local fixture = installLootHardeningMasterFixture(addon)
+	local sequence = fixture.awardSequence
+	local confirmation = fixture.master._awardConfirmation
+	fixture.lootState.selectedItemCount = 3
+	assertTrue(sequence:Start("item:19019", 3, {
+		{ name = "Winner", roll = 90 },
+		{ name = "Runner", roll = 80 },
+		{ name = "Third", roll = 70 },
+	}), "multi award must start")
+
+	fixture.rejectDistribution = true
+	local confirmed = confirmation:Confirm(1)
+	assertEqual(nil, confirmed, "distribution rejection must retain confirmation")
+	assertEqual(0, fixture.counterCalls, "counter ran before distribution prerequisite")
+	assertEqual(nil, fixture.lootState.itemTraded, "sequence advanced before distribution prerequisite")
+	assertEqual(2, fixture.lootState.multiAward.pos, "sequence position changed before prerequisites")
+
+	fixture.rejectDistribution = false
+	fixture.rejectCounter = true
+	confirmed = confirmation:Confirm(1)
+	assertEqual(nil, confirmed, "counter rejection must retain confirmation")
+	assertEqual(2, fixture.distributionCalls, "failed distribution should retry once")
+	assertEqual(1, fixture.counterCalls, "counter attempt count differs")
+	assertEqual(nil, fixture.lootState.itemTraded, "sequence advanced before counter prerequisite")
+
+	fixture.rejectCounter = false
+	assertEqual(true, confirmation:Confirm(1), "prerequisite retry must confirm")
+	assertEqual(2, fixture.distributionCalls, "completed distribution checkpoint repeated")
+	assertEqual(2, fixture.counterCalls, "counter retry count differs")
+	assertEqual(1, fixture.lootState.itemTraded, "register checkpoint did not run once")
+
+	assertTrue(sequence:ContinueOnLootSlotCleared(1), "next award must schedule")
+	fixture.timerCallbacks[#fixture.timerCallbacks]()
+	assertEqual(2, fixture.assignments, "second award did not execute")
+	fixture.throwNextSchedule = true
+	assertEqual(nil, confirmation:Confirm(1), "schedule throw must make second attempt uncertain")
+	assertEqual(2, fixture.lootState.itemTraded, "register checkpoint did not commit before schedule throw")
+	assertEqual(3, fixture.lootState.multiAward.pos, "position checkpoint did not commit before schedule throw")
+	fixture.throwRefresh = true
+	assertEqual(nil, confirmation:Confirm(1), "refresh throw must remain retryable")
+	assertEqual(2, fixture.lootState.itemTraded, "register repeated after schedule retry")
+	assertEqual(3, fixture.lootState.multiAward.pos, "position repeated after schedule retry")
+	fixture.throwRefresh = false
+	assertEqual(true, confirmation:Confirm(1), "refresh retry must complete")
+	assertEqual(3, fixture.distributionCalls, "completed distribution checkpoint repeated during sequence retries")
+	assertEqual(3, fixture.counterCalls, "completed counter checkpoint repeated during sequence retries")
+	local state = fixture.lastAttempt:GetState()
+	assertEqual(true, state.checkpoints.sequence_register_awarded_item, "register checkpoint missing")
+	assertEqual(true, state.checkpoints.sequence_position_advance, "position checkpoint missing")
+	assertEqual(true, state.checkpoints.sequence_progress_timeout, "progress timeout checkpoint missing")
+	assertEqual(true, state.checkpoints.sequence_refresh, "refresh checkpoint missing")
+	print("PASS loot_award_prerequisites_and_sequence_retry_are_ordered")
+end
+
+function cases.loot_award_finalize_and_single_reset_are_retry_safe(addon)
+	local fixture = installLootHardeningMasterFixture(addon)
+	fixture.announceOnWin = true
+	local confirmation = fixture.master._awardConfirmation
+	assertTrue(fixture.awardSequence:Start("item:19019", 1, { { name = "Winner", roll = 90 } }), "final multi award must start")
+	fixture.throwAnnouncement = true
+	assertEqual(nil, confirmation:Confirm(1), "announcement throw must remain retryable")
+	assertTrue(fixture.lootState.multiAward ~= nil, "announcement failure cleared multi state")
+	fixture.throwAnnouncement = false
+	fixture.throwItemReset = true
+	local resetConfirmed, resetReason = confirmation:Confirm(1)
+	assertEqual(nil, resetConfirmed, "item reset throw must remain retryable")
+	assertTrue(tostring(resetReason):find("item reset exploded", 1, true) ~= nil, "unexpected reset failure: " .. tostring(resetReason))
+	assertEqual(nil, fixture.lootState.multiAward, "state clear did not commit before reset failure")
+	assertEqual(1, fixture.itemResetCalls, "first item reset attempt count differs")
+	assertEqual(true, confirmation:Confirm(1), "item reset retry must confirm")
+	assertEqual(2, fixture.announcementCalls, "successful announcement repeated after reset retry")
+	assertEqual(2, fixture.itemResetCalls, "item reset retry count differs")
+	local checkpoints = fixture.lastAttempt:GetState().checkpoints
+	assertEqual(true, checkpoints.sequence_cancel_progress_timeout, "timeout cancel checkpoint missing")
+	assertEqual(true, checkpoints.sequence_cancel_delay, "delay cancel checkpoint missing")
+	assertEqual(true, checkpoints.sequence_clear_state, "state clear checkpoint missing")
+	assertEqual(true, checkpoints.sequence_item_count_reset, "item reset checkpoint missing")
+
+	local single = installLootHardeningMasterFixture(addon)
+	local singleConfirmation = single.master._awardConfirmation
+	assertTrue(single.awardSequence:TrySingleCopy("item:19019", "Winner"), "single award must start")
+	single.throwItemReset = true
+	assertEqual(nil, singleConfirmation:Confirm(1), "single reset throw must remain retryable")
+	assertEqual(true, singleConfirmation:Confirm(1), "single reset retry must confirm")
+	assertEqual(2, single.itemResetCalls, "single reset retry count differs")
+	assertEqual(true, single.lastAttempt:GetState().checkpoints.single_item_count_reset, "single reset checkpoint missing")
+	print("PASS loot_award_finalize_and_single_reset_are_retry_safe")
+end
+
+function cases.loot_multi_award_cancellation_preserves_current_and_future_admission(addon)
+	local fixture = installLootHardeningMasterFixture(addon)
+	local sequence = fixture.awardSequence
+	local confirmation = fixture.master._awardConfirmation
+	fixture.mutateSelectedCountOnReset = true
+	fixture.lootState.selectedItemCount = 3
+	fixture.windowItemCount = 2
+	assertTrue(sequence:Start("item:19019", 3, {
+		{ name = "Winner", roll = 90 },
+		{ name = "Runner", roll = 80 },
+		{ name = "Third", roll = 70 },
+	}), "multi award must start")
+	assertEqual(true, confirmation:Confirm(1), "first award must confirm")
+	assertEqual(1, fixture.lootState.itemTraded, "first confirmed award count differs")
+	local cancelledBeforeContinuation = #fixture.cancelledTimerHandles
+	fixture.windowItemCount = 1
+	assertTrue(sequence:ContinueOnLootSlotCleared(1), "next award delay must schedule")
+	local refreshBeforeCancel = fixture.refreshCalls
+	local cancelled, reason = sequence:CancelRemaining("operator")
+	assertEqual(true, cancelled, "future awards must be cancellable during delay")
+	assertEqual(nil, reason, "completed current award must not report in-flight ownership")
+	assertEqual(refreshBeforeCancel + 1, fixture.refreshCalls, "cancellation must refresh exactly once")
+	assertEqual(1, fixture.lootState.itemTraded, "cancellation changed confirmed award count")
+	assertEqual(1, fixture.lootState.selectedItemCount, "fixture did not model cancellation item-count reset")
+	assertEqual(nil, fixture.lootState.multiAward, "cancellation retained future sequence state")
+	assertEqual(cancelledBeforeContinuation + 2, #fixture.cancelledTimerHandles, "progress and delay handles were not both cancelled")
+	fixture.timerCallbacks[#fixture.timerCallbacks]()
+	assertEqual(1, fixture.assignments, "cancelled delay started the next winner")
+
+	fixture.windowItemCount = 2
+	assertTrue(sequence:Start("item:19019", 2, {
+		{ name = "Fresh", roll = 70 }, { name = "FreshTwo", roll = 60 },
+	}), "fresh sequence must be admitted")
+	assertEqual(2, fixture.assignments, "fresh sequence did not execute")
+	assertEqual(nil, fixture.lootState.itemTraded, "fresh sequence inherited canceled sequence progress")
+	assertEqual(true, confirmation:Confirm(1), "fresh first award must confirm")
+	assertEqual(1, fixture.lootState.itemTraded, "fresh sequence reset before its own target")
+	fixture.windowItemCount = 1
+	assertTrue(sequence:ContinueOnLootSlotCleared(2), "fresh second award must schedule")
+	fixture.timerCallbacks[#fixture.timerCallbacks]()
+	assertEqual(true, confirmation:Confirm(1), "fresh second award must confirm")
+	assertEqual(0, fixture.lootState.itemTraded, "fresh sequence did not reset at its own terminal target")
+	assertEqual(1, fixture.rollClearCalls or 0, "fresh sequence cleared rolls before or after its own terminal point")
+
+	local waiting = installLootHardeningMasterFixture(newAddon())
+	waiting.lootState.selectedItemCount = 2
+	assertTrue(waiting.awardSequence:Start("item:19019", 2, {
+		{ name = "Winner", roll = 90 }, { name = "Runner", roll = 80 },
+	}), "progress-timeout sequence must start")
+	assertEqual(true, waiting.master._awardConfirmation:Confirm(1), "progress-timeout current award must confirm")
+	local cancelledBeforeTimeout = #waiting.cancelledTimerHandles
+	local timeoutRefreshes = waiting.refreshCalls
+	assertEqual(true, waiting.awardSequence:CancelRemaining("operator"), "progress timeout must be cancellable")
+	assertEqual(cancelledBeforeTimeout + 1, #waiting.cancelledTimerHandles, "progress timeout handle was not cancelled")
+	assertEqual(timeoutRefreshes + 1, waiting.refreshCalls, "timeout cancellation must refresh exactly once")
+	waiting.timerCallbacks[#waiting.timerCallbacks]()
+	assertEqual(1, waiting.assignments, "cancelled progress timeout started the next winner")
+
+	local current = installLootHardeningMasterFixture(newAddon())
+	current.lootState.selectedItemCount = 2
+	current.mutateSelectedCountOnReset = true
+	assertTrue(current.awardSequence:Start("item:19019", 2, {
+		{ name = "Winner", roll = 90 }, { name = "Runner", roll = 80 },
+	}), "current-attempt sequence must start")
+	local currentCancelled, currentReason = current.awardSequence:CancelRemaining("operator")
+	assertEqual(true, currentCancelled, "future entries must cancel while current award is irreversible")
+	assertEqual("current_award_in_flight", currentReason, "cancellation must disclose current award ownership")
+	assertEqual(1, current.assignments, "cancellation pretended to reverse current assignment")
+	assertEqual(true, current.master._awardConfirmation:Confirm(1), "current award must retain confirmation ownership")
+	assertEqual(1, current.lootState.itemTraded, "current confirmed award was not preserved")
+	assertEqual(false, current.awardSequence:ContinueOnLootSlotCleared(1), "cancelled sequence continued")
+	current.windowItemCount = 2
+	assertTrue(current.awardSequence:Start("item:19019", 2, {
+		{ name = "Fresh", roll = 70 }, { name = "FreshTwo", roll = 60 },
+	}), "fresh sequence after current terminal must start")
+	assertEqual(nil, current.lootState.itemTraded, "fresh sequence after current terminal inherited old progress")
+	assertEqual(true, current.master._awardConfirmation:Confirm(1), "fresh current first award must confirm")
+	assertEqual(1, current.lootState.itemTraded, "fresh current sequence reset too early")
+	current.windowItemCount = 1
+	assertTrue(current.awardSequence:ContinueOnLootSlotCleared(2), "fresh current second award must schedule")
+	current.timerCallbacks[#current.timerCallbacks]()
+	assertEqual(true, current.master._awardConfirmation:Confirm(1), "fresh current second award must confirm")
+	assertEqual(0, current.lootState.itemTraded, "fresh current sequence did not reset at terminal target")
+	assertEqual(1, current.rollClearCalls or 0, "fresh current sequence roll reset count differs")
+	print("PASS loot_multi_award_cancellation_preserves_current_and_future_admission")
+end
+
+function cases.loot_multi_award_clear_button_is_truthful(addon)
+	local fixture = installLootHardeningMasterFixture(addon)
+	addon.L.BtnCancelRemainingAwards = "Cancel Remaining Awards"
+	addon.L.TipMasterCancelRemainingAwards = "Cancel future awards; the current transfer may still finish."
+	local buttonState = addon.Services.Master.ButtonState
+	fixture.lootState.multiAward = { active = true, cancelled = false }
+	local state = buttonState.BuildState({
+		lootState = fixture.lootState,
+		tooltipState = { clear = "Clear recorded rolls." },
+		hasLootAccess = false,
+		workflowState = {},
+	})
+	assertEqual("Cancel Remaining Awards", state.clearText, "active multi-award clear label differs")
+	assertEqual(addon.L.TipMasterCancelRemainingAwards, state.clearTooltip, "active multi-award tooltip differs")
+	assertEqual(true, state.canClear, "active multi-award cancellation must remain available")
+
+	local clearRollCalls = 0
+	addon.Services.Rolls.ClearRolls = function() clearRollCalls = clearRollCalls + 1 end
+	local cancelCalls = 0
+	fixture.awardSequence.CancelRemaining = function(_, cancelReason)
+		cancelCalls = cancelCalls + 1
+		assertEqual("operator", cancelReason, "button cancellation reason differs")
+		return true
+	end
+	assertEqual(true, fixture.master._Private.BtnClear(nil, nil), "active clear must return cancellation result")
+	assertEqual(1, cancelCalls, "active clear did not delegate to AwardSequence")
+	assertEqual(0, clearRollCalls, "active clear erased rolls")
+	fixture.lootState.multiAward = nil
+	fixture.master._Private.BtnClear(nil, nil)
+	assertEqual(1, clearRollCalls, "normal clear-roll behavior changed")
+	print("PASS loot_multi_award_clear_button_is_truthful")
+end
+
+function cases.loot_slot_clear_perf_spans_close_on_all_exits(addon)
+	local fixture = installLootHardeningMasterFixture(addon)
+	local finishes = {}
+	local starts = 0
+	addon.hasPerf = true
+	addon._PerfStart = function()
+		starts = starts + 1
+		return starts
+	end
+	addon._PerfFinish = function(_, label)
+		finishes[#finishes + 1] = label
+	end
+	fixture.windowItemCount = 1
+	assertTrue(fixture.awardSequence:Start("item:19019", 2, {
+		{ name = "Winner", roll = 90 }, { name = "Runner", roll = 80 },
+	}), "perf sequence must start")
+	assertEqual(true, fixture.master:LOOT_SLOT_CLEARED(1), "auto-managed continuation must return its result")
+	local finishCounts = {}
+	for i = 1, #finishes do finishCounts[finishes[i]] = (finishCounts[finishes[i]] or 0) + 1 end
+	assertEqual(1, finishCounts["Master.LOOT_SLOT_CLEARED ContinueAward"], "continuation span did not close")
+	assertEqual(1, finishCounts["Master.LOOT_SLOT_CLEARED Total"], "total span did not close")
+
+	fixture.master._awardConfirmation.Confirm = function() return nil, "retry" end
+	finishes = {}
+	local ok, failureReason = fixture.master:LOOT_SLOT_CLEARED(1)
+	assertEqual(nil, ok, "failed confirmation must preserve nil result")
+	assertEqual("retry", failureReason, "failed confirmation reason differs")
+	local closedTotal = false
+	for i = 1, #finishes do
+		if finishes[i] == "Master.LOOT_SLOT_CLEARED Total" then closedTotal = true end
+	end
+	assertEqual(true, closedTotal, "failed confirmation exit did not close total span")
+	print("PASS loot_slot_clear_perf_spans_close_on_all_exits")
+end
+
+function cases.loot_multi_award_twenty_slot_work_is_bounded(addon)
+	local fixture = installLootHardeningMasterFixture(addon)
+	local winners = {}
+	for i = 1, 20 do winners[i] = { name = "Winner" .. tostring(i), roll = 101 - i } end
+	fixture.windowItemCount = 20
+	assertTrue(fixture.awardSequence:Start("item:19019", 20, winners), "bounded sequence must start")
+	for i = 1, 20 do
+		assertEqual(true, fixture.master._awardConfirmation:Confirm(1), "bounded confirmation failed at " .. tostring(i))
+		if i < 20 then
+			fixture.windowItemCount = 20 - i
+			assertTrue(fixture.awardSequence:ContinueOnLootSlotCleared(i), "bounded continuation failed at " .. tostring(i))
+			fixture.timerCallbacks[#fixture.timerCallbacks]()
+		end
+	end
+	assertEqual(19, fixture.lootCountScans, "loot count scans exceed one per continuation")
+	assertEqual(20, fixture.candidateScans, "candidate scans exceed initial plus one per continuation")
+	assertEqual(20, fixture.distributionCalls, "RMADist completion sends differ from confirmed awards")
+	assertEqual(39, fixture.refreshCalls, "refresh requests differ from one transition plus one confirmation per later award")
+	print("PASS loot_multi_award_twenty_slot_work_is_bounded scans=19 candidates=20 sends=20 refreshes=39")
+end
+
+function cases.loot_slot_clear_stops_after_matched_confirmation_failure(addon)
+	local fixture = installLootHardeningMasterFixture(addon)
+	local confirmation = fixture.master._awardConfirmation
+	local continueCalls = 0
+	local continue = fixture.awardSequence.ContinueOnLootSlotCleared
+	fixture.awardSequence.ContinueOnLootSlotCleared = function(self, slot)
+		continueCalls = continueCalls + 1
+		return continue(self, slot)
+	end
+	fixture.rejectDistribution = true
+	assertTrue(fixture.awardSequence:Start("item:19019", 2, {
+		{ name = "Winner", roll = 90 }, { name = "Runner", roll = 80 },
+	}), "multi award must start")
+	local result = fixture.master:LOOT_SLOT_CLEARED(1)
+	assertEqual(nil, result, "matched failed confirmation must stop slot processing")
+	assertEqual(0, continueCalls, "failed confirmation continued the multi award")
+	assertEqual(0, fixture.fetchCalls or 0, "failed confirmation reset loot-window state")
+	assertEqual(true, confirmation:HasInFlight(), "failed confirmation lost ownership")
+	fixture.timerCallbacks[1]()
+	fixture.timerCallbacks[#fixture.timerCallbacks]()
+	assertEqual(false, confirmation:HasInFlight(), "unresolved controller confirmation retained ownership")
+	assertEqual(nil, fixture.lootState.multiAward, "unresolved controller confirmation kept future multi entries")
+	assertEqual("failed", fixture.lastAttempt:GetState().state, "present target timeout must become a known failure")
+	print("PASS loot_slot_clear_stops_after_matched_confirmation_failure")
+end
+
+function cases.loot_award_confirmation_expiry_is_bounded(addon)
+	addon.Services = {
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+			return addon.Services[name]
+		end,
+	}
+	loadAddonFile(addon, "Raid Management Addon/Services/Master/AwardAttempt.lua")
+	loadAddonFile(addon, "Raid Management Addon/Services/Master/AwardConfirmation.lua")
+	local scheduled, warnings, refreshes, unresolved, success, cancelled = {}, 0, 0, 0, 0, 0
+	local effect = addon.Services.Master.AwardAttempt.CreateExecuting({
+		onConfirm = function() success = success + 1 return true end,
+		onFail = function() cancelled = cancelled + 1 return true end,
+	})
+	local owner = addon.Services.Master.AwardConfirmation.Create({
+		timeoutSeconds = 4,
+		reconciliationSeconds = 8,
+		scheduleTimer = function(callback, delay) scheduled[#scheduled + 1] = { callback = callback, delay = delay } return callback end,
+		cancelTimer = function() end,
+		requestRefresh = function() refreshes = refreshes + 1 end,
+		warnFailure = function() warnings = warnings + 1 end,
+		warnUncertain = function() warnings = warnings + 1 end,
+		warnTimeout = function() warnings = warnings + 1 end,
+		warnUnresolved = function() warnings = warnings + 1 end,
+		onUnresolved = function() unresolved = unresolved + 1 end,
+		confirmProvisional = function() return true end,
+	})
+	assertTrue(owner:Queue({ itemLink = "item:19019", itemIndex = 1, playerName = "Winner", effect = effect }), "entry must queue")
+	assertEqual(1, #scheduled, "queue must own one confirmation timer")
+	scheduled[1].callback()
+	assertEqual(2, #scheduled, "timeout must schedule one reconciliation expiry")
+	assertEqual(8, scheduled[2].delay, "expiry must use pending-award TTL")
+	scheduled[2].callback()
+	assertEqual(false, owner:HasInFlight(), "expiry must release ownership")
+	local state = effect:GetState()
+	assertEqual("uncertain", state.state, "expiry must remain uncertain")
+	assertEqual("confirmation_unresolved", state.failureReason, "expiry reason differs")
+	assertEqual(1, unresolved, "unresolved owner callback count differs")
+	assertEqual(2, warnings, "timeout and unresolved warnings must each emit once")
+	assertEqual(2, refreshes, "timeout and unresolved refreshes must each emit once")
+	assertEqual(0, success, "expiry published success")
+	assertEqual(0, cancelled, "expiry published known-failure cancellation")
+	print("PASS loot_award_confirmation_expiry_is_bounded")
+end
+
+function cases.loot_award_confirmation_expiry_survives_presentation_failures(addon)
+	local function runScenario(mode)
+		addon.Services = {
+			EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} return addon.Services[name] end,
+		}
+		loadAddonFile(addon, "Raid Management Addon/Services/Master/AwardAttempt.lua")
+		loadAddonFile(addon, "Raid Management Addon/Services/Master/AwardConfirmation.lua")
+		local timeoutCallback, scheduleCalls, cleanupCalls, warnCalls, refreshCalls = nil, 0, 0, 0, 0
+		local effect = addon.Services.Master.AwardAttempt.CreateExecuting({ onConfirm = function() return true end })
+		local owner = addon.Services.Master.AwardConfirmation.Create({
+			timeoutSeconds = 4,
+			reconciliationSeconds = 8,
+			scheduleTimer = function(callback)
+				scheduleCalls = scheduleCalls + 1
+				if scheduleCalls == 1 then timeoutCallback = callback return callback end
+				if mode == "throw" then error("expiry schedule exploded") end
+				return nil
+			end,
+			cancelTimer = function() end,
+			requestRefresh = function() refreshCalls = refreshCalls + 1 error("refresh exploded") end,
+			warnFailure = function() end,
+			warnUncertain = function() end,
+			warnTimeout = function() warnCalls = warnCalls + 1 error("timeout warning exploded") end,
+			warnUnresolved = function() warnCalls = warnCalls + 1 error("unresolved warning exploded") end,
+			onUnresolved = function() cleanupCalls = cleanupCalls + 1 error("cleanup exploded") end,
+			confirmProvisional = function() return true end,
+		})
+		assertTrue(owner:Queue({ itemLink = "item:19019", itemIndex = 1, playerName = "Winner", effect = effect }), "scenario must queue")
+		local ok = pcall(timeoutCallback)
+		assertEqual(true, ok, mode .. " timeout path leaked callback failure")
+		assertEqual(false, owner:HasInFlight(), mode .. " expiry failure retained ownership")
+		assertEqual("uncertain", effect:GetState().state, mode .. " expiry changed terminal state")
+		assertEqual("confirmation_unresolved", effect:GetState().failureReason, mode .. " expiry reason differs")
+		assertEqual(1, cleanupCalls, mode .. " cleanup callback attempt count differs")
+		assertEqual(2, warnCalls, mode .. " presentation warnings did not both attempt")
+		assertEqual(2, refreshCalls, mode .. " presentation refreshes did not both attempt")
+	end
+	runScenario("nil")
+	runScenario("throw")
+	print("PASS loot_award_confirmation_expiry_survives_presentation_failures")
+end
+
+function cases.loot_inventory_slot_validation_is_strict(addon)
+	local currentLink
+	_G.GetNumLootItems = function() return currentLink and 1 or 0 end
+	_G.GetLootSlotLink = function() return currentLink end
+	_G.GetContainerNumSlots = function() return 0 end
+	_G.GetContainerItemLink = function() return nil end
+	_G.GetContainerItemInfo = function() return nil end
+	addon.Database = { EnsureLootRuntimeState = function() return {}, {}, {} end }
+	addon.Services = {
+		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} return addon.Services[name] end,
+	}
+	addon.Item = {
+		GetItemStringFromLink = function(link) return link and link:match("|H(item:[^|]+)|h") or nil end,
+		GetItemIdFromLink = function(link)
+			return tonumber(link and (link:match("item:(%d+)") or link:match("^(%d+)$")))
+		end,
+	}
+	loadAddonFile(addon, "Raid Management Addon/Services/Loot/Inventory.lua")
+	local inventory = addon.Services.Loot.Inventory
+	local target = "|cffa335ee|Hitem:19019:0:0:0:0:0:0:0|h[Target]|h|r"
+	currentLink = "|cffa335ee|Hitem:19019:1:0:0:0:0:0:0|h[Changed]|h|r"
+	local ok, reason = inventory.ValidateLootSlot(1, target)
+	assertEqual(nil, ok, "same item ID must not override canonical mismatch")
+	assertEqual("loot_slot_changed", reason, "canonical mismatch reason differs")
+	currentLink = target
+	assertEqual(true, inventory.ValidateLootSlot(1, target), "identical canonical item must validate")
+	currentLink = nil
+	ok, reason = inventory.ValidateLootSlot(1, target)
+	assertEqual(nil, ok, "missing slot must reject")
+	assertEqual("loot_slot_missing", reason, "missing slot reason differs")
+	currentLink = "item:19019"
+	assertEqual(true, inventory.ValidateLootSlot(1, "19019"), "item ID fallback must work when canonical data is unavailable")
+	print("PASS loot_inventory_slot_validation_is_strict")
+end
+
+local function installTradeEvidenceInventory(addon, bags)
+	_G.GetNumLootItems = function() return 0 end
+	_G.GetLootSlotLink = function() return nil end
+	_G.GetContainerNumSlots = function(bag)
+		local rows = bags[bag] or {}
+		local highest = 0
+		for slot in pairs(rows) do
+			if slot > highest then highest = slot end
+		end
+		return highest
+	end
+	_G.GetContainerItemLink = function(bag, slot)
+		local row = bags[bag] and bags[bag][slot]
+		return row and row.link or nil
+	end
+	_G.GetContainerItemInfo = function(bag, slot)
+		local row = bags[bag] and bags[bag][slot]
+		return nil, row and row.count or nil
+	end
+	addon.Database = addon.Database or {}
+	addon.Database.EnsureLootRuntimeState = function() return {}, {}, {} end
+	addon.Services = addon.Services or {}
+	addon.Services.EnsureNamespace = function(name)
+		addon.Services[name] = addon.Services[name] or {}
+		return addon.Services[name]
+	end
+	addon.Item = {
+		GetItemStringFromLink = function(link) return link and link:match("|H(item:[^|]+)|h") or nil end,
+		GetItemIdFromLink = function(link)
+			return tonumber(link and (link:match("item:(%d+)") or link:match("^(%d+)$")))
+		end,
+		IsBagItemSoulbound = function() return false end,
+	}
+	loadAddonFile(addon, "Raid Management Addon/Services/Loot/Inventory.lua")
+	return addon.Services.Loot.Inventory
+end
+
+function cases.loot_trade_inventory_evidence_requires_a_positive_delta(addon)
+	local target = "|cffa335ee|Hitem:19019:0:0:0:0:0:0:0|h[Target]|h|r"
+	local changed = "|cffa335ee|Hitem:19019:1:0:0:0:0:0:0|h[Changed]|h|r"
+	local bags = { [0] = {
+		[1] = { link = target, count = 2 },
+		[2] = { link = target, count = 3 },
+	} }
+	local inventory = installTradeEvidenceInventory(addon, bags)
+	local evidence, reason = inventory.CaptureTradeEvidence(target, 0, 1)
+	assertTrue(evidence ~= nil, reason or "trade evidence capture failed")
+	evidence.expectedPartner = "Winner"
+	assertEqual(5, evidence.totalCount, "captured total count differs")
+	local ok
+	ok, reason = inventory.VerifyTradeEvidence(evidence, nil)
+	assertEqual(nil, ok, "missing observed partner must not confirm a transfer")
+	assertEqual("trade_partner_unavailable", reason, "missing observed partner reason differs")
+	ok, reason = inventory.VerifyTradeEvidence(evidence, "Winner")
+	assertEqual(nil, ok, "unchanged inventory must not confirm a transfer")
+	assertEqual("trade_transfer_unverified", reason, "unchanged inventory reason differs")
+	ok, reason = inventory.VerifyTradeEvidence(evidence, "Other")
+	assertEqual(nil, ok, "wrong partner must not confirm a transfer")
+	assertEqual("trade_partner_changed", reason, "wrong partner reason differs")
+
+	bags[0][1].count = 1
+	local awarded
+	ok, awarded = inventory.VerifyTradeEvidence(evidence, "Winner")
+	assertEqual(true, ok, "source-stack decrease must confirm")
+	assertEqual(1, awarded, "source-stack awarded count differs")
+
+	bags[0][1] = { link = target, count = 2 }
+	bags[0][2].count = 1
+	ok, awarded = inventory.VerifyTradeEvidence(evidence, "Winner")
+	assertEqual(true, ok, "total-count decrease must confirm")
+	assertEqual(2, awarded, "total-count awarded count differs")
+
+	bags[0][1] = { link = changed, count = 2 }
+	bags[0][2].count = 3
+	ok, awarded = inventory.VerifyTradeEvidence(evidence, "Winner")
+	assertEqual(true, ok, "canonical source replacement must prove the tracked stack left")
+	assertEqual(2, awarded, "replacement source awarded count differs")
+	print("PASS loot_trade_inventory_evidence_requires_a_positive_delta")
+end
+
+local function installAwardTradeFixture(addon, opts)
+	opts = opts or {}
+	local target = "|cffa335ee|Hitem:19019:0:0:0:0:0:0:0|h[Target]|h|r"
+	local bags = { [0] = { [1] = { link = target, count = 2 } } }
+	local inventory = installTradeEvidenceInventory(addon, bags)
+	addon.C = {
+		RAID_TARGET_MARKERS = {},
+		rollTypes = { MAINSPEC = 1, OFFSPEC = 2, RESERVED = 3, FREE = 4, HOLD = 5 },
+	}
+	addon.L = setmetatable({
+		ChatTrade = "%s %s",
+		ErrMLInventoryItemMissing = "%s",
+		ErrItemStack = "%s",
+		ErrNoWinnerSelected = "no winner",
+		ErrMLWinnerIneligible = "%s",
+		ErrMLWinnerLootBanned = "%s",
+		ErrMLWinnerLootBannedWithNote = "%s %s",
+		ErrScreenReminder = "screen",
+		WarnTradeTransferUnverified = "%s %s",
+	}, { __index = function(_, key) return key .. " %s %s %s %s" end })
+	addon.Diag = {
+		D = setmetatable({ LogTradeCompleted = "%s %s %s %s" }, { __index = function(_, key) return key .. " %s %s %s %s %s" end }),
+		W = setmetatable({}, { __index = function(_, key) return key .. " %s %s %s %s %s" end }),
+		E = setmetatable({ LogTradeLoggerLogFailed = "%s %s %s" }, { __index = function(_, key) return key .. " %s %s %s %s %s" end }),
+	}
+	loadAddonFile(addon, "Raid Management Addon/Services/Master/TradeExecution.lua")
+	local counters = {
+		logger = 0, raid = 0, registered = 0, rollEnd = 0, announce = 0,
+		whisper = 0, release = 0, warn = 0, initiateSawState = nil,
+	}
+	local lootState = {
+		fromInventory = true, selectedItemCount = 1, currentRollItem = 10,
+		currentItemIndex = 1, rollSession = { id = "RS:trade" },
+	}
+	local itemInfo = {}
+	local controller
+	local function createAttempt(attemptOpts)
+		local state = { state = "executing", checkpoints = {}, executorContext = attemptOpts.executorContext }
+		return {
+			Confirm = function()
+				state.state = "confirming"
+				local ok = attemptOpts.onConfirm(state)
+				state.state = ok == true and "confirmed" or "uncertain"
+				return ok == true and true or nil
+			end,
+			Fail = function(_, reason) state.state = "failed" state.reason = reason return true end,
+			GetState = function() return state end,
+		}
+	end
+	controller = addon.Services.Master.TradeExecution.CreateController({
+		lootBans = { Get = function() return false end },
+		trade = { Reset = function() end },
+		inventory = inventory,
+		awardPlanner = { BuildTradeNotificationPlan = function()
+			return { keep = false, output = "awarded", whisper = "winner whisper", markerPlan = {} }
+		end },
+		rollSelection = {
+			GetSelectedCount = function() return 0 end,
+			DeselectWinner = function() end,
+			GetSelectedWinnersOrdered = function() return {} end,
+		},
+		raid = {
+			GetUnitID = function() return "raid1" end,
+			ClearRaidIcons = function() end,
+			AddPlayerCountForRollType = function() counters.raid = counters.raid + 1 end,
+		},
+		loot = { GetItemLink = function() return target end, ClearLoot = function() end },
+		distribution = {
+			PublishRollEnd = function() counters.rollEnd = counters.rollEnd + 1 return true end,
+			AcquireSessionOwnership = function() return "owner:1" end,
+			ReleaseSessionOwnership = function()
+				counters.release = counters.release + 1
+				return opts.rejectRelease ~= true
+			end,
+		},
+		rolls = {
+			EnsureLootRollSession = function() end,
+			ValidateWinner = function() return { ok = true } end,
+			GetResolvedWinner = function() return "Winner" end,
+			GetRolls = function() return {} end,
+		},
+		comms = { SendWhisper = function() counters.whisper = counters.whisper + 1 return true end },
+		database = { GetCurrentRaid = function() return 1 end, GetPlayerName = function() return "Holder" end },
+		item = addon.Item,
+		lootState = lootState,
+		itemInfo = itemInfo,
+		wow = {
+			ClearCursor = function() end,
+			CursorHasItem = function() return true end,
+			GetContainerItemInfo = _G.GetContainerItemInfo,
+			GetContainerItemLink = _G.GetContainerItemLink,
+			PickupContainerItem = function() end,
+			InitiateTrade = function()
+				local state = controller:GetPendingState()
+				counters.initiateSawState = state and state.state
+			end,
+			SetRaidTarget = function() end,
+			CheckInteractDistance = function() return 1 end,
+		},
+		getOption = function(_, key) return key == "ignoreStacks" end,
+		buildRollSelectionModel = function() return { winner = "Winner", rows = {} } end,
+		buildLootRollSessionOptions = function() return {} end,
+		resetTradeState = function() end,
+		hideTradeDropdowns = function() end,
+		clearLootAndResetRecordedRolls = function() end,
+		ensureTradeLootContext = function() return 10, false end,
+		requestLoggerLootLog = function()
+			counters.logger = counters.logger + 1
+			return opts.rejectLogger ~= true
+		end,
+		registerAwardedItem = function(count) counters.registered = counters.registered + count return true end,
+		requestRefresh = function() return true end,
+		announce = function() counters.announce = counters.announce + 1 return true end,
+		isAnnounced = function() return false end,
+		setAnnounced = function() end,
+		isScreenshotWarn = function() return false end,
+		setScreenshotWarn = function() end,
+		warn = function() counters.warn = counters.warn + 1 end,
+		error = function() end,
+		createAttempt = createAttempt,
+		getItemKey = addon.Item.GetItemStringFromLink,
+	})
+	return { controller = controller, bags = bags, counters = counters, target = target, opts = opts }
+end
+
+function cases.loot_award_trade_event_order_is_evidence_gated(addon)
+	local fixture = installAwardTradeFixture(addon)
+	local trade = fixture.controller
+	assertEqual(true, trade:TradeItem(fixture.target, "Winner", 1, 90), "trade request must start")
+	assertEqual("requested", fixture.counters.initiateSawState, "pending state must exist before InitiateTrade")
+	assertEqual("requested", trade:GetPendingState().state, "initial trade state differs")
+	assertEqual(0, fixture.counters.rollEnd, "trade request published ROLL_END before evidence")
+	assertEqual(0, fixture.counters.announce, "trade request announced success before evidence")
+	assertEqual(true, trade:HandleTradeShow("Winner"), "expected TRADE_SHOW must advance")
+	assertEqual("shown", trade:GetPendingState().state, "TRADE_SHOW state differs")
+	assertEqual(false, trade:HandleAcceptedAwardTrade(1, 0), "one accepted flag must not complete intent")
+	assertEqual("shown", trade:GetPendingState().state, "partial accept changed state")
+	assertEqual(true, trade:HandleAcceptedAwardTrade(1, 1), "both accepted flags must advance intent")
+	assertEqual("accepted", trade:GetPendingState().state, "accepted state differs")
+	assertEqual(nil, trade:SettleAcceptedTrade("Winner"), "close without delta must remain unconfirmed")
+	assertEqual("uncertain", trade:GetPendingState().state, "unverified close must be uncertain")
+	assertEqual(0, fixture.counters.logger, "unverified close logged success")
+	assertEqual(0, fixture.counters.release, "uncertain close released session ownership")
+	assertEqual(1, fixture.counters.warn, "uncertain close must warn once")
+
+	fixture.bags[0][1].count = 1
+	assertEqual(true, trade:SettleAcceptedTrade("Winner"), "later inventory delta must confirm")
+	assertEqual("confirmed", trade:GetPendingState().state, "confirmed state differs")
+	assertEqual(1, fixture.counters.logger, "confirmed trade logger count differs")
+	assertEqual(1, fixture.counters.raid, "confirmed trade counter count differs")
+	assertEqual(1, fixture.counters.rollEnd, "confirmed trade ROLL_END count differs")
+	assertEqual(1, fixture.counters.announce, "confirmed trade announcement count differs")
+	assertEqual(1, fixture.counters.whisper, "confirmed trade whisper count differs")
+	assertEqual(1, fixture.counters.release, "confirmed trade did not release session ownership")
+
+	local wrong = installAwardTradeFixture(newAddon())
+	assertTrue(wrong.controller:TradeItem(wrong.target, "Winner", 1, 90), "wrong-partner scenario did not start")
+	assertEqual(true, wrong.controller:HandleTradeShow("Other"), "wrong-partner show must be handled")
+	assertEqual("failed", wrong.controller:GetPendingState().state, "wrong partner must fail the request")
+	assertEqual(1, wrong.counters.release, "wrong partner retained session ownership")
+
+	local missingShowPartner = installAwardTradeFixture(newAddon())
+	assertTrue(missingShowPartner.controller:TradeItem(missingShowPartner.target, "Winner", 1, 90))
+	local shown, showReason = missingShowPartner.controller:HandleTradeShow(nil)
+	assertEqual(nil, shown, "TRADE_SHOW without an observed partner must not advance")
+	assertEqual("trade_partner_unavailable", showReason, "missing TRADE_SHOW partner reason differs")
+	assertEqual("requested", missingShowPartner.controller:GetPendingState().state, "missing partner advanced show state")
+
+	local beforeShowCancel = installAwardTradeFixture(newAddon())
+	assertTrue(beforeShowCancel.controller:TradeItem(beforeShowCancel.target, "Winner", 1, 90))
+	assertTrue(beforeShowCancel.controller:FailAcceptedTrade("TRADE_REQUEST_CANCEL"), "pre-show cancel must fail")
+	assertEqual("failed", beforeShowCancel.controller:GetPendingState().state, "pre-show cancel state differs")
+	local afterShowCancel = installAwardTradeFixture(newAddon())
+	assertTrue(afterShowCancel.controller:TradeItem(afterShowCancel.target, "Winner", 1, 90))
+	assertTrue(afterShowCancel.controller:HandleTradeShow("Winner"))
+	assertTrue(afterShowCancel.controller:FailAcceptedTrade("TRADE_CLOSED"), "post-show cancel must fail")
+	assertEqual("failed", afterShowCancel.controller:GetPendingState().state, "post-show cancel state differs")
+
+	local missingSettlePartner = installAwardTradeFixture(newAddon())
+	assertTrue(missingSettlePartner.controller:TradeItem(missingSettlePartner.target, "Winner", 1, 90))
+	assertTrue(missingSettlePartner.controller:HandleTradeShow("Winner"))
+	assertTrue(missingSettlePartner.controller:HandleAcceptedAwardTrade(1, 1))
+	missingSettlePartner.bags[0][1].count = 1
+	local settled, settleReason = missingSettlePartner.controller:SettleAcceptedTrade(nil)
+	assertEqual(true, settled, settleReason or "validated TRADE_SHOW partner must survive post-close nil lookup")
+	assertEqual(1, missingSettlePartner.counters.logger, "validated shown partner did not reach logger")
+	assertEqual(1, missingSettlePartner.counters.release, "validated shown partner did not release ownership")
+
+	local retry = installAwardTradeFixture(newAddon(), { rejectLogger = true })
+	assertTrue(retry.controller:TradeItem(retry.target, "Winner", 1, 90))
+	assertTrue(retry.controller:HandleTradeShow("Winner"))
+	assertTrue(retry.controller:HandleAcceptedAwardTrade(1, 1))
+	retry.bags[0][1].count = 1
+	assertEqual(nil, retry.controller:SettleAcceptedTrade("Winner"), "logger rejection must remain retryable")
+	assertEqual(1, retry.counters.logger, "logger first attempt count differs")
+	assertEqual(0, retry.counters.raid, "counter ran before logger success")
+	retry.opts.rejectLogger = false
+	assertEqual(true, retry.controller:SettleAcceptedTrade("Winner"), "logger retry must confirm")
+	assertEqual(2, retry.counters.logger, "logger retry count differs")
+	assertEqual(1, retry.counters.raid, "logger retry duplicated counter")
+	assertEqual(1, retry.counters.rollEnd, "logger retry duplicated distribution terminal state")
+	assertEqual(1, retry.counters.announce, "logger retry duplicated announcement")
+
+	local releaseRetry = installAwardTradeFixture(newAddon(), { rejectRelease = true })
+	assertTrue(releaseRetry.controller:TradeItem(releaseRetry.target, "Winner", 1, 90))
+	assertTrue(releaseRetry.controller:HandleTradeShow("Winner"))
+	assertTrue(releaseRetry.controller:HandleAcceptedAwardTrade(1, 1))
+	releaseRetry.bags[0][1].count = 1
+	local released, releaseReason = releaseRetry.controller:SettleAcceptedTrade("Winner")
+	assertEqual(nil, released, "failed session release must retain terminal ownership")
+	assertEqual("session_ownership_release_failed", releaseReason, "release failure reason differs")
+	assertEqual(true, releaseRetry.controller:HasInFlightAward(), "release failure orphaned the in-flight owner")
+	assertEqual(true, releaseRetry.controller:GetPendingState().releasePending, "release retry state not exposed")
+	assertEqual(1, releaseRetry.counters.logger, "release failure repeated logger")
+	releaseRetry.opts.rejectRelease = false
+	assertEqual(true, releaseRetry.controller:SettleAcceptedTrade(nil), "terminal release retry must succeed without evidence rerun")
+	assertEqual(false, releaseRetry.controller:HasInFlightAward(), "successful release retry retained ownership")
+	assertEqual(2, releaseRetry.counters.release, "session release retry count differs")
+	assertEqual(1, releaseRetry.counters.logger, "session release retry duplicated logger")
+	assertEqual(1, releaseRetry.counters.rollEnd, "session release retry duplicated RMADist publication")
+	assertEqual(1, releaseRetry.counters.announce, "session release retry duplicated announcement")
+	print("PASS loot_award_trade_event_order_is_evidence_gated")
+end
+
+function cases.loot_manual_hold_trade_requires_inventory_evidence(addon)
+	local target = "|cffa335ee|Hitem:19019:0:0:0:0:0:0:0|h[Target]|h|r"
+	local bags = { [0] = { [1] = { link = target, count = 1 } } }
+	installTradeEvidenceInventory(addon, bags)
+	local lootState = {}
+	local raid = { loot = { {
+		lootNid = 10, rollType = 5, looter = "Holder", holder = "Holder",
+		itemString = "item:19019:0:0:0:0:0:0:0", itemId = 19019,
+	} } }
+	local loggerCalls, countCalls, warnings = 0, 0, 0
+	addon.C = { rollTypes = { MAINSPEC = 1, OFFSPEC = 2, RESERVED = 3, FREE = 4, HOLD = 5 } }
+	addon.L = setmetatable({ BtnMS = "MS", BtnOS = "OS", BtnSR = "SR", BtnFree = "Free",
+		WarnTradeManualReasonMissing = "%s", WarnTradeTransferUnverified = "%s",
+	}, { __index = function(_, key) return key .. " %s %s" end })
+	addon.Diag = { D = setmetatable({}, { __index = function(_, key) return key .. " %s %s %s" end }),
+		W = setmetatable({}, { __index = function(_, key) return key .. " %s %s %s" end }),
+		E = setmetatable({}, { __index = function(_, key) return key .. " %s %s %s" end }) }
+	addon.warn = function() warnings = warnings + 1 end
+	addon.Database.EnsureLootRuntimeState = function() return {}, lootState, {} end
+	addon.Database.EnsureRaidByIndex = function() return raid end
+	addon.Database.GetCurrentRaid = function() return 1 end
+	addon.Database.GetPlayerName = function() return "Holder" end
+	addon.Services.Logger = { Actions = { RecordLoot = function() loggerCalls = loggerCalls + 1 return true end } }
+	addon.Services.Raid = {
+		GetPlayerID = function() return 1 end,
+		AddPlayerCountForRollType = function() countCalls = countCalls + 1 end,
+	}
+	loadAddonFile(addon, "Raid Management Addon/Services/Master/Trade.lua")
+	local trade = addon.Services.Master.Trade
+	local state = trade.RefreshCandidate({
+		source = "TRADE_PLAYER_ITEM_CHANGED", partnerName = "Winner",
+		tradeItems = { [1] = { itemLink = target, itemString = "item:19019:0:0:0:0:0:0:0", itemId = 19019 } },
+	})
+	assertEqual(true, state.active, "manual Hold candidate did not activate")
+	assertTrue(state.candidates[1].tradeEvidence ~= nil, "manual Hold candidate did not capture evidence")
+	assertTrue(trade.SetSelectedReason(10, 1), "manual Hold reason selection failed")
+	assertTrue(trade.ApplyAccept(1, 1, false), "manual Hold accept intent failed")
+	assertEqual(false, trade.CompletePending(), "manual Hold without delta must not log")
+	assertEqual("uncertain", trade.EnsureState().state, "manual Hold without evidence must be uncertain")
+	assertEqual(0, loggerCalls, "manual Hold without evidence logged success")
+	bags[0][1] = nil
+	assertEqual(true, trade.CompletePending(), "manual Hold with later delta must log")
+	assertEqual(1, loggerCalls, "manual Hold logger count differs")
+	assertEqual(1, countCalls, "manual Hold counter count differs")
+	assertEqual("confirmed", trade.EnsureState().state, "manual Hold confirmed state differs")
+	assertEqual(1, warnings, "manual Hold uncertainty warning count differs")
+
+	local secondAddon = newAddon()
+	local secondTarget = "|cffa335ee|Hitem:18832:0:0:0:0:0:0:0|h[Second]|h|r"
+	local secondBags = { [0] = {
+		[1] = { link = target, count = 1 },
+		[2] = { link = secondTarget, count = 1 },
+	} }
+	installTradeEvidenceInventory(secondAddon, secondBags)
+	local secondLootState = {}
+	local secondRaid = { loot = {
+		{ lootNid = 10, rollType = 5, looter = "Holder", holder = "Holder",
+			itemString = "item:19019:0:0:0:0:0:0:0", itemId = 19019 },
+		{ lootNid = 11, rollType = 5, looter = "Holder", holder = "Holder",
+			itemString = "item:18832:0:0:0:0:0:0:0", itemId = 18832 },
+	} }
+	local loggerByNid, counterByName, rejectSecond = {}, {}, true
+	secondAddon.C = addon.C
+	secondAddon.L = addon.L
+	secondAddon.Diag = addon.Diag
+	secondAddon.warn = function() end
+	secondAddon.Database.EnsureLootRuntimeState = function() return {}, secondLootState, {} end
+	secondAddon.Database.EnsureRaidByIndex = function() return secondRaid end
+	secondAddon.Database.GetCurrentRaid = function() return 1 end
+	secondAddon.Database.GetPlayerName = function() return "Holder" end
+	secondAddon.Services.Logger = { Actions = { RecordLoot = function(_, request)
+		local nid = request.lootNid
+		loggerByNid[nid] = (loggerByNid[nid] or 0) + 1
+		if nid == 11 and rejectSecond then return false end
+		return true
+	end } }
+	secondAddon.Services.Raid = {
+		GetPlayerID = function() return 1 end,
+		AddPlayerCountForRollType = function(_, name)
+			counterByName[name] = (counterByName[name] or 0) + 1
+		end,
+	}
+	loadAddonFile(secondAddon, "Raid Management Addon/Services/Master/Trade.lua")
+	local secondTrade = secondAddon.Services.Master.Trade
+	local secondState = secondTrade.RefreshCandidate({
+		source = "TRADE_PLAYER_ITEM_CHANGED", partnerName = "Winner",
+		tradeItems = {
+			[1] = { itemLink = target, itemString = "item:19019:0:0:0:0:0:0:0", itemId = 19019 },
+			[2] = { itemLink = secondTarget, itemString = "item:18832:0:0:0:0:0:0:0", itemId = 18832 },
+		},
+	})
+	assertEqual(2, #secondState.candidates, "two-candidate manual fixture differs")
+	assertTrue(secondTrade.SetSelectedReason(10, 1))
+	assertTrue(secondTrade.SetSelectedReason(11, 1))
+	assertTrue(secondTrade.ApplyAccept(1, 1, false))
+	secondBags[0][1] = nil
+	secondBags[0][2] = nil
+	assertEqual(false, secondTrade.CompletePending(), "second logger rejection must retain manual ownership")
+	assertEqual(1, loggerByNid[10], "first manual candidate logger count differs")
+	assertEqual(1, loggerByNid[11], "second manual candidate first attempt differs")
+	assertEqual(1, counterByName.Winner, "first manual candidate counter count differs")
+	rejectSecond = false
+	assertEqual(true, secondTrade.CompletePending(), "manual partial logger retry must complete remaining candidate")
+	assertEqual(1, loggerByNid[10], "manual retry duplicated completed first logger")
+	assertEqual(2, loggerByNid[11], "manual retry did not retry second logger exactly once")
+	assertEqual(2, counterByName.Winner, "manual retry duplicated or lost a counter")
+	print("PASS loot_manual_hold_trade_requires_inventory_evidence")
+end
+
+function cases.loot_attribution_cancellation_is_transaction_scoped(addon)
+	local lootState = { pendingAwards = {} }
+	_G.GetTime = function() return 10 end
+	addon.C = { PENDING_AWARD_TTL_SECONDS = 8 }
+	addon.Diag = { D = { LogLootPendingAwardConsumed = "%s %s %s %s" } }
+	addon.Options = { IsDebugEnabled = function() return false end }
+	addon.Strings = { NormalizeName = function(value) return value end }
+	addon.Item = { GetItemStringFromLink = function(link) return link end }
+	addon.Database = { EnsureLootRuntimeState = function() return {}, lootState end }
+	addon.Services = {
+		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} return addon.Services[name] end,
+	}
+	loadAddonFile(addon, "Raid Management Addon/Services/Loot/LootAttribution.lua")
+	local attribution = addon.Services.Loot.LootAttribution
+	attribution.Add("item:19019", "Winner", 1, 90, "RS:1", nil, { transactionId = "AT:1" })
+	attribution.Add("item:19019", "Winner", 2, 80, "RS:2", nil, { transactionId = "AT:2" })
+	attribution.Add("item:18832", "Other", 1, 70, "RS:3", nil, { transactionId = "AT:1" })
+	assertEqual(true, attribution.Cancel("AT:1"), "matching transaction must cancel")
+	assertEqual(false, attribution.Cancel("AT:1"), "repeated cancellation must be idempotent")
+	local remaining = 0
+	local remainingTransaction
+	for _, list in pairs(lootState.pendingAwards) do
+		for i = 1, #list do
+			remaining = remaining + 1
+			remainingTransaction = list[i].transactionId
+		end
+	end
+	assertEqual(1, remaining, "cancellation removed unrelated pending awards")
+	assertEqual("AT:2", remainingTransaction, "wrong transaction survived cancellation")
+	print("PASS loot_attribution_cancellation_is_transaction_scoped")
+end
+
+function cases.loot_award_attribution_event_order_is_atomic(addon)
+	local lootState = { pendingAwards = {} }
+	_G.GetTime = function() return 10 end
+	addon.C = { PENDING_AWARD_TTL_SECONDS = 8 }
+	addon.Diag = { D = { LogLootPendingAwardConsumed = "%s %s %s %s" } }
+	addon.Options = { IsDebugEnabled = function() return false end }
+	addon.Strings = { NormalizeName = function(value) return value end }
+	addon.Item = { GetItemStringFromLink = function(link) return link end }
+	addon.Database = { EnsureLootRuntimeState = function() return {}, lootState end }
+	addon.Services = {
+		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} return addon.Services[name] end,
+	}
+	loadAddonFile(addon, "Raid Management Addon/Services/Loot/LootAttribution.lua")
+	local attribution = addon.Services.Loot.LootAttribution
+	local records, reconciles = 0, 0
+	local function finalize(award)
+		records = records + 1
+		return records
+	end
+	local function reconcile(award, authoritative)
+		reconciles = reconciles + 1
+		assertEqual(2, authoritative.itemCount, "authoritative count was not retained")
+	end
+
+	-- CHAT_MSG_LOOT first: retain the transaction until slot confirmation, then
+	-- finalize exactly once without waiting for another chat event.
+	attribution.Add("item:19019", "Winner", 1, 90, "RS:chat", nil, { transactionId = "AT:chat" })
+	assertTrue(attribution.StageAuthoritative("item:19019", "Winner", {
+		itemCount = 2,
+	}, reconcile), "chat-first award was not staged")
+	assertEqual(0, records, "chat-first award finalized before slot evidence")
+	local chatFirst = attribution.ConfirmProvisional(
+		"item:19019", "Winner", "RS:chat", 1, "AT:chat", 1,
+		function() error("chat-first confirmation must not schedule grace") end,
+		function() end,
+		finalize
+	)
+	assertTrue(chatFirst and chatFirst.finalized, "chat-first award did not confirm")
+	assertEqual("CHAT_MSG_LOOT", chatFirst.finalizedSource, "chat-first source differs")
+	assertEqual(1, records, "chat-first award record count differs")
+	assertEqual(1, reconciles, "chat-first reconciliation count differs")
+	assertEqual(nil, attribution.Remove("item:19019", "Winner", 8, "RS:chat", false, false),
+		"chat-first confirmation retained a consumable pending award")
+	assertEqual(nil, attribution.ConfirmProvisional(
+		"item:19019", "Winner", "RS:chat", 1, "AT:chat", 1, nil, nil, finalize
+	), "duplicate chat-first slot confirmation found a completed pending award")
+	assertEqual(1, records, "duplicate chat-first confirmation repeated finalization")
+	assertEqual(1, reconciles, "duplicate chat-first confirmation repeated reconciliation")
+
+	-- LOOT_SLOT_CLEARED first: grace remains pending until authoritative chat,
+	-- which cancels it and reconciles the same record exactly once.
+	local scheduled, cancelled = {}, 0
+	attribution.Add("item:19019", "Winner", 1, 80, "RS:slot", nil, { transactionId = "AT:slot" })
+	local slotFirst = attribution.ConfirmProvisional(
+		"item:19019", "Winner", "RS:slot", 1, "AT:slot", 1,
+		function(callback) scheduled[#scheduled + 1] = callback return callback end,
+		function() cancelled = cancelled + 1 end,
+		finalize
+	)
+	assertTrue(slotFirst and not slotFirst.finalized, "slot-first award finalized before chat/grace")
+	assertEqual(nil, attribution.StageAuthoritative("item:19019", "Winner", { itemCount = 2 }, reconcile),
+		"slot-first chat bypassed existing provisional reconciliation")
+	local consumed = attribution.Remove("item:19019", "Winner", 8, "RS:slot", false, false)
+	assertTrue(consumed ~= nil, "slot-first authoritative resolution did not consume pending")
+	assertTrue(attribution.ReconcileProvisional(
+		"item:19019", "Winner", "RS:slot", "AT:slot",
+		function() cancelled = cancelled + 1 end,
+		function() reconciles = reconciles + 1 end
+	), "slot-first chat did not reconcile")
+	assertEqual(2, records, "slot-first award record count differs")
+	assertEqual(2, reconciles, "slot-first reconciliation count differs")
+	assertEqual(1, cancelled, "slot-first grace timer cancellation count differs")
+	scheduled[1]()
+	assertEqual(2, records, "stale grace callback duplicated the record")
+	print("PASS loot_award_attribution_event_order_is_atomic")
+end
+
+function cases.loot_service_stages_authoritative_before_consumption(addon)
+	local lootState, itemInfo, raidState = {}, {}, {}
+	local staged, removed = 0, 0
+	_G.table.wipe = _G.table.wipe or function(target) for key in pairs(target) do target[key] = nil end return target end
+	_G.GetLootThreshold = function() return 2 end
+	_G.GetItemInfo = function() return "Thunderfury", nil, 5, nil, nil, "Weapon", nil, nil, nil, "texture" end
+	addon.C = { itemColors = {}, rollTypes = {}, PENDING_AWARD_TTL_SECONDS = 8, GROUP_LOOT_PENDING_AWARD_TTL_SECONDS = 60 }
+	addon.L = {}
+	addon.Diag = { D = setmetatable({}, { __index = function() return "%s %s %s %s" end }) }
+	addon.Events = { Internal = { RaidLootUpdate = "RaidLootUpdate", SetItem = "SetItem" } }
+	addon.Bus = { TriggerEvent = function() end }
+	addon.Deformat = function() return nil end
+	addon.Options = {
+		GetValue = function() return false end,
+		NormalizeLoggerLootQualityThreshold = function(value) return tonumber(value) or 2 end,
+	}
+	addon.Strings = { NormalizeName = function(value) return value end }
+	addon.Time = { GetCurrentTime = function() return 10 end }
+	addon.Timer = { BindMixin = function(target)
+		function target:ScheduleTimer() return {} end
+		function target:CancelTimer() return true end
+	end }
+	addon.Item = {
+		GetItemStringFromLink = function() return "item:19019" end,
+		GetItemIdFromLink = function() return 19019 end,
+		GetItemKey = function() return "item:19019" end,
+	}
+	addon.Database = {
+		EnsureLootRuntimeState = function() return {}, lootState, itemInfo, raidState end,
+		GetCurrentRaid = function() return 1 end,
+		GetPlayerName = function() return "Tester" end,
+		GetRaidQueries = function() return { ResolveLootLooterName = function() end } end,
+	}
+	local noopOwner = setmetatable({}, { __index = function() return function() end end })
+	local attribution = setmetatable({
+		StageAuthoritative = function(_, _, authoritative)
+			staged = staged + 1
+			assertEqual(2, authoritative.itemCount, "service did not stage authoritative count")
+			return true
+		end,
+		Remove = function()
+			removed = removed + 1
+			return nil
+		end,
+	}, getmetatable(noopOwner))
+	addon.Services = {
+		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} return addon.Services[name] end,
+		Loot = {
+			LootAttribution = attribution,
+			_PassiveGroupLoot = setmetatable({
+				IsPassiveGroupLootMethod = function() return false end,
+				IsPassiveLootWinnerMessage = function() return false end,
+			}, getmetatable(noopOwner)),
+			_Tracking = noopOwner,
+			_Workflow = noopOwner,
+			_Recording = noopOwner,
+			_Rules = { _IsIgnoredItem = function() return false end },
+			AwardPlanner = noopOwner,
+			Inventory = noopOwner,
+			DistributionSession = noopOwner,
+			_Context = { ResolveRaidRecord = function() return 1, { loot = {} } end },
+		},
+	}
+	loadAddonFile(addon, "Raid Management Addon/Services/Loot/Service.lua")
+	addon.Services.Loot:AddLoot("loot-msg", nil, nil, {
+		msg = "loot-msg",
+		kind = "winner",
+		itemLink = "item:19019",
+		itemCount = 2,
+		playerName = "Winner",
+	})
+	assertEqual(1, staged, "authoritative chat was not staged exactly once")
+	assertEqual(0, removed, "pending award was consumed before transaction confirmation")
+	print("PASS loot_service_stages_authoritative_before_consumption")
+end
+
+function cases.loot_award_event_orders_share_full_production_chain(addon)
+	local function pendingCount(fixture)
+		local count = 0
+		for _, list in pairs(fixture.lootState.pendingAwards or {}) do
+			count = count + #list
+		end
+		return count
+	end
+	local function assertConfirmedOnce(fixture, label)
+		assertEqual(1, #fixture.raid.loot, label .. " canonical record count differs")
+		local row = fixture.raid.loot[1]
+		assertEqual("item:19019", row.itemString, label .. " item key differs")
+		assertEqual(2, row.itemCount, label .. " authoritative count differs")
+		assertEqual(4, row.rollType, label .. " roll type differs")
+		assertEqual(90, row.rollValue, label .. " roll value differs")
+		assertEqual("CHAT_MSG_LOOT", row.source, label .. " record source differs")
+		assertEqual(0, pendingCount(fixture), label .. " retained pending attribution")
+		assertEqual(false, fixture.master._awardConfirmation:HasInFlight(), label .. " retained confirmation")
+		assertEqual(1, fixture.assignments, label .. " physical effect count differs")
+		assertEqual(1, fixture.attempts, label .. " attempt count differs")
+		assertEqual(1, fixture.realProvisionalConfirmCalls, label .. " provisional confirmation count differs")
+		assertEqual(1, fixture.distributionCalls, label .. " distribution checkpoint count differs")
+		assertEqual(1, fixture.counterCalls, label .. " counter checkpoint count differs")
+		local checkpoints = fixture.lastAttempt:GetState().checkpoints
+		assertEqual(true, checkpoints.provisional_attribution, label .. " provisional checkpoint missing")
+		assertEqual(true, checkpoints.distribution_notification, label .. " distribution checkpoint missing")
+		assertEqual(true, checkpoints.player_counter, label .. " counter checkpoint missing")
+	end
+	local parsed = {
+		msg = "loot-msg",
+		kind = "winner",
+		itemLink = "item:19019",
+		itemCount = 2,
+		playerName = "Winner",
+	}
+
+	local chatFirst = installLootHardeningMasterFixture(addon, { realLootFlow = true })
+	assertTrue(chatFirst.master._Private.BtnAward(nil, nil), "chat-first controller admission failed")
+	assertEqual(1, chatFirst.assignments, "chat-first controller admission did not reach effect")
+	assertEqual(1, chatFirst.realAddPendingCalls, "chat-first admission did not call real loot service")
+	assertEqual(1, chatFirst.realAttributionAddCalls, "chat-first admission did not call real attribution owner")
+	assertEqual("item:19019", chatFirst.realAddPendingItem, "chat-first pending item differs")
+	assertEqual("Winner", chatFirst.realAddPendingWinner, "chat-first pending winner differs")
+	assertTrue(chatFirst.loot.LootAttribution.Refresh("item:19019", "Winner", 8, "RS:1") ~= nil,
+		"chat-first real attribution owner cannot find admitted pending")
+	assertEqual(1, pendingCount(chatFirst), "chat-first award did not create pending attribution")
+	chatFirst.loot:AddLoot("loot-msg", nil, nil, parsed)
+	assertEqual(0, #chatFirst.raid.loot, "chat-first event logged before slot confirmation")
+	assertEqual(1, pendingCount(chatFirst), "chat-first event consumed pending before confirmation")
+	local chatConfirmed, chatReason = chatFirst.master._awardConfirmation:Confirm(1)
+	assertTrue(chatConfirmed, "chat-first confirmation failed: " .. tostring(chatReason))
+	assertConfirmedOnce(chatFirst, "chat-first")
+	local chatStale = chatFirst.timerCallbacks[chatFirst.realLootSetupTimers + 1]
+	chatStale()
+	assertEqual(1, #chatFirst.raid.loot, "chat-first stale timeout duplicated record")
+	assertEqual(1, chatFirst.realProvisionalConfirmCalls, "chat-first stale timeout repeated confirmation")
+	assertEqual(false, chatFirst.master._awardConfirmation:HasInFlight(), "chat-first stale timeout restored confirmation")
+	assertTrue(chatFirst.master._Private.BtnAward(nil, nil), "chat-first next award was blocked")
+	assertEqual(2, chatFirst.attempts, "chat-first next admission attempt count differs")
+
+	local slotFirst = installLootHardeningMasterFixture(newAddon(), { realLootFlow = true })
+	assertTrue(slotFirst.master._Private.BtnAward(nil, nil), "slot-first controller admission failed")
+	assertTrue(slotFirst.master._awardConfirmation:Confirm(1), "slot-first confirmation failed")
+	assertEqual(0, #slotFirst.raid.loot, "slot-first confirmation logged before chat/grace")
+	assertEqual(false, slotFirst.master._awardConfirmation:HasInFlight(), "slot-first confirmation remained in flight")
+	local slotGrace = slotFirst.timerCallbacks[slotFirst.realLootSetupTimers + 2]
+	slotFirst.loot:AddLoot("loot-msg", nil, nil, parsed)
+	assertConfirmedOnce(slotFirst, "slot-first")
+	slotGrace()
+	assertEqual(1, #slotFirst.raid.loot, "slot-first stale grace callback duplicated record")
+	assertEqual(1, slotFirst.realProvisionalConfirmCalls, "slot-first stale grace repeated confirmation")
+	assertEqual(false, slotFirst.master._awardConfirmation:HasInFlight(), "slot-first stale grace restored confirmation")
+	assertTrue(slotFirst.master._Private.BtnAward(nil, nil), "slot-first next award was blocked")
+	assertEqual(2, slotFirst.attempts, "slot-first next admission attempt count differs")
+	print("PASS loot_award_event_orders_share_full_production_chain")
+end
+
+function cases.loot_master_effect_boundary_is_failure_safe(addon)
+	local function pendingCount(fixture)
+		local count = 0
+		for _ in pairs(fixture.pendingAttributions or {}) do count = count + 1 end
+		return count
+	end
+	local function run(configure)
+		local target = newAddon()
+		local fixture = installLootHardeningMasterFixture(target)
+		configure(fixture)
+		local ok, reason = fixture.awardSequence:TrySingleCopy("item:19019", "Winner")
+		return fixture, ok, reason
+	end
+	local fixture, ok, reason = run(function(value)
+		value.slotValidationResult = nil
+		value.slotValidationReason = "loot_slot_changed"
+	end)
+	assertEqual(nil, ok, "changed slot must fail closed")
+	assertEqual("loot_slot_changed", reason, "changed slot reason differs")
+	assertEqual(0, fixture.assignments, "changed slot reached GiveMasterLoot")
+	assertEqual(0, pendingCount(fixture), "changed slot retained attribution")
+
+	fixture, ok, reason = run(function(value) value.permissionDenied = true end)
+	assertEqual(nil, ok, "permission change must fail closed")
+	assertEqual("not_master_looter", reason, "permission reason differs")
+	assertEqual(0, fixture.assignments, "permission change reached GiveMasterLoot")
+
+	fixture, ok, reason = run(function(value) value.winnerIneligible = true end)
+	assertEqual(nil, ok, "eligibility change must fail closed")
+	assertEqual("winner_ineligible", reason, "eligibility reason differs")
+
+	fixture, ok, reason = run(function(value) value.lootBanAtCheck = 2 value.candidateUnavailable = true end)
+	assertEqual(nil, ok, "new Loot Ban must fail closed")
+	assertEqual("loot_ban", reason, "Loot Ban must retain precedence over candidate failure")
+
+	fixture, ok, reason = run(function(value) value.candidateUnavailable = true end)
+	assertEqual(nil, ok, "candidate change must fail closed")
+	assertEqual("candidate_unavailable", reason, "candidate reason differs")
+
+	for _, mode in ipairs({ "nil", "throw" }) do
+		fixture, ok, reason = run(function(value)
+			value[mode == "nil" and "nilNextSchedule" or "throwNextSchedule"] = true
+		end)
+		assertEqual(nil, ok, mode .. " scheduler must fail closed")
+		assertEqual("confirmation_schedule_failed", reason, mode .. " scheduler reason differs")
+		assertEqual(false, fixture.master._awardConfirmation:HasPending(), mode .. " scheduler left confirmation")
+		assertEqual(0, pendingCount(fixture), mode .. " scheduler left attribution")
+		assertEqual(0, fixture.assignments, mode .. " scheduler reached GiveMasterLoot")
+	end
+
+	for _, mode in ipairs({ "throw", "false" }) do
+		fixture, ok, reason = run(function(value)
+			value[mode == "throw" and "throwGiveMasterLoot" or "rejectGiveMasterLoot"] = true
+		end)
+		assertEqual(nil, ok, mode .. " GiveMasterLoot must be contained")
+		assertEqual("give_master_loot_failed", reason, mode .. " GiveMasterLoot reason differs")
+		assertEqual(false, fixture.master._awardConfirmation:HasPending(), mode .. " GiveMasterLoot left confirmation")
+		assertEqual(0, pendingCount(fixture), mode .. " GiveMasterLoot left attribution")
+	end
+	print("PASS loot_master_effect_boundary_is_failure_safe")
+end
+
+function cases.loot_master_success_and_timeout_follow_confirmation_evidence(addon)
+	local function pendingCount(fixture)
+		local count = 0
+		for _ in pairs(fixture.pendingAttributions or {}) do count = count + 1 end
+		return count
+	end
+	local fixture = installLootHardeningMasterFixture(addon)
+	assertTrue(fixture.awardSequence:TrySingleCopy("item:19019", "Winner"), "award must reach pending confirmation")
+	assertEqual(1, fixture.assignments, "physical award count differs")
+	assertEqual(0, fixture.rollEndCalls or 0, "ROLL_END published before confirmation")
+	assertEqual(0, fixture.distributionCalls, "ITEM_DONE published before confirmation")
+	assertEqual(0, fixture.announcementCalls or 0, "announcement published before confirmation")
+	assertEqual(0, fixture.whisperCalls or 0, "whisper published before confirmation")
+	assertEqual(true, fixture.master._awardConfirmation:Confirm(1), "slot evidence must confirm award")
+	assertEqual(1, fixture.rollEndCalls, "ROLL_END must publish exactly once")
+	assertEqual(1, fixture.distributionCalls, "ITEM_DONE must publish exactly once")
+	assertEqual(1, fixture.announcementCalls, "announcement must publish exactly once")
+	assertEqual(1, fixture.whisperCalls, "whisper must publish exactly once")
+
+	local failed = installLootHardeningMasterFixture(newAddon())
+	assertTrue(failed.awardSequence:TrySingleCopy("item:19019", "Winner"), "UI failure fixture must queue")
+	failed.pendingAttributions["AT:unrelated"] = true
+	failed.master:UI_ERROR_MESSAGE("Inventory is full")
+	assertEqual(false, failed.master._awardConfirmation:HasPending(), "known UI failure retained confirmation")
+	assertEqual(1, pendingCount(failed), "known UI failure removed unrelated attribution")
+	assertEqual(true, failed.pendingAttributions["AT:unrelated"], "known UI failure removed wrong transaction")
+	assertEqual(0, failed.distributionCalls, "known UI failure published success")
+
+	local present = installLootHardeningMasterFixture(newAddon())
+	assertTrue(present.awardSequence:TrySingleCopy("item:19019", "Winner"), "present timeout fixture must queue")
+	present.pendingAttributions["AT:unrelated"] = true
+	present.timerCallbacks[1]()
+	assertEqual(false, present.master._awardConfirmation:HasPending(), "present target timeout retained ownership")
+	assertEqual(1, pendingCount(present), "present timeout removed unrelated attribution")
+	assertEqual("failed", present.lastAttempt:GetState().state, "present timeout must become known failure")
+	assertEqual(0, present.distributionCalls, "present timeout published success")
+
+	local absent = installLootHardeningMasterFixture(newAddon())
+	assertTrue(absent.awardSequence:TrySingleCopy("item:19019", "Winner"), "absent timeout fixture must queue")
+	absent.slotValidationResult = nil
+	absent.slotValidationReason = "loot_slot_missing"
+	absent.timerCallbacks[1]()
+	assertEqual(false, absent.master._awardConfirmation:HasPending(), "absent target did not retry confirmation")
+	assertEqual("confirmed", absent.lastAttempt:GetState().state, "absent target confirmation retry failed")
+	assertEqual(1, absent.distributionCalls, "absent target did not publish confirmed success")
+
+	local unavailable = installLootHardeningMasterFixture(newAddon())
+	assertTrue(unavailable.awardSequence:TrySingleCopy("item:19019", "Winner"), "unavailable timeout fixture must queue")
+	unavailable.lootState.opened = false
+	unavailable.timerCallbacks[1]()
+	assertEqual(true, unavailable.master._awardConfirmation:HasPending(), "unavailable loot window resolved prematurely")
+	assertEqual("uncertain", unavailable.lastAttempt:GetState().state, "unavailable loot window must remain uncertain")
+	assertEqual(0, unavailable.distributionCalls, "unavailable loot window published success")
+	unavailable.timerCallbacks[#unavailable.timerCallbacks]()
+	assertEqual(false, unavailable.master._awardConfirmation:HasPending(), "uncertain expiry retained ownership")
+	assertEqual(0, pendingCount(unavailable), "uncertain expiry retained stale attribution")
+	print("PASS loot_master_success_and_timeout_follow_confirmation_evidence")
+end
+
+function cases.loot_master_announcement_failure_is_retry_safe(addon)
+	local fixture = installLootHardeningMasterFixture(addon)
+	assertTrue(fixture.awardSequence:TrySingleCopy("item:19019", "Winner"), "award must reach confirmation")
+	fixture.rejectAnnouncement = true
+	local confirmed, reason = fixture.master._awardConfirmation:Confirm(1)
+	assertEqual(nil, confirmed, "failed announcement must retain confirmation ownership")
+	assertEqual("send_failed", reason, "failed announcement reason differs")
+	assertEqual("uncertain", fixture.lastAttempt:GetState().state, "failed announcement must remain retryable")
+	assertEqual(true, fixture.master._awardConfirmation:HasPending(), "failed announcement released confirmation")
+	assertEqual(1, fixture.rollEndCalls, "failed announcement duplicated ROLL_END")
+	assertEqual(1, fixture.distributionCalls, "failed announcement duplicated ITEM_DONE")
+	assertEqual(1, fixture.counterCalls, "failed announcement duplicated player counter")
+	assertEqual(1, fixture.announcementCalls, "failed announcement attempt count differs")
+	assertEqual(0, fixture.whisperCalls or 0, "whisper ran after failed announcement")
+
+	fixture.rejectAnnouncement = false
+	assertEqual(true, fixture.master._awardConfirmation:Confirm(1), "announcement retry must confirm")
+	assertEqual(false, fixture.master._awardConfirmation:HasPending(), "successful retry retained confirmation")
+	assertEqual(1, fixture.rollEndCalls, "announcement retry duplicated ROLL_END")
+	assertEqual(1, fixture.distributionCalls, "announcement retry duplicated ITEM_DONE")
+	assertEqual(1, fixture.counterCalls, "announcement retry duplicated player counter")
+	assertEqual(2, fixture.announcementCalls, "announcement retry count differs")
+	assertEqual(1, fixture.whisperCalls, "successful retry must whisper exactly once")
+	print("PASS loot_master_announcement_failure_is_retry_safe")
 end
 
 function cases.warning_controller_reports_terminal_announcement_outcomes(addon)

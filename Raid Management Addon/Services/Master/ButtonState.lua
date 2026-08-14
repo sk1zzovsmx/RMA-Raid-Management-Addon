@@ -115,6 +115,10 @@ function ButtonState.BuildTooltipState(opts)
 			tooltipState.disenchant = itemActionWarning
 		end
 	end
+	local multiAward = lootState.multiAward
+	if multiAward and multiAward.active and not multiAward.cancelled then
+		tooltipState.clear = L.TipMasterCancelRemainingAwards
+	end
 
 	return tooltipState
 end
@@ -150,12 +154,15 @@ function ButtonState.BuildState(opts)
 	local countdownRunning = opts.countdownRunning
 	local autoLootSuggestion = opts.autoLootSuggestion
 	local suggestedAction = type(autoLootSuggestion) == "table" and autoLootSuggestion.action or nil
+	local multiAward = lootState.multiAward
+	local canCancelRemaining = multiAward and multiAward.active and not multiAward.cancelled or false
 
 	return {
 		countdownText = countdownRunning and L.BtnStop or L.BtnCountdown,
 		awardText = opts.isTieReroll and L.BtnReroll or (lootState.fromInventory and labels.trade or L.BtnAward),
 		selectItemText = lootState.fromInventory and L.BtnRemoveItem or L.BtnSelectItem,
 		spamLootText = lootState.fromInventory and labels.readyCheck or L.BtnSpamLoot,
+		clearText = canCancelRemaining and L.BtnCancelRemainingAwards or L.BtnClear,
 		statusText = opts.statusText,
 		configTooltip = tooltipState.config,
 		selectItemTooltip = tooltipState.selectItem,
@@ -167,7 +174,7 @@ function ButtonState.BuildState(opts)
 		countdownTooltip = tooltipState.countdown,
 		awardTooltip = tooltipState.award,
 		rollTooltip = tooltipState.roll,
-		clearTooltip = tooltipState.clear,
+		clearTooltip = canCancelRemaining and L.TipMasterCancelRemainingAwards or tooltipState.clear,
 		holdTooltip = tooltipState.hold,
 		bankTooltip = tooltipState.bank,
 		disenchantTooltip = tooltipState.disenchant,
@@ -192,7 +199,7 @@ function ButtonState.BuildState(opts)
 		reserveListText = opts.hasReserves and L.BtnOpenList or L.BtnInsertList,
 		canReserveList = workflowState.canReserveList == true,
 		canRoll = workflowState.canRollSelf == true,
-		canClear = hasItemActionAccess and (tonumber(lootState.rollsCount) or 0) >= 1,
+		canClear = canCancelRemaining or (hasItemActionAccess and (tonumber(lootState.rollsCount) or 0) >= 1),
 		glowSR = workflowState.canStartSR == true,
 		glowHoldSuggestion = hasItemActionAccess and suggestedAction == "hold" and lootState.holder,
 		glowBankSuggestion = hasItemActionAccess and suggestedAction == "bank" and lootState.banker,

@@ -245,7 +245,7 @@ do
 			buttons = true,
 		}
 
-	local assignItem, registerAwardedItem, clearMultiAwardState
+	local assignItem, registerAwardedItem, clearMultiAwardState, awardController
 	local updateRollSessionExpectedWinners
 	local Private = {}
 	local nextAwardAttemptId = 1
@@ -254,35 +254,100 @@ do
 		local onConfirm = opts.onConfirm
 		local onFail = opts.onFail
 		local terminalEffects = {}
+		local confirmedOutput = {}
+		local attempt
 		opts.transactionId = "AT:" .. tostring(nextAwardAttemptId)
 		nextAwardAttemptId = nextAwardAttemptId + 1
 		opts.onConfirm = function(state, context)
-			if type(onConfirm) == "function" and onConfirm(state, context) == false then
-				return false
-			end
-			if not terminalEffects.itemDone then
-				local ok, result =
-					pcall(LootDistribution.PublishItemDone, state.itemKey or state.itemLink, state.winner)
-				if not ok or result == false then
-					return false
-				end
-				terminalEffects.itemDone = true
-			end
-			if state.source == "master_loot" and not terminalEffects.raidCount then
-				local ok, result = pcall(
-					Raid.AddPlayerCountForRollType,
-					Raid,
+			local rollEnded, rollEndReason = attempt:RunCheckpoint("confirmed_roll_end", function()
+				local result = LootDistribution.PublishRollEnd(
+					state.itemKey or state.itemLink,
 					state.winner,
-					state.executorContext and state.executorContext.rollType,
-					1,
-					state.executorContext and state.executorContext.raidNid
+					confirmedOutput.rollValue,
+					"master_loot"
 				)
-				if not ok or result == false then
-					return false
+				if result == false then
+					return nil, "roll_end_notification_rejected"
 				end
-				terminalEffects.raidCount = true
+				return true
+			end)
+			if not rollEnded then
+				return nil, rollEndReason
 			end
-			return true
+
+			-- PublishItemDone owns retry-safe local-state and wire-publication phases.
+			local published, publishReason = attempt:RunCheckpoint("distribution_notification", function()
+				local result = LootDistribution.PublishItemDone(state.itemKey or state.itemLink, state.winner)
+				if result == false then
+					return nil, "distribution_notification_rejected"
+				end
+				return true
+			end)
+			if not published then
+				return nil, publishReason
+			end
+
+			if state.source == "master_loot" then
+				local counted, countReason = attempt:RunCheckpoint("player_counter", function()
+					local result = Raid:AddPlayerCountForRollType(
+						state.winner,
+						state.executorContext and state.executorContext.rollType,
+						1,
+						state.executorContext and state.executorContext.raidNid
+					)
+					if result == false then
+						return nil, "player_counter_rejected"
+					end
+					return true
+				end)
+				if not counted then
+					return nil, countReason
+				end
+			end
+
+			if type(onConfirm) == "function" then
+				local callbackResult, callbackReason = onConfirm(attempt, state, context)
+				if callbackResult ~= true then
+					return nil, callbackReason
+				end
+			end
+
+			local announced, announceReason = attempt:RunCheckpoint("confirmed_announcement", function()
+				if not confirmedOutput.output or module._announced then
+					return true
+				end
+				local result, reason = Announce(Chat, confirmedOutput.output)
+				if result ~= true then
+					return nil, reason or "award_announcement_rejected"
+				end
+				module._announced = true
+				return true
+			end)
+			if not announced then
+				return nil, announceReason
+			end
+
+			local whispered, whisperReason = attempt:RunCheckpoint("confirmed_whisper", function()
+				if not confirmedOutput.whisper then
+					return true
+				end
+				local result, reason = Comms.SendWhisper(state.winner, confirmedOutput.whisper)
+				if result ~= true then
+					return nil, reason or "award_whisper_rejected"
+				end
+				return true
+			end)
+			if not whispered then
+				return nil, whisperReason
+			end
+
+			if type(onConfirm) == "function" then
+				return true
+			end
+			return attempt:RunCheckpoint("controller_refresh", function()
+				module:RequestRefresh()
+				return true
+			end)
 		end
 		opts.onFail = function(reason, state, context)
 			if type(onFail) == "function" and onFail(reason, state, context) == false then
@@ -298,7 +363,13 @@ do
 			end
 			return true
 		end
-		return MasterService.AwardAttempt.CreateExecuting(opts)
+		attempt = MasterService.AwardAttempt.CreateExecuting(opts)
+		function attempt:SetConfirmedOutput(output, whisper, rollValue)
+			confirmedOutput.output = output
+			confirmedOutput.whisper = whisper
+			confirmedOutput.rollValue = rollValue
+		end
+		return attempt
 	end
 	module._awardFlow = module._awardFlow or {}
 	module._screenshotWarn = false
@@ -314,6 +385,7 @@ do
 		}
 	module._awardConfirmation = MasterService.AwardConfirmation.Create({
 		timeoutSeconds = C.ML_AWARD_CONFIRM_TIMEOUT_SECONDS,
+		reconciliationSeconds = PENDING_AWARD_TTL_SECONDS,
 		scheduleTimer = function(callback, delay)
 			return module:ScheduleTimer(callback, delay)
 		end,
@@ -324,7 +396,7 @@ do
 			module:RequestRefresh()
 		end,
 		confirmProvisional = function(pending, clearedSlot)
-			return LootAttribution.ConfirmProvisional(
+			local provisional = LootAttribution.ConfirmProvisional(
 				pending.itemLink,
 				pending.playerName,
 				pending.rollSessionId,
@@ -351,10 +423,33 @@ do
 					)
 				end
 			)
+			if not provisional then
+				return nil, "provisional_attribution_failed"
+			end
+			return true
+		end,
+		resolveTimeoutEvidence = function(pending)
+			if lootState.opened ~= true then
+				return "unavailable"
+			end
+			local valid = LootInventory.ValidateLootSlot(pending.itemIndex, pending.itemLink)
+			return valid and "present" or "absent"
+		end,
+		cancelAttribution = function(transactionId)
+			return Loot:CancelPendingAward(transactionId)
 		end,
 		warnFailure = function(pending, reason)
 			addon:warn(
 				Diag.W.LogMLAwardConfirmationFailed:format(
+					tostring(pending.itemLink),
+					tostring(pending.playerName),
+					tostring(reason or "unknown")
+				)
+			)
+		end,
+		warnUncertain = function(pending, reason)
+			addon:warn(
+				L.WarnMLAwardConfirmationUncertain:format(
 					tostring(pending.itemLink),
 					tostring(pending.playerName),
 					tostring(reason or "unknown")
@@ -371,7 +466,35 @@ do
 				)
 			)
 		end,
+		warnUnresolved = function(pending)
+			addon:warn(
+				L.WarnMLAwardConfirmationUnresolved:format(
+					tostring(pending.itemLink),
+					tostring(pending.playerName)
+				)
+			)
+		end,
+		onUnresolved = function()
+			if awardController and lootState.multiAward then
+				awardController:Clear(true)
+			end
+		end,
 	})
+	local function admitAwardEntry(allowActiveMultiAward)
+		if module._awardConfirmation:HasInFlight() then
+			return nil, "award_in_flight"
+		end
+		if
+			allowActiveMultiAward ~= true
+			and lootState.multiAward
+			and lootState.multiAward.active
+			and not lootState.fromInventory
+		then
+			addon:warn(Diag.W.ErrMLMultiAwardInProgress)
+			return nil, "multi_award_in_progress"
+		end
+		return true
+	end
 	module._FLOW_STATES = module._FLOW_STATES
 		or {
 			IDLE = "idle",
@@ -1029,6 +1152,10 @@ do
 		if type(data) ~= "table" or not data.playerName then
 			return false
 		end
+		local admitted, reason = admitAwardEntry(false)
+		if not admitted then
+			return nil, reason
+		end
 
 		local itemLink = data.itemLink or Private.GetSelectedMasterLootLink()
 		if not itemLink then
@@ -1142,7 +1269,6 @@ do
 			addon:warn(Diag.W.ErrMLMultiSelectTooMany:format(maxSel))
 		end,
 	})
-	local awardController
 	local tradeExecutionController
 	local itemSelectionController
 
@@ -1702,6 +1828,7 @@ do
 		updateTextState(texts, "award", refs.AwardBtn, state.awardText)
 		updateTextState(texts, "selectItem", refs.SelectItemBtn, state.selectItemText)
 		updateTextState(texts, "spamLoot", refs.SpamLootBtn, state.spamLootText)
+		updateTextState(texts, "clear", refs.ClearBtn, state.clearText)
 		updateTextState(texts, "status", refs.Status, state.statusText)
 
 		updateEnabledState(buttons, "selectItem", refs.SelectItemBtn, state.canSelectItem)
@@ -1762,7 +1889,7 @@ do
 		updateTooltipState(tooltips, "countdown", refs.CountdownBtn, state.countdownText, state.countdownTooltip)
 		updateTooltipState(tooltips, "award", refs.AwardBtn, state.awardText, state.awardTooltip)
 		updateTooltipState(tooltips, "roll", refs.RollBtn, L.BtnRoll, state.rollTooltip)
-		updateTooltipState(tooltips, "clear", refs.ClearBtn, L.BtnClear, state.clearTooltip)
+		updateTooltipState(tooltips, "clear", refs.ClearBtn, state.clearText, state.clearTooltip)
 		updateTooltipState(tooltips, "hold", refs.HoldBtn, L.BtnHold, state.holdTooltip)
 		updateTooltipState(tooltips, "bank", refs.BankBtn, L.BtnBank, state.bankTooltip)
 		updateTooltipState(tooltips, "disenchant", refs.DisenchantBtn, L.BtnDisenchant, state.disenchantTooltip)
@@ -1852,19 +1979,19 @@ do
 		local model = buildRollSelectionModel(true) or {}
 		local resolution = model.resolution or {}
 		local requiredWinnerCount = tonumber(model.requiredWinnerCount) or 1
-		local winnerName = model.winner or lootState.winner
+		local winnerName
 		local rerollNames
 		local rerollStarted
 
 		if not RaidApi.EnsureMasterOnlyAccess(Raid) then
 			return false
 		end
+		local admitted, admissionReason = admitAwardEntry(false)
+		if not admitted then
+			return nil, admissionReason
+		end
 		if isCountdownRunning() then
 			addon:warn(Diag.W.LogMLCountdownActive)
-			return
-		end
-		if lootState.multiAward and lootState.multiAward.active and not lootState.fromInventory then
-			addon:warn(Diag.W.ErrMLMultiAwardInProgress)
 			return
 		end
 		if lootState.lootCount <= 0 or lootState.rollsCount <= 0 then
@@ -1892,6 +2019,20 @@ do
 			module:RequestRefresh()
 			return true
 		end
+		local selectedWinner = model.winner or lootState.winner
+		local selectedPickMode = model.pickMode
+		local selectedMsCount = model.msCount
+		local frozen, freezeReason = Rolls:FreezeRollIntake("award")
+		if not frozen then
+			return nil, freezeReason
+		end
+		model = frozen
+		resolution = model.resolution or {}
+		requiredWinnerCount = tonumber(model.requiredWinnerCount) or 1
+		model.pickMode = selectedPickMode
+		model.msCount = selectedMsCount
+		model.winner = selectedWinner
+		winnerName = selectedWinner or model.rollWinner
 		if resolution.requiresManualResolution then
 			if model.pickMode then
 				if (tonumber(model.msCount) or 0) < requiredWinnerCount then
@@ -1986,7 +2127,7 @@ do
 	local function completeManualTradeCloseSettle()
 		manualTradeCloseSettleHandle = nil
 		MasterService.Trade.SettleClose()
-		tradeExecutionController:SettleAcceptedTrade()
+		tradeExecutionController:SettleAcceptedTrade(Widgets.TradeMenu.ResolveTradePartnerName())
 		Widgets.TradeMenu.HideDropdowns()
 		module:RequestRefresh()
 	end
@@ -2017,8 +2158,8 @@ do
 		return false
 	end
 
-	registerAwardedItem = function(count)
-		local targetCount = tonumber(lootState.selectedItemCount) or 1
+	registerAwardedItem = function(count, sequenceTargetCount)
+		local targetCount = tonumber(sequenceTargetCount) or tonumber(lootState.selectedItemCount) or 1
 		if targetCount < 1 then
 			targetCount = 1
 		end
@@ -2056,6 +2197,10 @@ do
 			return addon:warn(message)
 		end,
 		registerAwardedItem = registerAwardedItem,
+		beginAwardSequence = function()
+			lootState.itemTraded = nil
+			return true
+		end,
 		refresh = function()
 			return module:RequestRefresh()
 		end,
@@ -2063,9 +2208,15 @@ do
 			Assign = function(_, itemLink, playerName, rollType, rollValue)
 				local effect = _.effect
 				_.effect = nil
-				return assignItem(itemLink, playerName, rollType, rollValue, effect)
+				return assignItem(itemLink, playerName, rollType, rollValue, effect, true)
 			end,
 		},
+		admitAward = function()
+			return admitAwardEntry(true)
+		end,
+		hasInFlight = function()
+			return module._awardConfirmation:HasInFlight()
+		end,
 		itemCount = {
 			Set = function(_, count, focus)
 				return setItemCountValue(count, focus)
@@ -2546,18 +2697,18 @@ do
 		end
 		lootState.currentRollType = rollType
 		local target = lootState[targetKey]
-		local ok
+		local ok, reason
 		if lootState.fromInventory then
 			ok = tradeExecutionController:TradeItem(itemLink, target, rollType, 0)
 		else
-			ok = assignItem(itemLink, target, rollType, 0)
+			ok, reason = assignItem(itemLink, target, rollType, 0)
 		end
 		if ok and not lootState.fromInventory then
 			module._announced = false
 			Rolls:ClearRolls()
 		end
 		module:RequestRefresh()
-		return ok
+		return ok, reason
 	end
 
 	Private.BtnMS = function(_btn, _button)
@@ -2597,6 +2748,10 @@ do
 	-- Button: Clear Rolls
 	Private.BtnClear = function(_btn, _button)
 		module._announced = false
+		local multiAward = lootState.multiAward
+		if multiAward and multiAward.active and not multiAward.cancelled then
+			return awardController:CancelRemaining("operator")
+		end
 		Rolls:ClearRolls()
 		module:RequestRefresh()
 	end
@@ -3253,9 +3408,23 @@ do
 	-- LOOT_SLOT_CLEARED: Triggered when an item is looted.
 	function module:LOOT_SLOT_CLEARED(clearedSlot)
 		local perfTotal = addon.hasPerf and addon:_PerfStart() or nil
+		local function finishTotal()
+			if perfTotal then
+				addon:_PerfFinish(
+					"Master.LOOT_SLOT_CLEARED Total",
+					perfTotal,
+					"slot=" .. tostring(clearedSlot or "?") .. " items=" .. tostring(lootState.lootCount or 0)
+				)
+				perfTotal = nil
+			end
+		end
 		Widgets.LootHints.ApplyLootFrameReserveHints()
 		if canHandleLootWindow() then
-			module._awardConfirmation:Confirm(clearedSlot)
+			local confirmed, confirmationReason = module._awardConfirmation:Confirm(clearedSlot)
+			if confirmed == nil then
+				finishTotal()
+				return nil, confirmationReason
+			end
 			if canAutoManageLootFrame() then
 				local perfStep = addon.hasPerf and addon:_PerfStart() or nil
 				Loot:FetchLoot()
@@ -3286,16 +3455,20 @@ do
 					Raid:NotifyLootWindowCleared()
 				end
 				-- Continue a multi-award sequence (loot window only).
-				return awardController:ContinueOnLootSlotCleared(clearedSlot)
-			end
-			if perfTotal then
-				addon:_PerfFinish(
-					"Master.LOOT_SLOT_CLEARED Total",
-					perfTotal,
-					"slot=" .. tostring(clearedSlot or "?") .. " items=" .. tostring(lootState.lootCount or 0)
-				)
+				local continuationPerf = addon.hasPerf and addon:_PerfStart() or nil
+				local continued = awardController:ContinueOnLootSlotCleared(clearedSlot)
+				if continuationPerf then
+					addon:_PerfFinish(
+						"Master.LOOT_SLOT_CLEARED ContinueAward",
+						continuationPerf,
+						"slot=" .. tostring(clearedSlot or "?")
+					)
+				end
+				finishTotal()
+				return continued
 			end
 		end
+		finishTotal()
 	end
 
 	function module:UI_ERROR_MESSAGE(message)
@@ -3354,9 +3527,11 @@ do
 
 	function module:TRADE_SHOW()
 		cancelManualTradeCloseSettle()
-		tradeExecutionController:FailAcceptedTrade("TRADE_SHOW")
-		MasterService.Trade.Reset(true, false)
-		Widgets.TradeMenu.RefreshCandidate("TRADE_SHOW")
+		local handled = tradeExecutionController:HandleTradeShow(Widgets.TradeMenu.ResolveTradePartnerName())
+		if not handled and not tradeExecutionController:HasInFlightAward() then
+			MasterService.Trade.Reset(true, false)
+			Widgets.TradeMenu.RefreshCandidate("TRADE_SHOW")
+		end
 	end
 
 	function module:TRADE_PLAYER_ITEM_CHANGED()
@@ -3389,7 +3564,11 @@ do
 	-- Assignment / trade execution
 	-- ============================================================================
 	-- Assigns an item from the loot window to a player.
-	function assignItem(itemLink, playerName, rollType, rollValue, effect)
+	function assignItem(itemLink, playerName, rollType, rollValue, effect, allowActiveMultiAward)
+		local admitted, admissionReason = admitAwardEntry(allowActiveMultiAward)
+		if not admitted then
+			return nil, admissionReason
+		end
 		local rollSession = Rolls:GetRollSession()
 		effect = effect
 			or createAwardAttempt({
@@ -3404,19 +3583,12 @@ do
 					raidNid = Database.GetCurrentRaid(),
 				},
 			})
-		local itemIndex = LootInventory.FindLootSlotIndex(itemLink)
-		if itemIndex == nil then
-			addon:error(L.ErrCannotFindItem:format(itemLink))
-			effect:Fail("item_not_found")
-			return false
-		end
-
 		if not (Raid and Raid.IsMasterLooter and Raid:IsMasterLooter()) then
 			addon:warn(L.WarnMLNoPermission)
 			refreshCandidateUiState()
 			module:RequestRefresh()
 			effect:Fail("not_master_looter")
-			return false
+			return nil, "not_master_looter"
 		end
 
 		local validation = Rolls:ValidateWinner(playerName, itemLink, rollType)
@@ -3425,11 +3597,34 @@ do
 			refreshCandidateUiState()
 			module:RequestRefresh()
 			effect:Fail("winner_ineligible")
-			return false
+			return nil, "winner_ineligible"
+		end
+
+		local lootBanned, lootBanNote = Raid.LootBans.Get(playerName)
+		if lootBanned then
+			addon:warn(
+				lootBanNote and L.ErrMLWinnerLootBannedWithNote:format(playerName, lootBanNote)
+					or L.ErrMLWinnerLootBanned:format(playerName)
+			)
+			effect:Fail("loot_ban")
+			return nil, "loot_ban"
 		end
 
 		local candidateIndex = RaidApi.FindMasterLootCandidateIndex(Raid, itemLink, playerName)
 		if candidateIndex then
+			local itemIndex = LootInventory.FindLootSlotIndex(itemLink)
+			if itemIndex == nil then
+				addon:error(L.ErrCannotFindItem:format(itemLink))
+				effect:Fail("item_not_found")
+				return nil, "item_not_found"
+			end
+			local slotValid, slotReason = LootInventory.ValidateLootSlot(itemIndex, itemLink)
+			if not slotValid then
+				addon:warn(L.ErrMLLootSlotChanged)
+				effect:Fail(slotReason)
+				return nil, slotReason
+			end
+
 			-- Mark this award as addon-driven so AddLoot() won't classify it as MANUAL
 			local session = Rolls:EnsureLootRollSession(
 				itemLink,
@@ -3439,11 +3634,21 @@ do
 			)
 			local attemptState = effect and effect:GetState() or nil
 			local transactionId = attemptState and attemptState.transactionId or tostring(effect or {})
+			local output, whisper = buildAssignMessages(itemLink, playerName, rollType)
+			local suppressAwardAnnouncement = lootState.multiAward
+				and lootState.multiAward.active
+				and not lootState.fromInventory
+			if suppressAwardAnnouncement then
+				output = nil
+			end
+			if effect.SetConfirmedOutput then
+				effect:SetConfirmedOutput(output, whisper, rollValue)
+			end
 			Loot:AddPendingAward(itemLink, playerName, rollType, rollValue, session and session.id or nil, nil, {
 				counterApplied = true,
 				transactionId = transactionId,
 			})
-			module._awardConfirmation:Queue({
+			local pending, queueReason = module._awardConfirmation:Queue({
 				itemLink = itemLink,
 				itemIndex = itemIndex,
 				playerName = playerName,
@@ -3453,8 +3658,18 @@ do
 				effect = effect,
 				transactionId = transactionId,
 			})
-			GiveMasterLoot(itemIndex, candidateIndex)
-			LootDistribution.PublishRollEnd(itemLink, playerName, rollValue, "master_loot")
+			if not pending then
+				Loot:CancelPendingAward(transactionId)
+				effect:Fail(queueReason)
+				addon:warn(L.ErrMLAwardConfirmationScheduleFailed)
+				return nil, queueReason
+			end
+			local giveOk, giveResult = pcall(GiveMasterLoot, itemIndex, candidateIndex)
+			if not giveOk or giveResult == false then
+				module._awardConfirmation:Fail("give_master_loot_failed", transactionId)
+				addon:warn(L.ErrMLGiveMasterLootFailed)
+				return nil, "give_master_loot_failed"
+			end
 			if addon.hasDebug then
 				addon:debug(
 					Diag.D.LogMLAwarded:format(
@@ -3466,18 +3681,6 @@ do
 						tonumber(candidateIndex) or -1
 					)
 				)
-			end
-			local output, whisper = buildAssignMessages(itemLink, playerName, rollType)
-
-			local suppressAwardAnnouncement = lootState.multiAward
-				and lootState.multiAward.active
-				and not lootState.fromInventory
-			if output and not module._announced and not suppressAwardAnnouncement then
-				Announce(Chat, output)
-				module._announced = true
-			end
-			if whisper then
-				Comms.SendWhisper(playerName, whisper)
 			end
 			-- IMPORTANT:
 			-- Do NOT force-update an existing raid.loot entry here.
@@ -3498,7 +3701,7 @@ do
 		refreshCandidateUiState()
 		module:RequestRefresh()
 		effect:Fail("candidate_unavailable")
-		return false
+		return nil, "candidate_unavailable"
 	end
 
 	-- ============================================================================
