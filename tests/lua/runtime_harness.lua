@@ -189,6 +189,227 @@ local function installOptionsStubs(addon, persistedOptions)
 	return addon.Options
 end
 
+local function newSyncCommunicationsFixture()
+	local fixture = {
+		now = 500,
+		maxTimerCallbacks = 20,
+		nextSequence = 1,
+		sent = {},
+		timers = {},
+		roster = {
+			{ name = "Leader-Test Realm", rank = 2 },
+			{ name = "Assistant-Other Realm", rank = 1 },
+			{ name = "Member-Test Realm", rank = 0 },
+		},
+		raids = {
+			[41] = { raidNid = 41, revision = 3, zone = "Naxxramas", players = { { name = "Leader" } } },
+			[73] = { raidNid = 73, revision = 8, zone = "Ulduar", players = { { name = "Member" } } },
+		},
+	}
+
+	function fixture:NormalizeSender(sender)
+		if type(sender) ~= "string" then return nil end
+		local short = string.match(sender, "^([^%-]+)") or sender
+		short = string.match(short, "^%s*(.-)%s*$")
+		if short == "" then return nil end
+		return string.upper(string.sub(short, 1, 1)) .. string.sub(short, 2)
+	end
+
+	function fixture:CaptureSender(rawSender)
+		return { raw = rawSender, normalized = self:NormalizeSender(rawSender) }
+	end
+
+	function fixture:GetRosterMember(name)
+		local raw = string.lower(string.match(tostring(name or ""), "^%s*(.-)%s*$"))
+		local normalized = self:NormalizeSender(raw)
+		local found, matchCount
+		for i = 1, #self.roster do
+			local rosterRaw = string.lower(string.match(tostring(self.roster[i].name or ""), "^%s*(.-)%s*$"))
+			if rosterRaw == raw then return self.roster[i] end
+			if self:NormalizeSender(rosterRaw) == normalized then
+				found = self.roster[i]
+				matchCount = (matchCount or 0) + 1
+			end
+		end
+		if matchCount and matchCount > 1 then return nil, "short_name_collision" end
+		return found
+	end
+
+	function fixture:IsPrivilegedSender(name)
+		local member = self:GetRosterMember(name)
+		return member ~= nil and (tonumber(member.rank) or 0) > 0
+	end
+
+	function fixture:AuthorizeSyncResponder(name)
+		local member, reason = self:GetRosterMember(name)
+		if not member then
+			return false, reason or "unknown_sender"
+		end
+		return (tonumber(member.rank) or 0) > 0, "insufficient_rank"
+	end
+
+	function fixture:CanAnswerWhisperRequest(name)
+		local member, reason = self:GetRosterMember(name)
+		return member ~= nil, reason or "not_group_member"
+	end
+
+	function fixture:Send(prefix, payload, distribution, target)
+		local message = {
+			prefix = prefix,
+			payload = deepCopy(payload),
+			distribution = distribution,
+			target = target,
+		}
+		self.sent[#self.sent + 1] = message
+		return message
+	end
+
+	function fixture:Schedule(delay, callback, ...)
+		assert(type(delay) == "number" and delay >= 0, "timer delay must be non-negative")
+		assert(type(callback) == "function", "timer callback must be callable")
+		local timer = {
+			due = self.now + delay,
+			callback = callback,
+			args = { ... },
+			argCount = select("#", ...),
+			active = true,
+		}
+		self.timers[#self.timers + 1] = timer
+		return timer
+	end
+
+	function fixture:AdvanceTime(elapsed)
+		assert(type(elapsed) == "number" and elapsed >= 0, "elapsed time must be non-negative")
+		self.now = self.now + elapsed
+		local fired = 0
+		for i = 1, #self.timers do
+			local timer = self.timers[i]
+			if timer.active and timer.due <= self.now then
+				fired = fired + 1
+				assert(fired <= self.maxTimerCallbacks, "timer callback limit exceeded")
+				timer.active = false
+				timer.callback(unpack(timer.args, 1, timer.argCount))
+			end
+		end
+		return fired
+	end
+
+	function fixture:GetRaidRevision(raidNid)
+		local raid = assert(self.raids[raidNid], "unknown fixture raid")
+		return raid.revision
+	end
+
+	function fixture:SetRaidRevision(raidNid, revision)
+		assert(type(revision) == "number" and revision >= 0, "revision must be non-negative")
+		local raid = assert(self.raids[raidNid], "unknown fixture raid")
+		raid.revision = revision
+		return revision
+	end
+
+	function fixture:BuildRequest(mode, raidNid, signature)
+		signature = signature or {}
+		local encodedZone = "fake:" .. tostring(signature.zone or "")
+		local compressionField
+		if signature.supportsCompression == true then
+			compressionField = 1
+		elseif signature.supportsCompression == false or signature.supportsCompression == nil then
+			compressionField = 0
+		else
+			compressionField = signature.supportsCompression
+		end
+		local request = {
+			kind = "RQ",
+			version = 2,
+			requestId = tostring(self.nextSequence),
+			mode = mode,
+			raidNid = raidNid,
+			zone = encodedZone,
+			size = signature.size or 0,
+			difficulty = signature.difficulty or 0,
+			sinceRevision = signature.sinceRevision or 0,
+			supportsCompression = signature.supportsCompression == true,
+		}
+		request.fields = {
+			request.kind,
+			request.version,
+			request.requestId,
+			request.mode,
+			request.raidNid,
+			request.zone,
+			request.size,
+			request.difficulty,
+			request.sinceRevision,
+			compressionField,
+		}
+		self.nextSequence = self.nextSequence + 1
+		return request
+	end
+
+	local function encodeDeterministic(value)
+		if type(value) ~= "table" then return tostring(value) end
+		local keys = {}
+		for key in pairs(value) do keys[#keys + 1] = key end
+		table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+		local encoded = {}
+		for i = 1, #keys do
+			local key = keys[i]
+			encoded[#encoded + 1] = tostring(key) .. "=" .. encodeDeterministic(value[key])
+		end
+		return "{" .. table.concat(encoded, ",") .. "}"
+	end
+
+	function fixture:BuildChunk(kind, request, payload, partIndex, partCount, rawSender, target)
+		return {
+			kind = kind,
+			version = request.version,
+			requestId = request.requestId,
+			mode = request.mode,
+			raidNid = request.raidNid,
+			partIndex = partIndex,
+			partCount = partCount,
+			payload = tostring(payload or ""),
+			sender = self:CaptureSender(rawSender),
+			target = target,
+		}
+	end
+
+	function fixture:BuildChunks(kind, request, values, chunkSize, rawSender, target)
+		assert(type(chunkSize) == "number" and chunkSize >= 1, "chunk size must be positive")
+		local chunks = {}
+		local total = math.ceil(#values / chunkSize)
+		for first = 1, #values, chunkSize do
+			local rows = {}
+			for index = first, math.min(first + chunkSize - 1, #values) do
+				rows[#rows + 1] = deepCopy(values[index])
+			end
+			chunks[#chunks + 1] = self:BuildChunk(
+				kind,
+				request,
+				encodeDeterministic(rows),
+				#chunks + 1,
+				total,
+				rawSender,
+				target
+			)
+		end
+		return chunks
+	end
+
+	function fixture:Snapshot(value)
+		return deepCopy(value)
+	end
+
+	function fixture:AssertDeepEqual(expected, actual, message)
+		assertTrue(deepEqual(expected, actual), message or "fixture values differ deeply")
+	end
+
+	function fixture:AssertUnchanged(snapshot, actual, message)
+		assertTrue(deepEqual(snapshot, actual), message or "fixture value was mutated")
+	end
+
+	return fixture
+end
+
 local function newRaidRecordingFixture(addon)
 	local fixture = {
 		now = 1000,
@@ -3055,6 +3276,1412 @@ function cases.saved_variables_save_failure_stops_reserves(addon)
 	assertEqual(4, raidIndex, "saved variables should propagate failing raid index")
 	assertEqual(0, reserveSaveCalls, "reserves save must not run after raid preparation failure")
 	print("PASS saved_variables_save_failure_stops_reserves")
+end
+
+function cases.sync_fixture_models_communications_boundaries(addon)
+	local fixture = newSyncCommunicationsFixture()
+	assertEqual("Leader-Test Realm", fixture:CaptureSender("Leader-Test Realm").raw, "raw sender identity must be preserved")
+	assertEqual("Leader", fixture:NormalizeSender("Leader-Test Realm"), "sender normalization must match Comms")
+	assertEqual(2, fixture:GetRosterMember("Leader-Test Realm").rank, "leader rank differs")
+	assertEqual(1, fixture:GetRosterMember("Assistant-Other Realm").rank, "assistant rank differs")
+	assertEqual(0, fixture:GetRosterMember("Member-Test Realm").rank, "member rank differs")
+	assertTrue(fixture:IsPrivilegedSender("Leader-Test Realm"), "realm-qualified leader must be privileged")
+	assertTrue(fixture:IsPrivilegedSender("Assistant-Other Realm"), "realm-qualified assistant must be privileged")
+	assertEqual(false, fixture:IsPrivilegedSender("Member-Test Realm"), "member must not be privileged")
+	assertTrue(fixture:IsPrivilegedSender("Leader"), "current production aliases an unqualified sender")
+	fixture.roster[#fixture.roster + 1] = { name = "Leader-Other Realm", rank = 0 }
+	assertTrue(fixture:IsPrivilegedSender("leader-test realm"), "exact realm-qualified identity must win collisions")
+	local collidedMember, collision = fixture:GetRosterMember("Leader")
+	assertEqual(nil, collidedMember, "colliding short names must not select a roster member silently")
+	assertEqual("short_name_collision", collision, "short-name collision must be explicit")
+	table.remove(fixture.roster)
+
+	local payload = { raidNid = 41, nested = { revision = 3 } }
+	local payloadBefore = fixture:Snapshot(payload)
+	local sent = fixture:Send("RMA_SYNC", payload, "WHISPER", "Assistant-Other Realm")
+	payload.nested.revision = 99
+	fixture:AssertDeepEqual(payloadBefore, sent.payload, "fake comms must capture payloads deeply")
+	assertEqual("Assistant-Other Realm", sent.target, "fake comms target differs")
+
+	local callbackArgs
+	fixture:Schedule(2, function(first, second, third)
+		callbackArgs = { first, second, third }
+	end, "alpha", nil, "omega")
+	assertEqual(0, fixture:AdvanceTime(1), "timer must remain pending before deadline")
+	assertEqual(nil, callbackArgs, "pending timer must not fire")
+	assertEqual(1, fixture:AdvanceTime(1), "one timer must fire at deadline")
+	assertEqual("alpha", callbackArgs[1], "timer first argument differs")
+	assertEqual(nil, callbackArgs[2], "timer nil argument differs")
+	assertEqual("omega", callbackArgs[3], "timer trailing argument differs")
+
+	assertEqual(3, fixture:GetRaidRevision(41), "initial raid revision differs")
+	fixture:SetRaidRevision(41, 4)
+	assertEqual(4, fixture:GetRaidRevision(41), "updated raid revision differs")
+	assertEqual(8, fixture:GetRaidRevision(73), "raid revisions must remain isolated")
+
+	local request = fixture:BuildRequest("SYNC", 41, {
+		zone = "Naxxramas",
+		size = 25,
+		difficulty = 2,
+		sinceRevision = 3,
+		supportsCompression = true,
+	})
+	assertEqual("RQ", request.kind, "request wire kind differs")
+	assertEqual(2, request.version, "request protocol version differs")
+	assertEqual("1", request.requestId, "request id must be a string")
+	assertEqual("SYNC", request.mode, "request mode differs")
+	assertEqual(3, request.sinceRevision, "sync request revision differs")
+	assertEqual("fake:Naxxramas", request.zone, "request zone must be encoded text")
+	assertEqual(25, request.size, "request raid size differs")
+	assertEqual(2, request.difficulty, "request difficulty differs")
+	assertEqual(true, request.supportsCompression, "request compression support differs")
+	local expectedRequestFields = { "RQ", 2, "1", "SYNC", 41, "fake:Naxxramas", 25, 2, 3, 1 }
+	fixture:AssertDeepEqual(expectedRequestFields, request.fields, "request positional wire fields differ")
+	local malformedRequest = fixture:BuildRequest("SYNC", 73, {
+		zone = false,
+		size = "oversized",
+		difficulty = -1,
+		sinceRevision = "stale",
+		supportsCompression = "not-a-flag",
+	})
+	assertEqual("oversized", malformedRequest.fields[7], "malformed signature size must be constructible")
+	assertEqual("not-a-flag", malformedRequest.fields[10], "malformed compression flag must be constructible")
+	local requestBefore = fixture:Snapshot(request)
+	local values = { { id = 1, nested = { value = "a" } }, { id = 2 }, { id = 3 } }
+	local valuesBefore = fixture:Snapshot(values)
+	local chunks = fixture:BuildChunks("SN", request, values, 2, "Leader-Test Realm", "Assistant-Other Realm")
+	assertEqual(2, #chunks, "chunk builder must split rows")
+	assertEqual("SN", chunks[1].kind, "chunk wire kind differs")
+	assertEqual(request.requestId, chunks[1].requestId, "chunk request correlation differs")
+	assertEqual(1, chunks[1].partIndex, "chunk part index differs")
+	assertEqual(2, chunks[1].partCount, "chunk part count differs")
+	assertEqual("string", type(chunks[1].payload), "chunk payload must be encoded text")
+	assertEqual("Leader-Test Realm", chunks[1].sender.raw, "chunk sender context must preserve raw identity")
+	assertEqual("Assistant-Other Realm", chunks[1].target, "chunk target context differs")
+	local malformed = fixture:BuildChunk("DL", request, "encoded", 2, 3, "Member-Test Realm", nil)
+	assertEqual(2, malformed.partIndex, "malformed/out-of-order fixture index must be constructible")
+	assertEqual(3, malformed.partCount, "count mismatch fixture must be constructible")
+	fixture:AssertUnchanged(requestBefore, request, "chunk building must preserve request")
+	fixture:AssertUnchanged(valuesBefore, values, "chunk mutation must not alias source values")
+
+	local mutated = fixture:Snapshot(valuesBefore)
+	mutated[1].nested.value = "different"
+	local mutationDetected = not pcall(function()
+		fixture:AssertUnchanged(valuesBefore, mutated, "deep mutation must be detected")
+	end)
+	assertTrue(mutationDetected, "deep mutation assertion must reject nested changes")
+	print("PASS sync_fixture_models_communications_boundaries")
+end
+
+function cases.sync_authorization_fails_closed(addon)
+	local fixture = newSyncCommunicationsFixture()
+	local incoming = {}
+	local function receive(sender)
+		local authorized = fixture:AuthorizeSyncResponder(sender)
+		if authorized then
+			incoming[sender] = { created = true }
+		end
+		return authorized
+	end
+
+	assertEqual(false, receive("Late-Other Realm"), "unknown sender must be rejected during roster uncertainty")
+	assertEqual(nil, incoming["Late-Other Realm"], "rejected sender must not allocate incoming state")
+	assertTrue(receive("Leader-Test Realm"), "leader must remain authorized")
+	assertTrue(receive("Assistant-Other Realm"), "assistant must remain authorized")
+	assertEqual(false, receive("Member-Test Realm"), "rank-zero member must be rejected")
+	fixture.roster[#fixture.roster + 1] = { name = "Late-Other Realm", rank = 1 }
+	assertTrue(receive("Late-Other Realm"), "roster-late assistant must be accepted after positive lookup")
+	assertTrue(fixture:CanAnswerWhisperRequest("Member-Test Realm"), "current member may request history by whisper")
+	assertEqual(false, fixture:CanAnswerWhisperRequest("Outsider-Test Realm"), "outsider whisper must receive no history")
+
+	fixture.roster[#fixture.roster + 1] = { name = "Leader-Other Realm", rank = 0 }
+	assertEqual(false, receive("Leader"), "ambiguous short sender identity must fail closed")
+	print("PASS sync_authorization_fails_closed")
+end
+
+local function installRealDbSyncerFixture(addon)
+	local fixture = {
+		now = 500,
+		roster = {},
+		sent = {},
+		warnings = {},
+		infos = {},
+		events = {},
+		options = {},
+		imports = 0,
+		importAttempts = 0,
+		importHook = nil,
+		failNextImport = false,
+		failNextDecode = false,
+		failNextParse = false,
+		failBatch = false,
+		failSingle = false,
+		batchAttempts = 0,
+		timers = {},
+	}
+	_G.GetTime = function() return fixture.now end
+	_G.GetNumRaidMembers = function() return #fixture.roster end
+	_G.GetRaidRosterInfo = function(index)
+		local member = fixture.roster[index]
+		if not member then return nil end
+		return member.name, member.rank
+	end
+
+	local function trim(value) return string.match(tostring(value or ""), "^%s*(.-)%s*$") end
+	local function lower(value) return string.lower(tostring(value or "")) end
+	addon.L = {
+		MsgLoggerSyncRaidRefRequired = "raid required", MsgLoggerSyncTargetRequired = "target required",
+		MsgLoggerSyncTargetSelf = "self target", MsgLoggerSyncNoRaid = "no raid", MsgLoggerSyncPushSent = "%s %s",
+		MsgLoggerSyncNoCurrent = "no current", MsgLoggerSyncSent = "%s", MsgLoggerReqSent = "%s %s",
+		MsgLoggerPushImported = "%s %s", MsgLoggerReqImported = "%s %s",
+	}
+	local passthrough = setmetatable({}, { __index = function() return "%s" end })
+	addon.Diag = { D = passthrough, W = passthrough, E = passthrough }
+	addon.DB = { Syncer = {} }
+	addon.Events = {
+		Internal = { OptionsLoaded = "OPTIONS", LoggerSelectRaid = "SELECT", RaidCreate = "CREATE" },
+		BuildConfigOptionChangedName = function(name) return "OPTION_" .. name end,
+	}
+	addon.Bus = {
+		TriggerEvent = function(eventName, ...)
+			fixture.events[#fixture.events + 1] = { eventName = eventName, args = { ... } }
+		end,
+		RegisterCallback = function() end,
+	}
+	addon.Strings = { NormalizeName = trim, NormalizeLower = lower, TrimText = trim }
+	addon.Timer = { BindMixin = function(target)
+		target.ScheduleTimer = function(_, callback)
+			local handle = { callback = callback, active = true }
+			fixture.timers[#fixture.timers + 1] = handle
+			return handle
+		end
+		target.CancelTimer = function(_, handle)
+			if not handle or handle.active ~= true then return false end
+			handle.active = false
+			return true
+		end
+	end }
+	function fixture:FireTimers()
+		local fired = 0
+		for i = 1, #self.timers do
+			local handle = self.timers[i]
+			if handle.active then
+				handle.active = false
+				fired = fired + 1
+				handle.callback()
+			end
+		end
+		return fired
+	end
+	addon.Options = {
+		RegisterNamespace = function(_, defaults)
+			fixture.options = defaults or {}
+			return { Get = function(_, key) return fixture.options[key] end }
+		end,
+		IsDebugEnabled = function() return false end,
+	}
+	addon.Comms = {
+		RegisterPrefixIfAvailable = function() end,
+		NormalizeSender = function(value) return trim(value) end,
+		NextRequestId = function() return "generated" end,
+		QueueAddonMessage = function(prefix, message, channel, target)
+			if fixture.failSingle then return false, "backpressure" end
+			fixture.sent[#fixture.sent + 1] = { prefix = prefix, message = message, channel = channel, target = target }
+			return true
+		end,
+		QueueAddonMessages = function(prefix, messages, channel, target)
+			fixture.batchAttempts = fixture.batchAttempts + 1
+			if fixture.failBatch then return false, "backpressure" end
+			for i = 1, #messages do
+				fixture.sent[#fixture.sent + 1] = { prefix = prefix, message = messages[i], channel = channel, target = target }
+			end
+			return true
+		end,
+		SendAddonBatch = function(prefix, messages, target)
+			return addon.Comms.QueueAddonMessages(prefix, messages, target and "WHISPER" or "RAID", target)
+		end,
+		Sync = function(prefix, message)
+			if fixture.failSingle then return false, "backpressure" end
+			fixture.sent[#fixture.sent + 1] = { prefix = prefix, message = message, channel = "RAID" }
+			return true
+		end,
+		Payload = {
+			SplitFields = function(message, separator)
+				local fields = {}
+				for field in string.gmatch(message .. separator, "(.-)" .. separator) do fields[#fields + 1] = field end
+				return fields, #fields
+			end,
+			PackFields = function(separator, ...)
+				local fields = { ... }
+				for i = 1, #fields do fields[i] = tostring(fields[i] or "") end
+				return table.concat(fields, separator)
+			end,
+		},
+	}
+	addon.Database.GetPlayerName = function() return "Tester-Test Realm" end
+	addon.Database.GetCurrentRaid = function() return 41 end
+	addon.Database.GetRaidStore = function() return { GetRaidSyncRevision = function() return 0 end } end
+	addon.Services.Raid = {
+		IsGroupMember = function() return false end,
+		CanUseCapability = function() return true end,
+	}
+	addon.IsInRaid = function() return true end
+	addon.IsInGroup = function() return true end
+	addon.warn = function(_, message) fixture.warnings[#fixture.warnings + 1] = message end
+	addon.error = function(_, message) fixture.warnings[#fixture.warnings + 1] = message end
+	addon.info = function(_, message) fixture.infos[#fixture.infos + 1] = message end
+	addon.debug = function() end
+
+	local noOp = function() end
+	addon.DB.Syncer._Metrics = setmetatable({ Get = function() return {} end, Reset = function() end }, {
+		__index = function() return noOp end,
+	})
+	addon.DB.Syncer._Payload = {
+		EncodeText = function(value) return tostring(value or "") end,
+		DecodeText = function(value) return value end,
+		EncodeTransportText = function(value) return value end,
+		DecodeTransportText = function(value)
+			if fixture.failNextDecode then
+				fixture.failNextDecode = false
+				return nil
+			end
+			return value
+		end,
+		Build = function() return "snapshot" end,
+		BuildDelta = function() return nil end,
+		ValidateSnapshot = function() return true end,
+		ValidateDelta = function() return true end,
+		Parse = function(value)
+			if fixture.failNextParse then
+				fixture.failNextParse = false
+				return nil
+			end
+			if value ~= "snapshot" and value ~= "snapshot-v1" then return nil end
+			return { header = { protocolVersion = value == "snapshot-v1" and 1 or 2, raidNid = 41 }, bossKills = {}, loot = {} }
+		end,
+		ParseDelta = function(value)
+			if value ~= "delta-v1" and value ~= "delta-v2" then return nil end
+			return { header = { protocolVersion = value == "delta-v1" and 1 or 2, raidNid = 41 }, loot = {} }
+		end,
+	}
+	local raid = { raidNid = 41 }
+	addon.DB.Syncer._Import = {
+		ResolveRaidByReference = function() return raid end,
+		GetCurrentRaidRecord = function() return raid, 41 end,
+		RaidMatchesSignature = function() return true end,
+		BuildSignatureFromRaid = function() return { zone = "Naxxramas", size = 25, diff = 1 } end,
+		ImportSnapshotAsNewRaid = function(snapshot)
+			fixture.importAttempts = fixture.importAttempts + 1
+			if fixture.importHook then fixture.importHook() end
+			if fixture.failNextImport then
+				fixture.failNextImport = false
+				error("fixture import failure")
+			end
+			fixture.imports = fixture.imports + 1
+			return snapshot, fixture.imports
+		end,
+	}
+	loadAddonFile(addon, "Raid Management Addon/Database/DBSyncer.lua")
+	return fixture, addon.DB.Syncer
+end
+
+function cases.sync_envelope_validation_is_correlated_end_to_end(addon)
+	local fixture, syncer = installRealDbSyncerFixture(addon)
+	fixture.roster = {
+		{ name = "Leader-Test Realm", rank = 2 },
+		{ name = "Requester-Test Realm", rank = 0 },
+	}
+	fixture.options.syncRequirePlayer = "Leader-Test Realm"
+	local function snapshot(version, requestId, partIndex, partCount, payload)
+		syncer:OnAddonMessage("RMALogSync", table.concat({
+			"SN", version, requestId, "PUSH", 41, partIndex or 1, partCount or 1, payload or "snapshot",
+		}, "\t"), "RAID", "Leader-Test Realm")
+	end
+
+	local sentBefore = #fixture.sent
+	local id64 = string.rep("r", 64)
+	syncer:OnAddonMessage("RMALogSync", table.concat({
+		"RQ", 2, id64, "REQ", 41, "Naxxramas", 25, 1, 0, 0,
+	}, "\t"), "WHISPER", "Requester-Test Realm")
+	assertTrue(#fixture.sent > sentBefore, "64-byte request id must remain valid for RQ")
+	local afterValid = #fixture.sent
+	local requestRateBefore = syncer._requestRate["Requester-Test Realm"].count
+	syncer:OnAddonMessage("RMALogSync", table.concat({
+		"RQ", 2, string.rep("r", 65), "REQ", 41, "Naxxramas", 25, 1, 0, 0,
+	}, "\t"), "WHISPER", "Requester-Test Realm")
+	assertEqual(afterValid, #fixture.sent, "65-byte RQ must be rejected before response allocation")
+	assertEqual(nil, next(syncer._incoming), "oversized RQ must not allocate incoming state")
+	assertEqual(requestRateBefore, syncer._requestRate["Requester-Test Realm"].count, "oversized RQ must be rejected before rate metrics")
+
+	snapshot(1, "v1-envelope-v2-payload", 1, 1, "snapshot")
+	assertEqual(0, fixture.imports, "v1 envelope with v2 payload must not import")
+	snapshot(2, "v1-envelope-v2-payload", 1, 1, "snapshot")
+	assertEqual(1, fixture.imports, "version mismatch must release configured PUSH for retry")
+
+	snapshot(2, "v2-envelope-v1-payload", 1, 1, "snapshot-v1")
+	assertEqual(1, fixture.imports, "v2 envelope with v1 payload must not import")
+	snapshot(1, "valid-v1", 1, 1, "snapshot-v1")
+	assertEqual(2, fixture.imports, "valid v1 snapshot must remain accepted")
+
+	snapshot(1, "changing-envelope", 1, 2, "snap")
+	assertTrue(next(syncer._incoming) ~= nil, "first chunk must allocate assembly")
+	snapshot(2, "changing-envelope", 2, 2, "shot-v1")
+	assertEqual(nil, next(syncer._incoming), "changing envelope version must discard assembly")
+	assertEqual(2, fixture.imports, "changing envelope version must not import")
+	snapshot(1, "changing-envelope", 1, 1, "snapshot-v1")
+	assertEqual(3, fixture.imports, "discarded version mismatch must release PUSH consent for retry")
+	assertEqual(3, #fixture.events, "only valid snapshots may publish import events")
+
+	local function delta(version, requestId, partIndex, partCount, payload)
+		syncer._pendingRequests[requestId] = {
+			createdAt = fixture.now, mode = "SYNC", failedSenders = {}, completed = false,
+		}
+		syncer:OnAddonMessage("RMALogSync", table.concat({
+			"DL", version, requestId, "SYNC", 41, partIndex or 1, partCount or 1, payload or "delta-v2",
+		}, "\t"), "RAID", "Leader-Test Realm")
+	end
+	delta(1, "legacy-delta", 1, 1, "delta-v2")
+	assertEqual(nil, next(syncer._incoming), "DL v1 envelope must be rejected before assembly")
+	delta(2, "v2-delta-v1-payload", 1, 1, "delta-v1")
+	assertEqual(3, fixture.imports, "DL v2 with v1 payload must not mutate history")
+	assertEqual(3, #fixture.events, "invalid DL must not publish events")
+	delta(2, "changing-delta", 1, 2, "delta-")
+	assertTrue(next(syncer._incoming) ~= nil, "first DL v2 chunk must allocate assembly")
+	syncer:OnAddonMessage("RMALogSync", table.concat({
+		"DL", 1, "changing-delta", "SYNC", 41, 2, 2, "v2",
+	}, "\t"), "RAID", "Leader-Test Realm")
+	assertEqual(nil, next(syncer._incoming), "changing version for one DL assembly must not retain state")
+	assertEqual(3, fixture.imports, "changing DL envelope must not mutate history")
+	assertEqual(3, #fixture.events, "changing DL envelope must not publish events")
+
+	local function pendingSync(requestId)
+		syncer._pendingRequests[requestId] = {
+			createdAt = fixture.now, mode = "SYNC", failedSenders = {}, completed = false,
+		}
+	end
+	pendingSync("snapshot-to-delta")
+	syncer:OnAddonMessage("RMALogSync", table.concat({
+		"SN", 2, "snapshot-to-delta", "SYNC", 41, 1, 3, "snap",
+	}, "\t"), "RAID", "Leader-Test Realm")
+	syncer:OnAddonMessage("RMALogSync", table.concat({
+		"DL", 2, "snapshot-to-delta", "SYNC", 41, 2, 3, "shot",
+	}, "\t"), "RAID", "Leader-Test Realm")
+	assertEqual(nil, next(syncer._incoming), "SN to DL kind change must discard assembly immediately")
+	assertEqual(false, syncer._pendingRequests["snapshot-to-delta"].completed == true, "kind mismatch must preserve multi-responder request")
+
+	pendingSync("delta-to-snapshot")
+	syncer:OnAddonMessage("RMALogSync", table.concat({
+		"DL", 2, "delta-to-snapshot", "SYNC", 41, 1, 3, "delta-",
+	}, "\t"), "RAID", "Leader-Test Realm")
+	syncer:OnAddonMessage("RMALogSync", table.concat({
+		"SN", 2, "delta-to-snapshot", "SYNC", 41, 2, 3, "v2",
+	}, "\t"), "RAID", "Leader-Test Realm")
+	assertEqual(nil, next(syncer._incoming), "DL to SN kind change must discard assembly immediately")
+	assertEqual(false, syncer._pendingRequests["delta-to-snapshot"].completed == true, "reverse kind mismatch must preserve multi-responder request")
+	assertEqual(3, fixture.imports, "kind mismatches must not mutate history")
+	assertEqual(3, #fixture.events, "kind mismatches must not publish events")
+
+	snapshot(2, "push-kind-mismatch", 1, 3, "snap")
+	assertTrue(next(syncer._incoming) ~= nil, "partial PUSH must allocate before kind mismatch")
+	syncer:OnAddonMessage("RMALogSync", table.concat({
+		"DL", 2, "push-kind-mismatch", "PUSH", 41, 2, 3, "shot",
+	}, "\t"), "RAID", "Leader-Test Realm")
+	assertEqual(nil, next(syncer._incoming), "invalid DL PUSH must discard conflicting SN assembly")
+	snapshot(2, "push-kind-mismatch", 1, 1, "snapshot")
+	assertEqual(4, fixture.imports, "kind mismatch must release configured PUSH consent for retry")
+	assertEqual(4, #fixture.events, "only the valid PUSH retry may publish an event")
+	print("PASS sync_envelope_validation_is_correlated_end_to_end")
+end
+
+local function installCorrelatedPushRetryFixture(addon)
+	local fixture, syncer = installRealDbSyncerFixture(addon)
+	fixture.roster = { { name = "Assistant-Other Realm", rank = 1 } }
+	syncer._pendingRequests["correlated-retry"] = {
+		createdAt = fixture.now,
+		mode = "REQ",
+		target = "Assistant-Other Realm",
+		sender = "Assistant-Other Realm",
+		completed = false,
+	}
+	local function push(partIndex, partCount, payload)
+		syncer:OnAddonMessage(
+			"RMALogSync",
+			table.concat({ "SN", 2, "correlated-retry", "PUSH", 41, partIndex or 1, partCount or 1, payload or "snapshot" }, "\t"),
+			"WHISPER",
+			"assistant"
+		)
+	end
+	return fixture, syncer, push
+end
+
+function cases.real_db_syncer_retries_correlated_push_after_import_failure(addon)
+	local fixture, _, push = installCorrelatedPushRetryFixture(addon)
+	fixture.failNextImport = true
+	push()
+	assertEqual(0, fixture.imports, "failed correlated import must not consume consent")
+	assertEqual(0, #fixture.events, "failed import must not publish a logger refresh")
+	push()
+	assertEqual(1, fixture.imports, "correlated PUSH must retry after import failure")
+	assertEqual(1, #fixture.events, "successful import must publish exactly one logger refresh")
+	push()
+	assertEqual(2, fixture.importAttempts, "successful correlated retry must consume consent exactly once")
+	print("PASS real_db_syncer_retries_correlated_push_after_import_failure")
+end
+
+function cases.real_db_syncer_retries_correlated_push_after_decode_and_parse_failure(addon)
+	local fixture, _, push = installCorrelatedPushRetryFixture(addon)
+	fixture.failNextDecode = true
+	push()
+	assertEqual(0, fixture.importAttempts, "decode failure must occur before import")
+	fixture.failNextParse = true
+	push()
+	assertEqual(0, fixture.importAttempts, "parse failure must occur before import")
+	push()
+	assertEqual(1, fixture.imports, "correlated PUSH must retry after decode and parse failure")
+	push()
+	assertEqual(1, fixture.importAttempts, "successful retry after decode/parse must consume consent once")
+	print("PASS real_db_syncer_retries_correlated_push_after_decode_and_parse_failure")
+end
+
+function cases.real_db_syncer_rejects_correlated_push_after_request_timeout(addon)
+	local fixture, syncer, push = installCorrelatedPushRetryFixture(addon)
+	push(1, 2, "snap")
+	assertTrue(next(syncer._incoming) ~= nil, "partial correlated PUSH must allocate one assembly")
+	fixture.now = fixture.now + 46
+	push(1, 1, "snapshot")
+	assertEqual(0, fixture.imports, "timed-out request must revoke correlated PUSH retry")
+	push(1, 1, "snapshot")
+	assertEqual(0, fixture.importAttempts, "late timeout retry must be rejected before import")
+	print("PASS real_db_syncer_rejects_correlated_push_after_request_timeout")
+end
+
+function cases.real_db_syncer_consumes_push_consent_once(addon)
+	local fixture, syncer = installRealDbSyncerFixture(addon)
+	local function push(requestId, sender, partIndex, partCount, payload)
+		syncer:OnAddonMessage(
+			"RMALogSync",
+			table.concat({ "SN", 2, requestId, "PUSH", 41, partIndex or 1, partCount or 1, payload or "snapshot" }, "\t"),
+			"WHISPER",
+			sender
+		)
+	end
+	fixture.roster = {
+		{ name = "Leader-Test Realm", rank = 2 },
+		{ name = "Assistant-Other Realm", rank = 1 },
+	}
+	fixture.options.syncRequirePlayer = "Leader-Test Realm"
+
+	push("configured-once", "leader-test realm")
+	assertEqual(1, fixture.imports, "configured PUSH must import once")
+	push("configured-once", "Leader-Test Realm")
+	assertEqual(1, fixture.importAttempts, "configured PUSH replay must be rejected before import")
+	assertEqual(nil, next(syncer._incoming), "configured PUSH replay must not allocate incoming state")
+
+	syncer._pendingRequests["correlated-once"] = {
+		createdAt = fixture.now, mode = "REQ", target = "Assistant-Other Realm", sender = "Assistant-Other Realm",
+		completed = false,
+	}
+	push("correlated-once", "assistant")
+	assertEqual(2, fixture.imports, "correlated PUSH must import once")
+	push("correlated-once", "Assistant-Other Realm")
+	assertEqual(2, fixture.importAttempts, "correlated PUSH consent must be consumed exactly once")
+
+	fixture.importHook = function()
+		fixture.importHook = nil
+		push("concurrent", "Leader-Test Realm")
+	end
+	push("concurrent", "leader-test realm")
+	assertEqual(3, fixture.imports, "first concurrent PUSH must import")
+	assertEqual(3, fixture.importAttempts, "second concurrent assembly for the same consent must be rejected")
+	print("PASS real_db_syncer_consumes_push_consent_once")
+end
+
+function cases.real_db_syncer_releases_failed_push_consent(addon)
+	local fixture, syncer = installRealDbSyncerFixture(addon)
+	local function push(requestId)
+		syncer:OnAddonMessage(
+			"RMALogSync",
+			table.concat({ "SN", 2, requestId, "PUSH", 41, 1, 1, "snapshot" }, "\t"),
+			"WHISPER",
+			"Leader-Test Realm"
+		)
+	end
+	fixture.roster = {
+		{ name = "Leader-Test Realm", rank = 2 },
+		{ name = "Assistant-Other Realm", rank = 1 },
+	}
+	fixture.options.syncRequirePlayer = "Leader-Test Realm"
+	fixture.failNextImport = true
+	push("retry-after-failure")
+	assertEqual(0, fixture.imports, "failed PUSH import must not be consumed")
+	push("retry-after-failure")
+	assertEqual(1, fixture.imports, "failed PUSH import must release consent for retry")
+	assertEqual(2, fixture.importAttempts, "retry must reach the importer")
+	print("PASS real_db_syncer_releases_failed_push_consent")
+end
+
+function cases.real_db_syncer_requires_push_consent(addon)
+	local fixture, syncer = installRealDbSyncerFixture(addon)
+	local function push(requestId, sender)
+		syncer:OnAddonMessage(
+			"RMALogSync",
+			table.concat({ "SN", 2, requestId, "PUSH", 41, 1, 1, "snapshot" }, "\t"),
+			"WHISPER",
+			sender
+		)
+	end
+	local function pending(requestId, target)
+		syncer._pendingRequests[requestId] = {
+			createdAt = fixture.now, mode = "REQ", target = target, sender = target, completed = false,
+		}
+	end
+
+	fixture.roster = {
+		{ name = "Leader-Test Realm", rank = 2 },
+		{ name = "Assistant-Other Realm", rank = 1 },
+		{ name = "Member-Test Realm", rank = 0 },
+	}
+	push("outsider", "Outsider-Test Realm")
+	assertEqual(0, fixture.imports, "outsider PUSH must not import")
+	assertEqual(nil, next(syncer._incoming), "outsider PUSH must not allocate incoming state")
+	push("member", "Member-Test Realm")
+	assertEqual(0, fixture.imports, "rank-zero member PUSH must not import")
+	push("officer-unsolicited", "Assistant-Other Realm")
+	assertEqual(0, fixture.imports, "unsolicited officer PUSH must not import")
+
+	pending("correlated", "Assistant-Other Realm")
+	push("correlated", "assistant")
+	assertEqual(1, fixture.imports, "targeted pending request must consent to an officer PUSH")
+
+	fixture.options.syncRequirePlayer = "Leader-Test Realm"
+	push("configured", "leader-test realm")
+	assertEqual(2, fixture.imports, "configured officer source must consent to PUSH")
+	fixture.roster[#fixture.roster + 1] = { name = "Leader-Other Realm", rank = 2 }
+	fixture.options.syncRequirePlayer = "Leader"
+	push("collision", "Leader")
+	assertEqual(2, fixture.imports, "ambiguous configured short identity must fail closed")
+
+	fixture.options.syncPushPlayer = "Assistant-Other Realm"
+	local sentBefore = #fixture.sent
+	assertTrue(syncer:BroadcastLoggerPush(41), "configured outbound PUSH target must be effective")
+	assertTrue(#fixture.sent > sentBefore, "configured outbound PUSH must send")
+	assertEqual("Assistant-Other Realm", fixture.sent[#fixture.sent].target, "configured PUSH target differs")
+	print("PASS real_db_syncer_requires_push_consent")
+end
+
+function cases.sync_request_lifecycle_is_correlated_and_terminal_once(addon)
+	local fixture, syncer = installRealDbSyncerFixture(addon)
+	fixture.roster = {
+		{ name = "Leader-Test Realm", rank = 2 },
+		{ name = "Assistant-Other Realm", rank = 1 },
+	}
+	local callbackCount, terminalReason = 0, nil
+	local function pending(requestId, raidRef, target)
+		syncer._pendingRequests[requestId] = {
+			createdAt = fixture.now,
+			mode = "REQ",
+			raidRef = raidRef,
+			target = target,
+			sender = target,
+			completed = false,
+			callback = function(reason)
+				callbackCount = callbackCount + 1
+				terminalReason = reason
+			end,
+		}
+	end
+	local function snapshot(requestId, mode, raidNid, sender, partIndex, partCount, payload)
+		syncer:OnAddonMessage("RMALogSync", table.concat({
+			"SN", 2, requestId, mode, raidNid, partIndex or 1, partCount or 1, payload or "snapshot",
+		}, "\t"), "WHISPER", sender)
+	end
+
+	snapshot("unsolicited", "REQ", 41, "Leader-Test Realm")
+	assertEqual(0, fixture.importAttempts, "unsolicited response must not import")
+
+	pending("bound", 41, "Leader-Test Realm")
+	snapshot("bound", "REQ", 41, "Assistant-Other Realm")
+	snapshot("bound", "REQ", 42, "Leader-Test Realm")
+	snapshot("bound", "SYNC", 41, "Leader-Test Realm")
+	assertEqual(0, fixture.importAttempts, "cross-context response must not import")
+	assertEqual(nil, next(syncer._incoming), "cross-context response must not allocate assembly state")
+	snapshot("bound", "REQ", 41, "Leader-Test Realm")
+	assertEqual(1, fixture.imports, "matching response must import once")
+	assertEqual(1, callbackCount, "successful request callback must run once")
+	assertEqual("complete", terminalReason, "successful request terminal reason differs")
+	snapshot("bound", "REQ", 41, "Leader-Test Realm")
+	assertEqual(1, fixture.importAttempts, "duplicate terminal response must not re-enter import")
+	assertEqual(1, callbackCount, "duplicate terminal response must not re-enter callback")
+
+	pending("timeout", 41, "Leader-Test Realm")
+	snapshot("timeout", "REQ", 41, "Leader-Test Realm", 1, 2, "snap")
+	assertTrue(next(syncer._incoming) ~= nil, "partial response must allocate assembly state")
+	fixture.now = fixture.now + 31
+	snapshot("cleanup-trigger", "REQ", 41, "Leader-Test Realm")
+	assertEqual(2, callbackCount, "timeout callback must run once")
+	assertEqual("timeout", terminalReason, "timeout terminal reason differs")
+	assertEqual(nil, next(syncer._incoming), "timeout must release incoming assembly state")
+	snapshot("timeout", "REQ", 41, "Leader-Test Realm")
+	assertEqual(1, fixture.importAttempts, "late timeout response must not import")
+	assertEqual(2, callbackCount, "late timeout response must not re-enter callback")
+
+	pending("cancel", 41, "Leader-Test Realm")
+	assertEqual(true, syncer:CancelRequest("cancel"), "active request must cancel")
+	assertEqual(false, syncer:CancelRequest("cancel"), "terminal request must not cancel twice")
+	assertEqual(3, callbackCount, "cancel callback must run once")
+	assertEqual("cancel", terminalReason, "cancel terminal reason differs")
+	snapshot("cancel", "REQ", 41, "Leader-Test Realm")
+	assertEqual(1, fixture.importAttempts, "cancelled request must reject late response")
+	assertEqual(3, callbackCount, "late cancelled response must not re-enter callback")
+
+	pending("timeout", 42, "Assistant-Other Realm")
+	snapshot("timeout", "REQ", 42, "Assistant-Other Realm")
+	assertEqual(1, fixture.importAttempts, "terminal request ID must not be reused across context")
+	assertEqual(4, callbackCount, "reused request ID must terminate replacement callback once")
+	assertEqual("reused", terminalReason, "reused request terminal reason differs")
+
+	fixture.now = fixture.now + 46
+	snapshot("prune-trigger", "REQ", 41, "Leader-Test Realm")
+	assertEqual(nil, next(syncer._pendingRequests), "expired pending sender state must be released")
+	assertEqual(nil, next(syncer._terminalRequests), "expired terminal correlation state must be bounded")
+	print("PASS sync_request_lifecycle_is_correlated_and_terminal_once")
+end
+
+function cases.sync_request_timeout_fires_without_inbound_traffic(addon)
+	local fixture, syncer = installRealDbSyncerFixture(addon)
+	fixture.roster = { { name = "Leader-Test Realm", rank = 2 } }
+	local callbackCount, reentrantCancel = 0, nil
+	assertEqual(true, syncer:RequestLoggerReq(41, "Leader-Test Realm"), "request must start")
+	local pending = assert(syncer._pendingRequests.generated, "generated request must be pending")
+	pending.callback = function(reason)
+			callbackCount = callbackCount + 1
+			assertEqual("timeout", reason, "timer terminal reason differs")
+			reentrantCancel = syncer:CancelRequest("generated")
+			syncer:OnAddonMessage("RMALogSync", table.concat({
+				"SN", 2, "generated", "REQ", 41, 1, 1, "snapshot",
+			}, "\t"), "WHISPER", "Leader-Test Realm")
+		end
+	assertEqual(1, fixture:FireTimers(), "one request timeout must fire without inbound traffic")
+	assertEqual(1, callbackCount, "timer timeout callback must run once")
+	assertEqual(false, reentrantCancel, "reentrant cancellation must observe terminal state")
+	assertEqual(0, fixture:FireTimers(), "terminal timeout must leave no active timer")
+	assertEqual(0, fixture.importAttempts, "reentrant completion attempt must observe terminal state")
+	assertEqual(nil, syncer._pendingRequests.generated, "timer timeout must release pending state")
+	print("PASS sync_request_timeout_fires_without_inbound_traffic")
+end
+
+function cases.sync_request_cleanup_is_context_scoped(addon)
+	local fixture, syncer = installRealDbSyncerFixture(addon)
+	fixture.roster = { { name = "Leader-Test Realm", rank = 2 } }
+	fixture.options.syncRequirePlayer = "Leader-Test Realm"
+	local pending = {
+		createdAt = fixture.now, mode = "REQ", raidRef = 41, target = "Assistant-Other Realm", sender = "Assistant-Other Realm",
+	}
+	syncer._pendingRequests["collision"] = pending
+	syncer._incoming["local"] = {
+		createdAt = fixture.now, requestId = "collision", mode = "REQ", raidNid = 41,
+		sender = "assistant-other realm", requestContext = pending, total = 2, got = 1, parts = { "x" }, encodedBytes = 1,
+	}
+	syncer:OnAddonMessage("RMALogSync", table.concat({
+		"SN", 2, "collision", "PUSH", 41, 1, 2, "push",
+	}, "\t"), "WHISPER", "Leader-Test Realm")
+	local pushKey
+	for key, state in pairs(syncer._incoming) do
+		if state.mode == "PUSH" then pushKey = key end
+	end
+	assertTrue(pushKey ~= nil, "unrelated configured PUSH collision must allocate independently")
+	assertEqual(true, syncer:CancelRequest("collision"), "local colliding request must cancel")
+	assertEqual(nil, syncer._incoming["local"], "cancel must remove its local response assembly")
+	assertTrue(syncer._incoming[pushKey] ~= nil, "cancel must preserve unrelated PUSH with same wire ID")
+
+	local second = { createdAt = fixture.now, mode = "REQ", raidRef = 42, target = "Assistant-Other Realm" }
+	syncer._pendingRequests["push-first"] = second
+	syncer:OnAddonMessage("RMALogSync", table.concat({
+		"SN", 2, "push-first", "PUSH", 41, 1, 1, "snapshot",
+	}, "\t"), "WHISPER", "Leader-Test Realm")
+	assertTrue(syncer._pendingRequests["push-first"] == second, "unrelated PUSH completion must not terminalize local request")
+	assertEqual(false, second.completed == true, "unrelated PUSH must not mark local request completed")
+	print("PASS sync_request_cleanup_is_context_scoped")
+end
+
+function cases.sync_timeout_revokes_only_correlated_push_consent(addon)
+	local fixture, syncer = installRealDbSyncerFixture(addon)
+	fixture.roster = {
+		{ name = "Leader-Test Realm", rank = 2 },
+		{ name = "Assistant-Other Realm", rank = 1 },
+	}
+	assertEqual(true, syncer:RequestLoggerReq(41, "Assistant-Other Realm"), "correlated request must start")
+	local function push(sender, partIndex, partCount, payload)
+		syncer:OnAddonMessage("RMALogSync", table.concat({
+			"SN", 2, "generated", "PUSH", 41, partIndex or 1, partCount or 1, payload or "snapshot",
+		}, "\t"), "WHISPER", sender)
+	end
+	push("Assistant-Other Realm", 1, 2, "snap")
+	assertTrue(next(syncer._incoming) ~= nil, "partial correlated PUSH must allocate")
+	assertTrue(next(syncer._pushConsents) ~= nil, "partial correlated PUSH must own consent")
+	assertEqual(1, fixture:FireTimers(), "request timeout must fire")
+	assertEqual(nil, next(syncer._incoming), "timeout must remove correlated partial assembly")
+	assertEqual(nil, next(syncer._pushConsents), "timeout must revoke correlated consent")
+	push("Assistant-Other Realm")
+	assertEqual(0, fixture.importAttempts, "late correlated retry must be rejected before import")
+	assertEqual(nil, next(syncer._incoming), "late correlated retry must not allocate")
+
+	fixture.options.syncRequirePlayer = "Leader-Test Realm"
+	push("Leader-Test Realm")
+	assertEqual(1, fixture.imports, "unrelated configured PUSH with same ID must remain policy-authorized")
+	assertEqual(1, fixture.importAttempts, "configured PUSH must import exactly once")
+	print("PASS sync_timeout_revokes_only_correlated_push_consent")
+end
+
+function cases.real_db_syncer_authorizes_chunks_and_whisper_requests(addon)
+	local fixture, syncer = installRealDbSyncerFixture(addon)
+	local function countIncoming()
+		local count = 0
+		for _ in pairs(syncer._incoming) do count = count + 1 end
+		return count
+	end
+	local function chunk(kind, requestId, sender)
+		syncer:OnAddonMessage("RMALogSync", table.concat({ kind, 2, requestId, "SYNC", 41, 1, 2, "part" }, "\t"), "RAID", sender)
+	end
+	local function request(requestId, sender)
+		syncer:OnAddonMessage("RMALogSync", table.concat({ "RQ", 2, requestId, "SYNC", 41, "Naxxramas", 25, 1, 0, 0 }, "\t"), "WHISPER", sender)
+	end
+	local function pending(requestId)
+		syncer._pendingRequests[requestId] = {
+			createdAt = fixture.now, mode = "SYNC", failedSenders = {}, completed = false,
+		}
+	end
+
+	pending("unknown")
+	chunk("SN", "unknown", "Late-Other Realm")
+	assertEqual(0, countIncoming(), "unknown snapshot sender must not allocate chunk state")
+	chunk("DL", "unknown", "Late-Other Realm")
+	assertEqual(0, countIncoming(), "unknown delta sender must not allocate chunk state")
+
+	fixture.roster = { { name = "Member-Test Realm", rank = 0 } }
+	pending("member")
+	chunk("SN", "member", "Member-Test Realm")
+	assertEqual(0, countIncoming(), "rank-zero sender must not allocate chunk state")
+
+	fixture.roster = {
+		{ name = "Twin-Test Realm", rank = 2 },
+		{ name = "Twin-Other Realm", rank = 1 },
+	}
+	pending("collision")
+	chunk("SN", "collision", "Twin")
+	assertEqual(0, countIncoming(), "ambiguous short sender must not allocate chunk state")
+	pending("collision-exact")
+	chunk("SN", "collision-exact", "twin-test realm")
+	assertEqual(1, countIncoming(), "exact realm-qualified sender must win a short-name collision")
+	syncer._incoming = {}
+
+	fixture.roster = {
+		{ name = "Leader-Test Realm", rank = 2 },
+		{ name = "Assistant-Other Realm", rank = 1 },
+	}
+	pending("leader")
+	chunk("SN", "leader", "leader-test realm")
+	assertEqual(1, countIncoming(), "case-insensitive exact leader must allocate chunk state")
+	pending("assistant")
+	chunk("DL", "assistant", "Assistant")
+	assertEqual(2, countIncoming(), "unique short assistant must allocate delta chunk state")
+
+	pending("late-same")
+	chunk("SN", "late-same", "Late-Other Realm")
+	assertEqual(2, countIncoming(), "first roster-late chunk must remain allocation-free")
+	fixture.roster[#fixture.roster + 1] = { name = "Late-Test Realm", rank = 1 }
+	chunk("SN", "late-same", "Late-Other Realm")
+	assertEqual(3, countIncoming(), "same request and chunk must re-evaluate after roster population")
+
+	local sendsBefore = #fixture.sent
+	request("outsider-rq", "Outsider-Test Realm")
+	assertEqual(sendsBefore, #fixture.sent, "outsider whisper request must receive no history")
+	fixture.roster[#fixture.roster + 1] = { name = "Requester-Test Realm", rank = 0 }
+	request("member-rq", "Requester-Other Realm")
+	assertTrue(#fixture.sent > sendsBefore, "unique current member whisper request must receive history")
+	assertEqual("Requester-Other Realm", fixture.sent[#fixture.sent].target, "response must preserve whisper target")
+	print("PASS real_db_syncer_authorizes_chunks_and_whisper_requests")
+end
+
+function cases.sync_transport_resources_are_bounded_before_allocation(addon)
+	local fixture, syncer = installRealDbSyncerFixture(addon)
+	fixture.roster = { { name = "Leader-Test Realm", rank = 2 } }
+	fixture.options.syncRequirePlayer = "Leader-Test Realm"
+	local function countIncoming()
+		local count = 0
+		for _ in pairs(syncer._incoming) do count = count + 1 end
+		return count
+	end
+	local function chunk(requestId, partIndex, partCount, data)
+		syncer:OnAddonMessage("RMALogSync", table.concat({
+			"SN", 2, requestId, "PUSH", 41, partIndex or 1, partCount or 2, data or "part",
+		}, "\t"), "RAID", "Leader-Test Realm")
+	end
+
+	chunk("too-many-parts", 1, 257)
+	assertEqual(0, countIncoming(), "over-limit part count must not allocate")
+	chunk(string.rep("r", 65), 1, 2)
+	assertEqual(0, countIncoming(), "over-limit request id must not allocate")
+
+	for i = 1, 9 do
+		local requestId = "flood-" .. i
+		chunk(requestId, 1, 2)
+	end
+	assertEqual(8, countIncoming(), "per-sender assembly cap must reject request-id floods")
+	for i = 1, 56 do
+		local sender = "Officer" .. i .. "-Test Realm"
+		fixture.roster[#fixture.roster + 1] = { name = sender, rank = 1 }
+		fixture.options.syncRequirePlayer = sender
+		syncer:OnAddonMessage("RMALogSync", table.concat({
+			"SN", 2, "global-" .. i, "PUSH", 41, 1, 2, "part",
+		}, "\t"), "RAID", sender)
+	end
+	assertEqual(64, countIncoming(), "global assembly cap boundary must remain available")
+	fixture.roster[#fixture.roster + 1] = { name = "Overflow-Test Realm", rank = 1 }
+	fixture.options.syncRequirePlayer = "Overflow-Test Realm"
+	syncer:OnAddonMessage("RMALogSync", table.concat({
+		"SN", 2, "global-overflow", "PUSH", 41, 1, 2, "part",
+	}, "\t"), "RAID", "Overflow-Test Realm")
+	assertEqual(64, countIncoming(), "global assembly cap must reject excess state")
+
+	fixture.options.syncRequirePlayer = "Leader-Test Realm"
+	chunk("flood-1", 1, 3)
+	assertEqual(63, countIncoming(), "changing part count must discard malformed assembly")
+	print("PASS sync_transport_resources_are_bounded_before_allocation")
+end
+
+function cases.sync_multichunk_enqueue_is_atomic(addon)
+	local fixture, syncer = installRealDbSyncerFixture(addon)
+	fixture.roster = { { name = "Leader-Test Realm", rank = 2 } }
+	fixture.options.syncPushPlayer = "Leader-Test Realm"
+	fixture.failBatch = true
+	assertEqual(false, syncer:BroadcastLoggerPush(41), "backpressured PUSH must report failure")
+	assertEqual(0, #fixture.sent, "failed batch must enqueue no partial chunks")
+	assertEqual(0, #fixture.infos, "failed PUSH must emit no success message")
+	assertEqual(1, fixture.batchAttempts, "failed snapshot must make one atomic enqueue attempt")
+
+	local before = fixture.batchAttempts
+	addon.DB.Syncer._Payload.BuildDelta = function() return "delta", 1 end
+	syncer:OnAddonMessage("RMALogSync", table.concat({
+		"RQ", 2, "atomic-sync", "SYNC", 41, "Naxxramas", 25, 1, 1, 0,
+	}, "\t"), "WHISPER", "Leader-Test Realm")
+	assertEqual(before + 1, fixture.batchAttempts, "delta backpressure must not fall back to a snapshot")
+	assertEqual(0, #fixture.sent, "delta failure must leave transport queue unchanged")
+	print("PASS sync_multichunk_enqueue_is_atomic")
+end
+
+function cases.comms_batch_preflight_prevents_partial_enqueue(addon)
+	_G.SendAddonMessage = function() end
+	_G.SendChatMessage = function() end
+	_G.GetAddOnMetadata = function() return "test" end
+	_G.UnitName = function() return "Tester" end
+	_G.IsInInstance = function() return false, "none" end
+	_G.GetNumRaidMembers = function() return 1 end
+	_G.GetNumPartyMembers = function() return 0 end
+	addon.L = {}
+	addon.Database.GetSyncer = function() return nil end
+	addon.Database.GetRaidSchemaVersion = function() return 1 end
+	addon.Strings = { NormalizeName = function(value) return value end }
+	addon.Timer = { BindMixin = function(target)
+		target.ScheduleTimer = function() return {} end
+	end }
+	loadAddonFile(addon, "Raid Management Addon/Modules/Comms.lua")
+	for i = 1, 255 do
+		assertTrue(addon.Comms.QueueAddonMessage("RMA", "m" .. i, "RAID"), "queue fill must succeed")
+	end
+	local tailBefore = addon.Comms._addonQueueTail
+	local queued, reason = addon.Comms.QueueAddonMessages("RMA", { "a", "b" }, "RAID")
+	assertEqual(false, queued, "near-full batch must be rejected")
+	assertEqual("backpressure", reason, "batch rejection reason differs")
+	assertEqual(tailBefore, addon.Comms._addonQueueTail, "rejected batch must not change tail")
+	assertEqual(nil, addon.Comms._addonQueue[tailBefore + 1], "rejected batch must enqueue no prefix")
+	assertTrue(addon.Comms.QueueAddonMessages("RMA", { "last" }, "RAID"), "exact-capacity batch must succeed")
+	assertEqual(256, addon.Comms._addonQueueTail, "exact-capacity tail differs")
+	print("PASS comms_batch_preflight_prevents_partial_enqueue")
+end
+
+function cases.comms_request_ids_are_bounded_session_scoped_and_collision_aware(addon)
+	_G.SendAddonMessage = function() end
+	_G.SendChatMessage = function() end
+	_G.GetAddOnMetadata = function() return "test" end
+	_G.UnitName = function() return "Tester" end
+	_G.GetTime = function() return 12.5 end
+	_G.IsInInstance = function() return false, "none" end
+	_G.GetNumRaidMembers = function() return 1 end
+	_G.GetNumPartyMembers = function() return 0 end
+	addon.L = {}
+	addon.Database.GetSyncer = function() return nil end
+	addon.Database.GetRaidSchemaVersion = function() return 1 end
+	addon.Strings = { NormalizeName = function(value) return value end }
+	addon.Timer = { BindMixin = function(target) target.ScheduleTimer = function() return {} end end }
+	loadAddonFile(addon, "Raid Management Addon/Modules/Comms.lua")
+
+	local owner = { _requestSessionNonce = "session-a", _nextRequestId = 999999 }
+	local collisions = { ["session-a-0"] = true, ["session-a-1"] = true }
+	local id = addon.Comms.NextRequestId(owner, nil, function(candidate) return collisions[candidate] == true end)
+	assertEqual("session-a-2", id, "wrapped counter must skip colliding live IDs")
+	assertTrue(#id <= 64, "request ID must remain within the wire limit")
+	local reloadedOwner = { _requestSessionNonce = "session-b", _nextRequestId = 999999 }
+	local reloadId = addon.Comms.NextRequestId(reloadedOwner, nil, function() return false end)
+	assertEqual("session-b-0", reloadId, "new session nonce must isolate reload IDs")
+	assertEqual(false, reloadId == id, "late prior-session packet must not correlate after reload")
+	print("PASS comms_request_ids_are_bounded_session_scoped_and_collision_aware")
+end
+
+function cases.compressed_sync_payload_never_invokes_unbounded_inflate(addon)
+	local inflateCalls = 0
+	_G.LibStub = function()
+		return {
+			DecodeForWoWAddonChannel = function(_, value) return value end,
+			DecompressDeflate = function()
+				inflateCalls = inflateCalls + 1
+				return string.rep("x", 1000000)
+			end,
+		}
+	end
+	addon.Diag = { D = {} }
+	addon.DB = { Syncer = {} }
+	addon.Database.GetRaidSchemaVersion = function() return 1 end
+	addon.Options = { IsDebugEnabled = function() return false end }
+	addon.Strings = {
+		NormalizeName = function(value) return value end,
+		NormalizeLower = function(value) return string.lower(tostring(value or "")) end,
+	}
+	addon.Comms = { Payload = {
+		EncodeText = function(value) return tostring(value or "") end,
+		DecodeText = function(value) return value end,
+		SplitFields = function(message, separator, out)
+			local fields = out or {}
+			for i = 1, #fields do fields[i] = nil end
+			for field in string.gmatch(message .. separator, "(.-)" .. separator) do fields[#fields + 1] = field end
+			return fields, #fields
+		end,
+		PackFields = function(_, ...) return table.concat({ ... }, "\t") end,
+	} }
+	loadAddonFile(addon, "Raid Management Addon/Database/DBSyncPayload.lua")
+	assertEqual(nil, addon.DB.Syncer._Payload.DecodeTransportText("D1:zip-bomb"), "compressed payload must fail closed")
+	assertEqual(0, inflateCalls, "unbounded inflater must not be invoked")
+	print("PASS compressed_sync_payload_never_invokes_unbounded_inflate")
+end
+
+function cases.sync_payload_validation_rejects_invalid_and_stale_revisions(addon)
+	addon.Diag = { D = {} }
+	addon.DB = { Syncer = {} }
+	addon.Database.GetRaidSchemaVersion = function() return 1 end
+	addon.Database.GetRaidQueries = function() return { ResolveLootLooterNameFromMap = function() return nil end } end
+	addon.Options = { IsDebugEnabled = function() return false end }
+	addon.Strings = {
+		NormalizeName = function(value) return value end,
+		NormalizeLower = function(value) return string.lower(tostring(value or "")) end,
+	}
+	addon.Comms = { Payload = {
+		EncodeText = function(value) return tostring(value or "") end,
+		DecodeText = function(value) return value end,
+		SplitFields = function(message, separator, out)
+			local fields = out or {}
+			for i = 1, #fields do fields[i] = nil end
+			for field in string.gmatch(message .. separator, "(.-)" .. separator) do fields[#fields + 1] = field end
+			return fields, #fields
+		end,
+		PackFields = function(_, ...) return table.concat({ ... }, "\t") end,
+	} }
+	loadAddonFile(addon, "Raid Management Addon/Database/DBSyncPayload.lua")
+	local validator = addon.DB.Syncer._Payload
+	local function snapshot(revision)
+		return { header = { protocolVersion = 2, schemaVersion = 1, raidNid = 41, revision = revision,
+			nextPlayerNid = 2, nextBossNid = 2, nextLootNid = 2 },
+			players = { { playerNid = 1, name = "Leader", subgroup = 1 } }, attendance = {}, bosses = {}, loot = {} }
+	end
+	local ok, reason = validator.ValidateSnapshot(snapshot(4), 3, 41)
+	assertTrue(ok, "newer valid snapshot must pass")
+	assertEqual("stale_revision", select(2, validator.ValidateSnapshot(snapshot(3), 3, 41)), "equal snapshot")
+	assertEqual("invalid_protocol", select(2, validator.ValidateSnapshot({ header = { protocolVersion = 9 } }, 0, 41)), "protocol")
+	local badSchema = snapshot(4); badSchema.header.schemaVersion = 2
+	assertEqual("invalid_schema", select(2, validator.ValidateSnapshot(badSchema, 3, 41)), "schema")
+	local badRange = snapshot(4); badRange.players[1].subgroup = 9
+	assertEqual("invalid_player", select(2, validator.ValidateSnapshot(badRange, 3, 41)), "range")
+	local duplicate = snapshot(4); duplicate.players[2] = { playerNid = 1, name = "Other" }
+	assertEqual("duplicate_player", select(2, validator.ValidateSnapshot(duplicate, 3, 41)), "duplicate player")
+	local badRef = snapshot(4); badRef.attendance[1] = { playerNid = 9, startTime = 1 }
+	assertEqual("invalid_player_reference", select(2, validator.ValidateSnapshot(badRef, 3, 41)), "attendance reference")
+	local badEnvelope = snapshot(4); badEnvelope.header.nextPlayerNid = 1
+	assertEqual("header_range_mismatch", select(2, validator.ValidateSnapshot(badEnvelope, 3, 41)), "header nid envelope")
+	local sparse = snapshot(4); sparse.players = { [1] = sparse.players[1], [3] = { playerNid = 2, name = "Two" } }
+	assertEqual("invalid_sequence", select(2, validator.ValidateSnapshot(sparse, 3, 41)), "sparse player sequence")
+	local mapSequence = snapshot(4); mapSequence.loot = { bad = { lootNid = 1 } }
+	assertEqual("invalid_sequence", select(2, validator.ValidateSnapshot(mapSequence, 3, 41)), "map loot sequence")
+	local badBossRefs = snapshot(4); badBossRefs.bosses[1] = { bossNid = 1, players = { [2] = 1 } }
+	assertEqual("invalid_sequence", select(2, validator.ValidateSnapshot(badBossRefs, 3, 41)), "sparse boss references")
+	assertEqual("raid_mismatch", select(2, validator.ValidateSnapshot(snapshot(4), 3, 73)), "envelope raid")
+	local v1 = validator.Parse("H\t1\t1\t41\tNaxxramas\t25\t2\tRealm\t1\t0\t2\t1\t1\nP\t1\tLeader\t2\t1\tWARRIOR\t1\t0\t0")
+	assertTrue(v1 ~= nil, "serialized 13-field v1 snapshot must still parse")
+	assertTrue(validator.ValidateSnapshot(v1, 0, 41), "v1 snapshot may initialize empty history")
+	assertEqual("stale_revision", select(2, validator.ValidateSnapshot(v1, 1, 41)), "v1 must not overwrite revisioned history")
+	local badLoot = snapshot(4); badLoot.loot[1] = { lootNid = 1, itemId = "19019", itemName = "Item", itemString = "", itemLink = "", itemTexture = "", itemCount = 1, itemRarity = 4, rollType = 0, rollValue = 0, bossNid = 0, time = 1 }
+	assertEqual("invalid_loot_row", select(2, validator.ValidateSnapshot(badLoot, 3, 41)), "numeric strings must not be silently coerced")
+
+	local function delta(sinceRevision, revision, rows)
+		rows = rows or {}
+		for i = 1, #rows do
+			local row = rows[i]
+			if row.itemId == nil then row.itemId = 1 end
+			if row.itemName == nil then row.itemName = "Item" end
+			if row.itemString == nil then row.itemString = "item:1" end
+			if row.itemLink == nil then row.itemLink = "[Item]" end
+			if row.itemTexture == nil then row.itemTexture = "texture" end
+			if row.looterName == nil then row.looterName = "" end
+			if row.itemCount == nil then row.itemCount = 1 end
+			if row.itemRarity == nil then row.itemRarity = 1 end
+			if row.rollType == nil then row.rollType = 0 end
+			if row.rollValue == nil then row.rollValue = 0 end
+			if row.bossNid == nil then row.bossNid = 0 end
+			if row.time == nil then row.time = 1 end
+		end
+		return { header = { protocolVersion = 2, raidNid = 41, sinceRevision = sinceRevision, revision = revision }, loot = rows }
+	end
+	ok = validator.ValidateDelta(delta(3, 5, { { lootNid = 1, syncRevision = 4 }, { lootNid = 2, syncRevision = 5 } }), 3, 41)
+	assertTrue(ok, "valid monotone delta must pass")
+	assertEqual("revision_gap", select(2, validator.ValidateDelta(delta(2, 4), 3, 41)), "since revision")
+	assertEqual("stale_revision", select(2, validator.ValidateDelta(delta(3, 3), 3, 41)), "equal delta")
+	assertEqual("row_revision_order", select(2, validator.ValidateDelta(delta(3, 5, { { lootNid = 1, syncRevision = 5 }, { lootNid = 2, syncRevision = 4 } }), 3, 41)), "row order")
+	assertEqual("row_revision_range", select(2, validator.ValidateDelta(delta(3, 5, { { lootNid = 1, syncRevision = 6 } }), 3, 41)), "row envelope")
+	assertEqual("duplicate_loot", select(2, validator.ValidateDelta(delta(3, 5, { { lootNid = 1, syncRevision = 4 }, { lootNid = 1, syncRevision = 5 } }), 3, 41)), "duplicate loot")
+	assertEqual("incomplete_delta", select(2, validator.ValidateDelta(delta(3, 5, {}), 3, 41)), "empty delta cannot advance")
+	assertEqual("incomplete_delta", select(2, validator.ValidateDelta(delta(3, 5, { { lootNid = 1, syncRevision = 4 } }), 3, 41)), "missing terminal revision")
+	assertEqual("revision_gap", select(2, validator.ValidateDelta(delta(3, 5, { { lootNid = 1, syncRevision = 5 } }), 3, 41)), "row revision hole")
+	local badDeltaLoot = delta(3, 4, { { lootNid = 1, syncRevision = 4, itemId = 1, itemName = {}, itemString = "", itemLink = "", itemTexture = "", itemCount = 1, itemRarity = 4, rollType = 0, rollValue = 0, bossNid = 0, time = 1 } })
+	assertEqual("invalid_loot_row", select(2, validator.ValidateDelta(badDeltaLoot, 3, 41)), "delta loot types")
+
+	local revisionSets = 0
+	local store = {
+		GetRaidSyncRevision = function(_, raid) return tonumber(raid._revision) or 0 end,
+		SetRaidSyncRevision = function(_, raid, revision) revisionSets = revisionSets + 1; raid._revision = revision end,
+		CreateRaidRecord = function() return { raidNid = 999, _revision = 0 } end,
+		InsertRaid = function(_, raid) return raid, 1 end,
+		CaptureRaidInsertionState = function() return {} end,
+		RestoreRaidInsertionState = function() return true end,
+		CommitNewRaidHistoryImport = function(_, raid) return raid, 1 end,
+	}
+	addon.Database.GetRaidStore = function() return store end
+	addon.Database.StripRuntimeRaidCaches = function() end
+	addon.Database.EnsureRaidSchema = function(raid)
+		raid.players = raid.players or {}; raid.attendance = raid.attendance or {}; raid.bossKills = raid.bossKills or {}; raid.loot = raid.loot or {}
+		return raid
+	end
+	addon.Time = { GetCurrentTime = function() return 1 end }
+	addon.State = {}
+	loadAddonFile(addon, "Raid Management Addon/Database/DBSyncImport.lua")
+	local importer = addon.DB.Syncer._Import
+	local invalidDestination = { raidNid = 41, _revision = 3, players = {}, attendance = {}, bossKills = {}, loot = {} }
+	local invalidBefore = deepCopy(invalidDestination)
+	local applied, importReason = importer.ApplySnapshotToRaid(invalidDestination, badLoot, false)
+	assertEqual(nil, applied, "invalid loot snapshot import must reject")
+	assertEqual("invalid_loot_row", importReason, "invalid loot import reason")
+	assertTrue(deepEqual(invalidBefore, invalidDestination), "invalid loot import must not mutate")
+	local malformedDestination = { raidNid = "41", _revision = 3, players = {}, attendance = {}, bossKills = {}, loot = {} }
+	local malformedBefore = deepCopy(malformedDestination)
+	applied, importReason = importer.ApplySnapshotToRaid(malformedDestination, snapshot(4), false)
+	assertEqual(nil, applied, "malformed destination id must reject")
+	assertEqual("invalid_destination_raid", importReason, "malformed destination reason")
+	assertTrue(deepEqual(malformedBefore, malformedDestination), "malformed destination must not mutate")
+	local missingDestination = { _revision = 3, players = {}, attendance = {}, bossKills = {}, loot = {} }
+	local missingBefore = deepCopy(missingDestination)
+	applied, importReason = importer.ApplySnapshotToRaid(missingDestination, snapshot(4), false)
+	assertEqual(nil, applied, "missing destination id must reject")
+	assertEqual("invalid_destination_raid", importReason, "missing destination reason")
+	assertTrue(deepEqual(missingBefore, missingDestination), "missing destination must not mutate")
+	local destination = { raidNid = 73, _revision = 3, players = {}, attendance = {}, bossKills = {}, loot = {} }
+	local before = deepCopy(destination)
+	applied, importReason = importer.ApplySnapshotToRaid(destination, snapshot(4), false)
+	assertEqual(nil, applied, "destination raid mismatch must reject")
+	assertEqual("raid_mismatch", importReason, "destination mismatch reason")
+	assertTrue(deepEqual(before, destination), "destination mismatch must not mutate")
+	assertEqual(0, revisionSets, "destination mismatch must not update revision")
+	local imported = importer.ImportSnapshotAsNewRaid(snapshot(4))
+	assertTrue(imported ~= nil, "new import must deliberately map external id to local record")
+	local importedV1 = importer.ImportSnapshotAsNewRaid(v1)
+	assertTrue(importedV1 ~= nil, "serialized v1 must remain importable only as empty local history")
+	local deltaDestination = { raidNid = 41, _revision = 3, players = {}, attendance = {}, bossKills = {}, loot = {} }
+	local deltaBefore = deepCopy(deltaDestination)
+	local invalidDelta = delta(3, 5, { { lootNid = 1, syncRevision = 5 } })
+	applied, importReason = importer.ApplyDeltaToRaid(deltaDestination, invalidDelta)
+	assertEqual(nil, applied, "gapped delta import must reject")
+	assertEqual("revision_gap", importReason, "gapped import reason")
+	assertTrue(deepEqual(deltaBefore, deltaDestination), "gapped delta import must not mutate")
+	print("PASS sync_payload_validation_rejects_invalid_and_stale_revisions")
+end
+
+function cases.sync_history_import_is_atomic_across_build_and_commit_failures(addon)
+	installRaidDatabaseStubs(addon)
+	local store = addon.DB.RaidStore
+	local raid = canonicalRaidFixture()
+	_G.RMA_Raids = { raid }
+	store:SetRaidSyncRevision(raid, 3, "fixture")
+	store:EnsureRaidRuntime(raid)
+	local canonicalBefore = deepCopy(raid)
+	local originalIdentity = {
+		players = raid.players, player = raid.players[1], loot = raid.loot, lootRow = raid.loot[1],
+		bosses = raid.bossKills, boss = raid.bossKills[1], attendance = raid.attendance,
+		attendanceRow = raid.attendance[1], runtime = raid._runtime,
+	}
+	local function assertOriginalIdentity(message)
+		assertTrue(rawequal(originalIdentity.players, raid.players), message .. " players")
+		assertTrue(rawequal(originalIdentity.player, raid.players[1]), message .. " player row")
+		assertTrue(rawequal(originalIdentity.loot, raid.loot), message .. " loot")
+		assertTrue(rawequal(originalIdentity.lootRow, raid.loot[1]), message .. " loot row")
+		assertTrue(rawequal(originalIdentity.bosses, raid.bossKills), message .. " bosses")
+		assertTrue(rawequal(originalIdentity.boss, raid.bossKills[1]), message .. " boss row")
+		assertTrue(rawequal(originalIdentity.attendance, raid.attendance), message .. " attendance")
+		assertTrue(rawequal(originalIdentity.attendanceRow, raid.attendance[1]), message .. " attendance row")
+		assertTrue(rawequal(originalIdentity.runtime, raid._runtime), message .. " runtime")
+	end
+
+	addon.DB.Syncer = { _Payload = {
+		ValidateSnapshot = function() return true end,
+		ValidateDelta = function() return true end,
+		BuildPlayerNameMaps = function(players)
+			local byName, valid = {}, {}
+			for i = 1, #(players or {}) do
+				valid[players[i].playerNid] = true
+				byName[string.lower(players[i].name)] = players[i].playerNid
+			end
+			return {}, byName, valid
+		end,
+	} }
+	addon.Time = { GetCurrentTime = function() return 100 end }
+	addon.State = {}
+	local normalizeCalls = 0
+	addon.Strings.NormalizeName = function(value)
+		normalizeCalls = normalizeCalls + 1
+		if normalizeCalls == 2 then error("injected candidate failure") end
+		return value
+	end
+	loadAddonFile(addon, "Raid Management Addon/Database/DBSyncImport.lua")
+	local importer = addon.DB.Syncer._Import
+	local snapshot = {
+		header = { schemaVersion = 6, raidNid = 7, revision = 4, nextPlayerNid = 5, nextBossNid = 2, nextLootNid = 2 },
+		players = {
+			{ playerNid = 3, name = "Gamma", class = "ROGUE", subgroup = 1 },
+			{ playerNid = 4, name = "Delta", class = "DRUID", subgroup = 1 },
+		},
+		attendance = {}, bosses = {}, loot = {},
+	}
+	local ok = pcall(importer.ApplySnapshotToRaid, raid, snapshot, false)
+	assertEqual(false, ok, "injected candidate build failure must surface")
+	assertTrue(deepEqual(canonicalBefore, raid), "candidate build failure must preserve canonical raid and indexes")
+
+	addon.Strings.NormalizeName = function(value) return value end
+	local originalEnsureRuntime = store.EnsureRaidRuntime
+	store.EnsureRaidRuntime = function() error("injected postcondition failure") end
+	local applied, reason = importer.ApplySnapshotToRaid(raid, snapshot, false)
+	store.EnsureRaidRuntime = originalEnsureRuntime
+	assertEqual(nil, applied, "postcondition failure must reject import")
+	assertEqual("COMMIT_FAILED", reason, "postcondition failure should use stable commit error")
+	assertTrue(deepEqual(canonicalBefore, raid), "commit rollback must preserve canonical raid, revision, and indexes")
+	assertOriginalIdentity("snapshot rollback must preserve identity")
+
+	local delta = {
+		header = { raidNid = 7, sinceRevision = 3, revision = 4, nextPlayerNid = 3, nextBossNid = 2, nextLootNid = 3 },
+		loot = { { lootNid = 2, itemId = 101, itemName = "New", itemCount = 1, looterNid = 1,
+			rollType = 0, rollValue = 0, bossNid = 1, time = 80, syncRevision = 4 } },
+	}
+	store.EnsureRaidRuntime = function() error("injected delta postcondition failure") end
+	applied, reason = importer.ApplyDeltaToRaid(raid, delta)
+	store.EnsureRaidRuntime = originalEnsureRuntime
+	assertEqual(nil, applied, "delta postcondition failure must reject import")
+	assertEqual("COMMIT_FAILED", reason, "delta failure should use stable commit error")
+	assertTrue(deepEqual(canonicalBefore, raid), "delta rollback must preserve canonical raid, revision, and indexes")
+	assertOriginalIdentity("delta rollback must preserve identity")
+
+	local acceptedSnapshot = deepCopy(snapshot)
+	acceptedSnapshot.loot = { { lootNid = 2, itemId = 102, itemName = "Unassigned", itemCount = 1,
+		rollType = 0, rollValue = 0, bossNid = 0, time = 81 } }
+	acceptedSnapshot.header.nextLootNid = 3
+	local rootIdentity = raid
+	applied, reason = importer.ApplySnapshotToRaid(raid, acceptedSnapshot, false)
+	assertEqual(rootIdentity, applied, "accepted import must preserve canonical raid root identity")
+	assertEqual(nil, reason, "accepted import must not return an error")
+	assertEqual(4, store:GetRaidSyncRevision(raid), "accepted import must commit the remote revision exactly")
+	assertEqual(2, #raid.loot, "accepted snapshot must preserve merge semantics")
+	assertEqual(0, raid.loot[2].bossNid, "unassigned loot must remain a valid accepted merge")
+	local acceptedDelta = deepCopy(delta)
+	acceptedDelta.header.sinceRevision = 4
+	acceptedDelta.header.revision = 5
+	acceptedDelta.loot[1].syncRevision = 5
+	local deltaBefore = deepCopy(raid)
+	local deltaPlayers, deltaLoot, deltaLootRow, deltaRuntime = raid.players, raid.loot, raid.loot[1], raid._runtime
+	local deltaBosses, deltaBoss, deltaAttendance, deltaAttendanceRow =
+		raid.bossKills, raid.bossKills[1], raid.attendance, raid.attendance[1]
+	local originalSetLootRevision = store.SetLootSyncRevision
+	local originalGetLootRevision = store.GetLootSyncRevision
+	local originalSetRaidRevision = store.SetRaidSyncRevision
+	for _, injected in ipairs({
+		function() store.SetLootSyncRevision = function() return 0 end end,
+		function() store.SetLootSyncRevision = function() error("injected loot revision error") end end,
+		function()
+			store.SetLootSyncRevision = originalSetLootRevision
+			store.GetLootSyncRevision = function() return 0 end
+		end,
+		function() store.SetRaidSyncRevision = function() return 0 end end,
+		function() store.SetRaidSyncRevision = function() error("injected raid revision error") end end,
+	}) do
+		store.SetLootSyncRevision, store.GetLootSyncRevision, store.SetRaidSyncRevision =
+			originalSetLootRevision, originalGetLootRevision, originalSetRaidRevision
+		injected()
+		applied, reason = importer.ApplyDeltaToRaid(raid, acceptedDelta)
+		assertEqual(nil, applied, "revision postcondition failure must reject delta")
+		assertEqual("COMMIT_FAILED", reason, "revision postcondition failure must be stable")
+		assertTrue(deepEqual(deltaBefore, raid), "revision failure must preserve canonical data")
+		assertTrue(rawequal(deltaPlayers, raid.players), "revision failure must preserve players identity")
+		assertTrue(rawequal(deltaLoot, raid.loot), "revision failure must preserve loot identity")
+		assertTrue(rawequal(deltaLootRow, raid.loot[1]), "revision failure must preserve loot row identity")
+		assertTrue(rawequal(deltaBosses, raid.bossKills), "revision failure must preserve bosses identity")
+		assertTrue(rawequal(deltaBoss, raid.bossKills[1]), "revision failure must preserve boss row identity")
+		assertTrue(rawequal(deltaAttendance, raid.attendance), "revision failure must preserve attendance identity")
+		assertTrue(rawequal(deltaAttendanceRow, raid.attendance[1]), "revision failure must preserve attendance row identity")
+		assertTrue(rawequal(deltaRuntime, raid._runtime), "revision failure must preserve runtime identity")
+	end
+	store.SetLootSyncRevision, store.GetLootSyncRevision, store.SetRaidSyncRevision =
+		originalSetLootRevision, originalGetLootRevision, originalSetRaidRevision
+	applied, reason = importer.ApplyDeltaToRaid(raid, acceptedDelta)
+	assertEqual(rootIdentity, applied, "accepted delta must preserve canonical raid root identity")
+	assertEqual(nil, reason, "accepted delta must not return an error")
+	assertEqual(5, store:GetRaidSyncRevision(raid), "accepted delta must commit its terminal revision")
+	assertEqual(5, store:GetLootSyncRevision(raid, raid.loot[2]), "accepted delta must retain row revision coverage")
+	local historyBeforeInsert = deepCopy(raid)
+	historyBeforeInsert._runtime = nil
+	local runtimeBeforeInsert = raid._runtime
+	store.EnsureRaidRuntime = function() error("injected new-raid postcondition failure") end
+	local imported, importedId, insertReason = importer.ImportSnapshotAsNewRaid(acceptedSnapshot)
+	store.EnsureRaidRuntime = originalEnsureRuntime
+	assertEqual(nil, imported, "failed new snapshot import must not insert a raid")
+	assertEqual(nil, importedId, "failed new snapshot import must not expose an index")
+	assertEqual("COMMIT_FAILED", insertReason, "failed new import should return a stable commit error")
+	local persistedAfterInsert = deepCopy(raid)
+	persistedAfterInsert._runtime = nil
+	assertTrue(deepEqual(historyBeforeInsert, persistedAfterInsert), "failed new import must preserve canonical history")
+	assertEqual(runtimeBeforeInsert, raid._runtime, "failed new import must preserve runtime index identity")
+	local nextRaid = store:CreateRaidRecord({ startTime = 100 })
+	assertEqual(8, nextRaid.raidNid, "failed new import must roll back the raid id allocator")
+	print("PASS sync_history_import_is_atomic_across_build_and_commit_failures")
+end
+
+function cases.sync_v1_revision_zero_imports_through_real_store_without_regression(addon)
+	installRaidDatabaseStubs(addon)
+	addon.DB.Syncer = {}
+	addon.Diag = { D = {} }
+	addon.Options = { IsDebugEnabled = function() return false end }
+	addon.Comms = { Payload = {
+		EncodeText = function(value) return tostring(value or "") end,
+		DecodeText = function(value) return value end,
+		SplitFields = function(message, separator, out)
+			local fields = out or {}; for i = 1, #fields do fields[i] = nil end
+			for field in string.gmatch(message .. separator, "(.-)" .. separator) do fields[#fields + 1] = field end
+			return fields, #fields
+		end,
+		PackFields = function(separator, ...)
+			local values = { ... }; for i = 1, #values do values[i] = tostring(values[i] or "") end
+			return table.concat(values, separator)
+		end,
+	} }
+	loadAddonFile(addon, "Raid Management Addon/Database/DBSyncPayload.lua")
+	loadAddonFile(addon, "Raid Management Addon/Database/DBSyncImport.lua")
+	local store, importer, payload = addon.DB.RaidStore, addon.DB.Syncer._Import, addon.DB.Syncer._Payload
+	local raid = store:CreateRaidRecord({ raidNid = 41, startTime = 1 })
+	store:InsertRaid(raid)
+	local v1 = payload.Parse("H\t1\t1\t41\tNaxxramas\t25\t2\tRealm\t1\t0\t2\t1\t1\nP\t1\tLeader\t2\t1\tWARRIOR\t1\t0\t0")
+	assertTrue(v1 ~= nil, "v1 fixture must parse")
+	local applied, reason = importer.ApplySnapshotToRaid(raid, v1, false)
+	assertEqual(raid, applied, "v1 revision-zero snapshot must import into revision-zero history")
+	assertEqual(nil, reason, "accepted v1 import must not return an error")
+	assertEqual(0, store:GetRaidSyncRevision(raid), "v1 import must retain revision zero")
+	store:SetRaidSyncRevision(raid, 1, "fixture")
+	applied, reason = importer.ApplySnapshotToRaid(raid, v1, false)
+	assertEqual(nil, applied, "v1 revision zero must not overwrite nonzero history")
+	assertEqual("stale_revision", reason, "v1 regression must fail closed")
+	assertEqual(1, store:GetRaidSyncRevision(raid), "rejected v1 import must preserve nonzero revision")
+	local imported, importedIndex, importReason = importer.ImportSnapshotAsNewRaid(v1)
+	assertTrue(imported ~= nil and importedIndex ~= nil, "v1 revision-zero snapshot must import as new history")
+	assertEqual(nil, importReason, "accepted new v1 import must not return an error")
+	assertEqual(0, store:GetRaidSyncRevision(imported), "new v1 history must retain revision zero")
+	print("PASS sync_v1_revision_zero_imports_through_real_store_without_regression")
+end
+
+function cases.real_delta_builder_proves_complete_revision_coverage(addon)
+	addon.Diag = { D = {} }
+	addon.DB = { Syncer = {} }
+	addon.Database.GetRaidSchemaVersion = function() return 1 end
+	addon.Database.GetRaidQueries = function() return { ResolveLootLooterNameFromMap = function(_, loot) return loot.looterName end } end
+	addon.Database.EnsureRaidSchema = function(raid) return raid end
+	addon.Options = { IsDebugEnabled = function() return false end }
+	addon.Strings = { NormalizeName = function(value) return value end, NormalizeLower = function(value) return string.lower(tostring(value or "")) end }
+	addon.Comms = { Payload = {
+		EncodeText = function(value) return tostring(value or "") end,
+		DecodeText = function(value) return value end,
+		SplitFields = function(message, separator, out)
+			local fields = out or {}; for i = 1, #fields do fields[i] = nil end
+			for field in string.gmatch(message .. separator, "(.-)" .. separator) do fields[#fields + 1] = field end
+			return fields, #fields
+		end,
+		PackFields = function(separator, ...)
+			local values = { ... }; for i = 1, #values do values[i] = tostring(values[i] or "") end
+			return table.concat(values, separator)
+		end,
+	} }
+	local revisions = {}
+	local store = {
+		RequiresFullSyncSince = function() return false end,
+		GetRaidSyncRevision = function() return 5 end,
+		GetLootSyncRevision = function(_, _, row) return revisions[row.lootNid] or 0 end,
+	}
+	addon.Database.GetRaidStore = function() return store end
+	loadAddonFile(addon, "Raid Management Addon/Database/DBSyncPayload.lua")
+	local payloadModule = addon.DB.Syncer._Payload
+	local realBuildDelta = payloadModule.BuildDelta
+	local raid = { raidNid = 41, players = {}, loot = {
+		{ lootNid = 1, itemId = 1, itemName = "One", itemString = "item:1", itemLink = "[One]", itemRarity = 1, itemTexture = "t", itemCount = 1, looterName = "", rollType = 0, rollValue = 0, bossNid = 0, time = 1 },
+		{ lootNid = 2, itemId = 2, itemName = "Two", itemString = "item:2", itemLink = "[Two]", itemRarity = 1, itemTexture = "t", itemCount = 1, looterName = "", rollType = 0, rollValue = 0, bossNid = 0, time = 2 },
+	} }
+	revisions[1], revisions[2] = 5, 4
+	local payload, rowCount = realBuildDelta(raid, 3)
+	assertEqual(2, rowCount, "reverse-NID edits must retain two rows")
+	local parsed = payloadModule.ParseDelta(payload)
+	assertTrue(payloadModule.ValidateDelta(parsed, 3, 41), "emitted rows must be ordered by revision and accepted")
+	revisions[1], revisions[2] = 5, 0
+	payload, rowCount = realBuildDelta(raid, 3)
+	assertEqual(nil, payload, "coalesced repeated-row edits cannot prove revision coverage")
+	assertEqual(0, rowCount, "unavailable delta has no rows")
+
+	local fixture, syncer = installRealDbSyncerFixture(addon)
+	fixture.roster = { { name = "Requester-Test Realm", rank = 0 } }
+	local currentRaid = select(1, addon.DB.Syncer._Import.GetCurrentRaidRecord())
+	for key, value in pairs(raid) do currentRaid[key] = value end
+	addon.Database.GetRaidStore = function() return store end
+	addon.DB.Syncer._Payload.BuildDelta = realBuildDelta
+	addon.DB.Syncer._Payload.Build = function() return "snapshot" end
+	syncer:OnAddonMessage("RMALogSync", table.concat({ "RQ", 2, "fallback", "SYNC", 41, "Naxxramas", 25, 1, 3, 0 }, "\t"), "WHISPER", "Requester-Test Realm")
+	assertTrue(#fixture.sent > 0, "unavailable delta must produce a snapshot response")
+	assertTrue(string.find(fixture.sent[#fixture.sent].message, "SN\t", 1, true) == 1, "fallback response must be snapshot")
+	print("PASS real_delta_builder_proves_complete_revision_coverage")
+end
+
+function cases.sync_request_backpressure_rolls_back_pending(addon)
+	local fixture, syncer = installRealDbSyncerFixture(addon)
+	fixture.roster = { { name = "Leader-Test Realm", rank = 2 } }
+	fixture.failSingle = true
+	local queued, reason = syncer:RequestLoggerReq(41, "Leader-Test Realm")
+	assertEqual(false, queued, "REQ must propagate queue backpressure")
+	assertEqual("backpressure", reason, "REQ backpressure reason differs")
+	assertEqual(nil, next(syncer._pendingRequests), "failed REQ must remove pending state")
+	assertEqual(0, #fixture.infos, "failed REQ must emit no sent message")
+
+	queued, reason = syncer:RequestLoggerSync()
+	assertEqual(false, queued, "SYNC must propagate queue backpressure")
+	assertEqual("backpressure", reason, "SYNC backpressure reason differs")
+	assertEqual(nil, next(syncer._pendingRequests), "failed SYNC must remove pending state")
+	assertEqual(0, #fixture.infos, "failed SYNC must emit no sent message")
+	assertEqual(0, #fixture.sent, "failed requests must enqueue nothing")
+	print("PASS sync_request_backpressure_rolls_back_pending")
 end
 
 local caseName = arg[1]

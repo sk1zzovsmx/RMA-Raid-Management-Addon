@@ -74,6 +74,44 @@ request state, chunk lifecycle, payload import/export coordination, persistence,
 and metrics. `Modules/Comms.lua` owns transport selection, queueing, and the
 version protocol. `Init.lua` routes inbound addon messages in this order:
 
+Incoming `PUSH` snapshots fail closed before chunk-state allocation. The sender
+must resolve uniquely to a current realm-qualified raid roster identity,
+must currently be the raid leader or an assistant, and must match either the
+target of a live correlated history request or Logger's configured Require
+Database player. The configured Push Database player is the default outbound
+PUSH target. These consent checks preserve the existing wire format.
+
+History snapshots are accepted only when their revision is newer than the
+destination history. Legacy v1 snapshots without a revision may initialize an
+empty local history, but cannot overwrite a history whose revision is already
+positive. A v2 loot delta is accepted only when `sinceRevision` equals the
+local revision and its dense row sequence represents every consecutive
+revision through the advertised terminal revision. The raid store assigns one
+new revision per loot-row mutation, so repeated revisions, holes, empty
+advances, and a missing terminal row are invalid rather than batch semantics.
+
+Requests are locally correlated by request ID, realm-qualified sender, raid,
+mode, creation time, and terminal state. IDs cannot be reused while pending,
+assembled, consented, outbound, or retained as terminal history. Completion,
+failure, cancellation, and timeout deliver at most once and release matching
+assembly/consent state. Request state expires after 30 seconds; incomplete
+assemblies and outbound PUSH tracking expire after 45 seconds.
+
+Transport is bounded at 220 encoded bytes per chunk, 256 chunks/56,320 encoded
+bytes per payload, 64 concurrent incoming assemblies globally and eight per
+sender, and 64 bytes per request ID. Parsed payloads are capped at 65,536 bytes,
+4,096 rows, 4,096 bytes per encoded field, and 50 rows per delta. Inbound
+requests are limited to six per sender per 30 seconds and outbound replies to
+four per target per 30 seconds. Compressed `D1:` input is rejected before
+inflate because the vendored codec has no bounded-output API; current requests
+advertise no compression support and outbound payload fields remain unchanged.
+
+Snapshot and delta imports are detached until a store-owned commit. Commit
+postcondition failure restores the canonical raid (or insertion state), its
+revision, counters, and runtime indexes; data/UI notifications occur only after
+success. When retained per-row revisions cannot prove a dense delta interval,
+the responder falls back to a snapshot instead of emitting an ambiguous delta.
+
 1. version protocol;
 2. reserve-specific sync;
 3. loot distribution session;

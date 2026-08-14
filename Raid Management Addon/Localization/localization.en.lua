@@ -423,9 +423,10 @@ L.StrConfigLootHistoryIgnoreSelectionThresholdDesc =
 L.StrConfigLootHistoryLoggerLootQuality = "Logger loot quality"
 L.StrConfigLootHistoryLoggerLootQualityDesc = "Records loot at or above this item quality when the override is enabled."
 L.StrConfigLootHistoryRequireDatabaseTitle = "Require Database"
-L.StrConfigLootHistoryRequireDatabaseDesc = "Requests the current raid history from the named player."
+L.StrConfigLootHistoryRequireDatabaseDesc =
+	"Requests raid history from this player and authorizes PUSH imports only while they are a raid leader or assistant."
 L.StrConfigLootHistoryPushDatabaseTitle = "Push Database"
-L.StrConfigLootHistoryPushDatabaseDesc = "Sends the current raid history to the named player."
+L.StrConfigLootHistoryPushDatabaseDesc = "Sends raid history to this player when no other PUSH target is supplied."
 L.StrConfigLootHistorySyncNowTitle = "Sync Now"
 L.StrConfigLootHistorySyncNowDesc = "Runs the same current-raid sync used by /rma history sync."
 L.StrConfigLootHistoryDataHealthTitle = "Data Health"

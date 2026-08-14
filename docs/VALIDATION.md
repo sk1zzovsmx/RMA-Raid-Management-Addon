@@ -69,3 +69,9 @@ When no in-game validation was requested or run, report the gap explicitly as:
 ```text
 runtime smoke: not run; manual acceptance pending
 ```
+
+For the progressive whole-addon refactor, the explicitly agreed status text is:
+
+```text
+runtime smoke: deferred by user until the full refactoring program is complete
+```

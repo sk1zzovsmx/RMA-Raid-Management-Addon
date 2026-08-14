@@ -70,6 +70,11 @@ do
 	local MODE_SYNC = "SYNC"
 
 	local MAX_CHUNK_SIZE = 220
+	local MAX_CHUNKS = 256
+	local MAX_ENCODED_BYTES = MAX_CHUNK_SIZE * MAX_CHUNKS
+	local MAX_INCOMING_STATES = 64
+	local MAX_INCOMING_STATES_PER_SENDER = 8
+	local MAX_REQUEST_ID_BYTES = 64
 	local MAX_DELTA_ROWS = 50
 	local REQUEST_TTL_SECONDS = 30
 	local INCOMING_TTL_SECONDS = 45
@@ -79,9 +84,10 @@ do
 	local OUTGOING_RATE_WINDOW_SECONDS = 30
 	local OUTGOING_RATE_MAX_PER_TARGET = 4
 	local OUTGOING_RATE_PRUNE_SECONDS = OUTGOING_RATE_WINDOW_SECONDS * 2
-	local SYNC_OFFICER_LOOKUP_GRACE_SECONDS = 2
 	local PASSIVE_CLEANUP_INTERVAL_SECONDS = 5
 	local PERSISTENT_SYNC_INTERVAL_SECONDS = 120
+	local MAX_PUSH_CONSENTS = 128
+	local MAX_TERMINAL_REQUESTS = 128
 
 	local loggerOptions = Options.RegisterNamespace("Logger", {
 		persistentSync = true,
@@ -94,9 +100,11 @@ do
 
 	module._incoming = module._incoming or {}
 	module._pendingRequests = module._pendingRequests or {}
+	module._terminalRequests = module._terminalRequests or {}
 	module._requestRate = module._requestRate or {}
 	module._outgoingRate = module._outgoingRate or {}
-	module._outgoingCompressionByRequest = module._outgoingCompressionByRequest or {}
+	module._pushConsents = module._pushConsents or {}
+	module._outboundPushes = module._outboundPushes or {}
 	module._nextRequestId = tonumber(module._nextRequestId) or 0
 	module._nextPassiveCleanupAt = tonumber(module._nextPassiveCleanupAt) or 0
 	module._persistentSyncHandle = module._persistentSyncHandle or nil
@@ -143,21 +151,57 @@ do
 	local SnapshotPayload = assert(module._Payload, "DBSync payload helpers are not initialized")
 	local SnapshotImport = assert(module._Import, "DBSync import helpers are not initialized")
 
+	local terminalizeRequest
+	local releasePushConsent
+
 	local function cleanupExpiredState()
 		local now = nowSec()
 
 		for key, st in pairs(module._incoming) do
 			local age = now - (tonumber(st and st.createdAt) or now)
 			if age > INCOMING_TTL_SECONDS then
+				if st and st.pushConsentKey then
+					local consent = module._pushConsents[st.pushConsentKey]
+					if consent and consent.status == "inflight" then
+						consent.status = "available"
+						if consent.timeoutExtended ~= true then
+							consent.createdAt = now
+							consent.timeoutExtended = true
+						end
+					end
+				end
 				module._incoming[key] = nil
 			end
 		end
 
+		for key, st in pairs(module._pushConsents) do
+			local age = now - (tonumber(st and st.createdAt) or now)
+			if age > INCOMING_TTL_SECONDS then
+				module._pushConsents[key] = nil
+			end
+		end
+
+		local expiredRequests = {}
 		for reqId, st in pairs(module._pendingRequests) do
 			local age = now - (tonumber(st and st.createdAt) or now)
 			if age > REQUEST_TTL_SECONDS then
-				module._pendingRequests[reqId] = nil
+				expiredRequests[#expiredRequests + 1] = reqId
 			end
+		end
+		for i = 1, #expiredRequests do
+			terminalizeRequest(expiredRequests[i], "timeout")
+		end
+
+		for reqId, st in pairs(module._terminalRequests) do
+			local age = now - (tonumber(st and st.terminalAt) or now)
+			if age > REQUEST_TTL_SECONDS then
+				module._terminalRequests[reqId] = nil
+			end
+		end
+
+		for reqId, st in pairs(module._outboundPushes) do
+			local age = now - (tonumber(st and st.createdAt) or now)
+			if age > INCOMING_TTL_SECONDS then module._outboundPushes[reqId] = nil end
 		end
 
 		for sender, st in pairs(module._requestRate) do
@@ -292,8 +336,61 @@ do
 		return true, key
 	end
 
-	local function canAnswerRequests(channel)
+	local function stableSenderKey(rawSender)
+		local sender = TrimText(rawSender or "")
+		if sender == "" then
+			return nil
+		end
+		return NormalizeLower(sender, true) or sender
+	end
+
+	local function shortSenderKey(rawSender)
+		local sender = stableSenderKey(rawSender)
+		if not sender then
+			return nil
+		end
+		return string.match(sender, "^([^%-]+)") or sender
+	end
+
+	local function findRaidRosterMember(rawSender)
+		local sender = stableSenderKey(rawSender)
+		if not sender then
+			return nil
+		end
+		local senderShort = shortSenderKey(sender)
+		local shortMatchedName, shortMatchedRank, shortMatchCount
+		local count = tonumber(GetNumRaidMembers()) or 0
+		for i = 1, count do
+			local name, rank = GetRaidRosterInfo(i)
+			local rosterName = stableSenderKey(name)
+			if rosterName == sender then
+				return rosterName, tonumber(rank) or 0
+			end
+			if rosterName and shortSenderKey(rosterName) == senderShort then
+				shortMatchCount = (shortMatchCount or 0) + 1
+				shortMatchedName = rosterName
+				shortMatchedRank = tonumber(rank) or 0
+			end
+		end
+		if shortMatchCount == 1 then
+			return shortMatchedName, shortMatchedRank
+		end
+		return nil
+	end
+
+	local function isCurrentGroupMember(rawSender)
+		if addon.IsInRaid() then
+			return findRaidRosterMember(rawSender) ~= nil
+		end
+		local raidService = Services.Raid
+		return raidService and raidService.IsGroupMember and raidService:IsGroupMember(rawSender) == true
+	end
+
+	local function canAnswerRequests(rawSender, channel)
 		if not addon.IsInGroup() then
+			return false
+		end
+		if channel == "WHISPER" and not isCurrentGroupMember(rawSender) then
 			return false
 		end
 		if channel == "WHISPER" then
@@ -346,37 +443,58 @@ do
 
 	local nextRequestId = Comms.NextRequestId
 
+	local function isRequestIdUnavailable(requestId)
+		if module._pendingRequests[requestId] or module._terminalRequests[requestId] or module._outboundPushes[requestId] then
+			return true
+		end
+		for _, incoming in pairs(module._incoming) do
+			if tostring(incoming and incoming.requestId or "") == requestId then return true end
+		end
+		for _, consent in pairs(module._pushConsents) do
+			if tostring(consent and consent.requestId or "") == requestId then return true end
+		end
+		return false
+	end
+
+	local function allocateRequestId(syncer)
+		return nextRequestId(syncer, nil, isRequestIdUnavailable)
+	end
+
 	local function trackPendingRequest(syncer, requestId, pendingState)
+		if syncer._pendingRequests[requestId] or syncer._terminalRequests[requestId] then
+			return false, "request_id_in_use"
+		end
 		syncer._pendingRequests[requestId] = pendingState
+		pendingState.timeoutHandle = ScheduleTimer(syncer, function()
+			if syncer._pendingRequests[requestId] == pendingState then
+				terminalizeRequest(requestId, "timeout")
+			end
+		end, REQUEST_TTL_SECONDS)
+		if not pendingState.timeoutHandle then
+			syncer._pendingRequests[requestId] = nil
+			return false, "timer_unavailable"
+		end
+		return true
+	end
+
+	local function rollbackPendingRequest(syncer, requestId)
+		local pending = syncer._pendingRequests[requestId]
+		if not pending then return end
+		if pending.timeoutHandle then CancelTimer(syncer, pending.timeoutHandle) end
+		pending.timeoutHandle = nil
+		syncer._pendingRequests[requestId] = nil
 	end
 
 	local function sendAddonPayload(target, payload)
 		if target and target ~= "" then
-			Comms.QueueAddonMessage(COMM_PREFIX, payload, "WHISPER", target)
-			return
+			return Comms.QueueAddonMessage(COMM_PREFIX, payload, "WHISPER", target)
 		end
 
-		Comms.Sync(COMM_PREFIX, payload)
+		return Comms.Sync(COMM_PREFIX, payload)
 	end
 
 	local function buildIncomingSnapshotKey(sender, requestId, mode, raidNid)
 		return format("%s|%s|%s|%s", tostring(sender), tostring(requestId), tostring(mode), tostring(raidNid))
-	end
-
-	local function shouldCompressOutgoingPayload(requestId)
-		return module._outgoingCompressionByRequest[tostring(requestId or "")] == true
-	end
-
-	local function setOutgoingCompressionSupport(requestId, supportsCompression)
-		local key = tostring(requestId or "")
-		if key == "" then
-			return
-		end
-		if supportsCompression == true then
-			module._outgoingCompressionByRequest[key] = true
-		else
-			module._outgoingCompressionByRequest[key] = nil
-		end
 	end
 
 	local function sendRequest(mode, requestId, raidRef, signature, target)
@@ -394,20 +512,25 @@ do
 			tonumber(signature.sinceRevision) or 0,
 			signature.supportsCompression == true and 1 or 0
 		)
-		sendAddonPayload(target, payload)
+		local queued, reason = sendAddonPayload(target, payload)
+		if not queued then return false, reason end
 		Metrics.RecordOutgoingRequest(mode, #payload)
 		if isDebugEnabled() then
 			addon:debug((Diag.D.LogSyncRequestSent):format(tostring(requestId), tostring(raidRef)))
 		end
+		return true
 	end
 
 	local function sendChunkedPayload(kind, target, requestId, mode, raidNid, payload)
 		local encodedPayload =
-			SnapshotPayload.EncodeTransportText(payload, { compress = shouldCompressOutgoingPayload(requestId) })
+			SnapshotPayload.EncodeTransportText(payload, { compress = false })
 		local payloadLen = #encodedPayload
 		local totalChunks = floor((payloadLen + MAX_CHUNK_SIZE - 1) / MAX_CHUNK_SIZE)
 		if totalChunks < 1 then
 			totalChunks = 1
+		end
+		if payloadLen > MAX_ENCODED_BYTES or totalChunks > MAX_CHUNKS then
+			return false, "payload_too_large"
 		end
 
 		clearChunkMessageBuffer()
@@ -418,6 +541,7 @@ do
 		chunkMessageBuffer[5] = tonumber(raidNid) or 0
 		chunkMessageBuffer[7] = totalChunks
 
+		local messages = {}
 		for idx = 1, totalChunks do
 			local fromPos = ((idx - 1) * MAX_CHUNK_SIZE) + 1
 			local toPos = fromPos + MAX_CHUNK_SIZE - 1
@@ -435,19 +559,23 @@ do
 				chunkMessageBuffer[7],
 				chunkMessageBuffer[8]
 			)
-			sendAddonPayload(target, msg)
+			messages[idx] = msg
+		end
+		local queued, reason = Comms.SendAddonBatch(COMM_PREFIX, messages, target)
+		if not queued then
+			clearChunkMessageBuffer()
+			return false, reason or "backpressure"
 		end
 
 		clearChunkMessageBuffer()
 		Metrics.RecordOutgoingSnapshot(mode, payloadLen, totalChunks)
-		setOutgoingCompressionSupport(requestId, false)
 		return true, totalChunks, payloadLen
 	end
 
 	local function sendDelta(target, requestId, mode, raid, sinceRevision)
 		local payload, deltaRows = SnapshotPayload.BuildDelta(raid, sinceRevision)
 		if not payload or (tonumber(deltaRows) or 0) > MAX_DELTA_ROWS then
-			return false
+			return false, "delta_unavailable"
 		end
 
 		return sendChunkedPayload(MSG_DELTA, target, requestId, mode, raid.raidNid, payload)
@@ -456,13 +584,13 @@ do
 	local function sendSnapshot(target, requestId, mode, raid)
 		local payload = SnapshotPayload.Build(raid)
 		if not payload then
-			return
+			return false, "payload_unavailable"
 		end
 
 		local ok, totalChunks, payloadLen =
 			sendChunkedPayload(MSG_SNAPSHOT, target, requestId, mode, raid.raidNid, payload)
 		if not ok then
-			return
+			return false, totalChunks
 		end
 
 		if isDebugEnabled() then
@@ -476,51 +604,79 @@ do
 				)
 			)
 		end
-	end
-
-	local function completeRequest(requestId)
-		local pending = module._pendingRequests[requestId]
-		if not pending then
-			return
-		end
-		pending.completed = true
-		module._pendingRequests[requestId] = nil
-	end
-
-	local function shouldAcceptResponseSender(pending, rawSender)
-		if type(pending) ~= "table" then
-			return false
-		end
-
-		local sender = normalizeSender(rawSender) or tostring(rawSender or "")
-		if sender == "" then
-			return false
-		end
-
-		local expectedTarget = normalizeSender(pending.target)
-		if expectedTarget and expectedTarget ~= "" then
-			if sender ~= expectedTarget then
-				return false
-			end
-			pending.sender = expectedTarget
-			return true
-		end
-
-		local expectedSender = normalizeSender(pending.sender)
-		if expectedSender and expectedSender ~= "" then
-			return sender == expectedSender
-		end
-
-		pending.sender = sender
 		return true
 	end
 
-	local function getSenderKey(rawSender)
-		local sender = normalizeSender(rawSender) or tostring(rawSender or "")
-		if sender == "" then
-			return nil
+	local function trimTerminalRequests()
+		local count, oldestId, oldestAt = 0, nil, nil
+		for requestId, state in pairs(module._terminalRequests) do
+			count = count + 1
+			local terminalAt = tonumber(state and state.terminalAt) or 0
+			if oldestAt == nil or terminalAt < oldestAt then
+				oldestId, oldestAt = requestId, terminalAt
+			end
 		end
-		return sender
+		if count >= MAX_TERMINAL_REQUESTS and oldestId then
+			module._terminalRequests[oldestId] = nil
+		end
+	end
+
+	terminalizeRequest = function(requestId, reason)
+		local pending = module._pendingRequests[requestId]
+		if not pending or pending.completed == true then
+			return false
+		end
+		pending.completed = true
+		pending.terminalReason = reason
+		pending.terminalAt = nowSec()
+		if pending.timeoutHandle then CancelTimer(module, pending.timeoutHandle) end
+		pending.timeoutHandle = nil
+		for key, incoming in pairs(module._incoming) do
+			if incoming and incoming.requestContext == pending then
+				if incoming and incoming.pushConsentKey then
+					local consent = module._pushConsents[incoming.pushConsentKey]
+					if consent and consent.requestContext == pending then
+						module._pushConsents[incoming.pushConsentKey] = nil
+					else
+						releasePushConsent(incoming.pushConsentKey)
+					end
+				end
+				module._incoming[key] = nil
+			end
+		end
+		for consentKey, consent in pairs(module._pushConsents) do
+			if consent and consent.requestContext == pending then
+				module._pushConsents[consentKey] = nil
+			end
+		end
+		module._pendingRequests[requestId] = nil
+		trimTerminalRequests()
+		module._terminalRequests[requestId] = {
+			createdAt = pending.createdAt,
+			terminalAt = pending.terminalAt,
+			mode = pending.mode,
+			raidRef = pending.raidRef,
+			raidNid = pending.raidNid,
+			target = pending.target,
+			sender = pending.sender,
+			reason = reason,
+		}
+		if type(pending.callback) == "function" and pending.callbackDelivered ~= true then
+			pending.callbackDelivered = true
+			local ok, callbackError = pcall(pending.callback, reason, pending)
+			if not ok then
+				addon:error(tostring(callbackError))
+			end
+		end
+		return true
+	end
+
+	local function completeRequest(requestId)
+		return terminalizeRequest(requestId, "complete")
+	end
+
+	local function getSenderKey(rawSender)
+		return stableSenderKey(rawSender)
 	end
 
 	local function markSyncSenderFailed(pending, rawSender)
@@ -548,12 +704,13 @@ do
 		end
 	end
 
-	local function finalizeSnapshotFailure(isSync, pending, sender, requestId, reason)
+	local function finalizeSnapshotFailure(isSync, pending, sender, requestId, reason, responseMode)
+		if responseMode == MODE_PUSH then return end
 		if isSync then
 			rejectSyncSender(pending, sender, requestId, reason)
 			return
 		end
-		completeRequest(requestId)
+		terminalizeRequest(requestId, reason or "failed")
 	end
 
 	local function isSyncSenderFailed(pending, rawSender)
@@ -568,29 +725,124 @@ do
 		return type(failedSenders) == "table" and failedSenders[sender] == true
 	end
 
-	local function isAuthorizedSyncResponder(rawSender, pending)
+	local function isAuthorizedSyncResponder(rawSender)
 		if not addon.IsInRaid() then
 			return true
 		end
-		local sender = getSenderKey(rawSender)
-		if not sender then
-			return false
+		local _, rank = findRaidRosterMember(rawSender)
+		return rank ~= nil and rank > 0
+	end
+
+	local function identitiesMatchRosterMember(left, right)
+		local leftRosterName = select(1, findRaidRosterMember(left))
+		local rightRosterName = select(1, findRaidRosterMember(right))
+		return leftRosterName ~= nil and rightRosterName ~= nil and leftRosterName == rightRosterName
+	end
+
+	local function hasPushConsent(rawSender, pending)
+		local rosterName, rank = findRaidRosterMember(rawSender)
+		if rank == nil or rank <= 0 then
+			return false, nil
 		end
 
-		local count = tonumber(GetNumRaidMembers()) or 0
-		for i = 1, count do
-			local name, rank = GetRaidRosterInfo(i)
-			local rosterName = getSenderKey(name)
-			if rosterName and rosterName == sender then
-				return (tonumber(rank) or 0) > 0
+		if
+			type(pending) == "table"
+			and pending.completed ~= true
+			and pending.mode == MODE_REQ
+			and (nowSec() - (tonumber(pending.createdAt) or 0)) <= REQUEST_TTL_SECONDS
+			and identitiesMatchRosterMember(rawSender, pending.target or pending.sender)
+		then
+			return true, rosterName, true
+		end
+
+		local configuredSource = loggerOptions and loggerOptions:Get("syncRequirePlayer")
+		return identitiesMatchRosterMember(rawSender, configuredSource), rosterName, false
+	end
+
+	local function buildPushConsentKey(rosterName, requestId, raidNid)
+		return format("%s|%s|%s|%s", tostring(rosterName), tostring(requestId), MODE_PUSH, tostring(raidNid))
+	end
+
+	local function trimPushConsentCache()
+		local count, oldestKey, oldestAt = 0, nil, nil
+		for key, st in pairs(module._pushConsents) do
+			count = count + 1
+			local createdAt = tonumber(st and st.createdAt) or 0
+			if st and st.status == "consumed" and (oldestAt == nil or createdAt < oldestAt) then
+				oldestKey, oldestAt = key, createdAt
 			end
 		end
-
-		local createdAt = tonumber(type(pending) == "table" and pending.createdAt) or 0
-		if createdAt > 0 and (nowSec() - createdAt) <= SYNC_OFFICER_LOOKUP_GRACE_SECONDS then
+		if count >= MAX_PUSH_CONSENTS and oldestKey then
+			module._pushConsents[oldestKey] = nil
 			return true
 		end
-		return false
+		return count < MAX_PUSH_CONSENTS
+	end
+
+	local function acquirePushConsent(sender, requestId, raidNid, pending, incomingKey)
+		local rosterName, rank = findRaidRosterMember(sender)
+		if not rosterName or rank == nil or rank <= 0 then
+			return nil
+		end
+		local terminal = module._terminalRequests[requestId]
+		if
+			terminal
+			and terminal.mode == MODE_REQ
+			and tonumber(terminal.raidRef) == tonumber(raidNid)
+			and identitiesMatchRosterMember(sender, terminal.target or terminal.sender)
+		then
+			return nil
+		end
+		local consentKey = buildPushConsentKey(rosterName, requestId, raidNid)
+		local consent = module._pushConsents[consentKey]
+		if consent then
+			if consent.status == "inflight" and module._incoming[incomingKey] then
+				return consentKey
+			end
+			if consent.status == "available" then
+				consent.status = "inflight"
+				return consentKey
+			end
+			return nil
+		end
+		local authorized, _, correlated = hasPushConsent(sender, pending)
+		if not authorized then
+			return nil
+		end
+		if not trimPushConsentCache() then
+			return nil
+		end
+		module._pushConsents[consentKey] = {
+			createdAt = nowSec(),
+			status = "inflight",
+			correlated = correlated == true,
+			requestId = requestId,
+			requestContext = correlated == true and pending or nil,
+		}
+		return consentKey
+	end
+
+	releasePushConsent = function(consentKey)
+		local consent = consentKey and module._pushConsents[consentKey]
+		if consent and consent.status == "inflight" then
+			consent.status = "available"
+		end
+	end
+
+	local function consumePushConsent(consentKey)
+		local consent = consentKey and module._pushConsents[consentKey]
+		if consent and consent.status == "inflight" then
+			consent.status = "consumed"
+			consent.createdAt = nowSec()
+		end
+	end
+
+	local function completeCorrelatedPushRequest(consentKey)
+		local consent = consentKey and module._pushConsents[consentKey]
+		local pending = consent and consent.requestContext
+		if pending and module._pendingRequests[consent.requestId] == pending then
+			terminalizeRequest(consent.requestId, "complete")
+		end
 	end
 
 	local function warnSyncSenderNotOfficer(pending, requestId, rawSender)
@@ -598,28 +850,11 @@ do
 			return
 		end
 		local sender = getSenderKey(rawSender) or tostring(rawSender or "?")
-		pending.unauthorizedSenders = pending.unauthorizedSenders or {}
-		if pending.unauthorizedSenders[sender] then
-			return
-		end
-		pending.unauthorizedSenders[sender] = true
 		addon:warn((Diag.W.LogSyncSenderNotOfficer):format(tostring(sender), tostring(requestId)))
 	end
 
-	local function isSyncSenderUnauthorized(pending, rawSender)
-		if type(pending) ~= "table" then
-			return false
-		end
-		local sender = getSenderKey(rawSender)
-		if not sender then
-			return false
-		end
-		local unauthorizedSenders = pending.unauthorizedSenders
-		return type(unauthorizedSenders) == "table" and unauthorizedSenders[sender] == true
-	end
-
 	local function handleIncomingRequest(rawSender, channel, requestId, mode, raidRef, signature)
-		if not canAnswerRequests(channel) then
+		if not canAnswerRequests(rawSender, channel) then
 			return
 		end
 
@@ -648,9 +883,9 @@ do
 			)
 		end
 		local sinceRevision = tonumber(signature and signature.sinceRevision) or 0
-		setOutgoingCompressionSupport(requestId, signature and signature.supportsCompression == true)
-		if mode == MODE_SYNC and sinceRevision > 0 and sendDelta(rawSender, requestId, mode, raid, sinceRevision) then
-			return
+		if mode == MODE_SYNC and sinceRevision > 0 then
+			local sent, reason = sendDelta(rawSender, requestId, mode, raid, sinceRevision)
+			if sent or reason ~= "delta_unavailable" then return end
 		end
 		sendSnapshot(rawSender, requestId, mode, raid)
 	end
@@ -662,7 +897,7 @@ do
 		TriggerEvent(LoggerSelectRaidEvent, selectedRaid, "sync")
 	end
 
-	local function onSnapshotReady(sender, requestId, mode, snapshot)
+	local function onSnapshotReady(sender, requestId, mode, snapshot, pushConsentKey)
 		if mode == MODE_SYNC then
 			local currentRaid, currentId = SnapshotImport.GetCurrentRaidRecord()
 			local pending = module._pendingRequests[requestId]
@@ -676,7 +911,7 @@ do
 				return
 			end
 
-			local ok, raid = pcall(SnapshotImport.ApplySnapshotToRaid, currentRaid, snapshot, false)
+			local ok, raid, importReason = pcall(SnapshotImport.ApplySnapshotToRaid, currentRaid, snapshot, false)
 			if not ok then
 				addon:error(
 					(Diag.E.LogSyncMergeFailed):format(
@@ -695,7 +930,7 @@ do
 						tostring(sender),
 						tostring(requestId),
 						tostring(snapshot.header.raidNid),
-						"nil_result"
+						tostring(importReason or "nil_result")
 					)
 				)
 				rejectSyncSender(pending, sender, requestId, "merge_failed")
@@ -721,8 +956,9 @@ do
 			return
 		end
 
-		local ok, raid, raidId = pcall(SnapshotImport.ImportSnapshotAsNewRaid, snapshot)
+		local ok, raid, raidId, importReason = pcall(SnapshotImport.ImportSnapshotAsNewRaid, snapshot)
 		if not ok then
+			releasePushConsent(pushConsentKey)
 			addon:error(
 				(Diag.E.LogSyncMergeFailed):format(
 					tostring(sender),
@@ -731,24 +967,27 @@ do
 					tostring(raid)
 				)
 			)
-			completeRequest(requestId)
+			if mode == MODE_REQ then terminalizeRequest(requestId, "merge_failed") end
 			return
 		end
 		if not raid then
+			releasePushConsent(pushConsentKey)
 			addon:error(
 				(Diag.E.LogSyncMergeFailed):format(
 					tostring(sender),
 					tostring(requestId),
 					tostring(snapshot.header.raidNid),
-					"nil_result"
+					tostring(importReason or "nil_result")
 				)
 			)
-			completeRequest(requestId)
+			if mode == MODE_REQ then terminalizeRequest(requestId, "merge_failed") end
 			return
 		end
 
 		if mode == MODE_PUSH then
+			consumePushConsent(pushConsentKey)
 			addon:info(L.MsgLoggerPushImported:format(tostring(sender), tonumber(raidId) or 0))
+			completeCorrelatedPushRequest(pushConsentKey)
 		else
 			addon:info(L.MsgLoggerReqImported:format(tostring(sender), tonumber(raidId) or 0))
 			completeRequest(requestId)
@@ -787,7 +1026,7 @@ do
 			return
 		end
 
-		local ok, raid = pcall(SnapshotImport.ApplyDeltaToRaid, currentRaid, delta)
+		local ok, raid, importReason = pcall(SnapshotImport.ApplyDeltaToRaid, currentRaid, delta)
 		if not ok then
 			addon:error(
 				(Diag.E.LogSyncMergeFailed):format(
@@ -806,7 +1045,7 @@ do
 					tostring(sender),
 					tostring(requestId),
 					tostring(delta.header.raidNid),
-					"nil_result"
+					tostring(importReason or "nil_result")
 				)
 			)
 			rejectSyncSender(pending, sender, requestId, "merge_failed")
@@ -824,12 +1063,26 @@ do
 			return false
 		end
 
+		if module._terminalRequests[requestId] then
+			if pending then terminalizeRequest(requestId, "reused") end
+			return true
+		end
+		if pending and (nowSec() - (tonumber(pending.createdAt) or 0)) > REQUEST_TTL_SECONDS then
+			terminalizeRequest(requestId, "timeout")
+			return true
+		end
+
 		if not pending or pending.completed or pending.mode ~= mode then
 			if isDebugEnabled() then
 				addon:debug(
 					(Diag.D.LogSyncChunkIgnored):format(tostring(sender), tostring(requestId), tostring(raidNid))
 				)
 			end
+			return true
+		end
+
+		local expectedRaidNid = tonumber(pending.raidNid or pending.raidRef)
+		if expectedRaidNid and expectedRaidNid ~= tonumber(raidNid) then
 			return true
 		end
 
@@ -843,7 +1096,7 @@ do
 		end
 
 		local expectedTarget = normalizeSender(pending.target)
-		if expectedTarget and expectedTarget ~= "" and not shouldAcceptResponseSender(pending, sender) then
+		if expectedTarget and expectedTarget ~= "" and not identitiesMatchRosterMember(pending.target, sender) then
 			if isDebugEnabled() then
 				addon:debug(
 					(Diag.D.LogSyncChunkIgnored):format(tostring(sender), tostring(requestId), tostring(raidNid))
@@ -855,22 +1108,26 @@ do
 		return false
 	end
 
-	local function getOrCreateIncomingSnapshotState(sender, requestId, mode, raidNid, partCount, pending, isSync)
+	local function getOrCreateIncomingSnapshotState(sender, requestId, mode, raidNid, partCount, pending, isSync, envelopeVersion, envelopeKind)
 		local key = buildIncomingSnapshotKey(sender, requestId, mode, raidNid)
 		local state = module._incoming[key]
 		if state then
 			return key, state
 		end
 
-		if isSync and isSyncSenderUnauthorized(pending, sender) then
-			if isDebugEnabled() then
-				addon:debug(
-					(Diag.D.LogSyncChunkIgnored):format(tostring(sender), tostring(requestId), tostring(raidNid))
-				)
+		local globalCount = 0
+		local senderCount = 0
+		for _, incoming in pairs(module._incoming) do
+			globalCount = globalCount + 1
+			if incoming and incoming.sender == sender then
+				senderCount = senderCount + 1
 			end
+		end
+		if globalCount >= MAX_INCOMING_STATES or senderCount >= MAX_INCOMING_STATES_PER_SENDER then
 			return key, nil
 		end
-		if isSync and not isAuthorizedSyncResponder(sender, pending) then
+
+		if isSync and not isAuthorizedSyncResponder(sender) then
 			warnSyncSenderNotOfficer(pending, requestId, sender)
 			if isDebugEnabled() then
 				addon:debug(
@@ -884,17 +1141,21 @@ do
 			createdAt = nowSec(),
 			sender = sender,
 			requestId = requestId,
+			envelopeVersion = envelopeVersion,
+			envelopeKind = envelopeKind,
 			mode = mode,
 			raidNid = raidNid,
 			total = partCount,
 			got = 0,
 			parts = {},
+			encodedBytes = 0,
+			requestContext = (mode == MODE_REQ or isSync) and pending or nil,
 		}
 		module._incoming[key] = state
 		return key, state
 	end
 
-	local function handleIncomingSnapshot(sender, requestId, mode, raidNid, partIndex, partCount, chunkData)
+	local function handleIncomingSnapshot(sender, requestId, mode, raidNid, partIndex, partCount, chunkData, envelopeVersion)
 		local pending = module._pendingRequests[requestId]
 		local isPush = (mode == MODE_PUSH)
 		local isSync = (mode == MODE_SYNC)
@@ -903,7 +1164,7 @@ do
 			return
 		end
 
-		if partIndex < 1 or partCount < 1 or partIndex > partCount then
+		if #tostring(requestId or "") > MAX_REQUEST_ID_BYTES or partIndex < 1 or partCount < 1 or partCount > MAX_CHUNKS or partIndex > partCount or #(chunkData or "") > MAX_CHUNK_SIZE then
 			addon:warn(
 				(Diag.W.LogSyncChunkMalformed):format(
 					tostring(sender),
@@ -915,10 +1176,30 @@ do
 			return
 		end
 
+		local pushConsentKey
+		if isPush then
+			local incomingKey = buildIncomingSnapshotKey(sender, requestId, mode, raidNid)
+			pushConsentKey = acquirePushConsent(sender, requestId, raidNid, pending, incomingKey)
+			if not pushConsentKey then
+				if isDebugEnabled() then
+					addon:debug(
+						(Diag.D.LogSyncChunkIgnored):format(tostring(sender), tostring(requestId), tostring(raidNid))
+					)
+				end
+				return
+			end
+		end
+
 		local key, state =
-			getOrCreateIncomingSnapshotState(sender, requestId, mode, raidNid, partCount, pending, isSync)
+			getOrCreateIncomingSnapshotState(sender, requestId, mode, raidNid, partCount, pending, isSync, envelopeVersion, MSG_SNAPSHOT)
 		if not state then
+			releasePushConsent(pushConsentKey)
 			return
+		end
+		state.pushConsentKey = pushConsentKey
+		if isPush and pushConsentKey then
+			local consent = module._pushConsents[pushConsentKey]
+			state.requestContext = consent and consent.requestContext or nil
 		end
 
 		if state.total ~= partCount then
@@ -931,14 +1212,25 @@ do
 					tonumber(partCount) or 0
 				)
 			)
-			state.total = partCount
-			state.got = 0
-			state.parts = {}
-			state.createdAt = nowSec()
+			module._incoming[key] = nil
+			releasePushConsent(state.pushConsentKey)
+			return
+		end
+		if state.envelopeVersion ~= envelopeVersion or state.envelopeKind ~= MSG_SNAPSHOT then
+			module._incoming[key] = nil
+			releasePushConsent(state.pushConsentKey)
+			finalizeSnapshotFailure(isSync, pending, sender, requestId, "version_mismatch", mode)
+			return
 		end
 
 		if state.parts[partIndex] == nil then
+			if state.encodedBytes + #(chunkData or "") > MAX_ENCODED_BYTES then
+				module._incoming[key] = nil
+				releasePushConsent(state.pushConsentKey)
+				return
+			end
 			state.parts[partIndex] = chunkData or ""
+			state.encodedBytes = state.encodedBytes + #(chunkData or "")
 			state.got = state.got + 1
 			Metrics.RecordIncomingSnapshotChunk(mode, #(chunkData or ""))
 		end
@@ -957,6 +1249,7 @@ do
 			local piece = state.parts[i]
 			if piece == nil then
 				module._incoming[key] = nil
+				releasePushConsent(state.pushConsentKey)
 				return
 			end
 		end
@@ -966,20 +1259,39 @@ do
 		local encodedPayload = tconcat(state.parts, "")
 		local payload = SnapshotPayload.DecodeTransportText(encodedPayload)
 		if payload == nil then
+			releasePushConsent(state.pushConsentKey)
 			addon:warn((Diag.W.LogSyncDecodeFailed):format(tostring(sender), tostring(requestId), tostring(raidNid)))
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, "decode_failed")
+			finalizeSnapshotFailure(isSync, pending, sender, requestId, "decode_failed", mode)
 			return
 		end
 
 		local snapshot = SnapshotPayload.Parse(payload)
 		if not snapshot then
+			releasePushConsent(state.pushConsentKey)
 			addon:warn((Diag.W.LogSyncParseFailed):format(tostring(sender), tostring(requestId), tostring(raidNid)))
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, "parse_failed")
+			finalizeSnapshotFailure(isSync, pending, sender, requestId, "parse_failed", mode)
+			return
+		end
+		if tonumber(snapshot.header and snapshot.header.protocolVersion) ~= state.envelopeVersion then
+			releasePushConsent(state.pushConsentKey)
+			finalizeSnapshotFailure(isSync, pending, sender, requestId, "version_mismatch", mode)
+			return
+		end
+		local localRevision = 0
+		if isSync then
+			local currentRaid = select(1, SnapshotImport.GetCurrentRaidRecord())
+			if currentRaid then localRevision = Database.GetRaidStore():GetRaidSyncRevision(currentRaid) end
+		end
+		local validSnapshot, validationReason = SnapshotPayload.ValidateSnapshot(snapshot, localRevision, raidNid)
+		if not validSnapshot then
+			releasePushConsent(state.pushConsentKey)
+			finalizeSnapshotFailure(isSync, pending, sender, requestId, validationReason, mode)
 			return
 		end
 
 		local snapshotVersion = tonumber(snapshot.header.protocolVersion)
 		if snapshotVersion ~= PROTOCOL_VERSION and snapshotVersion ~= LEGACY_PROTOCOL_VERSION then
+			releasePushConsent(state.pushConsentKey)
 			if isDebugEnabled() then
 				addon:debug(
 					(Diag.D.LogSyncVersionMismatch):format(
@@ -989,16 +1301,24 @@ do
 					)
 				)
 			end
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, "version_mismatch")
+			finalizeSnapshotFailure(isSync, pending, sender, requestId, "version_mismatch", mode)
 			return
 		end
 
-		onSnapshotReady(sender, requestId, mode, snapshot)
+		onSnapshotReady(sender, requestId, mode, snapshot, state.pushConsentKey)
 	end
 
-	local function handleIncomingDelta(sender, requestId, mode, raidNid, partIndex, partCount, chunkData)
+	local function handleIncomingDelta(sender, requestId, mode, raidNid, partIndex, partCount, chunkData, envelopeVersion)
 		local pending = module._pendingRequests[requestId]
 		local isSync = (mode == MODE_SYNC)
+		local incomingKey = buildIncomingSnapshotKey(sender, requestId, mode, raidNid)
+		local existing = module._incoming[incomingKey]
+		if existing and (existing.envelopeKind ~= MSG_DELTA or existing.envelopeVersion ~= envelopeVersion) then
+			module._incoming[incomingKey] = nil
+			releasePushConsent(existing.pushConsentKey)
+			finalizeSnapshotFailure(isSync, pending, sender, requestId, "version_mismatch", mode)
+			return
+		end
 
 		if
 			mode ~= MODE_SYNC or shouldIgnoreSnapshotSender(sender, requestId, mode, raidNid, pending, false, isSync)
@@ -1006,7 +1326,11 @@ do
 			return
 		end
 
-		if partIndex < 1 or partCount < 1 or partIndex > partCount then
+		if envelopeVersion ~= PROTOCOL_VERSION then
+			return
+		end
+
+		if #tostring(requestId or "") > MAX_REQUEST_ID_BYTES or partIndex < 1 or partCount < 1 or partCount > MAX_CHUNKS or partIndex > partCount or #(chunkData or "") > MAX_CHUNK_SIZE then
 			addon:warn(
 				(Diag.W.LogSyncChunkMalformed):format(
 					tostring(sender),
@@ -1019,7 +1343,7 @@ do
 		end
 
 		local key, state =
-			getOrCreateIncomingSnapshotState(sender, requestId, mode, raidNid, partCount, pending, isSync)
+			getOrCreateIncomingSnapshotState(sender, requestId, mode, raidNid, partCount, pending, isSync, envelopeVersion, MSG_DELTA)
 		if not state then
 			return
 		end
@@ -1034,14 +1358,22 @@ do
 					tonumber(partCount) or 0
 				)
 			)
-			state.total = partCount
-			state.got = 0
-			state.parts = {}
-			state.createdAt = nowSec()
+			module._incoming[key] = nil
+			return
+		end
+		if state.envelopeVersion ~= envelopeVersion or state.envelopeKind ~= MSG_DELTA then
+			module._incoming[key] = nil
+			finalizeSnapshotFailure(isSync, pending, sender, requestId, "version_mismatch", mode)
+			return
 		end
 
 		if state.parts[partIndex] == nil then
+			if state.encodedBytes + #(chunkData or "") > MAX_ENCODED_BYTES then
+				module._incoming[key] = nil
+				return
+			end
 			state.parts[partIndex] = chunkData or ""
+			state.encodedBytes = state.encodedBytes + #(chunkData or "")
 			state.got = state.got + 1
 			Metrics.RecordIncomingSnapshotChunk(mode, #(chunkData or ""))
 		end
@@ -1064,14 +1396,25 @@ do
 		local payload = SnapshotPayload.DecodeTransportText(encodedPayload)
 		if payload == nil then
 			addon:warn((Diag.W.LogSyncDecodeFailed):format(tostring(sender), tostring(requestId), tostring(raidNid)))
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, "decode_failed")
+			finalizeSnapshotFailure(isSync, pending, sender, requestId, "decode_failed", mode)
 			return
 		end
 
 		local delta = SnapshotPayload.ParseDelta(payload)
 		if not delta then
 			addon:warn((Diag.W.LogSyncParseFailed):format(tostring(sender), tostring(requestId), tostring(raidNid)))
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, "parse_failed")
+			finalizeSnapshotFailure(isSync, pending, sender, requestId, "parse_failed", mode)
+			return
+		end
+		if tonumber(delta.header and delta.header.protocolVersion) ~= state.envelopeVersion then
+			finalizeSnapshotFailure(isSync, pending, sender, requestId, "version_mismatch", mode)
+			return
+		end
+		local currentRaid = select(1, SnapshotImport.GetCurrentRaidRecord())
+		local localRevision = currentRaid and Database.GetRaidStore():GetRaidSyncRevision(currentRaid) or 0
+		local validDelta, validationReason = SnapshotPayload.ValidateDelta(delta, localRevision, raidNid)
+		if not validDelta then
+			finalizeSnapshotFailure(isSync, pending, sender, requestId, validationReason, mode)
 			return
 		end
 
@@ -1085,7 +1428,7 @@ do
 					)
 				)
 			end
-			finalizeSnapshotFailure(isSync, pending, sender, requestId, "version_mismatch")
+			finalizeSnapshotFailure(isSync, pending, sender, requestId, "version_mismatch", mode)
 			return
 		end
 
@@ -1105,6 +1448,10 @@ do
 		return Metrics.Reset()
 	end
 
+	function module:CancelRequest(requestId)
+		return terminalizeRequest(tostring(requestId or ""), "cancel")
+	end
+
 	function module:RequestLoggerReq(raidRef, targetName)
 		if not ensureGroupSyncAvailable() then
 			return false
@@ -1116,7 +1463,7 @@ do
 			return false
 		end
 
-		local target = resolveExternalTarget(targetName)
+		local target = resolveExternalTarget(targetName or (loggerOptions and loggerOptions:Get("syncRequirePlayer")))
 		if not target then
 			return false
 		end
@@ -1126,9 +1473,10 @@ do
 			return false, "rate_limited"
 		end
 
-		local requestId = nextRequestId(self)
+		local requestId, requestIdReason = allocateRequestId(self)
+		if not requestId then return false, requestIdReason end
 
-		trackPendingRequest(self, requestId, {
+		local tracked, trackReason = trackPendingRequest(self, requestId, {
 			createdAt = nowSec(),
 			mode = MODE_REQ,
 			raidRef = requestRef,
@@ -1136,8 +1484,13 @@ do
 			sender = target,
 			completed = false,
 		})
+		if not tracked then return false, trackReason end
 
-		sendRequest(MODE_REQ, requestId, requestRef, { supportsCompression = true }, target)
+		local queued, reason = sendRequest(MODE_REQ, requestId, requestRef, { supportsCompression = false }, target)
+		if not queued then
+			rollbackPendingRequest(self, requestId)
+			return false, reason
+		end
 		addon:info(L.MsgLoggerReqSent:format(tostring(requestRef), tostring(target)))
 		return true
 	end
@@ -1153,7 +1506,7 @@ do
 			return false
 		end
 
-		local target = resolveExternalTarget(targetName)
+		local target = resolveExternalTarget(targetName or (loggerOptions and loggerOptions:Get("syncPushPlayer")))
 		if not target then
 			return false
 		end
@@ -1169,9 +1522,12 @@ do
 			return false, "rate_limited"
 		end
 
-		local requestId = nextRequestId(self)
+		local requestId, requestIdReason = allocateRequestId(self)
+		if not requestId then return false, requestIdReason end
 
-		sendSnapshot(target, requestId, MODE_PUSH, raid)
+		local sent, reason = sendSnapshot(target, requestId, MODE_PUSH, raid)
+		if not sent then return false, reason end
+		self._outboundPushes[requestId] = { createdAt = nowSec(), target = target, raidNid = raid.raidNid }
 		addon:info(L.MsgLoggerSyncPushSent:format(tostring(tonumber(raid.raidNid) or raidRefNum), tostring(target)))
 		return true
 	end
@@ -1189,20 +1545,26 @@ do
 
 		local signature = SnapshotImport.BuildSignatureFromRaid(currentRaid)
 		signature.sinceRevision = Database.GetRaidStore():GetRaidSyncRevision(currentRaid)
-		signature.supportsCompression = true
-		local requestId = nextRequestId(syncer)
+		signature.supportsCompression = false
+		local requestId, requestIdReason = allocateRequestId(syncer)
+		if not requestId then return false, requestIdReason end
 
-		trackPendingRequest(syncer, requestId, {
+		local tracked, trackReason = trackPendingRequest(syncer, requestId, {
 			createdAt = nowSec(),
 			mode = MODE_SYNC,
+			raidNid = tonumber(currentRaid.raidNid) or 0,
 			signature = signature,
 			sender = nil,
 			failedSenders = {},
-			unauthorizedSenders = {},
 			completed = false,
 		})
+		if not tracked then return false, trackReason end
 
-		sendRequest(MODE_SYNC, requestId, tonumber(currentRaid.raidNid) or 0, signature)
+		local queued, reason = sendRequest(MODE_SYNC, requestId, tonumber(currentRaid.raidNid) or 0, signature)
+		if not queued then
+			rollbackPendingRequest(syncer, requestId)
+			return false, reason
+		end
 		if quiet ~= true then
 			addon:info(L.MsgLoggerSyncSent:format(tonumber(currentRaidId) or 0))
 		end
@@ -1313,7 +1675,7 @@ do
 		end
 
 		local requestId = tostring(fields[3] or "")
-		if requestId == "" then
+		if requestId == "" or #requestId > MAX_REQUEST_ID_BYTES then
 			return
 		end
 
@@ -1361,17 +1723,13 @@ do
 				return
 			end
 
-			local senderName = normalizeSender(sender) or tostring(sender)
-			handleIncomingSnapshot(senderName, requestId, mode, raidNid, partIndex, partCount, chunkData)
+			local senderName = stableSenderKey(sender) or tostring(sender)
+			handleIncomingSnapshot(senderName, requestId, mode, raidNid, partIndex, partCount, chunkData, version)
 			return
 		end
 
-		if kind == MSG_DELTA and version == PROTOCOL_VERSION and n >= 8 then
+		if kind == MSG_DELTA and n >= 8 then
 			local mode = tostring(fields[4] or "")
-			if mode ~= MODE_SYNC then
-				return
-			end
-
 			local raidNid = parseNumber(fields[5], nil)
 			local partIndex = parseNumber(fields[6], 0)
 			local partCount = parseNumber(fields[7], 0)
@@ -1380,8 +1738,8 @@ do
 				return
 			end
 
-			local senderName = normalizeSender(sender) or tostring(sender)
-			handleIncomingDelta(senderName, requestId, mode, raidNid, partIndex, partCount, chunkData)
+			local senderName = stableSenderKey(sender) or tostring(sender)
+			handleIncomingDelta(senderName, requestId, mode, raidNid, partIndex, partCount, chunkData, version)
 		end
 	end
 end

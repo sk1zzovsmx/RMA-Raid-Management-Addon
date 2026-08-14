@@ -1271,7 +1271,7 @@ do
 			if not isPositiveInteger(nid) or lootNids[nid] then
 				return false, "INVALID_LOOT_NID"
 			end
-			if bossNid ~= nil and (not isPositiveInteger(bossNid) or not bossNids[bossNid]) then
+			if bossNid ~= nil and bossNid ~= 0 and (not isPositiveInteger(bossNid) or not bossNids[bossNid]) then
 				return false, "INVALID_LOOT_BOSS"
 			end
 			if looterNid ~= nil and (not isPositiveInteger(looterNid) or not playerNids[looterNid]) then
@@ -1397,6 +1397,99 @@ do
 	-- fails, so callers never expose partially edited attendance.
 	function module:CommitAttendanceMutation(raid, stagedRaid, reason)
 		return self:CommitRaidHistoryMutation(raid, stagedRaid, { reason = reason or "attendance" })
+	end
+
+	function module:CommitRaidHistoryImport(raid, stagedRaid, revision, reason, lootRevisions, allowRevisionZero)
+		local targetRevision = tonumber(revision)
+		local legacyZero = allowRevisionZero == true and targetRevision == 0
+		if not isPositiveInteger(targetRevision) and not legacyZero then
+			return false, "INVALID_REVISION"
+		end
+		local base = stagedMutationBase[stagedRaid]
+		if
+			not base
+			or base.raid ~= raid
+			or (legacyZero and base.revision ~= 0)
+			or (not legacyZero and targetRevision <= base.revision)
+		then
+			return false, "CONFLICT"
+		end
+		local valid, validationError = validateLoggerHistoryMutation(stagedRaid)
+		if not valid then
+			return false, validationError
+		end
+		local canonicalFound, raids = false, ensureRaidsTable()
+		for i = 1, #raids do
+			if raids[i] == raid then canonicalFound = true; break end
+		end
+		if not canonicalFound or self:GetRaidSyncRevision(raid) ~= base.revision then
+			return false, "CONFLICT"
+		end
+		local snapshot = {}
+		for key, value in pairs(raid) do
+			snapshot[key] = value
+		end
+		local function replaceRaid(source)
+			for key in pairs(raid) do raid[key] = nil end
+			for key, value in pairs(source) do raid[key] = value end
+		end
+		local committedCopy = copyRaidHistoryValue(stagedRaid)
+		local committed = pcall(function()
+			replaceRaid(committedCopy)
+			if type(lootRevisions) == "table" then
+				for i = 1, #(raid.loot or {}) do
+					local loot = raid.loot[i]
+					local lootRevision = lootRevisions[loot.lootNid]
+					if lootRevision then
+						if self:SetLootSyncRevision(raid, loot, lootRevision) ~= lootRevision then
+							error("LOOT_REVISION_FAILED")
+						end
+						if self:GetLootSyncRevision(raid, loot) ~= lootRevision then
+							error("LOOT_REVISION_POSTCONDITION_FAILED")
+						end
+					end
+				end
+			end
+			if self:SetRaidSyncRevision(raid, targetRevision, reason or "sync_import") ~= targetRevision then
+				error("REVISION_FAILED")
+			end
+			local runtime = self:EnsureRaidRuntime(raid)
+			if type(runtime) ~= "table" or self:GetRaidSyncRevision(raid) ~= targetRevision then
+				error("POSTCONDITION_FAILED")
+			end
+		end)
+		if not committed then
+			replaceRaid(snapshot)
+			return false, "COMMIT_FAILED"
+		end
+		stagedMutationBase[stagedRaid] = nil
+		return true, raid
+	end
+
+	function module:CommitNewRaidHistoryImport(raid, revision, allowRevisionZero)
+		local targetRevision = tonumber(revision)
+		local legacyZero = allowRevisionZero == true and targetRevision == 0
+		if type(raid) ~= "table" or (not isPositiveInteger(targetRevision) and not legacyZero) then
+			return nil, nil, "INVALID_IMPORT"
+		end
+		local valid, validationError = validateLoggerHistoryMutation(raid)
+		if not valid then return nil, nil, validationError end
+		local insertionState = self:CaptureRaidInsertionState()
+		local insertedRaid, raidIndex
+		local committed = pcall(function()
+			insertedRaid, raidIndex = self:InsertRaid(raid)
+			if not insertedRaid or not raidIndex then error("INSERT_FAILED") end
+			if self:SetRaidSyncRevision(insertedRaid, targetRevision, "sync_import") ~= targetRevision then
+				error("REVISION_FAILED")
+			end
+			if type(self:EnsureRaidRuntime(insertedRaid)) ~= "table" then error("POSTCONDITION_FAILED") end
+			if self:GetRaidSyncRevision(insertedRaid) ~= targetRevision then error("REVISION_POSTCONDITION_FAILED") end
+		end)
+		if not committed then
+			self:RestoreRaidInsertionState(insertionState)
+			return nil, nil, "COMMIT_FAILED"
+		end
+		return insertedRaid, raidIndex
 	end
 
 	function module:DeleteRaid(raidNid)

@@ -37,6 +37,10 @@ local COMPRESSED_PREFIX = "D1:"
 local FIELD_SEP = "\t"
 local RECORD_SEP = "\n"
 local LIST_SEP = "\031"
+local MAX_PAYLOAD_ROWS = 4096
+local MAX_ENCODED_FIELD_BYTES = 4096
+local MAX_PAYLOAD_BYTES = 65536
+local MAX_SYNC_INTEGER = 2147483647
 local splitFields = Payload.SplitFields
 local packFields = Payload.PackFields
 
@@ -50,6 +54,62 @@ local function parseNumber(value, fallback)
 		return fallback
 	end
 	return n
+end
+
+local function isIntegerInRange(value, minimum, maximum)
+	local number = tonumber(value)
+	maximum = maximum or MAX_SYNC_INTEGER
+	return number ~= nil and number == math.floor(number) and number >= minimum and number <= maximum
+end
+
+local function addUniqueId(seen, value, duplicateReason)
+	if not isIntegerInRange(value, 1) then return nil, "invalid_identifier" end
+	value = tonumber(value)
+	if seen[value] then return nil, duplicateReason end
+	seen[value] = true
+	return true
+end
+
+local function validateDenseSequence(value)
+	if type(value) ~= "table" then return nil, "invalid_structure" end
+	local count, maximum = 0, 0
+	for key in pairs(value) do
+		if type(key) ~= "number" or key ~= math.floor(key) or key < 1 or key > MAX_PAYLOAD_ROWS then
+			return nil, "invalid_sequence"
+		end
+		count = count + 1
+		if key > maximum then maximum = key end
+	end
+	if count ~= maximum then return nil, "invalid_sequence" end
+	return count
+end
+
+local function validateLootRow(row, requireRevision)
+	if type(row) ~= "table" then return nil, "invalid_loot_row" end
+	local function exactInteger(value, minimum, maximum)
+		return type(value) == "number" and isIntegerInRange(value, minimum, maximum)
+	end
+	if not exactInteger(row.lootNid, 1) or not exactInteger(row.itemId, 0)
+		or not exactInteger(row.itemRarity, 0, 7) or not exactInteger(row.itemCount, 1, 100000)
+		or not exactInteger(row.rollType, 0, 100) or not exactInteger(row.rollValue, -1000000000, 1000000000)
+		or not exactInteger(row.bossNid, 0) or not exactInteger(row.time, 0) then return nil, "invalid_loot_row" end
+	if type(row.itemName) ~= "string" or type(row.itemString) ~= "string" or type(row.itemLink) ~= "string"
+		or type(row.itemTexture) ~= "string" or type(row.looterName) ~= "string" then return nil, "invalid_loot_row" end
+	if #row.itemName > MAX_ENCODED_FIELD_BYTES or #row.itemString > MAX_ENCODED_FIELD_BYTES
+		or #row.itemLink > MAX_ENCODED_FIELD_BYTES or #row.itemTexture > MAX_ENCODED_FIELD_BYTES
+		or #row.looterName > MAX_ENCODED_FIELD_BYTES then return nil, "invalid_loot_row" end
+	if row.looterNid ~= nil and not exactInteger(row.looterNid, 1) then return nil, "invalid_loot_row" end
+	if requireRevision and not exactInteger(row.syncRevision, 1) then return nil, "invalid_loot_row" end
+	return true
+end
+
+local function fieldsWithinLimits(fields, count)
+	for i = 1, count do
+		if #(fields[i] or "") > MAX_ENCODED_FIELD_BYTES then
+			return false
+		end
+	end
+	return true
 end
 
 local function getLibDeflate()
@@ -243,21 +303,8 @@ end
 function SnapshotPayload.DecodeTransportText(value)
 	local input = tostring(value or "")
 	if input:sub(1, #COMPRESSED_PREFIX) == COMPRESSED_PREFIX then
-		local lib = getLibDeflate()
-		if
-			not (lib and type(lib.DecodeForWoWAddonChannel) == "function" and type(lib.DecompressDeflate) == "function")
-		then
-			return nil
-		end
-		local body = input:sub(#COMPRESSED_PREFIX + 1)
-		local okDecode, compressed = pcall(lib.DecodeForWoWAddonChannel, lib, body)
-		if not (okDecode and compressed) then
-			return nil
-		end
-		local okInflate, inflated = pcall(lib.DecompressDeflate, lib, compressed)
-		if okInflate and inflated then
-			return inflated
-		end
+		-- Vendored LibDeflate exposes no streaming or maximum-output API. Reject
+		-- compressed input before decode/inflate so hostile expansion is bounded.
 		return nil
 	end
 	return decodeText(input)
@@ -265,6 +312,117 @@ end
 
 function SnapshotPayload.BuildPlayerNameMaps(players)
 	return buildPlayerNameMaps(players)
+end
+
+function SnapshotPayload.ValidateSnapshot(snapshot, localRevision, expectedRaidNid)
+	if type(snapshot) ~= "table" or type(snapshot.header) ~= "table" then return nil, "invalid_snapshot" end
+	local header = snapshot.header
+	local protocol = tonumber(header.protocolVersion)
+	if protocol ~= 1 and protocol ~= PROTOCOL_VERSION then return nil, "invalid_protocol" end
+	local currentSchema = tonumber(Database.GetRaidSchemaVersion()) or 1
+	if not isIntegerInRange(header.schemaVersion, 1, currentSchema) then return nil, "invalid_schema" end
+	if not isIntegerInRange(header.raidNid, 1) then return nil, "invalid_identifier" end
+	if expectedRaidNid and tonumber(header.raidNid) ~= tonumber(expectedRaidNid) then return nil, "raid_mismatch" end
+	local revision = tonumber(header.revision)
+	local current = tonumber(localRevision) or 0
+	if protocol == 1 and (revision == nil or revision == 0) then
+		if current > 0 then return nil, "stale_revision" end
+	elseif not isIntegerInRange(revision, 1) then
+		return nil, "invalid_revision"
+	elseif revision <= current then
+		return nil, "stale_revision"
+	end
+	if not isIntegerInRange(header.nextPlayerNid, 1) or not isIntegerInRange(header.nextBossNid, 1)
+		or not isIntegerInRange(header.nextLootNid, 1) then return nil, "invalid_range" end
+	if not isIntegerInRange(header.size or 0, 0, 100) or not isIntegerInRange(header.difficulty or 0, 0, 100)
+		or not isIntegerInRange(header.startTime or 0, 0) or not isIntegerInRange(header.endTime or 0, 0) then return nil, "invalid_range" end
+	local playerCount, sequenceReason = validateDenseSequence(snapshot.players)
+	if not playerCount then return nil, sequenceReason end
+	local attendanceCount; attendanceCount, sequenceReason = validateDenseSequence(snapshot.attendance)
+	if not attendanceCount then return nil, sequenceReason end
+	local bossCount; bossCount, sequenceReason = validateDenseSequence(snapshot.bosses)
+	if not bossCount then return nil, sequenceReason end
+	local lootCount; lootCount, sequenceReason = validateDenseSequence(snapshot.loot)
+	if not lootCount then return nil, sequenceReason end
+
+	local players, bosses, loot = {}, {}, {}
+	for i = 1, playerCount do
+		local row = snapshot.players[i]
+		local ok, reason = addUniqueId(players, row and row.playerNid, "duplicate_player")
+		if not ok then return nil, reason end
+		if type(row.name) ~= "string" or row.name == "" or not isIntegerInRange(row.subgroup or 1, 1, 8) then return nil, "invalid_player" end
+	end
+	for i = 1, bossCount do
+		local row = snapshot.bosses[i]
+		local ok, reason = addUniqueId(bosses, row and row.bossNid, "duplicate_boss")
+		if not ok then return nil, reason end
+	end
+	for i = 1, lootCount do
+		local row = snapshot.loot[i]
+		local validRow, rowReason = validateLootRow(row, false)
+		if not validRow then return nil, rowReason end
+		local ok, reason = addUniqueId(loot, row and row.lootNid, "duplicate_loot")
+		if not ok then return nil, reason end
+	end
+	for nid in pairs(players) do if nid >= tonumber(header.nextPlayerNid) then return nil, "header_range_mismatch" end end
+	for nid in pairs(bosses) do if nid >= tonumber(header.nextBossNid) then return nil, "header_range_mismatch" end end
+	for nid in pairs(loot) do if nid >= tonumber(header.nextLootNid) then return nil, "header_range_mismatch" end end
+	for i = 1, attendanceCount do
+		local row = snapshot.attendance[i]
+		if not players[tonumber(row and row.playerNid)] then return nil, "invalid_player_reference" end
+		if not isIntegerInRange(row.startTime, 1) then return nil, "invalid_attendance" end
+	end
+	for i = 1, bossCount do
+		local refs = snapshot.bosses[i].players or {}
+		local refCount, refReason = validateDenseSequence(refs)
+		if not refCount then return nil, refReason end
+		for j = 1, refCount do
+			local nid = tonumber(refs[j])
+			if nid and not players[nid] then return nil, "invalid_player_reference" end
+		end
+	end
+	for i = 1, lootCount do
+		local row = snapshot.loot[i]
+		local looterNid, bossNid = tonumber(row.looterNid), tonumber(row.bossNid)
+		if looterNid and not players[looterNid] then return nil, "invalid_player_reference" end
+		if bossNid and bossNid > 0 and not bosses[bossNid] then return nil, "invalid_boss_reference" end
+	end
+	return true
+end
+
+function SnapshotPayload.ValidateDelta(delta, localRevision, expectedRaidNid)
+	if type(delta) ~= "table" or type(delta.header) ~= "table" then return nil, "invalid_delta" end
+	local header = delta.header
+	if tonumber(header.protocolVersion) ~= PROTOCOL_VERSION then return nil, "invalid_protocol" end
+	if not isIntegerInRange(header.raidNid, 1) then return nil, "invalid_identifier" end
+	if expectedRaidNid and tonumber(header.raidNid) ~= tonumber(expectedRaidNid) then return nil, "raid_mismatch" end
+	if not isIntegerInRange(header.sinceRevision, 0) or not isIntegerInRange(header.revision, 1) then return nil, "invalid_revision" end
+	local current = tonumber(localRevision) or 0
+	if tonumber(header.sinceRevision) ~= current then return nil, "revision_gap" end
+	if tonumber(header.revision) <= current then return nil, "stale_revision" end
+	local lootCount, sequenceReason = validateDenseSequence(delta.loot)
+	if not lootCount then return nil, sequenceReason end
+	if lootCount == 0 then return nil, "incomplete_delta" end
+	local seen, previous = {}, current
+	for i = 1, lootCount do
+		local row = delta.loot[i]
+		local validRow, rowReason = validateLootRow(row, true)
+		if not validRow then return nil, rowReason end
+		local ok, reason = addUniqueId(seen, row and row.lootNid, "duplicate_loot")
+		if not ok then return nil, reason end
+		local revision = tonumber(row.syncRevision)
+		if not isIntegerInRange(revision, current + 1, tonumber(header.revision)) then return nil, "row_revision_range" end
+		if revision <= previous then
+			if revision < previous then return nil, "row_revision_order" end
+			return nil, "duplicate_revision"
+		end
+		previous = revision
+	end
+	if previous ~= tonumber(header.revision) then return nil, "incomplete_delta" end
+	for i = 1, lootCount do
+		if tonumber(delta.loot[i].syncRevision) ~= current + i then return nil, "revision_gap" end
+	end
+	return true
 end
 
 function SnapshotPayload.Build(raid)
@@ -403,11 +561,29 @@ function SnapshotPayload.BuildDelta(raid, sinceRevision)
 	local deltaRows = 0
 
 	local lootRows = sortedByNid(raid.loot, "lootNid", "itemName")
-	local playerNameByNid, playerNidByName, validPlayerNids = buildPlayerNameMaps(raid.players)
+	local changedRows = {}
 	for i = 1, #lootRows do
 		local row = lootRows[i]
-		local rowRevision = raidStore:GetLootSyncRevision(raid, row) or 0
+		local rowRevision = tonumber(raidStore:GetLootSyncRevision(raid, row)) or 0
 		if rowRevision > fromRevision then
+			changedRows[#changedRows + 1] = { row = row, revision = rowRevision }
+		end
+	end
+	tsort(changedRows, function(left, right)
+		if left.revision ~= right.revision then return left.revision < right.revision end
+		return (tonumber(left.row.lootNid) or 0) < (tonumber(right.row.lootNid) or 0)
+	end)
+	-- The store retains only the latest revision for each loot row. Repeated
+	-- edits can therefore coalesce an earlier revision; a delta is safe only
+	-- when the retained map proves the entire contiguous revision interval.
+	if #changedRows ~= revision - fromRevision then return nil, 0 end
+	for i = 1, #changedRows do
+		if changedRows[i].revision ~= fromRevision + i then return nil, 0 end
+	end
+	local playerNameByNid, playerNidByName, validPlayerNids = buildPlayerNameMaps(raid.players)
+	for i = 1, #changedRows do
+		local row = changedRows[i].row
+		local rowRevision = changedRows[i].revision
 			deltaRows = deltaRows + 1
 			lines[#lines + 1] = packFields(
 				FIELD_SEP,
@@ -427,14 +603,13 @@ function SnapshotPayload.BuildDelta(raid, sinceRevision)
 				tonumber(row.bossNid) or 0,
 				tonumber(row.time) or 0
 			)
-		end
 	end
 
 	return tconcat(lines, RECORD_SEP), deltaRows
 end
 
 function SnapshotPayload.Parse(payload)
-	if type(payload) ~= "string" or payload == "" then
+	if type(payload) ~= "string" or payload == "" or #payload > MAX_PAYLOAD_BYTES then
 		return nil
 	end
 
@@ -458,7 +633,9 @@ function SnapshotPayload.Parse(payload)
 
 	for line in strgmatch(payload, "[^\n]+") do
 		lineCount = lineCount + 1
+		if lineCount > MAX_PAYLOAD_ROWS then return nil end
 		local f, n = splitFields(line, FIELD_SEP, fields)
+		if not fieldsWithinLimits(f, n) then return nil end
 		local kind = f[1]
 
 		if kind == "H" then
@@ -628,7 +805,7 @@ function SnapshotPayload.Parse(payload)
 end
 
 function SnapshotPayload.ParseDelta(payload)
-	if type(payload) ~= "string" or payload == "" then
+	if type(payload) ~= "string" or payload == "" or #payload > MAX_PAYLOAD_BYTES then
 		return nil
 	end
 
@@ -641,7 +818,9 @@ function SnapshotPayload.ParseDelta(payload)
 
 	for line in strgmatch(payload, "[^\n]+") do
 		lineCount = lineCount + 1
+		if lineCount > MAX_PAYLOAD_ROWS then return nil end
 		local f, n = splitFields(line, FIELD_SEP, fields)
+		if not fieldsWithinLimits(f, n) then return nil end
 		local kind = f[1]
 		if kind == "D" then
 			if lineCount ~= 1 or delta.header or n < 5 then

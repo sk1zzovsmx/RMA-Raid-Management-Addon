@@ -213,11 +213,25 @@ function SnapshotImport.ResolveRaidByReference(raidRef, allowFallback)
 	return nil, nil
 end
 
-function SnapshotImport.ApplySnapshotToRaid(raid, snapshot, updateMeta)
+function SnapshotImport.ApplySnapshotToRaid(raid, snapshot, updateMeta, allowExternalRaidNid)
 	if not (raid and snapshot and snapshot.header) then
 		return nil
 	end
 	local header = snapshot.header
+	if not allowExternalRaidNid then
+		local destinationRaidNid = raid.raidNid
+		if type(destinationRaidNid) ~= "number" or destinationRaidNid ~= math.floor(destinationRaidNid)
+			or destinationRaidNid < 1 or destinationRaidNid > 2147483647 then return nil, "invalid_destination_raid" end
+	end
+	local raidStore = Database.GetRaidStore()
+	local expectedRaidNid = allowExternalRaidNid and header.raidNid or raid.raidNid
+	local valid, reason = SnapshotPayload.ValidateSnapshot(snapshot, raidStore:GetRaidSyncRevision(raid), expectedRaidNid)
+	if not valid then return nil, reason end
+	local canonicalRaid = raid
+	if not allowExternalRaidNid then
+		raid = raidStore:StageRaidHistoryMutation(canonicalRaid)
+		if not raid then return nil, "STAGE_FAILED" end
+	end
 
 	if updateMeta then
 		applySnapshotHeaderToRaid(raid, header)
@@ -342,8 +356,16 @@ function SnapshotImport.ApplySnapshotToRaid(raid, snapshot, updateMeta)
 	end
 
 	applySnapshotNextNids(raid, header)
-	Database.GetRaidStore():SetRaidSyncRevision(raid, tonumber(header.revision) or 0, "snapshot")
-	return finalizeSnapshotRaid(raid)
+	finalizeSnapshotRaid(raid)
+	local targetRevision = tonumber(header.revision) or 0
+	local allowRevisionZero = tonumber(header.protocolVersion) == 1 and targetRevision == 0
+	if allowExternalRaidNid then
+		return raid
+	end
+	local committed, committedRaid =
+		raidStore:CommitRaidHistoryImport(canonicalRaid, raid, targetRevision, "snapshot", nil, allowRevisionZero)
+	if not committed then return nil, committedRaid end
+	return committedRaid
 end
 
 function SnapshotImport.ApplyDeltaToRaid(raid, delta)
@@ -351,10 +373,16 @@ function SnapshotImport.ApplyDeltaToRaid(raid, delta)
 		return nil
 	end
 
+	local raidStore = Database.GetRaidStore()
+	local valid, reason = SnapshotPayload.ValidateDelta(delta, raidStore:GetRaidSyncRevision(raid), raid.raidNid)
+	if not valid then return nil, reason end
+	local canonicalRaid = raid
+	raid = raidStore:StageRaidHistoryMutation(canonicalRaid)
+	if not raid then return nil, "STAGE_FAILED" end
 	raid.loot = raid.loot or {}
 	local _, playerNidByName, validPlayerNids = SnapshotPayload.BuildPlayerNameMaps(raid.players)
 	local lootIdx = buildNidIndex(raid.loot, "lootNid")
-	local raidStore = Database.GetRaidStore()
+	local lootRevisions = {}
 
 	for i = 1, #(delta.loot or {}) do
 		local src = delta.loot[i]
@@ -390,13 +418,17 @@ function SnapshotImport.ApplyDeltaToRaid(raid, delta)
 			dst.bossNid = tonumber(src.bossNid) or 0
 			dst.time = tonumber(src.time) or dst.time
 
-			raidStore:SetLootSyncRevision(raid, dst, tonumber(src.syncRevision) or tonumber(delta.header.revision) or 0)
+			lootRevisions[nid] = tonumber(src.syncRevision) or tonumber(delta.header.revision) or 0
 		end
 	end
 
 	applySnapshotNextNids(raid, delta.header)
-	raidStore:SetRaidSyncRevision(raid, tonumber(delta.header.revision) or 0, "delta")
-	return finalizeSnapshotRaid(raid)
+	finalizeSnapshotRaid(raid)
+	local committed, committedRaid = raidStore:CommitRaidHistoryImport(
+		canonicalRaid, raid, tonumber(delta.header.revision) or 0, "delta", lootRevisions
+	)
+	if not committed then return nil, committedRaid end
+	return committedRaid
 end
 
 function SnapshotImport.ImportSnapshotAsNewRaid(snapshot)
@@ -406,12 +438,23 @@ function SnapshotImport.ImportSnapshotAsNewRaid(snapshot)
 	end
 
 	local raidStore = getSnapshotImportRaidStore()
+	local insertionState = raidStore:CaptureRaidInsertionState()
 	local raid = createRaidFromSnapshotHeader(raidStore, header)
 
-	raid = SnapshotImport.ApplySnapshotToRaid(raid, snapshot, true)
+	-- A newly allocated local record intentionally receives a different local
+	-- raidNid; the external id was already validated as part of the payload.
+	local ok, appliedRaid, reason = pcall(SnapshotImport.ApplySnapshotToRaid, raid, snapshot, true, true)
+	raid = ok and appliedRaid or nil
 	if not raid then
-		return nil, nil
+		raidStore:RestoreRaidInsertionState(insertionState)
+		if not ok then error(appliedRaid) end
+		return nil, nil, reason
 	end
 
-	return raidStore:InsertRaid(raid)
+	local targetRevision = tonumber(header.revision) or 0
+	local allowRevisionZero = tonumber(header.protocolVersion) == 1 and targetRevision == 0
+	local inserted, raidId, commitReason =
+		raidStore:CommitNewRaidHistoryImport(raid, targetRevision, allowRevisionZero)
+	if not inserted then raidStore:RestoreRaidInsertionState(insertionState) end
+	return inserted, raidId, commitReason
 end

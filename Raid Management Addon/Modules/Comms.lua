@@ -10,7 +10,9 @@ local type, tostring, tonumber = type, tostring, tonumber
 local pcall = pcall
 local select = select
 local strfind, strmatch, strsub = string.find, string.match, string.sub
-local tconcat, tremove = table.concat, table.remove
+local strbyte = string.byte
+local tconcat = table.concat
+local floor = math.floor
 local _G = _G
 local SendAddonMessage = assert(_G.SendAddonMessage, "Comms addon-message send API is not initialized")
 local SendChatMessage = assert(_G.SendChatMessage, "Comms chat send API is not initialized")
@@ -32,9 +34,12 @@ local Timer = addon.Timer
 local BindTimerMixin = assert(Timer.BindMixin, "Comms timer mixin is not initialized")
 
 Comms._addonQueue = Comms._addonQueue or {}
+Comms._addonQueueHead = tonumber(Comms._addonQueueHead) or 1
+Comms._addonQueueTail = tonumber(Comms._addonQueueTail) or #Comms._addonQueue
 Comms._addonQueueTimer = Comms._addonQueueTimer
 
 local COMMS_ADDON_QUEUE_BURST = 4
+local COMMS_ADDON_QUEUE_MAX = 256
 local COMMS_ADDON_QUEUE_DELAY_SECONDS = 0.08
 local packFieldsBuffer = {}
 
@@ -234,7 +239,11 @@ end
 
 local function flushAddonQueue(limit)
 	local queue = Comms._addonQueue
-	if type(queue) ~= "table" or #queue == 0 then
+	local head = tonumber(Comms._addonQueueHead) or 1
+	if type(queue) ~= "table" or queue[head] == nil then
+		Comms._addonQueue = {}
+		Comms._addonQueueHead = 1
+		Comms._addonQueueTail = 0
 		return 0
 	end
 
@@ -245,18 +254,24 @@ local function flushAddonQueue(limit)
 
 	local sent = 0
 	for i = 1, burst do
-		local entry = queue[1]
+		local entry = queue[head]
 		if not entry then
 			break
 		end
 
-		tremove(queue, 1)
+		queue[head] = nil
+		head = head + 1
 		if sendAddonMessageNow(entry.prefix, entry.msg, entry.channel, entry.target) then
 			sent = sent + 1
 		end
 	end
-	if #queue > 0 then
+	Comms._addonQueueHead = head
+	if queue[head] ~= nil then
 		scheduleAddonQueueFlush()
+	else
+		Comms._addonQueue = {}
+		Comms._addonQueueHead = 1
+		Comms._addonQueueTail = 0
 	end
 	return sent
 end
@@ -267,20 +282,66 @@ function Comms.QueueAddonMessage(prefix, msg, channel, target, opts)
 	end
 
 	if not (opts and opts.immediate == true) then
-		Comms._addonQueue[#Comms._addonQueue + 1] = {
+		local queue = Comms._addonQueue
+		local head = tonumber(Comms._addonQueueHead) or 1
+		local tail = tonumber(Comms._addonQueueTail) or 0
+		if tail - head + 1 >= COMMS_ADDON_QUEUE_MAX then
+			return false, "backpressure"
+		end
+		queue[tail + 1] = {
 			prefix = prefix,
 			msg = tostring(msg),
 			channel = channel,
 			target = (type(target) == "string" and target ~= "" and target) or nil,
 		}
+		Comms._addonQueueTail = tail + 1
 		if scheduleAddonQueueFlush() then
 			return true
 		end
 
-		return flushAddonQueue(#Comms._addonQueue) > 0
+		return flushAddonQueue(COMMS_ADDON_QUEUE_MAX) > 0
 	end
 
 	return sendAddonMessageNow(prefix, msg, channel, target)
+end
+
+function Comms.QueueAddonMessages(prefix, messages, channel, target)
+	if type(prefix) ~= "string" or prefix == "" or type(channel) ~= "string" or channel == "" or type(messages) ~= "table" then
+		return false, "invalid"
+	end
+	local count = #messages
+	if count < 1 then return true end
+	local queue = Comms._addonQueue
+	local head = tonumber(Comms._addonQueueHead) or 1
+	local tail = tonumber(Comms._addonQueueTail) or 0
+	if tail - head + 1 + count > COMMS_ADDON_QUEUE_MAX then
+		return false, "backpressure"
+	end
+	for i = 1, count do
+		if messages[i] == nil then return false, "invalid" end
+	end
+	for i = 1, count do
+		queue[tail + i] = {
+			prefix = prefix,
+			msg = tostring(messages[i]),
+			channel = channel,
+			target = (type(target) == "string" and target ~= "" and target) or nil,
+		}
+	end
+	Comms._addonQueueTail = tail + count
+	if scheduleAddonQueueFlush() then return true end
+	for i = 1, count do queue[tail + i] = nil end
+	Comms._addonQueueTail = tail
+	return false, "scheduler_unavailable"
+end
+
+function Comms.SendAddonBatch(prefix, messages, target)
+	if type(target) == "string" and target ~= "" then
+		return Comms.QueueAddonMessages(prefix, messages, "WHISPER", target)
+	end
+	local channel = getGroupTransport()
+	if not channel then return false, "not_in_group" end
+	return Comms.QueueAddonMessages(prefix, messages, channel)
 end
 
 function Comms.FlushAddonQueue(limit)
@@ -350,13 +411,38 @@ function Comms.NormalizeSender(sender)
 	return NormalizeName(short, true) or short
 end
 
-function Comms.NextRequestId(owner, fieldName)
+local function buildRequestSessionNonce()
+	local getTime = _G.GetTime
+	local stamp = type(getTime) == "function" and floor((tonumber(getTime()) or 0) * 1000) or 0
+	local seed = tostring(UnitName("player") or "") .. ":" .. tostring(stamp) .. ":" .. tostring({})
+	local hash = 5381
+	for i = 1, #seed do
+		hash = ((hash * 33) + strbyte(seed, i)) % 1000000000
+	end
+	return tostring(hash)
+end
+
+function Comms.NextRequestId(owner, fieldName, isUnavailable)
 	if type(owner) ~= "table" then
 		return nil
 	end
 	local key = fieldName or "_nextRequestId"
-	owner[key] = (tonumber(owner[key]) or 0) + 1
-	return tostring(owner[key])
+	if type(isUnavailable) ~= "function" then
+		owner[key] = (tonumber(owner[key]) or 0) + 1
+		return tostring(owner[key])
+	end
+	local nonce = tostring(owner._requestSessionNonce or buildRequestSessionNonce())
+	owner._requestSessionNonce = nonce
+	local counter = floor(tonumber(owner[key]) or -1)
+	for _ = 1, 1024 do
+		counter = (counter + 1) % 1000000
+		local candidate = nonce .. "-" .. tostring(counter)
+		if #candidate <= 64 and isUnavailable(candidate) ~= true then
+			owner[key] = counter
+			return candidate
+		end
+	end
+	return nil, "request_id_exhausted"
 end
 
 function Comms:EnsureVersionPrefix()
