@@ -202,32 +202,21 @@ do
 	end
 
 	-- ----- Public methods ----- --
-	local function setNumRaidInternal(value)
-		numRaid = tonumber(value) or 0
-	end
-
-	local function bumpRosterVersionInternal()
-		rosterVersion = rosterVersion + 1
-		return rosterVersion
-	end
-
-	local function resetRosterTrackingInternal()
-		resetPendingUnitRetry()
-		resetLiveUnitCaches()
-	end
-
-	local function captureRosterRuntimeInternal()
-		return { numRaid = numRaid, rosterVersion = rosterVersion }
-	end
-
-	local function restoreRosterRuntimeInternal(snapshot)
-		if type(snapshot) ~= "table" then
-			return false
+	local function copyRosterMeta(source)
+		if type(source) ~= "table" then
+			return nil
 		end
-		numRaid = tonumber(snapshot.numRaid) or 0
-		rosterVersion = tonumber(snapshot.rosterVersion) or 0
-		resetRosterTrackingInternal()
-		return true
+		local copy = {}
+		for name, value in pairs(source) do
+			if type(value) ~= "table" then
+				return nil
+			end
+			copy[name] = {}
+			for key, item in pairs(value) do
+				copy[name][key] = item
+			end
+		end
+		return copy
 	end
 
 	local function publishRosterDeltaInternal(delta, raidNum)
@@ -257,16 +246,62 @@ do
 		return rosterVersion, payload
 	end
 
-	module._SetNumRaidInternal = setNumRaidInternal
-	module._BumpRosterVersionInternal = bumpRosterVersionInternal
-	module._ResetRosterTrackingInternal = resetRosterTrackingInternal
-	module._CaptureRosterRuntimeInternal = captureRosterRuntimeInternal
-	module._RestoreRosterRuntimeInternal = restoreRosterRuntimeInternal
 	module._CancelRosterRefreshInternal = cancelScheduledRosterRefresh
 	module._ScheduleRosterRefreshInternal = scheduleRosterRefresh
-	module._EnsureRealmPlayerMetaInternal = ensureRealmPlayerMeta
-	module._UpsertPlayerMetaInternal = upsertPlayerMeta
 	module._PublishRosterDelta = publishRosterDeltaInternal
+
+	function module:CaptureRosterSessionState(realm)
+		local players = SavedVariables.GetPlayers()
+		if type(players) ~= "table" then
+			return nil
+		end
+		local realmPlayers = players[realm]
+		if realmPlayers == nil then
+			realmPlayers = {}
+			players[realm] = realmPlayers
+		elseif type(realmPlayers) ~= "table" then
+			return nil
+		end
+		local playerMeta = copyRosterMeta(realmPlayers)
+		if not playerMeta then
+			return nil
+		end
+		return {
+			numRaid = numRaid,
+			rosterVersion = rosterVersion,
+			realmPlayers = realmPlayers,
+			playerMeta = playerMeta,
+		}
+	end
+
+	function module:RestoreRosterSessionState(snapshot)
+		if type(snapshot) ~= "table" or type(snapshot.realmPlayers) ~= "table" then
+			return false
+		end
+		numRaid = tonumber(snapshot.numRaid) or 0
+		rosterVersion = tonumber(snapshot.rosterVersion) or 0
+		for name in pairs(snapshot.realmPlayers) do
+			snapshot.realmPlayers[name] = nil
+		end
+		for name, value in pairs(copyRosterMeta(snapshot.playerMeta)) do
+			snapshot.realmPlayers[name] = value
+		end
+		resetPendingUnitRetry()
+		resetLiveUnitCaches()
+		return true
+	end
+
+	function module:CommitRosterSession(realm, pendingMeta, raidSize)
+		local realmPlayers = ensureRealmPlayerMeta(realm)
+		for i = 1, #(pendingMeta or {}) do
+			upsertPlayerMeta(realmPlayers, unpack(pendingMeta[i]))
+		end
+		numRaid = tonumber(raidSize) or 0
+		rosterVersion = rosterVersion + 1
+		resetPendingUnitRetry()
+		resetLiveUnitCaches()
+		return rosterVersion
+	end
 
 	function module:IsSyntheticPlayerActive(name, raidNum)
 		local currentRaidId = raidNum or Database.GetCurrentRaid()

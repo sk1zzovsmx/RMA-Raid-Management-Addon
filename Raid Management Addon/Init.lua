@@ -706,30 +706,12 @@ do
 		if owner.GetActiveInstanceKey() == previousKey then
 			return true
 		end
-		if snapshot and type(owner.RestoreActivationState) == "function" then
-			local ok, restored = pcall(owner.RestoreActivationState, snapshot)
-			if not ok then
-				return false, restored
-			end
-			if restored == true and owner.GetActiveInstanceKey() == previousKey then
-				return true
-			end
-			return false, "snapshot-restore-rejected"
-		end
-		local ok, restored, reason
-		if previousKey then
-			ok, restored, reason = pcall(owner.ActivateInstance, previousKey)
-		else
-			ok, restored, reason = pcall(owner.DeactivateInstance)
-			if ok and owner.GetActiveInstanceKey() == nil then
-				return true
-			end
-		end
+		local ok, restored = pcall(owner.RestoreActivationState, snapshot)
 		if not ok then
 			return false, restored
 		end
 		if restored ~= true or owner.GetActiveInstanceKey() ~= previousKey then
-			return false, reason or "restore-rejected"
+			return false, "snapshot-restore-rejected"
 		end
 		return true
 	end
@@ -747,10 +729,8 @@ do
 		if isRecognizedRaid then
 			local previousLootKey = activeLootSourcesData.GetActiveInstanceKey()
 			local previousIgnoredKey = activeIgnoredMobs.GetActiveInstanceKey()
-			local lootSnapshot = type(activeLootSourcesData.CaptureActivationState) == "function"
-				and activeLootSourcesData.CaptureActivationState()
-			local ignoredSnapshot = type(activeIgnoredMobs.CaptureActivationState) == "function"
-				and activeIgnoredMobs.CaptureActivationState()
+			local lootSnapshot = activeLootSourcesData.CaptureActivationState()
+			local ignoredSnapshot = activeIgnoredMobs.CaptureActivationState()
 			local lootOk, lootError = activateDatasetOwner(activeLootSourcesData, instanceKey)
 			local ignoredOk, ignoredError = false, "not-attempted"
 			if lootOk then
@@ -782,7 +762,13 @@ do
 		return instanceName, instanceType, instanceDiff, instanceKey
 	end
 
-	local function scheduleRaidInstanceChecksIfRecognized(instanceName, instanceType, instanceDiff, instanceKey, emitRecognizedLog)
+	local function scheduleRaidInstanceChecksIfRecognized(
+		instanceName,
+		instanceType,
+		instanceDiff,
+		instanceKey,
+		emitRecognizedLog
+	)
 		local raidService = getService("Raid")
 		if instanceType ~= "raid" or instanceKey == nil then
 			return false

@@ -261,6 +261,8 @@ L.WarnMLAwardConfirmationUncertain =
 	"Award confirmation is uncertain for %s to %s (%s). The pending award will be retried on confirmation."
 L.WarnMLAwardConfirmationUnresolved =
 	"Award confirmation could not be resolved for %s to %s. Future multi-award entries were stopped."
+L.WarnMLMultiAwardTimerScheduleFailed = "Multi-award stopped because its timer could not be scheduled."
+L.WarnMLLootAttributionFailed = "Loot attribution could not be finalized safely (%s). Review loot history."
 L.ErrMLLootSlotChanged = "Cannot award: the selected loot slot changed before the client assignment."
 L.ErrMLAwardConfirmationScheduleFailed = "Cannot award: the confirmation timer could not be scheduled."
 L.ErrMLGiveMasterLootFailed = "Cannot award: the client rejected the Master Loot assignment."

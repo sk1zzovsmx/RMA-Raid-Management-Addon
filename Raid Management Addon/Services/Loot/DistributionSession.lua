@@ -372,17 +372,53 @@ local function validExpectedRows(value)
 	return expectedRows
 end
 
-local function isNewerSessionId(candidate, current)
-	local _, candidateOrdinal, candidateTime = tostring(candidate or ""):match("^(.-):(%d+):([%d%.]+)$")
-	local _, currentOrdinal, currentTime = tostring(current or ""):match("^(.-):(%d+):([%d%.]+)$")
-	candidateOrdinal = tonumber(candidateOrdinal)
-	currentOrdinal = tonumber(currentOrdinal)
-	candidateTime = tonumber(candidateTime)
-	currentTime = tonumber(currentTime)
-	if not candidateOrdinal or not currentOrdinal or not candidateTime or not currentTime then
+local MAX_SAFE_INTEGER = 9007199254740991
+
+local function parseGeneratedSessionId(sessionId, authority)
+	local owner, ordinalText, timeText = tostring(sessionId or ""):match("^([^:]+):(%d+):([%d%.]+)$")
+	if not owner or owner == "" or owner ~= authority then
+		return nil
+	end
+	local ordinal = tonumber(ordinalText)
+	local timestamp = tonumber(timeText)
+	if
+		not ordinal
+		or ordinal ~= ordinal
+		or ordinal < 1
+		or ordinal > MAX_SAFE_INTEGER
+		or ordinal ~= math.floor(ordinal)
+		or not timestamp
+		or timestamp ~= timestamp
+		or timestamp < 0
+		or timestamp >= math.huge
+	then
+		return nil
+	end
+	return ordinal, timestamp
+end
+
+local function isNewerSessionId(candidate, current, authority)
+	local candidateOrdinal, candidateTime = parseGeneratedSessionId(candidate, authority)
+	local currentOrdinal, currentTime = parseGeneratedSessionId(current, authority)
+	if not candidateOrdinal or not currentOrdinal then
 		return false
 	end
-	return candidateOrdinal > currentOrdinal or (candidateOrdinal == currentOrdinal and candidateTime > currentTime)
+	return candidateTime > currentTime
+		or (candidateTime == currentTime and candidateOrdinal > currentOrdinal)
+end
+
+local function canReplaceOwnerSession(sender, sessionId)
+	if not state.sessionId or sessionId == state.sessionId then
+		return true
+	end
+	local currentSender = state.ownerSender or state.transitionSender
+	if currentSender and currentSender ~= sender then
+		return parseGeneratedSessionId(sessionId, sender) ~= nil
+	end
+	if not currentSender and not parseGeneratedSessionId(state.sessionId, sender) then
+		return parseGeneratedSessionId(sessionId, sender) ~= nil
+	end
+	return isNewerSessionId(sessionId, state.sessionId, sender)
 end
 
 local function boundedNow()
@@ -652,12 +688,10 @@ local function acceptIncomingMutation(sender, sessionId, revision, messageState)
 		return true, key, stream
 	end
 	if messageState == "clear" then
-		local currentSender = state.ownerSender or state.transitionSender
 		if
 			state.sessionId
 			and sessionId ~= state.sessionId
-			and currentSender == sender
-			and not isNewerSessionId(sessionId, state.sessionId)
+			and not canReplaceOwnerSession(sender, sessionId)
 		then
 			return nil, "stale_session"
 		end
@@ -668,6 +702,9 @@ local function acceptIncomingMutation(sender, sessionId, revision, messageState)
 			return nil, "session_not_active"
 		end
 		return true, key, stream
+	end
+	if not canReplaceOwnerSession(sender, sessionId) then
+		return nil, "session_not_active"
 	end
 	revision = validRevision(revision)
 	if not revision then

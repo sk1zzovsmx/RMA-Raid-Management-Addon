@@ -62,10 +62,10 @@ class RuntimeFoundationsBehaviorTest(unittest.TestCase):
 
         self.assertIn("PASS options_reject_ambiguous_ownership", result.stdout)
 
-    def test_options_namespace_snapshot_is_isolated(self) -> None:
-        result = run_lua_case("options_namespace_snapshot_is_isolated")
+    def test_options_reset_all_defaults(self) -> None:
+        result = run_lua_case("options_reset_all_defaults")
 
-        self.assertIn("PASS options_namespace_snapshot_is_isolated", result.stdout)
+        self.assertIn("PASS options_reset_all_defaults", result.stdout)
 
     def test_options_same_namespace_extension_preserves_storage(self) -> None:
         result = run_lua_case("options_same_namespace_extension_preserves_storage")
@@ -86,11 +86,6 @@ class RuntimeFoundationsBehaviorTest(unittest.TestCase):
         result = run_lua_case("options_cyclic_defaults_remain_independent")
 
         self.assertIn("PASS options_cyclic_defaults_remain_independent", result.stdout)
-
-    def test_options_namespace_facade_contract(self) -> None:
-        result = run_lua_case("options_namespace_facade_contract")
-
-        self.assertIn("PASS options_namespace_facade_contract", result.stdout)
 
     def test_future_raid_schema_is_preserved(self) -> None:
         result = run_lua_case("future_raid_schema_is_preserved")

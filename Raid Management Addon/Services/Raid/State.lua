@@ -55,6 +55,15 @@ do
 	addon.Services.EnsureNamespace("Raid")
 	local Raid = Services.Raid
 	local module = Raid
+	local function scheduleRosterRefresh()
+		local schedule = assert(module._ScheduleRosterRefreshInternal, "Raid roster scheduler is not initialized")
+		return schedule()
+	end
+
+	local function cancelRosterRefresh()
+		local cancel = assert(module._CancelRosterRefreshInternal, "Raid roster cancellation is not initialized")
+		return cancel()
+	end
 	-- ----- Internal state ----- --
 	local getRaidRosterInfo = GetRaidRosterInfo
 	local masterLootCandidateCache = {
@@ -88,22 +97,6 @@ do
 
 	local function notifyRaidCreate(raidId)
 		TriggerEvent(RaidCreateEvent, raidId)
-	end
-
-	local function copyStateValue(value, seen)
-		if type(value) ~= "table" then return value end
-		seen = seen or {}
-		if seen[value] then return seen[value] end
-		local copied = {}
-		seen[value] = copied
-		for key, item in pairs(value) do copied[copyStateValue(key, seen)] = copyStateValue(item, seen) end
-		return copied
-	end
-
-	local function restoreStateTable(target, snapshot)
-		if type(target) ~= "table" or type(snapshot) ~= "table" then return end
-		for key in pairs(target) do target[key] = nil end
-		for key, value in pairs(copyStateValue(snapshot)) do target[key] = value end
 	end
 
 	local function isTraceEnabled()
@@ -1515,39 +1508,21 @@ do
 		end
 
 		local raidStore = Database.GetRaidStore()
-		local insertionState = raidStore:CaptureRaidInsertionState()
-		local historyState
-		if type(raidStore.CaptureRaidHistoryState) == "function" then
-			local captured, capturedState = pcall(raidStore.CaptureRaidHistoryState, raidStore)
-			if not captured then
-				return false
-			end
-			historyState = capturedState
+		local createState = {
+			history = raidStore:CaptureRaidHistoryState(),
+			currentRaid = Database.GetCurrentRaid(),
+			lastBoss = Database.GetLastBoss(),
+			roster = module:CaptureRosterSessionState(realm),
+		}
+		if type(createState.history) ~= "table" or type(createState.roster) ~= "table" then
+			return false
 		end
-		local previousRaidId = Database.GetCurrentRaid()
-		local previousLastBoss = Database.GetLastBoss()
-		local rosterRuntime = type(module._CaptureRosterRuntimeInternal) == "function"
-			and module._CaptureRosterRuntimeInternal() or nil
-		local realmPlayers
-		local realmPlayersSnapshot
-		if type(module._EnsureRealmPlayerMetaInternal) == "function" then
-			local metadataOk, metadata = pcall(module._EnsureRealmPlayerMetaInternal, realm)
-			if not metadataOk then return false end
-			realmPlayers = metadata
-			realmPlayersSnapshot = copyStateValue(metadata)
-		end
-		local function rollbackReplacement()
-			coreState.currentRaid = previousRaidId
-			coreState.lastBoss = previousLastBoss
-			if type(historyState) == "table" and type(raidStore.RestoreRaidHistoryState) == "function" then
-				raidStore:RestoreRaidHistoryState(historyState)
-			else
-				raidStore:RestoreRaidInsertionState(insertionState)
-			end
-			restoreStateTable(realmPlayers, realmPlayersSnapshot)
-			if rosterRuntime and type(module._RestoreRosterRuntimeInternal) == "function" then
-				pcall(module._RestoreRosterRuntimeInternal, rosterRuntime)
-			end
+		local function rollbackCreate()
+			coreState.currentRaid = createState.currentRaid
+			coreState.lastBoss = createState.lastBoss
+			local historyOk = raidStore:RestoreRaidHistoryState(createState.history)
+			local rosterOk = module:RestoreRosterSessionState(createState.roster)
+			return historyOk == true and rosterOk == true
 		end
 
 		local createOk, raidInfo = pcall(raidStore.CreateRaidRecord, raidStore, {
@@ -1558,7 +1533,7 @@ do
 			startTime = currentTime,
 		})
 		if not createOk or not raidInfo then
-			raidStore:RestoreRaidInsertionState(insertionState)
+			rollbackCreate()
 			return false
 		end
 
@@ -1588,53 +1563,33 @@ do
 
 		local insertOk, _, raidId = pcall(raidStore.InsertRaid, raidStore, raidInfo)
 		if not insertOk or not raidId then
-			raidStore:RestoreRaidInsertionState(insertionState)
+			rollbackCreate()
 			return false
 		end
 
 		local switchOk, switchedRaidId = pcall(Database.SetCurrentRaid, raidId)
 		if not switchOk or switchedRaidId ~= raidId then
-			rollbackReplacement()
+			rollbackCreate()
 			return false
 		end
 		local attendanceChanged, attendanceRaidNid
 		local commitOk = pcall(function()
-		if previousRaidId then
-			if type(module.CancelInstanceChecks) == "function" then
-				module:CancelInstanceChecks()
+			if createState.currentRaid then
+				if type(module.CancelInstanceChecks) == "function" then
+					module:CancelInstanceChecks()
+				end
+				cancelRosterRefresh()
+				-- Preserve the historical callback context while the old raid closes.
+				coreState.currentRaid = createState.currentRaid
+				attendanceChanged, attendanceRaidNid = finalizeRaidRecord(createState.currentRaid, currentTime, true)
+				coreState.currentRaid = raidId
+				Database.SetLastBoss(nil)
 			end
-			if type(module._ResetRosterTrackingInternal) == "function" then
-				module._ResetRosterTrackingInternal()
-			end
-			if type(module._CancelRosterRefreshInternal) == "function" then
-				module._CancelRosterRefreshInternal()
-			end
-			-- Preserve the historical callback context while the old raid closes.
-			coreState.currentRaid = previousRaidId
-			attendanceChanged, attendanceRaidNid = finalizeRaidRecord(previousRaidId, currentTime, true)
-			coreState.currentRaid = raidId
-			Database.SetLastBoss(nil)
-		end
-		realmPlayers = realmPlayers or {}
-		if type(module._UpsertPlayerMetaInternal) == "function" then
-			for i = 1, #pendingPlayerMeta do
-				module._UpsertPlayerMetaInternal(realmPlayers, unpack(pendingPlayerMeta[i]))
-			end
-		end
-		if type(module._SetNumRaidInternal) == "function" then
-			module._SetNumRaidInternal(num)
-		end
-		resetLootContextState()
-		-- New session context: force version-gated roster consumers (e.g. Master dropdowns) to rebuild.
-		if type(module._BumpRosterVersionInternal) == "function" then
-			module._BumpRosterVersionInternal()
-		end
-		if type(module._ResetRosterTrackingInternal) == "function" then
-			module._ResetRosterTrackingInternal()
-		end
+			module:CommitRosterSession(realm, pendingPlayerMeta, num)
+			resetLootContextState()
 		end)
 		if not commitOk then
-			rollbackReplacement()
+			rollbackCreate()
 			return false
 		end
 
@@ -1656,11 +1611,9 @@ do
 		end
 
 		-- Schedule one delayed roster refresh.
-		if type(module._ScheduleRosterRefreshInternal) == "function" then
-			local scheduled, scheduleError = pcall(module._ScheduleRosterRefreshInternal)
-			if not scheduled and type(addon.error) == "function" then
-				pcall(addon.error, addon, tostring(scheduleError))
-			end
+		local scheduled, scheduleError = pcall(scheduleRosterRefresh)
+		if not scheduled and type(addon.error) == "function" then
+			pcall(addon.error, addon, tostring(scheduleError))
 		end
 		return true
 	end
@@ -1670,16 +1623,11 @@ do
 		if type(module.CancelInstanceChecks) == "function" then
 			module:CancelInstanceChecks()
 		end
-		if type(module._ResetRosterTrackingInternal) == "function" then
-			module._ResetRosterTrackingInternal()
-		end
 		if not Database.GetCurrentRaid() then
 			return
 		end
 		-- Stop any pending roster update when ending the raid
-		if type(module._CancelRosterRefreshInternal) == "function" then
-			module._CancelRosterRefreshInternal()
-		end
+		cancelRosterRefresh()
 		local currentTime = Time.GetCurrentTime()
 		finalizeRaidRecord(Database.GetCurrentRaid(), currentTime)
 		Database.SetCurrentRaid(nil)
@@ -1700,9 +1648,7 @@ do
 
 		if Database.GetCurrentRaid() and module:CheckPlayer(Database.GetPlayerName(), Database.GetCurrentRaid()) then
 			-- Restart the roster update timer: cancel the old one and schedule a new one
-			if type(module._ScheduleRosterRefreshInternal) == "function" then
-				module._ScheduleRosterRefreshInternal()
-			end
+			scheduleRosterRefresh()
 			return
 		end
 

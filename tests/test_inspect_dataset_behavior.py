@@ -30,6 +30,10 @@ class InspectDatasetBehaviorTests(unittest.TestCase):
         result = run_lua_case("inspect_coordinator_serializes_global_ownership")
         self.assertIn("PASS inspect_coordinator_serializes_global_ownership", result.stdout)
 
+    def test_equip_inspect_combat_deferral_is_coordinator_owned(self) -> None:
+        result = run_lua_case("equip_inspect_combat_deferral_is_coordinator_owned")
+        self.assertIn("PASS equip_inspect_combat_deferral_is_coordinator_owned", result.stdout)
+
     def test_equip_and_talent_refresh_share_global_inspect_owner(self) -> None:
         result = run_lua_case("equip_and_talent_refresh_share_global_inspect_owner")
         self.assertIn("PASS equip_and_talent_refresh_share_global_inspect_owner", result.stdout)
@@ -41,6 +45,10 @@ class InspectDatasetBehaviorTests(unittest.TestCase):
     def test_equip_inspect_throttle_timer_failure_is_terminal(self) -> None:
         result = run_lua_case("equip_inspect_throttle_timer_failure_is_terminal")
         self.assertIn("PASS equip_inspect_throttle_timer_failure_is_terminal", result.stdout)
+
+    def test_equip_inspect_initial_timer_failure_preserves_reentrant_replacement(self) -> None:
+        result = run_lua_case("equip_inspect_initial_timer_failure_preserves_reentrant_replacement")
+        self.assertIn("PASS equip_inspect_initial_timer_failure_preserves_reentrant_replacement", result.stdout)
 
     def test_equip_inspect_own_timer_failures_are_terminal(self) -> None:
         result = run_lua_case("equip_inspect_own_timer_failures_are_terminal")
@@ -57,6 +65,10 @@ class InspectDatasetBehaviorTests(unittest.TestCase):
     def test_instance_datasets_share_canonical_identity(self) -> None:
         result = run_lua_case("instance_datasets_share_canonical_identity")
         self.assertIn("PASS instance_datasets_share_canonical_identity", result.stdout)
+
+    def test_dataset_activation_requires_snapshot_contract(self) -> None:
+        result = run_lua_case("dataset_activation_requires_snapshot_contract")
+        self.assertIn("PASS dataset_activation_requires_snapshot_contract", result.stdout)
 
     def test_loot_dataset_build_failure_preserves_active_generation(self) -> None:
         result = run_lua_case("loot_dataset_build_failure_preserves_active_generation")

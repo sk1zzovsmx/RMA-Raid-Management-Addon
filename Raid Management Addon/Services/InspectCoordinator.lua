@@ -11,7 +11,8 @@ local GetTime = assert(_G.GetTime, "InspectCoordinator time API is not initializ
 local UnitAffectingCombat = assert(_G.UnitAffectingCombat, "InspectCoordinator combat API is not initialized")
 local ClearInspectPlayer = assert(_G.ClearInspectPlayer, "InspectCoordinator clear API is not initialized")
 local RegisterCallback = assert(Bus.RegisterCallback, "InspectCoordinator event listener is not initialized")
-local ResolveWowForwardedName = assert(Events.ResolveWowForwardedName, "InspectCoordinator event resolver is not initialized")
+local ResolveWowForwardedName =
+	assert(Events.ResolveWowForwardedName, "InspectCoordinator event resolver is not initialized")
 
 local REQUEST_TIMEOUT_SECONDS = 8
 local MIN_START_INTERVAL_SECONDS = 1.75
@@ -52,16 +53,6 @@ local function finish(request, reason, clear)
 	end
 end
 
-local function removeQueued(request)
-	for i = 1, #queue do
-		if queue[i] == request then
-			table.remove(queue, i)
-			return true
-		end
-	end
-	return false
-end
-
 local function schedule(delay, callback)
 	local ok, handle = pcall(module.ScheduleTimer, module, callback, delay)
 	if not ok or not handle then
@@ -71,22 +62,27 @@ local function schedule(delay, callback)
 end
 
 local function expire(request)
-	if request.finished then
+	if request.finished or active ~= request then
 		return
 	end
-	local ownsTarget = active == request
-	if ownsTarget then
-		active = nil
-	else
-		removeQueued(request)
-	end
-	finish(request, "timeout", ownsTarget)
+	active = nil
+	finish(request, "timeout", true)
 	drain()
 end
 
 local function start(request)
 	active = request
 	lastStartedAt = now()
+	request.deadlineHandle = schedule(REQUEST_TIMEOUT_SECONDS, function()
+		expire(request)
+	end)
+	if not request.deadlineHandle then
+		request.startError = "timer_failed"
+		active = nil
+		finish(request, "timer_failed", false)
+		drain()
+		return
+	end
 	local ok = pcall(request.onStart)
 	if not ok and active == request then
 		active = nil
@@ -114,6 +110,7 @@ drain = function()
 		end)
 		if not drainHandle then
 			table.remove(queue, 1)
+			request.startError = "timer_failed"
 			finish(request, "timer_failed", false)
 			drain()
 		end
@@ -137,17 +134,12 @@ function module:Request(owner, unit, guid, onStart, onFinish, category)
 		guid = guid,
 		onStart = onStart,
 		onFinish = onFinish,
-		enqueuedAt = now(),
 	}
-	request.deadlineHandle = schedule(REQUEST_TIMEOUT_SECONDS, function()
-		expire(request)
-	end)
-	if not request.deadlineHandle then
-		finish(request, "timer_failed", false)
-		return false, "timer_failed"
-	end
 	queue[#queue + 1] = request
 	drain()
+	if request.startError then
+		return false, request.startError
+	end
 	return true, active == request and "active" or "queued"
 end
 

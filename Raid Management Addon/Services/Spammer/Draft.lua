@@ -12,8 +12,7 @@ local Strings = addon.Strings
 
 local tconcat, tonumber, tostring, type = table.concat, tonumber, tostring, type
 local floor = math.floor
-local byte = string.byte
-local lower, strlen, strsub = string.lower, string.len, string.sub
+local lower, strlen = string.lower, string.len
 local sort = table.sort
 
 -- ----- Internal state ----- --
@@ -46,47 +45,12 @@ local fieldRules = {
 }
 
 -- ----- Private helpers ----- --
-local function utf8SequenceLength(firstByte)
-	if firstByte <= 0x7f then return 1 end
-	if firstByte >= 0xc2 and firstByte <= 0xdf then return 2 end
-	if firstByte >= 0xe0 and firstByte <= 0xef then return 3 end
-	if firstByte >= 0xf0 and firstByte <= 0xf4 then return 4 end
-	return nil
-end
-
-local function isValidUtf8Sequence(text, index, sequenceLength)
-	local firstByte = byte(text, index)
-	for offset = 1, sequenceLength - 1 do
-		local continuation = byte(text, index + offset)
-		if not continuation or continuation < 0x80 or continuation > 0xbf then return false end
-		if offset == 1 then
-			if firstByte == 0xe0 and continuation < 0xa0 then return false end
-			if firstByte == 0xed and continuation > 0x9f then return false end
-			if firstByte == 0xf0 and continuation < 0x90 then return false end
-			if firstByte == 0xf4 and continuation > 0x8f then return false end
-		end
-	end
-	return true
-end
-
-local function utf8SafePrefix(text, maxBytes)
-	local index, lastValid, textLength = 1, 0, strlen(text)
-	while index <= textLength do
-		local sequenceLength = utf8SequenceLength(byte(text, index))
-		if not sequenceLength or index + sequenceLength - 1 > maxBytes then break end
-		if not isValidUtf8Sequence(text, index, sequenceLength) then break end
-		lastValid = index + sequenceLength - 1
-		index = lastValid + 1
-	end
-	return strsub(text, 1, lastValid)
-end
-
 local function normalizeText(value, maxBytes)
 	if type(value) ~= "string" then
 		return ""
 	end
 	local text = Strings.TrimText(value)
-	return utf8SafePrefix(text, maxBytes)
+	return Strings.Utf8SafePrefix(text, maxBytes)
 end
 
 local function normalizeCount(value)

@@ -31,7 +31,7 @@ local TriggerEvent = assert(Bus.TriggerEvent, "Config event bus sender is not in
 local BuildConfigOptionChangedName =
 	assert(Events.BuildConfigOptionChangedName, "Config option-change event resolver is not initialized")
 local OptionsLoadedEvent = assert(InternalEvents.OptionsLoaded, "Config options-loaded event is not initialized")
-local GetOptionNamespaces = assert(Options.GetNamespaces, "Config options namespace iterator is not initialized")
+local ResetAllOptionDefaults = assert(Options.ResetAllDefaults, "Config options reset operation is not initialized")
 local SetDebugEnabled = assert(Options.SetDebugEnabled, "Config debug option setter is not initialized")
 
 local _G = _G
@@ -771,7 +771,11 @@ do
 		setText(helpContentFrameName, "DiagnosticsTitle", L.StrConfigHelpDiagnosticsTitle)
 		setText(helpContentFrameName, "DiagnosticsBody", L.StrConfigHelpDiagnosticsBody)
 		setText(helpContentFrameName, "CommandsTitle", L.StrConfigHelpCommandsTitle)
-		setText(helpContentFrameName, "CommandsBody", L.StrConfigHelpCommandsBody .. "\n\n" .. DebugEntryPoint.GetHelpText())
+		setText(
+			helpContentFrameName,
+			"CommandsBody",
+			L.StrConfigHelpCommandsBody .. "\n\n" .. DebugEntryPoint.GetHelpText()
+		)
 		layoutHelpPanel()
 	end
 
@@ -938,9 +942,7 @@ do
 
 	-- Loads the default options into the settings table.
 	local function loadDefaultOptions()
-		for _, ns in pairs(GetOptionNamespaces()) do
-			ns:ResetDefaults()
-		end
+		ResetAllOptionDefaults()
 		SetDebugEnabled(false)
 		module:RequestRefresh("defaults")
 		refreshInterfaceOptionsPanel()
@@ -1177,10 +1179,12 @@ do
 			return actions:StartLootSourceRebuild(function(rebuildResult, complete)
 				if complete ~= true then
 					if rebuildResult and rebuildResult.partial then
-						addon:warn(L.MsgLoggerMaintenancePartial:format(
-							tonumber(rebuildResult.bossesCreated) or 0,
-							tonumber(rebuildResult.repaired) or 0
-						))
+						addon:warn(
+							L.MsgLoggerMaintenancePartial:format(
+								tonumber(rebuildResult.bossesCreated) or 0,
+								tonumber(rebuildResult.repaired) or 0
+							)
+						)
 						refreshLootHistoryReport()
 					end
 					return
@@ -1212,10 +1216,12 @@ do
 			return actions:StartRaidHistoryCleanup(function(cleanupResult, complete)
 				if complete ~= true then
 					if cleanupResult and cleanupResult.partial then
-						addon:warn(L.MsgLoggerMaintenancePartial:format(
-							tonumber(cleanupResult.raidsRemoved) or 0,
-							tonumber(cleanupResult.lootRemoved) or 0
-						))
+						addon:warn(
+							L.MsgLoggerMaintenancePartial:format(
+								tonumber(cleanupResult.raidsRemoved) or 0,
+								tonumber(cleanupResult.lootRemoved) or 0
+							)
+						)
 						refreshLootHistoryReport()
 					end
 					return

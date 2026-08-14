@@ -83,6 +83,39 @@ local function cancelDelay(controller, ma)
 	end
 end
 
+local function stopAfterScheduleFailure(controller, ma, refreshNow)
+	if not ma then
+		return nil, "timer_schedule_failed"
+	end
+	local reportWarning = ma.cancelReason ~= "timer_schedule_failed"
+	local timeoutHandle = ma.timeoutHandle
+	local delayHandle = ma.delayHandle
+	ma.timeoutHandle = nil
+	ma.delayHandle = nil
+	ma.scheduled = false
+	ma.waitingForDecrement = false
+	ma.active = false
+	ma.cancelled = true
+	ma.cancelReason = "timer_schedule_failed"
+	if controller.lootState.multiAward == ma then
+		controller.lootState.multiAward = nil
+	end
+	if timeoutHandle then
+		pcall(controller.cancelTimer, timeoutHandle)
+	end
+	if delayHandle and delayHandle ~= timeoutHandle then
+		pcall(controller.cancelTimer, delayHandle)
+	end
+	pcall(controller.itemCount.Reset, controller.itemCount)
+	if reportWarning and type(controller.warn) == "function" then
+		pcall(controller.warn, L.WarnMLMultiAwardTimerScheduleFailed)
+	end
+	if refreshNow and type(controller.refresh) == "function" then
+		pcall(controller.refresh)
+	end
+	return nil, "timer_schedule_failed"
+end
+
 local function announceCompletion(controller, ma)
 	if not (ma and ma.announceOnWin and not ma.congratsSent) then
 		return true
@@ -110,18 +143,18 @@ end
 
 local function armProgressTimeout(controller, ma)
 	if not (ma and ma.active and not controller.lootState.fromInventory) then
-		return
+		return true
 	end
 
 	local timeout = tonumber(controller.multiAwardTimeoutSeconds) or 0
 	ma.waitingForDecrement = true
 	if timeout <= 0 then
-		return
+		return true
 	end
 
 	cancelTimeout(controller, ma)
 	local expectedLessThan = tonumber(ma.lastCount) or 0
-	ma.timeoutHandle = controller.scheduleTimer(function()
+	local scheduled, handle = pcall(controller.scheduleTimer, function()
 		local cur = controller.lootState.multiAward
 		if
 			cur ~= ma
@@ -147,6 +180,11 @@ local function armProgressTimeout(controller, ma)
 			controller.refresh()
 		end
 	end, timeout)
+	if not scheduled or not handle then
+		return stopAfterScheduleFailure(controller, ma, true)
+	end
+	ma.timeoutHandle = handle
+	return true
 end
 
 function AwardSequence.CreateController(opts)
@@ -281,8 +319,7 @@ function AwardSequence.CreateController(opts)
 			end
 		else
 			local armed, armReason = attempt:RunCheckpoint("sequence_progress_timeout", function()
-				armProgressTimeout(self, ma)
-				return true
+				return armProgressTimeout(self, ma)
 			end)
 			if not armed then
 				return nil, armReason
@@ -554,7 +591,7 @@ function AwardSequence.CreateController(opts)
 			delay = 0
 		end
 
-		ma.delayHandle = self.scheduleTimer(function()
+		local scheduled, handle = pcall(self.scheduleTimer, function()
 			local ma2 = self.lootState.multiAward
 			if not (ma2 and ma2.active and ma2.scheduled and not self.lootState.fromInventory) then
 				return
@@ -609,6 +646,10 @@ function AwardSequence.CreateController(opts)
 				effect:Fail("execution_failed")
 			end
 		end, delay)
+		if not scheduled or not handle then
+			return stopAfterScheduleFailure(self, ma, true)
+		end
+		ma.delayHandle = handle
 
 		return true
 	end

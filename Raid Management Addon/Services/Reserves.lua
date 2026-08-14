@@ -88,6 +88,7 @@ do
 	local syncedCacheActive = false
 	local aliasState = nil
 	local RebuildIndex
+	local getDisplayContext
 	local hasPendingItem
 	local activeImportApply
 	local importApplyGeneration = 0
@@ -132,24 +133,27 @@ do
 		aliasState = nil
 	end
 
-	local function resolveReservePlayerKey(playerName)
+	local function resolveReservePlayerKey(playerName, sourceData)
+		sourceData = sourceData or reservesData
 		local exact = Strings.NormalizeLower(playerName, true)
-		if exact and reservesData[exact] then
+		if exact and sourceData[exact] then
 			return exact
 		end
-		return AliasHelpers.ResolveReserveKey(getAliasState(), reservesData, playerName)
+		return AliasHelpers.ResolveReserveKey(getAliasState(), sourceData, playerName)
 	end
 
-	local function getReserveEntryForItem(itemId, playerName)
+	local function findReserveEntryForItem(state, itemId, playerName)
 		if not itemId or not playerName then
 			return nil
 		end
-		local playerKey = resolveReservePlayerKey(playerName)
+		local sourceData = state and state.reservesData or reservesData
+		local sourceIndex = state and state.reservesByItemPlayer or reservesByItemPlayer
+		local playerKey = resolveReservePlayerKey(playerName, sourceData)
 		if not playerKey then
 			return nil
 		end
 
-		local byP = reservesByItemPlayer[itemId]
+		local byP = sourceIndex[itemId]
 		if type(byP) == "table" then
 			local r = byP[playerKey]
 			if r then
@@ -158,7 +162,7 @@ do
 		end
 
 		-- Fallback (should be rare if indices are up to date)
-		local entry = reservesData[playerKey]
+		local entry = sourceData[playerKey]
 		if not entry then
 			return nil
 		end
@@ -522,29 +526,6 @@ do
 		return numeric
 	end
 
-	local function captureTableGraph(roots)
-		local graph = {}
-		local function capture(value)
-			if type(value) ~= "table" or graph[value] then return end
-			local entries = {}
-			graph[value] = entries
-			for key, child in pairs(value) do
-				entries[#entries + 1] = { key, child }
-				capture(key)
-				capture(child)
-			end
-		end
-		for i = 1, #roots do capture(roots[i]) end
-		return graph
-	end
-
-	local function restoreTableGraph(graph)
-		for target in pairs(graph) do twipe(target) end
-		for target, entries in pairs(graph) do
-			for i = 1, #entries do target[entries[i][1]] = entries[i][2] end
-		end
-	end
-
 	local function normalizeSyncText(value)
 		if value == nil then return "" end
 		if type(value) ~= "string" then return nil end
@@ -696,10 +677,6 @@ do
 
 	function module.BuildCanonicalChecksum(sourceData)
 		return buildReservesChecksum(sourceData)
-	end
-
-	function module.BuildCanonicalSerialization(sourceData)
-		return buildCanonicalDataSerialization(sourceData)
 	end
 
 	local function getActiveSyncMetadata()
@@ -925,36 +902,63 @@ do
 		return buildRuntimeReservesData(reservesData, "edit")
 	end
 
-	local function commitCandidate(candidate, nextMode)
-		local savedRoot = _G.RMA_Reserves
-		if type(savedRoot) ~= "table" then savedRoot = SavedVariables.GetReserves() end
-		local oldMode = importMode
-		local oldOptionMode = nextMode ~= nil and reservesNs:Get("srImportMode") or nil
-		local oldSyncedMeta, oldSyncedActive, oldDirty = syncedCacheMeta, syncedCacheActive, reservesDirty
-		local graph = captureTableGraph({
-			savedRoot,
-			persistedReservesData, reservesData, reservesByItemID, reservesByItemPlayer,
-			playerItemsByName, reservesDisplayList, reservesDisplayRowsByKey,
-			reservesDisplayActiveKeys, grouped, oldSyncedMeta,
-		})
-		local published = pcall(function()
-			SavedVariables.ReplaceReserves(buildSavedReservesData(candidate))
-			copyReservesData(candidate, persistedReservesData)
-			copyReservesData(persistedReservesData, reservesData)
-			syncedCacheMeta = nil
-			syncedCacheActive = false
-			if nextMode ~= nil then setImportMode(nextMode, true) end
-			rebuildReserveIndexes()
-		end)
-		if not published then
-			restoreTableGraph(graph)
-			if _G.RMA_Reserves ~= savedRoot then _G.RMA_Reserves = savedRoot end
-			importMode = oldMode
-			syncedCacheMeta, syncedCacheActive, reservesDirty = oldSyncedMeta, oldSyncedActive, oldDirty
-			if nextMode ~= nil then pcall(reservesNs.Set, reservesNs, "srImportMode", oldOptionMode) end
+	local function buildPublicationCandidate(candidate, nextMode)
+		local state = {
+			savedData = buildSavedReservesData(candidate),
+			persistedData = buildRuntimeReservesData(candidate, "publish-persisted"),
+			reservesData = buildRuntimeReservesData(candidate, "publish-runtime"),
+			reservesByItemID = {},
+			reservesByItemPlayer = {},
+			playerItemsByName = {},
+			reservesDisplayList = {},
+			reservesDisplayRowsByKey = {},
+			reservesDisplayActiveKeys = {},
+			grouped = {},
+			reservesDirty = false,
+			nextMode = nextMode ~= nil and normalizeImportMode(nextMode) or nil,
+		}
+		local built = pcall(DisplayHelpers.RebuildIndex, getDisplayContext(state))
+		if not built then
 			return nil, "publish_failed"
 		end
-		return true
+		return state
+	end
+
+	local function publishCandidate(state)
+		local saved, savedRoot = pcall(SavedVariables.ReplaceReserves, state.savedData)
+		if not saved then
+			return nil, "publish_failed"
+		end
+
+		persistedReservesData = state.persistedData
+		reservesData = state.reservesData
+		reservesByItemID = state.reservesByItemID
+		reservesByItemPlayer = state.reservesByItemPlayer
+		playerItemsByName = state.playerItemsByName
+		reservesDisplayList = state.reservesDisplayList
+		reservesDisplayRowsByKey = state.reservesDisplayRowsByKey
+		reservesDisplayActiveKeys = state.reservesDisplayActiveKeys
+		grouped = state.grouped
+		reservesDirty = state.reservesDirty
+		syncedCacheMeta = nil
+		syncedCacheActive = false
+		if state.nextMode ~= nil then
+			importMode = state.nextMode
+			local notified, notifyError =
+				pcall(reservesNs.Set, reservesNs, "srImportMode", importModeToOptionValue(state.nextMode))
+			if not notified then
+				pcall(addon.error, addon, Diag.E.LogReservesOptionNotificationFailed, tostring(notifyError))
+			end
+		end
+		return true, savedRoot
+	end
+
+	local function commitCandidate(candidate, nextMode)
+		local state, reason = buildPublicationCandidate(candidate, nextMode)
+		if not state then
+			return nil, reason
+		end
+		return publishCandidate(state)
 	end
 
 	local function publishMutationCandidate(candidate, eventReason)
@@ -965,8 +969,6 @@ do
 			module:GetImportMode(), addon.tLength(reservesData))
 		return true
 	end
-
-	local publishBatchCandidate = publishMutationCandidate
 
 	local function upsertPlayerReserve(target, playerKey, displayName, reserveEntry)
 		local player = target[playerKey]
@@ -1133,26 +1135,41 @@ do
 		return false
 	end
 
-	local function getDisplayContext()
+	getDisplayContext = function(state)
+		state = state
+			or {
+				reservesData = reservesData,
+				reservesByItemID = reservesByItemID,
+				reservesByItemPlayer = reservesByItemPlayer,
+				playerItemsByName = playerItemsByName,
+				reservesDisplayList = reservesDisplayList,
+				reservesDisplayRowsByKey = reservesDisplayRowsByKey,
+				reservesDisplayActiveKeys = reservesDisplayActiveKeys,
+				grouped = grouped,
+				reservesDirty = reservesDirty,
+			}
 		return {
-			reservesData = reservesData,
-			reservesByItemID = reservesByItemID,
-			reservesByItemPlayer = reservesByItemPlayer,
-			playerItemsByName = playerItemsByName,
-			reservesDisplayList = reservesDisplayList,
-			reservesDisplayRowsByKey = reservesDisplayRowsByKey,
-			reservesDisplayActiveKeys = reservesDisplayActiveKeys,
-			grouped = grouped,
+			reservesData = state.reservesData,
+			reservesByItemID = state.reservesByItemID,
+			reservesByItemPlayer = state.reservesByItemPlayer,
+			playerItemsByName = state.playerItemsByName,
+			reservesDisplayList = state.reservesDisplayList,
+			reservesDisplayRowsByKey = state.reservesDisplayRowsByKey,
+			reservesDisplayActiveKeys = state.reservesDisplayActiveKeys,
+			grouped = state.grouped,
 			resolvePlayerNameDisplay = resolvePlayerNameDisplay,
-			getReserveEntryForItem = getReserveEntryForItem,
+			getReserveEntryForItem = function(itemId, playerName)
+				return findReserveEntryForItem(state, itemId, playerName)
+			end,
 			getPlusForItem = function(itemId, playerName)
-				return module:GetPlusForItem(itemId, playerName)
+				local row = findReserveEntryForItem(state, itemId, playerName)
+				return (row and tonumber(row.plus)) or 0
 			end,
 			isPlusSystem = function()
-				return module:GetImportMode() == "plus"
+				return normalizeImportMode(state.nextMode or importMode) == "plus"
 			end,
 			isMultiReserve = function()
-				return module:GetImportMode() == "multi"
+				return normalizeImportMode(state.nextMode or importMode) == "multi"
 			end,
 			getRaidService = function()
 				return Services.Raid
@@ -1165,10 +1182,10 @@ do
 				return AliasHelpers.GetAliasMatches(getAliasState(), reservePlayers, raidPlayers)
 			end,
 			setDirty = function(value)
-				reservesDirty = value == true
+				state.reservesDirty = value == true
 			end,
 			isDirty = function()
-				return reservesDirty == true
+				return state.reservesDirty == true
 			end,
 		}
 	end
@@ -1531,7 +1548,7 @@ do
 			end
 		end
 
-		local published, publishReason = publishBatchCandidate(candidate)
+		local published, publishReason = publishMutationCandidate(candidate)
 		if not published then return nil, publishReason end
 		return true, { commands = #commands, changed = changed }
 	end
@@ -2062,7 +2079,7 @@ do
 	end
 
 	function module:GetReserveCountForItem(itemId, playerName)
-		local r = getReserveEntryForItem(itemId, playerName)
+		local r = findReserveEntryForItem(nil, itemId, playerName)
 		if not r then
 			return 0
 		end
@@ -2075,7 +2092,7 @@ do
 		if self:GetImportMode() ~= "plus" then
 			return 0
 		end
-		local r = getReserveEntryForItem(itemId, playerName)
+		local r = findReserveEntryForItem(nil, itemId, playerName)
 		return (r and tonumber(r.plus)) or 0
 	end
 

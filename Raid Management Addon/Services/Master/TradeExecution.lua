@@ -186,6 +186,7 @@ local function tryInitiateTrade(controller, itemLink, playerName, isAwardRoll, p
 	if not controller:PrepareTradeableItem(itemLink) then
 		return false, nil, false
 	end
+	pending.requiredCount = math.max(1, tonumber(controller.itemInfo.slotCount) or 1)
 
 	local evidence, evidenceReason
 	if type(controller.inventory.CaptureTradeEvidence) == "function" then
@@ -647,7 +648,8 @@ function TradeExecution.CreateController(opts)
 		if type(self.inventory.VerifyTradeEvidence) == "function" then
 			verified, awardedCountOrReason = self.inventory.VerifyTradeEvidence(
 				pending.tradeEvidence,
-				partnerName or pending.shownPartner
+				partnerName or pending.shownPartner,
+				pending.requiredCount
 			)
 		else
 			verified, awardedCountOrReason = nil, "trade_evidence_unavailable"
@@ -716,6 +718,9 @@ function TradeExecution.CreateController(opts)
 	end
 
 	function controller:TradeItem(itemLink, playerName, rollType, rollValue)
+		if pendingAcceptedTrade ~= nil then
+			return nil, "trade_in_flight"
+		end
 		if itemLink ~= self.loot.GetItemLink() then
 			return nil
 		end

@@ -445,7 +445,19 @@ local function findProvisional(itemLink, looter, rollSessionId, transactionId)
 	end
 	local resolvedSessionId = rollSessionId and tostring(rollSessionId) or nil
 	if not resolvedSessionId or resolvedSessionId == "" then
-		return nil
+		local itemKey = normalizePendingAwardItemKey(itemLink)
+		local winnerKey = canonicalWinner(looter)
+		local matched
+		for i = 1, #entries do
+			local entry = entries[i]
+			if entry.itemKey == itemKey and entry.itemLink == itemLink and entry.winnerKey == winnerKey then
+				if matched then
+					return nil
+				end
+				matched = entry
+			end
+		end
+		return matched
 	end
 	local itemKey = normalizePendingAwardItemKey(itemLink)
 	local winnerKey = canonicalWinner(looter)
@@ -463,21 +475,52 @@ local function findProvisional(itemLink, looter, rollSessionId, transactionId)
 	return nil
 end
 
+local function hasValidRecordIndex(provisional)
+	return (tonumber(provisional and provisional.recordIndex) or 0) > 0
+end
+
+local function reportTerminalFailure(provisional, reason)
+	if type(provisional.reportFailureOnce) == "function" then
+		provisional.reportFailureOnce(reason)
+	end
+end
+
+local function finalizeRecord(provisional, pending, source)
+	if provisional.finalized then
+		return hasValidRecordIndex(provisional)
+	end
+	provisional.finalized = true
+	provisional.finalizedSource = source
+	local finalizeFailed = false
+	if type(provisional.onFinalize) == "function" then
+		local finalized, recordIndex = pcall(provisional.onFinalize, provisional)
+		if finalized and (tonumber(recordIndex) or 0) > 0 then
+			provisional.recordIndex = recordIndex
+		else
+			finalizeFailed = true
+		end
+	end
+	consumePendingAwardReference(pending)
+	if finalizeFailed then
+		reportTerminalFailure(provisional, "record_finalize_failed")
+	end
+	return hasValidRecordIndex(provisional)
+end
+
 local function finalizeAuthoritative(provisional, pending)
 	if provisional.finalized then
 		return provisional
 	end
-	if type(provisional.onFinalize) == "function" then
-		provisional.recordIndex = provisional.onFinalize(provisional)
-	end
-	if type(provisional.onAuthoritative) == "function" then
-		provisional.onAuthoritative(provisional, provisional.authoritative)
-	end
-	provisional.finalized = true
+	local hasRecord = finalizeRecord(provisional, pending, "CHAT_MSG_LOOT")
 	provisional.reconciled = true
-	provisional.finalizedSource = "CHAT_MSG_LOOT"
 	provisional.retainUntil = GetTime() + PROVISIONAL_RETENTION_SECONDS
-	consumePendingAwardReference(pending)
+	if hasRecord and type(provisional.onAuthoritative) == "function" then
+		local reconciled = pcall(provisional.onAuthoritative, provisional, provisional.authoritative)
+		if not reconciled then
+			reportTerminalFailure(provisional, "record_reconcile_failed")
+		end
+	end
+	provisional.reportFailureOnce = nil
 	return provisional
 end
 
@@ -490,7 +533,8 @@ function LootAttribution.ConfirmProvisional(
 	graceSeconds,
 	scheduleTimer,
 	cancelTimer,
-	onFinalize
+	onFinalize,
+	onFailure
 )
 	local pending = findPendingForConfirmation(itemLink, looter, rollSessionId, transactionId)
 	if not pending then
@@ -502,6 +546,17 @@ function LootAttribution.ConfirmProvisional(
 			return finalizeAuthoritative(existing, pending)
 		end
 		return existing
+	end
+	local failureReported = false
+	local function reportFailureOnce(reason)
+		if failureReported then
+			return false
+		end
+		failureReported = true
+		if type(onFailure) == "function" then
+			pcall(onFailure, reason)
+		end
+		return true
 	end
 	local now = GetTime()
 	local provisional = {
@@ -522,6 +577,7 @@ function LootAttribution.ConfirmProvisional(
 		onFinalize = onFinalize,
 		authoritative = pending.authoritative,
 		onAuthoritative = pending.onAuthoritative,
+		reportFailureOnce = reportFailureOnce,
 	}
 	local entries = pruneProvisionalAwards(now)
 	entries[#entries + 1] = provisional
@@ -536,17 +592,16 @@ function LootAttribution.ConfirmProvisional(
 	if delay < 0 then
 		delay = 0
 	end
-	provisional.graceHandle = scheduleTimer(function()
+	local scheduled, handle = pcall(scheduleTimer, function()
 		provisional.graceHandle = nil
-		if provisional.finalized then
-			return
-		end
-		provisional.finalized = true
-		provisional.finalizedSource = "LOOT_SLOT_CLEARED"
-		if type(provisional.onFinalize) == "function" then
-			provisional.recordIndex = provisional.onFinalize(provisional)
-		end
+		finalizeRecord(provisional, pending, "LOOT_SLOT_CLEARED")
 	end, delay)
+	if scheduled and handle then
+		provisional.graceHandle = handle
+		return provisional
+	end
+	reportFailureOnce("timer_schedule_failed")
+	finalizeRecord(provisional, pending, "LOOT_SLOT_CLEARED")
 	return provisional
 end
 
@@ -555,23 +610,33 @@ function LootAttribution.ReconcileProvisional(itemLink, looter, rollSessionId, t
 	if not (pending and pending.slotConfirmed) then
 		return nil
 	end
-	if pending.graceHandle and type(cancelTimer) == "function" then
-		cancelTimer(pending.graceHandle)
-		pending.graceHandle = nil
+	if pending.reconciled then
+		return pending
+	end
+	local pendingAward = findPendingForConfirmation(itemLink, looter, rollSessionId, transactionId)
+	local graceHandle = pending.graceHandle
+	pending.graceHandle = nil
+	if graceHandle and type(cancelTimer) == "function" then
+		pcall(cancelTimer, graceHandle)
 	end
 	if not pending.finalized then
-		pending.finalized = true
-		pending.finalizedSource = "CHAT_MSG_LOOT"
-		if type(pending.onFinalize) == "function" then
-			pending.recordIndex = pending.onFinalize(pending)
-		end
+		finalizeRecord(pending, pendingAward, "CHAT_MSG_LOOT")
 	end
 	pending.reconciled = true
 	pending.finalizedSource = "CHAT_MSG_LOOT"
 	pending.retainUntil = GetTime() + PROVISIONAL_RETENTION_SECONDS
-	if type(onReconcile) == "function" then
-		onReconcile(pending)
+	consumePendingAwardReference(pendingAward)
+	if not hasValidRecordIndex(pending) then
+		pending.reportFailureOnce = nil
+		return nil, "provisional_record_unavailable"
 	end
+	if type(onReconcile) == "function" then
+		local reconciled = pcall(onReconcile, pending)
+		if not reconciled then
+			reportTerminalFailure(pending, "record_reconcile_failed")
+		end
+	end
+	pending.reportFailureOnce = nil
 	return pending
 end
 

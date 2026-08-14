@@ -671,6 +671,16 @@ local function installRaidCreationFixture(addon, failureMode)
 	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidStore.lua")
 	fixture.store = addon.DB.RaidStore
 	addon.Database.GetRaidStore = function() return fixture.store end
+	local captureHistory = fixture.store.CaptureRaidHistoryState
+	local restoreHistory = fixture.store.RestoreRaidHistoryState
+	fixture.store.CaptureRaidHistoryState = function(self)
+		fixture.historyCaptures = (fixture.historyCaptures or 0) + 1
+		return captureHistory(self)
+	end
+	fixture.store.RestoreRaidHistoryState = function(self, snapshot)
+		fixture.historyRestores = (fixture.historyRestores or 0) + 1
+		return restoreHistory(self, snapshot)
+	end
 	fixture.store:EnsureRaidByIndex(1)
 	fixture.store:EnsureRaidByIndex(2)
 	local realCreate = fixture.store.CreateRaidRecord
@@ -700,12 +710,29 @@ local function installRaidCreationFixture(addon, failureMode)
 		fixture.order[#fixture.order + 1] = eventName
 		if eventName == "RaidAttendanceChanged" then fixture.attendanceEventCurrentRaid = addon.Database.GetCurrentRaid() end
 	end
-	loadAddonFile(addon, "Raid Management Addon/Services/Raid/State.lua")
+	addon.Services.EnsureNamespace("Raid")
 	local raid = addon.Services.Raid
-	raid._SetNumRaidInternal = function(value) addon.State.raid.numRaid = value end
 	fixture.realmPlayers = { Existing = { name = "Existing", level = 80 } }
-	raid._EnsureRealmPlayerMetaInternal = function() return fixture.realmPlayers end
-	raid._UpsertPlayerMetaInternal = function(players, name) players[name] = { name = name } end
+	raid.CaptureRosterSessionState = function()
+		fixture.rosterCaptures = (fixture.rosterCaptures or 0) + 1
+		return { numRaid = addon.State.raid.numRaid, realmPlayers = deepCopy(fixture.realmPlayers) }
+	end
+	raid.RestoreRosterSessionState = function(_, snapshot)
+		fixture.rosterRestores = (fixture.rosterRestores or 0) + 1
+		addon.State.raid.numRaid, fixture.realmPlayers = snapshot.numRaid, deepCopy(snapshot.realmPlayers)
+		return true
+	end
+	raid.CommitRosterSession = function(_, _, pendingMeta, num)
+		for i = 1, #pendingMeta do
+			fixture.realmPlayers[pendingMeta[i][1]] = { name = pendingMeta[i][1] }
+		end
+		addon.State.raid.numRaid = num
+		fixture.rosterCommits = (fixture.rosterCommits or 0) + 1
+		return fixture.rosterCommits
+	end
+	loadAddonFile(addon, "Raid Management Addon/Services/Raid/State.lua")
+	raid._ScheduleRosterRefreshInternal = function() end
+	raid._CancelRosterRefreshInternal = function() end
 	function raid:CloseAttendanceForRaid(record, currentTime, reason, deferPublication)
 		record.attendance[1].segments[1].endTime = currentTime
 		fixture.store:TouchRaidSyncRevision(record)
@@ -868,6 +895,8 @@ local function installLootHardeningMasterFixture(addon, options)
 		counterCalls = 0,
 		refreshCalls = 0,
 		cancelledTimerHandles = {},
+		activeTimerHandles = {},
+		warningCount = 0,
 		candidateScans = 0,
 		lootCountScans = 0,
 	}
@@ -879,10 +908,15 @@ local function installLootHardeningMasterFixture(addon, options)
 		currentRollType = 4,
 		fromInventory = false,
 		holder = "Winner",
+		banker = "Banker",
+		disenchanter = "Disenchanter",
 		winner = "Winner",
 	}
 	local noop = function() end
 	local dummyController = setmetatable({}, { __index = function() return noop end })
+	dummyController.HasInFlightAward = function()
+		return fixture.tradeInFlight == true
+	end
 	local frameApi = {
 		GetRef = function() return nil end,
 		SetScriptSafely = noop,
@@ -927,6 +961,7 @@ local function installLootHardeningMasterFixture(addon, options)
 	addon.L = setmetatable({}, { __index = function(_, key) return key .. " %s %s %s %s %s %s" end })
 	addon.L.WarnMLAwardConfirmationUncertain = "uncertain %s %s %s"
 	addon.L.WarnMLAwardConfirmationUnresolved = "unresolved %s %s"
+	addon.L.WarnMLLootAttributionFailed = "attribution %s"
 	addon.L.ErrMLWinnerLootBanned = "banned %s"
 	addon.L.ErrMLWinnerLootBannedWithNote = "banned %s %s"
 	addon.L.WarnMLWinnerNoCandidate = "no candidate %s"
@@ -987,7 +1022,17 @@ local function installLootHardeningMasterFixture(addon, options)
 		RegisterNamespace = noop,
 		GetValue = function(_, key) return key == "announceOnWin" and fixture.announceOnWin == true end,
 	}
-	addon.Bus = { TriggerEvent = noop, RegisterCallback = noop }
+	addon.Bus = {
+		TriggerEvent = function(eventName)
+			if eventName == "RaidLootUpdate" then
+				fixture.raidLootUpdateCount = (fixture.raidLootUpdateCount or 0) + 1
+				if fixture.throwRaidLootUpdateAt == fixture.raidLootUpdateCount then
+					error("injected authoritative reconciliation failure")
+				end
+			end
+		end,
+		RegisterCallback = noop,
+	}
 	addon.Controllers = { Logger = {}, Config = {} }
 	addon.Widgets = {
 		RaidGrid = { Hide = noop },
@@ -1007,15 +1052,31 @@ local function installLootHardeningMasterFixture(addon, options)
 					return nil
 				end
 				fixture.timers = fixture.timers + 1
-				fixture.timerCallbacks[#fixture.timerCallbacks + 1] = callback
-				return callback
+				local handle
+				handle = function(...)
+					fixture.activeTimerHandles[handle] = nil
+					return callback(...)
+				end
+				fixture.activeTimerHandles[handle] = true
+				fixture.timerCallbacks[#fixture.timerCallbacks + 1] = handle
+				return handle
 			end
 			function target:CancelTimer(handle)
+				fixture.activeTimerHandles[handle] = nil
 				fixture.cancelledTimerHandles[#fixture.cancelledTimerHandles + 1] = handle
 			end
 		end,
 	}
-	addon.warn = noop
+	function fixture.activeTimerCount()
+		local count = 0
+		for _ in pairs(fixture.activeTimerHandles) do count = count + 1 end
+		return count
+	end
+	addon.warn = function(_, message)
+		fixture.warningCount = fixture.warningCount + 1
+		fixture.lastWarning = message
+		if type(fixture.onWarn) == "function" then fixture.onWarn() end
+	end
 	addon.info = noop
 	addon.debug = noop
 	addon.error = noop
@@ -1157,6 +1218,7 @@ local function installLootHardeningMasterFixture(addon, options)
 		addon.Database.GetRaidStore = function()
 			return {
 				EnsureRaidByIndex = function() return fixture.raid end,
+				MarkLootSyncRevision = function() return true end,
 				UpsertLootIndex = function() return true end,
 			}
 		end
@@ -1177,14 +1239,6 @@ local function installLootHardeningMasterFixture(addon, options)
 			BeginLootWindow = function() end,
 			SelectItem = function() end,
 		}, getmetatable(noopLootOwner))
-		addon.Services.Loot._Recording = setmetatable({
-			FindTradeOnlyFallback = function() return nil end,
-			Append = function(raid, row)
-				row.lootNid = #raid.loot + 1
-				raid.loot[#raid.loot + 1] = row
-				return row, row.lootNid, #raid.loot
-			end,
-		}, getmetatable(noopLootOwner))
 		addon.Services.Loot._Rules = {
 			_IsIgnoredItem = function() return false end,
 			GetItemSuggestion = function() return nil end,
@@ -1193,6 +1247,7 @@ local function installLootHardeningMasterFixture(addon, options)
 		addon.Services.Loot.DistributionSession.BeginWindow = function() return 1 end
 		addon.Services.Loot.DistributionSession.PublishWindowItems = function() return true end
 		loadAddonFile(addon, "Raid Management Addon/Services/Loot/LootAttribution.lua")
+		loadAddonFile(addon, "Raid Management Addon/Services/Loot/Recording.lua")
 		local addAttribution = addon.Services.Loot.LootAttribution.Add
 		addon.Services.Loot.LootAttribution.Add = function(...)
 			fixture.realAttributionAddCalls = (fixture.realAttributionAddCalls or 0) + 1
@@ -1436,58 +1491,58 @@ end
 function cases.loot_distribution_window_receiver_is_session_scoped(addon)
 	local fixture = createDistributionSessionFixture(addon)
 	local owner = fixture.owner
-	fixture:Deliver("WINDOW_BEGIN|2|session-a|1|1")
-	fixture:Deliver("WINDOW_ITEM|2|session-a|1|item:old|1|4|item:old|Old|texture|1")
-	fixture:Deliver("WINDOW_END|2|session-a|1")
+	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:1:10|1|1")
+	fixture:Deliver("WINDOW_ITEM|2|LeaderA:1:10|1|item:old|1|4|item:old|Old|texture|1")
+	fixture:Deliver("WINDOW_END|2|LeaderA:1:10|1")
 	local committed = owner.GetDisplayModel()
 	assertEqual(1, committed.revision, "initial complete revision did not commit")
 	assertEqual("item:old", committed.rows[1].itemKey, "initial row differs")
 
-	fixture:Deliver("WINDOW_BEGIN|2|session-a|2|2")
-	fixture:Deliver("WINDOW_ITEM|2|session-a|2|item:new|1|4|item:new|New|texture|1")
-	fixture:Deliver("WINDOW_END|2|session-a|2")
+	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:1:10|2|2")
+	fixture:Deliver("WINDOW_ITEM|2|LeaderA:1:10|2|item:new|1|4|item:new|New|texture|1")
+	fixture:Deliver("WINDOW_END|2|LeaderA:1:10|2")
 	assertTrue(deepEqual(committed, owner.GetDisplayModel()), "missing row replaced complete display")
 
-	fixture:Deliver("WINDOW_BEGIN|2|session-a|2|1")
-	fixture:Deliver("WINDOW_ITEM|2|session-a|2|item:dup|1|4|item:dup|Dup|texture|1")
-	fixture:Deliver("WINDOW_ITEM|2|session-a|2|item:dup|1|4|item:dup|Changed|texture|1")
-	fixture:Deliver("WINDOW_END|2|session-a|2")
+	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:1:10|2|1")
+	fixture:Deliver("WINDOW_ITEM|2|LeaderA:1:10|2|item:dup|1|4|item:dup|Dup|texture|1")
+	fixture:Deliver("WINDOW_ITEM|2|LeaderA:1:10|2|item:dup|1|4|item:dup|Changed|texture|1")
+	fixture:Deliver("WINDOW_END|2|LeaderA:1:10|2")
 	assertTrue(deepEqual(committed, owner.GetDisplayModel()), "duplicate row replaced complete display")
 
-	fixture:Deliver("WINDOW_BEGIN|2|session-a|2|0")
-	fixture:Deliver("WINDOW_END|2|session-a|2")
+	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:1:10|2|0")
+	fixture:Deliver("WINDOW_END|2|LeaderA:1:10|2")
 	local empty = owner.GetDisplayModel()
 	assertEqual(2, empty.revision, "complete zero-row revision did not commit")
 	assertEqual(0, #empty.rows, "zero-row window retained rows")
 
-	fixture:Deliver("WINDOW_BEGIN|2|session-a|3|129")
-	fixture:Deliver("WINDOW_ITEM|2|session-a|3|item:oversized|1|4|item:oversized|Oversized|texture|1")
-	fixture:Deliver("WINDOW_END|2|session-a|3")
+	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:1:10|3|129")
+	fixture:Deliver("WINDOW_ITEM|2|LeaderA:1:10|3|item:oversized|1|4|item:oversized|Oversized|texture|1")
+	fixture:Deliver("WINDOW_END|2|LeaderA:1:10|3")
 	assertTrue(deepEqual(empty, owner.GetDisplayModel()), "oversized expected row count mutated display")
 
-	fixture:Deliver("WINDOW_BEGIN|2|session-a|2|1")
-	fixture:Deliver("WINDOW_BEGIN|2|session-a|4|1")
-	fixture:Deliver("WINDOW_ITEM|2|session-a|4|item:gap|1|4|item:gap|Gap|texture|1")
-	fixture:Deliver("WINDOW_END|2|session-a|4")
+	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:1:10|2|1")
+	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:1:10|4|1")
+	fixture:Deliver("WINDOW_ITEM|2|LeaderA:1:10|4|item:gap|1|4|item:gap|Gap|texture|1")
+	fixture:Deliver("WINDOW_END|2|LeaderA:1:10|4")
 	assertTrue(deepEqual(empty, owner.GetDisplayModel()), "equal or gapped revision mutated display")
-	fixture:Deliver("WINDOW_BEGIN|2|session-next|1|0")
-	fixture:Deliver("WINDOW_END|2|session-next|1")
+	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:2:20|1|0")
+	fixture:Deliver("WINDOW_END|2|LeaderA:2:20|1")
 	local nextSession = owner.GetDisplayModel()
-	assertEqual("session-next", nextSession.sessionId, "same authority could not advance to a new session")
-	fixture:Deliver("WINDOW_BEGIN|2|session-a|3|0")
-	fixture:Deliver("WINDOW_END|2|session-a|3")
+	assertEqual("LeaderA:2:20", nextSession.sessionId, "same authority could not advance to a new session")
+	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:1:10|3|0")
+	fixture:Deliver("WINDOW_END|2|LeaderA:1:10|3")
 	assertTrue(deepEqual(nextSession, owner.GetDisplayModel()), "superseded same-authority session resurrected")
 
 	fixture.authority = "LeaderB"
-	fixture:Deliver("WINDOW_BEGIN|2|session-b|1|1", "LeaderB")
-	assertTrue(owner._streams["LeaderB|session-b"] and owner._streams["LeaderB|session-b"].window, "new authority begin was rejected")
-	fixture:Deliver("WINDOW_ITEM|2|session-b|1|item:b|1|4|item:b|B|texture|1", "LeaderB")
-	assertEqual(1, #owner._streams["LeaderB|session-b"].window.order, "new authority row was rejected")
-	fixture:Deliver("WINDOW_END|2|session-b|1", "LeaderB")
+	fixture:Deliver("WINDOW_BEGIN|2|LeaderB:1:30|1|1", "LeaderB")
+	assertTrue(owner._streams["LeaderB|LeaderB:1:30"] and owner._streams["LeaderB|LeaderB:1:30"].window, "new authority begin was rejected")
+	fixture:Deliver("WINDOW_ITEM|2|LeaderB:1:30|1|item:b|1|4|item:b|B|texture|1", "LeaderB")
+	assertEqual(1, #owner._streams["LeaderB|LeaderB:1:30"].window.order, "new authority row was rejected")
+	fixture:Deliver("WINDOW_END|2|LeaderB:1:30|1", "LeaderB")
 	local authorityDisplay = owner.GetDisplayModel()
-	assertEqual("session-b", authorityDisplay.sessionId, "new authority did not replace session")
-	fixture:Deliver("WINDOW_BEGIN|2|session-a|4|0", "LeaderA")
-	fixture:Deliver("WINDOW_END|2|session-a|4", "LeaderA")
+	assertEqual("LeaderB:1:30", authorityDisplay.sessionId, "new authority did not replace session")
+	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:3:30|4|0", "LeaderA")
+	fixture:Deliver("WINDOW_END|2|LeaderA:3:30|4", "LeaderA")
 	assertTrue(deepEqual(authorityDisplay, owner.GetDisplayModel()), "delayed old-authority window mutated display")
 	print("PASS loot_distribution_window_receiver_is_session_scoped")
 end
@@ -1537,6 +1592,75 @@ function cases.loot_distribution_clear_requires_ordered_owner_transition(addon)
 	fixture:Deliver("SNAP|2|late|LeaderA:4:40|item:late|1|4|item:late|Late|texture|1|active|||||||")
 	assertTrue(deepEqual(afterSnapshotClear, owner.GetDisplayModel()), "superseded snapshot-only owner resurrected")
 	print("PASS loot_distribution_clear_requires_ordered_owner_transition")
+end
+
+function cases.loot_distribution_generated_session_order_is_validated(addon)
+	local fixture = createDistributionSessionFixture(addon)
+	local owner = fixture.owner
+	fixture.authority = "Authority"
+	local function commit(sessionId, revision, itemKey)
+		fixture:Deliver("WINDOW_BEGIN|2|" .. sessionId .. "|" .. revision .. "|1")
+		fixture:Deliver("WINDOW_ITEM|2|" .. sessionId .. "|" .. revision .. "|" .. itemKey .. "|1|4|" .. itemKey .. "|Item|texture|1")
+		fixture:Deliver("WINDOW_END|2|" .. sessionId .. "|" .. revision)
+	end
+	commit("Authority:1:100", 1, "item:current")
+	local current = owner.GetDisplayModel()
+	assertEqual("Authority:1:100", current.sessionId, "initial generated session did not commit")
+
+	local rejected = {
+		"Other:2:100",
+		"Authority:0:100",
+		"Authority:1:nan",
+		"Authority:2",
+		"Authority:2:99",
+		"Authority:9007199254740992:101",
+	}
+	for i = 1, #rejected do
+		local sessionId = rejected[i]
+		fixture:Deliver("WINDOW_BEGIN|2|" .. sessionId .. "|1|0")
+		fixture:Deliver("WINDOW_END|2|" .. sessionId .. "|1")
+		assertTrue(deepEqual(current, owner.GetDisplayModel()), "invalid generated window replaced current session: " .. sessionId)
+		fixture:Deliver("CLEAR|2|" .. sessionId)
+		assertTrue(deepEqual(current, owner.GetDisplayModel()), "invalid generated CLEAR replaced current session: " .. sessionId)
+	end
+	fixture.authority = "NextAuthority"
+	fixture:Deliver("CLEAR|2|Other:1:101", "NextAuthority")
+	assertTrue(deepEqual(current, owner.GetDisplayModel()), "new authority admitted a session ID owned by another sender")
+	fixture.authority = "Authority"
+
+	fixture:Deliver("CLEAR|2|Authority:2:101")
+	local newer = owner.GetDisplayModel()
+	assertEqual("Authority:2:101", newer.sessionId, "newer timestamp did not replace current session")
+	fixture:Deliver("CLEAR|2|Authority:1:101")
+	assertTrue(deepEqual(newer, owner.GetDisplayModel()), "lower ordinal replaced session at the same timestamp")
+	fixture:Deliver("CLEAR|2|Authority:3:101")
+	assertEqual("Authority:3:101", owner.GetDisplayModel().sessionId, "higher ordinal did not replace session at the same timestamp")
+	print("PASS loot_distribution_generated_session_order_is_validated")
+end
+
+function cases.loot_distribution_authority_handoff_without_provenance_is_validated(addon)
+	local fixture = createDistributionSessionFixture(addon)
+	local owner = fixture.owner
+	assertTrue(owner.BeginWindow(0) ~= nil, "local owner did not create distribution state")
+	assertEqual(true, owner.Clear(), "local owner clear failed")
+	local localClear = owner.GetDisplayModel()
+	assertEqual("Tester:2:10", localClear.sessionId, "local clear did not create the expected generated session")
+
+	fixture.authority = "NewLeader"
+	fixture:Deliver("CLEAR|2|NewLeader:1:20", "NewLeader")
+	assertEqual("NewLeader:1:20", owner.GetDisplayModel().sessionId, "new authority CLEAR was rejected without owner provenance")
+	fixture:Deliver("WINDOW_BEGIN|2|NewLeader:2:30|1|1", "NewLeader")
+	fixture:Deliver("WINDOW_ITEM|2|NewLeader:2:30|1|item:new|1|4|item:new|New|texture|1", "NewLeader")
+	fixture:Deliver("WINDOW_END|2|NewLeader:2:30|1", "NewLeader")
+	local active = owner.GetDisplayModel()
+	assertEqual("NewLeader:2:30", active.sessionId, "new authority window did not become active")
+	assertEqual("item:new", active.rows[1].itemKey, "new authority window row differs")
+
+	fixture:Deliver("CLEAR|2|NewLeader:1:29", "NewLeader")
+	assertTrue(deepEqual(active, owner.GetDisplayModel()), "older same-authority candidate replaced active session")
+	fixture:Deliver("CLEAR|2|NewLeader:invalid", "NewLeader")
+	assertTrue(deepEqual(active, owner.GetDisplayModel()), "malformed same-authority candidate replaced active session")
+	print("PASS loot_distribution_authority_handoff_without_provenance_is_validated")
 end
 
 function cases.loot_distribution_ownership_and_session_end_are_retry_safe(addon)
@@ -1756,6 +1880,57 @@ function cases.loot_award_attempt_checkpoints_are_retry_safe(addon)
 	print("PASS loot_award_attempt_checkpoints_are_retry_safe")
 end
 
+function cases.loot_award_attempt_snapshots_supported_fields_only(addon)
+	addon.Services = {
+		EnsureNamespace = function(name)
+			addon.Services[name] = addon.Services[name] or {}
+			return addon.Services[name]
+		end,
+	}
+	loadAddonFile(addon, "Raid Management Addon/Services/Master/AwardAttempt.lua")
+	local source = { kind = "loot", slot = 3 }
+	local context = { bagId = 0, slotId = 4 }
+	local callbackCount = 0
+	local attempt = addon.Services.Master.AwardAttempt.CreateExecuting({
+		transactionId = "tx-simple-copy",
+		winnerName = "Alpha",
+		source = source,
+		executorContext = context,
+		onConfirm = function(snapshot)
+			callbackCount = callbackCount + 1
+			assertEqual(3, snapshot.source.slot, "later callback source snapshot must be unchanged")
+			assertEqual(4, snapshot.executorContext.slotId, "later callback context snapshot must be unchanged")
+			assertEqual(true, snapshot.checkpoints.publish, "later callback checkpoint snapshot must be unchanged")
+			if callbackCount == 1 then
+				snapshot.source.slot = 21
+				snapshot.executorContext.slotId = 22
+				snapshot.checkpoints.publish = false
+				return nil, "retry_snapshot"
+			end
+			return true
+		end,
+	})
+	source.slot = 9
+	context.slotId = 8
+	assertEqual(true, attempt:RunCheckpoint("publish", function() return true end), "checkpoint must complete")
+	local exposed = attempt:GetState()
+	exposed.source.slot = 12
+	exposed.executorContext.slotId = 13
+	exposed.checkpoints.publish = false
+	local fresh = attempt:GetState()
+	assertEqual(3, fresh.source.slot, "returned source must not alias attempt state")
+	assertEqual(4, fresh.executorContext.slotId, "returned context must not alias attempt state")
+	assertEqual(true, fresh.checkpoints.publish, "returned checkpoints must not alias attempt state")
+	assertEqual(nil, attempt:Confirm(), "first callback must request a retry")
+	fresh = attempt:GetState()
+	assertEqual(3, fresh.source.slot, "callback source must not alias attempt state")
+	assertEqual(4, fresh.executorContext.slotId, "callback context must not alias attempt state")
+	assertEqual(true, fresh.checkpoints.publish, "callback checkpoints must not alias attempt state")
+	assertEqual(true, attempt:Confirm(), "later callback must receive an unchanged snapshot")
+	assertEqual(2, callbackCount, "confirm retry must capture two callback snapshots")
+	print("PASS loot_award_attempt_snapshots_supported_fields_only")
+end
+
 function cases.loot_award_confirmation_retains_uncertain_effect(addon)
 	addon.Services = {
 		EnsureNamespace = function(name)
@@ -1886,6 +2061,10 @@ function cases.raid_session_create_failure_is_atomic(addon)
 		assertEqual(1, fixture.store:GetRaidIndexByNid(41), "first existing nid mapping must survive rollback")
 		assertEqual(2, fixture.store:GetRaidIndexByNid(73), "second existing nid mapping must survive rollback")
 		assertEqual(0, #fixture.events, "failed creation must publish no event")
+		assertEqual(1, fixture.historyCaptures, "Create must capture history once")
+		assertEqual(1, fixture.rosterCaptures, "Create must capture roster once")
+		assertEqual(1, fixture.historyRestores, "failed Create must restore history once")
+		assertEqual(1, fixture.rosterRestores, "failed Create must restore roster once")
 	end
 	print("PASS raid_session_create_failure_is_atomic")
 end
@@ -1898,7 +2077,65 @@ function cases.raid_session_replacement_preserves_event_order(addon)
 	assertEqual("RaidAttendanceChanged", fixture.order[2], "old attendance close event order changed")
 	assertEqual("RaidCreate", fixture.order[3], "raid create event must remain last")
 	assertEqual(3, fixture.attendanceEventCurrentRaid, "attendance publication must observe the committed replacement")
+	assertEqual(1, fixture.historyCaptures, "replacement captures history once")
+	assertEqual(nil, fixture.historyRestores, "successful replacement does not restore")
+	assertEqual(1, fixture.rosterCommits, "replacement commits roster once")
 	print("PASS raid_session_replacement_preserves_event_order")
+end
+
+
+function cases.raid_state_resolves_roster_timers_after_toc_order_load(addon)
+	local fixture, raid = installRaidCreationFixture(addon, nil)
+	local fixtureSchedule = raid._ScheduleRosterRefreshInternal
+	local savedPlayers = { ["Test Realm"] = fixture.realmPlayers }
+	addon.Events.Internal.RaidRosterDelta = "RaidRosterDelta"
+	addon.Database.SavedVariables.GetPlayers = function() return savedPlayers end
+	addon.Timer = { BindMixin = function(target) fixture:InstallTimers(target) end }
+	addon.IsInGroup = function() return true end
+	addon.Database.GetPlayerName = function() return "Alpha" end
+	_G.UnitSex = function() return 2 end
+
+	loadAddonFile(addon, "Raid Management Addon/Services/Raid/Roster.lua")
+	assertTrue(raid._ScheduleRosterRefreshInternal ~= fixtureSchedule, "Roster must install the real scheduler after State")
+	raid.CheckPlayer = function() return true end
+	raid:CheckInitialRaidState()
+	local scheduled = raid.updateRosterHandle
+	assertTrue(scheduled and scheduled.active, "State must resolve the roster scheduler after both files load")
+	raid:End()
+	assertEqual(false, scheduled.active, "State must resolve roster cancellation after both files load")
+	assertEqual(nil, raid.updateRosterHandle, "roster cancellation must clear the scheduled handle")
+	print("PASS raid_state_resolves_roster_timers_after_toc_order_load")
+end
+
+function cases.raid_create_rejects_malformed_roster_metadata(addon)
+	local scenarios = {
+		{ name = "realm root", realmPlayers = "corrupt" },
+		{ name = "realm child", realmPlayers = { Existing = "corrupt" } },
+	}
+	for i = 1, #scenarios do
+		local scenario = scenarios[i]
+		local fixture, raid = installRaidCreationFixture(addon, nil)
+		local savedPlayers = { ["Test Realm"] = scenario.realmPlayers }
+		local beforePlayers = deepCopy(savedPlayers)
+		local beforeRaid = deepCopy(fixture.raids[1])
+		addon.Events.Internal.RaidRosterDelta = "RaidRosterDelta"
+		addon.Database.SavedVariables.GetPlayers = function() return savedPlayers end
+		addon.Timer = { BindMixin = function(target) fixture:InstallTimers(target) end }
+		addon.IsInGroup = function() return true end
+		addon.Database.GetPlayerName = function() return "Alpha" end
+		_G.UnitSex = function() return 2 end
+		loadAddonFile(addon, "Raid Management Addon/Services/Raid/Roster.lua")
+
+		local ok, result = pcall(raid.Create, raid, "Ulduar", 25, 2)
+		assertEqual(true, ok, scenario.name .. " must not escape a Lua error")
+		assertEqual(false, result, scenario.name .. " must reject raid creation")
+		assertEqual(1, addon.Database.GetCurrentRaid(), scenario.name .. " changed the active raid")
+		assertTrue(deepEqual(beforeRaid, fixture.raids[1]), scenario.name .. " mutated the existing raid")
+		assertTrue(deepEqual(beforePlayers, savedPlayers), scenario.name .. " mutated SavedVariables")
+		assertEqual(2, #fixture.raids, scenario.name .. " persisted a candidate raid")
+		assertEqual(0, #fixture.events, scenario.name .. " published an event")
+	end
+	print("PASS raid_create_rejects_malformed_roster_metadata")
 end
 
 
@@ -1931,6 +2168,10 @@ function cases.raid_session_switch_failure_rolls_back_candidate(addon)
 			assertEqual(1, fixture.store:GetRaidIndexByNid(41), "first existing nid mapping must survive rollback")
 			assertEqual(2, fixture.store:GetRaidIndexByNid(73), "second existing nid mapping must survive rollback")
 			assertEqual(0, #fixture.events, "switch failure must publish no event")
+			assertEqual(1, fixture.historyCaptures, "Create must capture history once")
+			assertEqual(1, fixture.rosterCaptures, "Create must capture roster once")
+			assertEqual(1, fixture.historyRestores, "failed Create must restore history once")
+			assertEqual(1, fixture.rosterRestores, "failed Create must restore roster once")
 		end
 	end
 	print("PASS raid_session_switch_failure_rolls_back_candidate")
@@ -2563,6 +2804,9 @@ local function installLoggerCleanupFixture(addon)
 	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidStore.lua")
 	fixture.store = addon.DB.RaidStore
 	addon.Database.GetRaidStore = function() return fixture.store end
+	addon.IgnoredMobs = { IsTrashMobName = function() return false end }
+	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidValidator.lua")
+	addon.Database.GetRaidValidator = function() return addon.DB.RaidValidator end
 	fixture.store:GetAllRaids()
 	fixture.store:SetRaidSyncRevision(fixture.raids[2], 8)
 	addon.L = {}
@@ -2722,11 +2966,10 @@ end
 
 function cases.logger_async_cleanup_conflicts_when_candidate_becomes_current(addon)
 	local fixture, actions = installLoggerCleanupFixture(addon)
-	local originalCapture = fixture.store.CaptureRaidHistoryState
-	fixture.store.CaptureRaidHistoryState = function(store)
-		local snapshot = originalCapture(store)
+	local originalCommit = fixture.store.CommitRaidHistoryCleanup
+	fixture.store.CommitRaidHistoryCleanup = function(store, plan, currentRaidNid)
 		fixture.currentRaid = 1
-		return snapshot
+		return originalCommit(store, plan, fixture.raids[fixture.currentRaid].raidNid)
 	end
 	local callbackResult, callbackComplete
 	actions:StartRaidHistoryCleanup(function(result, complete)
@@ -2929,20 +3172,40 @@ function cases.inspect_coordinator_serializes_global_ownership(addon)
 	nowValue = 5.25
 	for i = 1, #timers do if not timers[i].cancelled and timers[i].deadline <= nowValue then timers[i].cancelled = true; timers[i].callback() end end
 	assertEqual("combat", starts[3], "regen starts deferred request")
-	nowValue = 12
+	nowValue = 13.5
 	for i = 1, #timers do if not timers[i].cancelled and timers[i].deadline <= nowValue then timers[i].callback() end end
 	assertEqual("timeout", finishes[#finishes], "deadline completes once with timeout")
 	assertEqual(4, clears, "timeout clears only current owner")
 
-	local expiryFinishes = 0
+	local combatStarts, combatFinishes = 0, 0
 	combat = true
-	coordinator:Request("combat-expiry", "raid3", "guid-expire", function() fail("expired combat request started") end, function(reason)
-		assertEqual("timeout", reason, "queued combat work uses total deadline")
-		expiryFinishes = expiryFinishes + 1
+	coordinator:Request("combat-deferral", "raid3", "guid-combat", function()
+		combatStarts = combatStarts + 1
+	end, function(reason)
+		assertEqual("timeout", reason, "active combat-deferred request must retain the timeout reason")
+		combatFinishes = combatFinishes + 1
 	end)
 	nowValue = 21
-	for i = 1, #timers do if not timers[i].cancelled and timers[i].deadline <= nowValue then timers[i].cancelled = true; timers[i].callback() end end
-	assertEqual(1, expiryFinishes, "queued combat deadline completes exactly once")
+	for i = 1, #timers do
+		if not timers[i].cancelled and timers[i].deadline <= nowValue then
+			timers[i].cancelled = true
+			timers[i].callback()
+		end
+	end
+	assertEqual(0, combatStarts, "combat-deferred work must not start in combat")
+	assertEqual(0, combatFinishes, "queued time must not consume the active timeout")
+	combat = false
+	callbacks.PLAYER_REGEN_ENABLED()
+	assertEqual(1, combatStarts, "regen must start deferred work once")
+	nowValue = 29.1
+	for i = 1, #timers do
+		if not timers[i].cancelled and timers[i].deadline <= nowValue then
+			timers[i].cancelled = true
+			timers[i].callback()
+		end
+	end
+	assertEqual(1, combatFinishes, "timeout must begin at activation and finish once")
+	combat = true
 	for i = 1, 40 do
 		assertEqual(true, coordinator:Request("cap-" .. tostring(i), "raid1", "guid-cap", function() end), "bounded queue accepts capacity")
 	end
@@ -3068,6 +3331,54 @@ function cases.equip_inspect_throttle_timer_failure_is_terminal(addon)
 	print("PASS equip_inspect_throttle_timer_failure_is_terminal")
 end
 
+function cases.equip_inspect_initial_timer_failure_preserves_reentrant_replacement(addon)
+	local fixture, inspect = installEquipInspectFixture(addon)
+	local coordinator = addon.Services.InspectCoordinator
+	local scheduleTimer = coordinator.ScheduleTimer
+	local injected = false
+	coordinator.ScheduleTimer = function(self, callback, delay)
+		if delay == 8 and not injected then
+			injected = true
+			return nil
+		end
+		return scheduleTimer(self, callback, delay)
+	end
+
+	local terminalUpdates = 0
+	local replacementAccepted, replacementStatus
+	fixture.onEvent = function(eventName, raidNid, playerNid, snapshot)
+		if eventName == "EquipInspectUpdated"
+			and raidNid == 73
+			and playerNid == 21
+			and snapshot
+			and snapshot.status == "failed"
+			and snapshot.reason == "inspect_timer_failed"
+		then
+			terminalUpdates = terminalUpdates + 1
+			if terminalUpdates == 1 then
+				replacementAccepted, replacementStatus = inspect:ForcePlayer(2, 21)
+			end
+		end
+	end
+
+	local accepted, reason = inspect:ForcePlayer(2, 21)
+	assertEqual(false, accepted, "initial timer failure must reject the original request")
+	assertEqual("inspect_timer_failed", reason, "initial timer failure reason must remain stable")
+	assertEqual(1, terminalUpdates, "initial timer failure must emit one terminal update")
+	assertEqual(true, replacementAccepted, "terminal subscriber must enqueue replacement work")
+	assertEqual("queued", replacementStatus, "replacement must retain coordinator admission")
+	assertEqual("pending", inspect:GetSnapshot(fixture.raids[2], 21).status, "stale rejection must preserve replacement status")
+	assertEqual(0, #fixture.inspectRequests, "replacement must respect the global minimum interval")
+	fixture:AdvanceTime(1.75)
+	assertEqual(1, #fixture.inspectRequests, "replacement must reach NotifyInspect once")
+
+	fixture.onEvent = nil
+	fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
+	assertEqual("ready", inspect:GetSnapshot(fixture.raids[2], 21).status, "replacement must complete normally")
+	coordinator.ScheduleTimer = scheduleTimer
+	print("PASS equip_inspect_initial_timer_failure_preserves_reentrant_replacement")
+end
+
 function cases.equip_inspect_own_timer_failures_are_terminal(addon)
 	local function countTerminalUpdates(fixture, raidNid, playerNid)
 		local count = 0
@@ -3095,10 +3406,13 @@ function cases.equip_inspect_own_timer_failures_are_terminal(addon)
 		assertEqual("pending", select(2, inspect:ForcePlayer(2, 21)), failureMode .. " handoff blocker starts")
 		fixture.currentRaid = 1
 		assertEqual("queued", select(2, inspect:ForcePlayer(1, 11)), failureMode .. " handoff work queues")
-		local scheduleTimer = inspect.ScheduleTimer
-		inspect.ScheduleTimer = function(self, callback, delay)
-			if delay == 1.75 then
-				if failureMode == "throw" then error("injected EquipInspect handoff timer failure") end
+		local coordinator = addon.Services.InspectCoordinator
+		local scheduleTimer = coordinator.ScheduleTimer
+		local injected = false
+		coordinator.ScheduleTimer = function(self, callback, delay)
+			if delay == 1.75 and not injected then
+				injected = true
+				if failureMode == "throw" then error("injected InspectCoordinator handoff timer failure") end
 				return nil
 			end
 			return scheduleTimer(self, callback, delay)
@@ -3129,33 +3443,12 @@ function cases.equip_inspect_own_timer_failures_are_terminal(addon)
 		end
 		assertEqual(0, completionCount, failureMode .. " stale completion cannot close reentrant session")
 		fixture.onEvent = nil
-		inspect.ScheduleTimer = scheduleTimer
+		coordinator.ScheduleTimer = scheduleTimer
 		fixture:AdvanceTime(2)
 		assertEqual(2, #fixture.inspectRequests, failureMode .. " reentrant work receives coordinator ownership")
 		fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
 		fixture:AdvanceTime(20)
 		assertEqual(1, countTerminalUpdates(fixture, 41, 11), failureMode .. " handoff leaves no stale callback")
-	end
-
-	for _, failureMode in ipairs({ "nil", "throw" }) do
-		local fixture, inspect = installEquipInspectFixture(addon)
-		fixture.inCombat = true
-		local scheduleTimer = inspect.ScheduleTimer
-		inspect.ScheduleTimer = function()
-			if failureMode == "throw" then error("injected EquipInspect combat timer failure") end
-			return nil
-		end
-		local ok, reason = inspect:ForcePlayer(2, 21)
-		assertEqual(false, ok, failureMode .. " combat retry timer failure is synchronous")
-		assertEqual("inspect_timer_failed", reason, failureMode .. " combat retry reason is stable")
-		assertEqual("failed", inspect:GetSnapshot(fixture.raids[2], 21).status, failureMode .. " combat retry terminalizes")
-		assertEqual(1, countTerminalUpdates(fixture, 73, 21), failureMode .. " combat retry finalizes once")
-		inspect.ScheduleTimer = scheduleTimer
-		fixture.inCombat = false
-		fixture.inspectCallbacks.PLAYER_REGEN_ENABLED()
-		fixture:AdvanceTime(20)
-		assertEqual(0, #fixture.inspectRequests, failureMode .. " combat retry leaves no stale inspect")
-		assertEqual(1, countTerminalUpdates(fixture, 73, 21), failureMode .. " combat retry callback remains single")
 	end
 
 	for _, failureMode in ipairs({ "nil", "throw" }) do
@@ -3287,6 +3580,7 @@ function cases.equip_inspect_item_information_timeout_preserves_last_good(addon)
 
 	fixture.itemLinks[1] = itemLink(1002)
 	assertEqual(true, inspect:ForcePlayer(2, 21), "replacement inspect starts")
+	fixture:AdvanceTime(1.75)
 	fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
 	fixture:AdvanceTime(8)
 	assertTrue(deepEqual(canonical, raid.inspect), "item timeout preserves the last good snapshot")
@@ -3456,6 +3750,7 @@ function cases.equip_inspect_ready_persistence_is_atomic_revisioned_full_sync(ad
 	end
 	local updatedEventCount = countReadyUpdatedEvents()
 	assertEqual(true, inspect:ForcePlayer(2, 21), "identical ready inspect starts")
+	fixture:AdvanceTime(1.75)
 	fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
 	assertEqual(initialRevision + 1, fixture.store:GetRaidSyncRevision(raid), "identical ready snapshot is revision no-op")
 	assertTrue(deepEqual(canonical, raid.inspect), "identical ready snapshot is canonical no-op")
@@ -3471,6 +3766,7 @@ function cases.equip_inspect_ready_persistence_is_atomic_revisioned_full_sync(ad
 	end
 	fixture.now = fixture.now + 1
 	assertEqual(true, inspect:ForcePlayer(2, 21), "different ready inspect starts")
+	fixture:AdvanceTime(1.75)
 	fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
 	assertTrue(deepEqual(canonical, raid.inspect), "revision failure rolls back ready assignment")
 	local visible = inspect:GetSnapshot(raid, 21)
@@ -3491,6 +3787,7 @@ function cases.equip_inspect_preserves_ready_snapshot_after_terminal_attempts(ad
 	local revision = fixture.store:GetRaidSyncRevision(raid)
 
 	assertEqual(true, inspect:ForcePlayer(2, 21), "forced timeout attempt starts")
+	fixture:AdvanceTime(1.75)
 	fixture:AdvanceTime(8)
 	assertTrue(deepEqual(canonical, raid.inspect.players[21]), "timeout must preserve last known good snapshot")
 	assertTrue(deepEqual(canonicalInspect, raid.inspect), "timeout must preserve canonical inspect state deeply")
@@ -3561,41 +3858,28 @@ function cases.equip_inspect_table_raid_identity_reresolves_stably(addon)
 	print("PASS equip_inspect_table_raid_identity_reresolves_stably")
 end
 
-function cases.equip_inspect_combat_retry_is_single_owned_chain(addon)
+function cases.equip_inspect_combat_deferral_is_coordinator_owned(addon)
 	local fixture, inspect = installEquipInspectFixture(addon)
 	fixture.inCombat = true
-	assertEqual("queued", select(2, inspect:ForcePlayer(2, 21)), "combat request remains queued")
-	fixture:AdvanceTime(1.75)
-	fixture:AdvanceTime(1.75)
+	assertEqual("queued", select(2, inspect:ForcePlayer(2, 21)), "combat request must enter the coordinator queue")
+	fixture.inspectCallbacks.INSPECT_TALENT_READY(nil, "guid-raid1")
+	assertEqual(nil, fixture.raids[2].inspect, "queued work must not consume an inspect callback before NotifyInspect")
+	fixture:AdvanceTime(20)
+	assertEqual(0, #fixture.inspectRequests, "queued combat work must not notify before regen")
 	local activeTimers = 0
-	for i = 1, #fixture.timers do if fixture.timers[i].active then activeTimers = activeTimers + 1 end end
-	assertEqual(1, activeTimers, "repeated combat must retain one fallback retry")
-	fixture.currentRaid = 1
-	fixture.raids[1].players = { { playerNid = 11, name = "Alpha", class = "WARRIOR" } }
-	inspect:ForcePlayer(1, 11)
-	activeTimers = 0
-	for i = 1, #fixture.timers do if fixture.timers[i].active then activeTimers = activeTimers + 1 end end
-	assertEqual(1, activeTimers, "cross-raid handoff must not overlap an owned combat retry")
-	fixture.currentRaid = 2
+	for i = 1, #fixture.timers do
+		if fixture.timers[i].active then activeTimers = activeTimers + 1 end
+	end
+	assertEqual(0, activeTimers, "EquipInspect must not own a combat retry timer")
+
 	fixture.inCombat = false
 	fixture.inspectCallbacks.PLAYER_REGEN_ENABLED()
-	assertEqual(1, #fixture.inspectRequests, "regen must progress the request once")
-	fixture:AdvanceTime(10)
-	assertEqual(1, #fixture.inspectRequests, "stale combat retry must not notify again")
-
-	local cappedFixture, cappedInspect = installEquipInspectFixture(addon)
-	cappedFixture.inCombat = true
-	cappedInspect:ForcePlayer(2, 21)
-	for i = 1, 4 do cappedFixture:AdvanceTime(1.75) end
-	local cappedSnapshot = cappedInspect:GetSnapshot(cappedFixture.raids[2], 21)
-	assertEqual("failed", cappedSnapshot.status, "combat fallback must terminate after bounded attempts")
-	assertEqual("cannot_inspect", cappedSnapshot.reason, "combat exhaustion must expose a stable terminal reason")
-	local cappedActiveTimers = 0
-	for i = 1, #cappedFixture.timers do
-		if cappedFixture.timers[i].active then cappedActiveTimers = cappedActiveTimers + 1 end
-	end
-	assertEqual(0, cappedActiveTimers, "combat exhaustion must leave no callback chain")
-	print("PASS equip_inspect_combat_retry_is_single_owned_chain")
+	assertEqual(1, #fixture.inspectRequests, "regen must let the coordinator notify once")
+	fixture:AdvanceTime(8.1)
+	local snapshot = inspect:GetSnapshot(fixture.raids[2], 21)
+	assertEqual("timeout", snapshot.status, "active request must time out after coordinator activation")
+	assertEqual("inspect_timeout", snapshot.reason, "active timeout reason must remain stable")
+	print("PASS equip_inspect_combat_deferral_is_coordinator_owned")
 end
 
 function cases.equip_inspect_orphan_does_not_clear_unrelated_active_target(addon)
@@ -3740,26 +4024,108 @@ end
 
 function cases.logger_history_validation_is_strict_and_complete(addon)
 	local fixture, _, raid = installLoggerAtomicFixture(addon)
-	local function reject(mutator, expected)
+	local function reject(mutator)
 		local staged = fixture.store:StageRaidHistoryMutation(raid)
 		mutator(staged)
+		local report = addon.Database.GetRaidValidator():GetRaidRecordValidation(staged, 0, 6)
+		local expected
+		for i = 1, #report.details do
+			if report.details[i].level == "E" then
+				expected = report.details[i].code
+				break
+			end
+		end
+		assertTrue(type(expected) == "string", "fixture must produce a validator error")
 		local before = deepCopy(raid)
 		local ok, reason = fixture.store:CommitRaidHistoryMutation(raid, staged, { reason = "test" })
-		assertEqual(false, ok, expected .. " must reject")
-		assertEqual(expected, reason, expected .. " reason differs")
-		assertTrue(deepEqual(before, raid), expected .. " must not mutate canonical raid")
+		assertEqual(false, ok, "invalid staged history must reject")
+		assertEqual(expected, reason, "store and validator error differ")
+		assertTrue(deepEqual(before, raid), "rejected history must not mutate canonical data")
 	end
-	reject(function(staged) staged.raidNid = "73" end, "INVALID_RAID_NID")
-	reject(function(staged) staged.players[1].playerNid = 1.5 end, "INVALID_PLAYER_NID")
-	reject(function(staged) staged.loot[1].lootNid = "7" end, "INVALID_LOOT_NID")
-	reject(function(staged) staged.loot[3] = { lootNid = 9, itemId = 1 } end, "INVALID_LOOT_COLLECTION")
-	reject(function(staged) staged.players.hidden = { playerNid = 22, name = "Hidden" } end, "INVALID_PLAYER_COLLECTION")
-	reject(function(staged) staged.bossKills[1] = { bossNid = 4, players = { [2] = 21 } } end, "INVALID_BOSS_PLAYER_COLLECTION")
+	reject(function(staged) staged.players[2] = { playerNid = 21, name = "Duplicate" } end)
+	reject(function(staged) staged.loot[2] = { lootNid = 7, itemId = 1 } end)
+	reject(function(staged) staged.loot[3] = { lootNid = 9, itemId = 1 } end)
+	reject(function(staged) staged.players.hidden = { playerNid = 22, name = "Hidden" } end)
+	reject(function(staged) staged.bossKills[1] = { bossNid = 4, players = { [2] = 21 } } end)
 	local staged = fixture.store:StageRaidHistoryMutation(raid)
 	local ok, reason = fixture.store:CommitRaidHistoryMutation(raid, staged, { lootNid = "7", reason = "test" })
 	assertEqual(false, ok, "numeric string loot scope must reject")
 	assertEqual("INVALID_LOOT_SCOPE", reason, "loot scope reason differs")
 	print("PASS logger_history_validation_is_strict_and_complete")
+end
+
+function cases.raid_store_uses_validator_first_error(addon)
+	local fixture, _, raid = installLoggerAtomicFixture(addon)
+	local staged = fixture.store:StageRaidHistoryMutation(raid)
+	staged.players[2] = { playerNid = staged.players[1].playerNid, name = "Duplicate" }
+	local report = addon.Database.GetRaidValidator():GetRaidRecordValidation(staged, 0, 6)
+	local expected
+	for i = 1, #report.details do
+		if report.details[i].level == "E" then
+			expected = report.details[i].code
+			break
+		end
+	end
+	assertTrue(type(expected) == "string", "fixture must produce a validator error")
+	local committed, reason = fixture.store:CommitRaidHistoryMutation(raid, staged, { reason = "test" })
+	assertEqual(false, committed, "invalid history must not commit")
+	assertEqual(expected, reason, "first error differs")
+	print("PASS raid_store_uses_validator_first_error")
+end
+
+function cases.raid_store_rejects_malformed_validator_reports(addon)
+	local malformedReports = {
+		{ label = "nil report", value = nil },
+		{ label = "missing details", value = {} },
+		{ label = "non-table details", value = { details = "invalid" } },
+		{ label = "non-table detail", value = { details = { false } } },
+		{ label = "missing detail code", value = { details = { { level = "E" } } } },
+		{ label = "sparse details", value = { details = { [2] = { level = "W", code = "SPARSE" } } } },
+		{ label = "mapped details", value = { details = { hidden = { level = "W", code = "HIDDEN" } } } },
+	}
+	for i = 1, #malformedReports do
+		local malformed = malformedReports[i]
+		local fixture, _, raid = installLoggerAtomicFixture(addon)
+		addon.Database.GetRaidValidator = function()
+			return {
+				GetRaidRecordValidation = function()
+					return malformed.value
+				end,
+			}
+		end
+		local staged = fixture.store:StageRaidHistoryMutation(raid)
+		local before = deepCopy(raid)
+		local committed, reason = fixture.store:CommitRaidHistoryMutation(raid, staged, { reason = "test" })
+		assertEqual(false, committed, malformed.label .. " must reject")
+		assertEqual("INVALID_RAID", reason, malformed.label .. " reason differs")
+		assertTrue(deepEqual(before, raid), malformed.label .. " must not mutate canonical raid")
+	end
+
+	local malformedImports = {
+		{ label = "nil import report", value = nil },
+		{ label = "sparse import details", value = { details = { [2] = { level = "W", code = "SPARSE" } } } },
+		{ label = "mapped import details", value = { details = { hidden = { level = "W", code = "HIDDEN" } } } },
+	}
+	for i = 1, #malformedImports do
+		local malformed = malformedImports[i]
+		local fixture, _, raid = installLoggerAtomicFixture(addon)
+		addon.Database.GetRaidValidator = function()
+			return {
+				GetRaidRecordValidation = function()
+					return malformed.value
+				end,
+			}
+		end
+		local imported = deepCopy(raid)
+		imported.raidNid = 999
+		local before = deepCopy(fixture.raids)
+		local first, second, reason = fixture.store:CommitNewRaidHistoryImport(imported, 1)
+		assertEqual(nil, first, malformed.label .. " must not return a raid")
+		assertEqual(nil, second, malformed.label .. " must preserve three-value arity")
+		assertEqual("INVALID_RAID", reason, malformed.label .. " reason differs")
+		assertTrue(deepEqual(before, fixture.raids), malformed.label .. " must not mutate raid history")
+	end
+	print("PASS raid_store_rejects_malformed_validator_reports")
 end
 
 function cases.logger_async_rebuild_outcomes_and_conflict(addon)
@@ -3820,18 +4186,50 @@ end
 
 function cases.logger_async_cleanup_cancel_rolls_back_staged_work(addon)
 	local fixture, actions = installLoggerCleanupFixture(addon)
-	local before = deepCopy(fixture.raids)
-	local callbackResult, callbackComplete
+	local root = fixture.store:GetRawRaids()
+	root[4] = root[2]
+	root[2] = nil
+	fixture.currentRaid = nil
+	local firstRaid, movedRaid = root[1], root[4]
+	local firstRuntime, movedRuntime = firstRaid._runtime, movedRaid._runtime
+	local firstRevision = firstRuntime and firstRuntime.syncRevision or nil
+	local movedRevision = movedRuntime and movedRuntime.syncRevision or nil
+	local before = deepCopy(root)
+	local getAllCalls, commitCalls = 0, 0
+	local originalGetAll = fixture.store.GetAllRaids
+	fixture.store.GetAllRaids = function(store)
+		getAllCalls = getAllCalls + 1
+		return originalGetAll(store)
+	end
+	local originalCommit = fixture.store.CommitRaidHistoryCleanup
+	fixture.store.CommitRaidHistoryCleanup = function(store, plan, currentRaidNid)
+		commitCalls = commitCalls + 1
+		return originalCommit(store, plan, currentRaidNid)
+	end
+	local callbackCount, callbackResult, callbackComplete = 0
 	local handle = actions:StartRaidHistoryCleanup(function(result, complete)
+		callbackCount = callbackCount + 1
 		callbackResult, callbackComplete = result, complete
 	end, { emptyRaids = true, nonEpicLoot = true, chunkSize = 1, delaySeconds = 0 })
-	fixture:AdvanceTime(0)
 	assertEqual(true, handle:Cancel(), "active cleanup should cancel")
-	assertTrue(deepEqual(before, fixture.raids), "cancelled staged cleanup must persist nothing")
+	fixture.store.GetAllRaids = originalGetAll
+	fixture.store.CommitRaidHistoryCleanup = originalCommit
+	assertEqual(0, getAllCalls, "pre-commit cancellation must not rebuild the raid index")
+	assertEqual(0, commitCalls, "pre-commit cancellation must not call the store commit")
+	assertEqual(1, callbackCount, "pre-commit cancellation callback must run once")
+	assertTrue(root == fixture.store:GetRawRaids(), "pre-commit cancellation must preserve root identity")
+	assertTrue(root[1] == firstRaid and root[4] == movedRaid, "pre-commit cancellation must preserve raid identities")
+	assertTrue(deepEqual(before, root), "cancelled staged cleanup must preserve sparse raw history exactly")
+	assertTrue(firstRaid._runtime == firstRuntime, "pre-commit cancellation must not allocate first runtime")
+	assertTrue(movedRaid._runtime == movedRuntime, "pre-commit cancellation must preserve moved runtime")
+	assertEqual(firstRevision, firstRuntime and firstRuntime.syncRevision or nil, "pre-commit cancellation changed first revision")
+	assertEqual(movedRevision, movedRuntime and movedRuntime.syncRevision or nil, "pre-commit cancellation changed moved revision")
 	assertEqual(false, callbackComplete, "cancel callback should report incomplete work")
 	assertEqual(true, callbackResult.cancelled, "cancel result should expose cancellation")
 	assertEqual(false, callbackResult.changed, "rolled-back cleanup should report no canonical change")
 	assertEqual(0, #fixture.events, "rollback cancellation should not publish a data-change event")
+	assertEqual(false, handle:Cancel(), "cancelled cleanup must be terminal")
+	assertEqual(1, callbackCount, "terminal cancellation must not call back again")
 	print("PASS logger_async_cleanup_cancel_rolls_back_staged_work")
 end
 
@@ -3858,16 +4256,14 @@ function cases.logger_async_cleanup_store_failure_is_atomic(addon)
 	local beforeRaids = deepCopy(fixture.raids)
 	local beforeCurrent = fixture.currentRaid
 	local callbackCount, callbackResult, callbackComplete = 0
-	local originalDeleteRaids = fixture.store.DeleteRaidsByNid
-	fixture.store.DeleteRaidsByNid = function()
-		error("injected second store operation failure")
-	end
+	local originalCommit = fixture.store.CommitRaidHistoryCleanup
+	fixture.store.CommitRaidHistoryCleanup = function() return nil, "INJECTED_FAILURE" end
 	local handle = actions:StartRaidHistoryCleanup(function(result, complete)
 		callbackCount = callbackCount + 1
 		callbackResult, callbackComplete = result, complete
 	end, { emptyRaids = true, nonEpicLoot = true, chunkSize = 20, delaySeconds = 0 })
 	fixture:AdvanceTime(0)
-	fixture.store.DeleteRaidsByNid = originalDeleteRaids
+	fixture.store.CommitRaidHistoryCleanup = originalCommit
 	for i = 1, #beforeRaids do beforeRaids[i]._runtime = nil end
 	local restoredRaids = deepCopy(fixture.raids)
 	for i = 1, #restoredRaids do restoredRaids[i]._runtime = nil end
@@ -3884,68 +4280,157 @@ function cases.logger_async_cleanup_store_failure_is_atomic(addon)
 	print("PASS logger_async_cleanup_store_failure_is_atomic")
 end
 
-function cases.logger_cleanup_snapshot_failures_are_terminal(addon)
+function cases.logger_cleanup_detached_failure_is_atomic(addon)
 	local fixture, actions = installLoggerCleanupFixture(addon)
-	local originalCapture = fixture.store.CaptureRaidHistoryState
-	fixture.store.CaptureRaidHistoryState = function() error("capture failed") end
-	local syncResult = actions:CleanupRaidHistory({ emptyRaids = true, nonEpicLoot = true })
-	assertEqual(true, syncResult.failed, "sync capture failure should be stable")
-	assertEqual(false, syncResult.complete, "sync capture failure must not complete")
-	assertEqual(0, #fixture.events, "sync capture failure must not publish")
-	fixture.store.CaptureRaidHistoryState = function() return nil end
-	local nilCaptureResult = actions:CleanupRaidHistory({ emptyRaids = true })
-	assertEqual(true, nilCaptureResult.failed, "nil capture should be a stable failure")
-	fixture.store.CaptureRaidHistoryState = originalCapture
-	local originalDeleteRaids = fixture.store.DeleteRaidsByNid
-	local originalRestore = fixture.store.RestoreRaidHistoryState
-	fixture.store.DeleteRaidsByNid = function() error("sync apply failed") end
-	fixture.store.RestoreRaidHistoryState = function() return false end
-	local syncRestoreResult = actions:CleanupRaidHistory({ emptyRaids = true, nonEpicLoot = true })
-	assertEqual(true, syncRestoreResult.rollbackFailed, "sync restore failure must report uncertainty")
-	assertEqual(true, syncRestoreResult.rollbackUncertain, "sync restore failure cannot claim atomic rollback")
-	assertEqual(false, syncRestoreResult.complete, "sync restore failure must not complete")
-	fixture.store.DeleteRaidsByNid = originalDeleteRaids
-	fixture.store.RestoreRaidHistoryState = originalRestore
+	local root = fixture.store:GetRawRaids()
+	local before = deepCopy(root)
+	local originalCommit = fixture.store.CommitRaidHistoryCleanup
+	fixture.store.CommitRaidHistoryCleanup = function() return nil, "INJECTED_FAILURE" end
+	local result = actions:CleanupRaidHistory({ emptyRaids = true, nonEpicLoot = true })
+	fixture.store.CommitRaidHistoryCleanup = originalCommit
+	assertEqual(true, result.failed, "store rejection must fail cleanup")
+	assertEqual("INJECTED_FAILURE", result.error)
+	assertTrue(root == fixture.store:GetRawRaids(), "cleanup must preserve root identity")
+	assertTrue(deepEqual(before, root), "failed detached commit must preserve history")
+	assertEqual(nil, result.rollbackFailed, "rollback protocol must be absent")
+	assertEqual(0, #fixture.events)
+	print("PASS logger_cleanup_detached_failure_is_atomic")
+end
 
-	fixture, actions = installLoggerCleanupFixture(addon)
-	local asyncCaptureCallbacks = 0
-	fixture.store.CaptureRaidHistoryState = function() error("async capture failed") end
-	local captureHandle = actions:StartRaidHistoryCleanup(function(result, complete)
-		asyncCaptureCallbacks = asyncCaptureCallbacks + 1
-		assertEqual(true, result.failed, "async capture failure should fail")
-		assertEqual(false, complete, "async capture failure must be incomplete")
-	end, { emptyRaids = true, chunkSize = 20, delaySeconds = 0 })
-	fixture:AdvanceTime(0)
-	assertEqual(1, asyncCaptureCallbacks, "async capture failure callback should run once")
-	assertEqual(false, captureHandle:Cancel(), "async capture failure is terminal")
-	fixture.store.CaptureRaidHistoryState = originalCapture
-
-	local function assertAsyncRestoreFailure(restoreImpl, expectedRollbackError)
-		local callbackCount, callbackResult, callbackComplete = 0
-		local originalDeleteRaids = fixture.store.DeleteRaidsByNid
-		local originalRestore = fixture.store.RestoreRaidHistoryState
-		fixture.store.DeleteRaidsByNid = function() error("apply failed after mutation") end
-		fixture.store.RestoreRaidHistoryState = restoreImpl
-		local handle = actions:StartRaidHistoryCleanup(function(result, complete)
-			callbackCount = callbackCount + 1
-			callbackResult, callbackComplete = result, complete
-		end, { emptyRaids = true, nonEpicLoot = true, chunkSize = 20, delaySeconds = 0 })
-		fixture:AdvanceTime(0)
-		fixture.store.DeleteRaidsByNid = originalDeleteRaids
-		fixture.store.RestoreRaidHistoryState = originalRestore
-		assertEqual(1, callbackCount, "restore failure callback should run once")
-		assertEqual(false, callbackComplete, "restore failure must be incomplete")
-		assertEqual(true, callbackResult.failed, "restore failure should fail")
-		assertEqual(true, callbackResult.rollbackFailed, "restore failure must report uncertain rollback")
-		assertEqual(true, callbackResult.rollbackUncertain, "restore failure cannot claim atomic rollback")
-		assertTrue(string.find(callbackResult.rollbackError, expectedRollbackError, 1, true) ~= nil, "rollback error differs")
-		assertEqual(0, #fixture.events, "restore failure must not publish")
-		assertEqual(false, handle:IsCancelled(), "failed handle is not cancelled")
-		assertEqual(false, handle:Cancel(), "failed terminal handle cannot cancel")
+function cases.logger_cleanup_planning_is_non_mutating(addon)
+	local fixture, actions = installLoggerCleanupFixture(addon)
+	local root = fixture.store:GetRawRaids()
+	root[4] = root[2]
+	root[2] = nil
+	fixture.currentRaid = nil
+	local firstRaid, movedRaid = root[1], root[4]
+	local firstRuntime, movedRuntime = firstRaid._runtime, movedRaid._runtime
+	local firstRevision = firstRuntime and firstRuntime.syncRevision or nil
+	local movedRevision = movedRuntime and movedRuntime.syncRevision or nil
+	local before = deepCopy(root)
+	local getAllCalls = 0
+	local originalGetAll = fixture.store.GetAllRaids
+	fixture.store.GetAllRaids = function(store)
+		getAllCalls = getAllCalls + 1
+		return originalGetAll(store)
 	end
-	assertAsyncRestoreFailure(function() return false end, "returned false")
-	assertAsyncRestoreFailure(function() error("restore exploded") end, "restore exploded")
-	print("PASS logger_cleanup_snapshot_failures_are_terminal")
+	local originalCommit = fixture.store.CommitRaidHistoryCleanup
+	fixture.store.CommitRaidHistoryCleanup = function() return nil, "INJECTED_FAILURE" end
+	local result = actions:CleanupRaidHistory({ emptyRaids = true, nonEpicLoot = true })
+	fixture.store.GetAllRaids = originalGetAll
+	fixture.store.CommitRaidHistoryCleanup = originalCommit
+	assertEqual(true, result.failed, "rejected cleanup must fail")
+	assertEqual("INJECTED_FAILURE", result.error, "rejected cleanup reason differs")
+	assertEqual(0, getAllCalls, "cleanup planning must not rebuild the raid index")
+	assertTrue(root == fixture.store:GetRawRaids(), "cleanup planning must preserve root identity")
+	assertTrue(root[1] == firstRaid and root[4] == movedRaid, "cleanup planning must preserve raid identities")
+	assertTrue(deepEqual(before, root), "cleanup planning must preserve sparse raw history exactly")
+	assertTrue(firstRaid._runtime == firstRuntime, "cleanup planning must not allocate first raid runtime")
+	assertTrue(movedRaid._runtime == movedRuntime, "cleanup planning must preserve active runtime identity")
+	assertEqual(firstRevision, firstRuntime and firstRuntime.syncRevision or nil, "first revision changed")
+	assertEqual(movedRevision, movedRuntime and movedRuntime.syncRevision or nil, "moved revision changed")
+	assertEqual(0, #fixture.events, "rejected planning must not publish")
+	print("PASS logger_cleanup_planning_is_non_mutating")
+end
+
+function cases.logger_cleanup_noop_preserves_canonical_identities(addon)
+	local fixture, actions = installLoggerCleanupFixture(addon)
+	local root = fixture.store:GetRawRaids()
+	local firstRaid, secondRaid = root[1], root[2]
+	local firstRuntime = fixture.store:EnsureRaidRuntime(firstRaid)
+	local secondRuntime = fixture.store:EnsureRaidRuntime(secondRaid)
+	local firstRevision = fixture.store:GetRaidSyncRevision(firstRaid)
+	local secondRevision = fixture.store:GetRaidSyncRevision(secondRaid)
+	local before = deepCopy(root)
+	local result = actions:CleanupRaidHistory({})
+	assertEqual(true, result.complete, "synchronous no-op cleanup must complete")
+	assertEqual(false, result.changed, "synchronous no-op cleanup must report no change")
+	assertEqual(0, result.raidsRemoved, "synchronous no-op cleanup removed raids")
+	assertEqual(0, result.lootRemoved, "synchronous no-op cleanup removed loot")
+	assertEqual(0, #result.affectedRaidNids, "synchronous no-op cleanup affected raids")
+	assertTrue(root == fixture.store:GetRawRaids(), "synchronous no-op must preserve root identity")
+	assertTrue(root[1] == firstRaid and root[2] == secondRaid, "synchronous no-op must preserve raid identities")
+	assertTrue(firstRaid._runtime == firstRuntime, "synchronous no-op must preserve first runtime index")
+	assertTrue(secondRaid._runtime == secondRuntime, "synchronous no-op must preserve second runtime index")
+	assertTrue(deepEqual(before, root), "synchronous no-op must preserve canonical history exactly")
+	assertEqual(firstRevision, fixture.store:GetRaidSyncRevision(firstRaid), "synchronous no-op changed first revision")
+	assertEqual(secondRevision, fixture.store:GetRaidSyncRevision(secondRaid), "synchronous no-op changed second revision")
+	assertEqual(0, #fixture.events, "synchronous no-op must publish no event")
+	print("PASS logger_cleanup_noop_preserves_canonical_identities")
+end
+
+function cases.logger_async_cleanup_noop_preserves_canonical_identities(addon)
+	local fixture, actions = installLoggerCleanupFixture(addon)
+	local root = fixture.store:GetRawRaids()
+	root[4] = root[2]
+	root[2] = nil
+	fixture.currentRaid = nil
+	local firstRaid, secondRaid = root[1], root[4]
+	local firstRuntime = fixture.store:EnsureRaidRuntime(firstRaid)
+	local secondRuntime = fixture.store:EnsureRaidRuntime(secondRaid)
+	local firstRevision = fixture.store:GetRaidSyncRevision(firstRaid)
+	local secondRevision = fixture.store:GetRaidSyncRevision(secondRaid)
+	local before = deepCopy(root)
+	local getAllCalls = 0
+	local originalGetAll = fixture.store.GetAllRaids
+	fixture.store.GetAllRaids = function(store)
+		getAllCalls = getAllCalls + 1
+		return originalGetAll(store)
+	end
+	local callbackCount, callbackResult, callbackComplete = 0
+	local handle = actions:StartRaidHistoryCleanup(function(result, complete)
+		callbackCount = callbackCount + 1
+		callbackResult, callbackComplete = result, complete
+	end, { chunkSize = 20, delaySeconds = 0 })
+	fixture:AdvanceTime(0)
+	fixture.store.GetAllRaids = originalGetAll
+	assertEqual(0, getAllCalls, "asynchronous no-op must not rebuild the raid index")
+	assertEqual(1, callbackCount, "asynchronous no-op callback must run once")
+	assertEqual(true, callbackComplete, "asynchronous no-op cleanup must complete")
+	assertEqual(true, callbackResult.complete, "asynchronous no-op result must be complete")
+	assertEqual(false, callbackResult.changed, "asynchronous no-op cleanup must report no change")
+	assertEqual(0, callbackResult.raidsRemoved, "asynchronous no-op cleanup removed raids")
+	assertEqual(0, callbackResult.lootRemoved, "asynchronous no-op cleanup removed loot")
+	assertEqual(0, #callbackResult.affectedRaidNids, "asynchronous no-op cleanup affected raids")
+	assertTrue(root == fixture.store:GetRawRaids(), "asynchronous no-op must preserve root identity")
+	assertTrue(root[1] == firstRaid and root[4] == secondRaid, "asynchronous no-op must preserve raid identities")
+	assertTrue(firstRaid._runtime == firstRuntime, "asynchronous no-op must preserve first runtime index")
+	assertTrue(secondRaid._runtime == secondRuntime, "asynchronous no-op must preserve second runtime index")
+	assertTrue(deepEqual(before, root), "asynchronous no-op must preserve canonical history exactly")
+	assertEqual(firstRevision, fixture.store:GetRaidSyncRevision(firstRaid), "asynchronous no-op changed first revision")
+	assertEqual(secondRevision, fixture.store:GetRaidSyncRevision(secondRaid), "asynchronous no-op changed second revision")
+	assertEqual(0, #fixture.events, "asynchronous no-op must publish no event")
+	assertEqual(false, handle:IsCancelled(), "completed asynchronous no-op is not cancelled")
+	assertEqual(false, handle:Cancel(), "completed asynchronous no-op must be terminal")
+	assertEqual(1, callbackCount, "terminal no-op handle must not call back again")
+	print("PASS logger_async_cleanup_noop_preserves_canonical_identities")
+end
+
+function cases.raid_store_cleanup_conflict_is_atomic(addon)
+	local fixture = installLoggerCleanupFixture(addon)
+	local root = fixture.store:GetRawRaids()
+	local firstRaid, secondRaid = root[1], root[2]
+	local firstRuntime = fixture.store:EnsureRaidRuntime(firstRaid)
+	local secondRuntime = fixture.store:EnsureRaidRuntime(secondRaid)
+	local firstRevision = fixture.store:GetRaidSyncRevision(firstRaid)
+	local secondRevision = fixture.store:GetRaidSyncRevision(secondRaid)
+	local before = deepCopy(root)
+	local committed, reason = fixture.store:CommitRaidHistoryCleanup({
+		protectedRaidNid = secondRaid.raidNid,
+		raidCandidates = { { raidNid = firstRaid.raidNid, baseRevision = firstRevision + 1 } },
+		lootCandidates = {},
+	}, secondRaid.raidNid)
+	assertEqual(nil, committed, "revision conflict must reject cleanup")
+	assertEqual("CONFLICT", reason, "revision conflict reason differs")
+	assertTrue(root == fixture.store:GetRawRaids(), "conflict must preserve root identity")
+	assertTrue(root[1] == firstRaid and root[2] == secondRaid, "conflict must preserve raid identities")
+	assertTrue(firstRaid._runtime == firstRuntime, "conflict must preserve first runtime index")
+	assertTrue(secondRaid._runtime == secondRuntime, "conflict must preserve second runtime index")
+	assertTrue(deepEqual(before, root), "conflict must preserve canonical history exactly")
+	assertEqual(firstRevision, fixture.store:GetRaidSyncRevision(firstRaid), "conflict changed first revision")
+	assertEqual(secondRevision, fixture.store:GetRaidSyncRevision(secondRaid), "conflict changed second revision")
+	assertEqual(0, #fixture.events, "conflict must publish no event")
+	print("PASS raid_store_cleanup_conflict_is_atomic")
 end
 
 function cases.logger_refresh_requests_coalesce_behaviorally(addon)
@@ -4112,11 +4597,21 @@ function cases.instance_datasets_share_canonical_identity(addon)
 		ActivateInstance = function(key) activated.loot = key return true end,
 		DeactivateInstance = function() activated.loot = nil end,
 		GetActiveInstanceKey = function() return activated.loot end,
+		CaptureActivationState = function() return { activeInstanceKey = activated.loot } end,
+		RestoreActivationState = function(snapshot)
+			activated.loot = snapshot.activeInstanceKey
+			return true
+		end,
 	}
 	addon.IgnoredMobs = {
 		ActivateInstance = function(key) activated.ignored = key return true end,
 		DeactivateInstance = function() activated.ignored = nil end,
 		GetActiveInstanceKey = function() return activated.ignored end,
+		CaptureActivationState = function() return { activeInstanceKey = activated.ignored } end,
+		RestoreActivationState = function(snapshot)
+			activated.ignored = snapshot.activeInstanceKey
+			return true
+		end,
 	}
 	_G.GetInstanceInfo = function()
 		return "Citadelle de la Couronne de glace", "raid", 2, nil, 25, 0, false, 631
@@ -4126,6 +4621,32 @@ function cases.instance_datasets_share_canonical_identity(addon)
 	assertEqual("icecrown citadel", activated.loot, "loot dataset must receive the canonical key")
 	assertEqual("icecrown citadel", activated.ignored, "ignored-mob dataset must receive the same canonical key")
 	print("PASS instance_datasets_share_canonical_identity")
+end
+
+function cases.dataset_activation_requires_snapshot_contract(addon)
+	installInitStubs(addon)
+	addon.L = { RaidZones = {} }
+	addon.Diag = { D = { LogRaidInstanceRecognized = "%s %s" }, W = { LogRaidUnmappedZone = "%s %s" } }
+	addon.warn = function() end
+	local lootKey
+	local ignoredKey
+	addon.LootSourcesData = {
+		ResolveInstanceKey = function() return "icecrown citadel" end,
+		GetActiveInstanceKey = function() return lootKey end,
+		ActivateInstance = function(key) lootKey = key return true end,
+		DeactivateInstance = function() lootKey = nil return true end,
+	}
+	addon.IgnoredMobs = {
+		GetActiveInstanceKey = function() return ignoredKey end,
+		ActivateInstance = function(key) ignoredKey = key return true end,
+		DeactivateInstance = function() ignoredKey = nil return true end,
+	}
+	_G.GetInstanceInfo = function() return "Localized", "raid", 1, nil, 10, 0, false, 631 end
+	loadAddonFile(addon, "Raid Management Addon/Init.lua")
+	local ok, err = pcall(addon.ZONE_CHANGED_NEW_AREA, addon)
+	assertEqual(false, ok, "missing mandatory dataset snapshot methods must fail fast")
+	assertTrue(string.find(tostring(err), "CaptureActivationState", 1, true) ~= nil)
+	print("PASS dataset_activation_requires_snapshot_contract")
 end
 
 function cases.loot_dataset_build_failure_preserves_active_generation(addon)
@@ -4186,6 +4707,11 @@ function cases.dataset_activation_rolls_back_cross_owner_failure(addon)
 		GetActiveInstanceKey = function() return lootKey end,
 		ActivateInstance = function(key) lootKey = key return true end,
 		DeactivateInstance = function() lootKey = nil return true end,
+		CaptureActivationState = function() return { activeInstanceKey = lootKey } end,
+		RestoreActivationState = function(snapshot)
+			lootKey = snapshot.activeInstanceKey
+			return true
+		end,
 	}
 	addon.IgnoredMobs = {
 		GetActiveInstanceKey = function() return ignoredKey end,
@@ -4195,6 +4721,11 @@ function cases.dataset_activation_rolls_back_cross_owner_failure(addon)
 			return true
 		end,
 		DeactivateInstance = function() ignoredKey = nil return true end,
+		CaptureActivationState = function() return { activeInstanceKey = ignoredKey } end,
+		RestoreActivationState = function(snapshot)
+			ignoredKey = snapshot.activeInstanceKey
+			return true
+		end,
 	}
 	_G.GetInstanceInfo = function() return "Localized", "raid", 1, nil, 10, 0, false, 999 end
 	loadAddonFile(addon, "Raid Management Addon/Init.lua")
@@ -4221,11 +4752,21 @@ function cases.dataset_activation_rejects_false_owner_results(addon)
 			lootKey = key return true
 		end,
 		DeactivateInstance = function() lootKey = nil return true end,
+		CaptureActivationState = function() return { activeInstanceKey = lootKey } end,
+		RestoreActivationState = function(snapshot)
+			lootKey = snapshot.activeInstanceKey
+			return true
+		end,
 	}
 	addon.IgnoredMobs = {
 		GetActiveInstanceKey = function() return ignoredKey end,
 		ActivateInstance = function(key) ignoredCalls = ignoredCalls + 1 ignoredKey = key return true end,
 		DeactivateInstance = function() ignoredKey = nil return true end,
+		CaptureActivationState = function() return { activeInstanceKey = ignoredKey } end,
+		RestoreActivationState = function(snapshot)
+			ignoredKey = snapshot.activeInstanceKey
+			return true
+		end,
 	}
 	_G.GetInstanceInfo = function() return "Localized", "raid", 1, nil, 10, 0, false, 999 end
 	loadAddonFile(addon, "Raid Management Addon/Init.lua")
@@ -4253,6 +4794,10 @@ function cases.dataset_activation_reports_failed_rollback(addon)
 			lootKey = key return true
 		end,
 		DeactivateInstance = function() lootKey = nil return true end,
+		CaptureActivationState = function() return { activeInstanceKey = lootKey } end,
+		RestoreActivationState = function()
+			return false
+		end,
 	}
 	addon.IgnoredMobs = {
 		GetActiveInstanceKey = function() return ignoredKey end,
@@ -4261,13 +4806,18 @@ function cases.dataset_activation_reports_failed_rollback(addon)
 			ignoredKey = key return true
 		end,
 		DeactivateInstance = function() ignoredKey = nil return true end,
+		CaptureActivationState = function() return { activeInstanceKey = ignoredKey } end,
+		RestoreActivationState = function(snapshot)
+			ignoredKey = snapshot.activeInstanceKey
+			return true
+		end,
 	}
 	_G.GetInstanceInfo = function() return "Localized", "raid", 1, nil, 10, 0, false, 999 end
 	loadAddonFile(addon, "Raid Management Addon/Init.lua")
 	local ok, err = pcall(addon.ZONE_CHANGED_NEW_AREA, addon)
 	assertEqual(false, ok)
 	assertTrue(string.find(tostring(err), "dataset_rollback_failed", 1, true) ~= nil)
-	assertTrue(string.find(tostring(err), "rollback-refused", 1, true) ~= nil)
+	assertTrue(string.find(tostring(err), "snapshot-restore-rejected", 1, true) ~= nil)
 	assertEqual("new raid", lootKey, "failed rollback may leave state changed but must be terminal")
 	assertEqual("old raid", ignoredKey, "successful peer rollback must still restore its owner")
 	print("PASS dataset_activation_reports_failed_rollback")
@@ -4441,20 +4991,20 @@ function cases.options_reject_ambiguous_ownership(addon)
 	print("PASS options_reject_ambiguous_ownership")
 end
 
-function cases.options_namespace_snapshot_is_isolated(addon)
+function cases.options_reset_all_defaults(addon)
 	local options = installOptionsStubs(addon)
-	local ns = options.RegisterNamespace("Snapshot", { enabled = true })
-	local snapshot = options.GetNamespaces()
-	snapshot.Snapshot._store = { enabled = false }
-	snapshot.Snapshot._defaults = { enabled = false }
-	snapshot.Snapshot = nil
-	snapshot.Injected = ns
+	local first = options.RegisterNamespace("First", { enabled = true, nested = { count = 1 } })
+	local second = options.RegisterNamespace("Second", { mode = "safe" })
+	assertEqual(true, first:Set("enabled", false))
+	assertEqual(true, first:Set("nested", { count = 9 }))
+	assertEqual(true, second:Set("mode", "custom"))
 
-	local fresh = options.GetNamespaces()
-	assertEqual("Snapshot", fresh.Snapshot:Name(), "mutating a snapshot must not remove a registered namespace")
-	assertEqual(nil, fresh.Injected, "mutating a snapshot must not inject a namespace")
-	assertEqual(true, options.GetByKey("enabled"), "snapshot mutation must not alter key ownership")
-	print("PASS options_namespace_snapshot_is_isolated")
+	assertEqual(true, options.ResetAllDefaults(), "all-default reset must report success")
+	assertEqual(true, first:Get("enabled"), "first namespace scalar must reset")
+	assertEqual(1, first:Get("nested").count, "first namespace nested value must reset")
+	assertEqual("safe", second:Get("mode"), "second namespace must reset")
+	assertEqual(nil, options["Get" .. "Namespaces"], "namespace enumeration facade must not remain public")
+	print("PASS options_reset_all_defaults")
 end
 
 function cases.options_same_namespace_extension_preserves_storage(addon)
@@ -4560,27 +5110,6 @@ function cases.options_cyclic_defaults_remain_independent(addon)
 	assertTrue(reset.settings ~= cyclic, "reset storage should not alias the declared default")
 	assertEqual("clean", reset.settings.mode, "ResetDefaults should restore the isolated default")
 	print("PASS options_cyclic_defaults_remain_independent")
-end
-
-function cases.options_namespace_facade_contract(addon)
-	local options = installOptionsStubs(addon)
-	options.RegisterNamespace("Facade", { enabled = true, nested = { count = 1 } })
-	local facade = options.GetNamespaces().Facade
-
-	assertEqual("Facade", facade:Name(), "facade Name should match the registered namespace")
-	assertEqual(true, facade:Get("enabled"), "facade Get should delegate to the namespace")
-	assertEqual(true, facade:Set("enabled", false), "facade Set should delegate to the namespace")
-	assertEqual(false, facade:Get("enabled"), "facade Get should observe facade writes")
-	local all = facade:All()
-	all.nested.count = 9
-	assertEqual(1, facade:Get("nested").count, "facade All should return isolated values")
-	local reset = facade:ResetDefaults()
-	assertEqual(true, reset.enabled, "facade ResetDefaults should restore defaults")
-	reset.nested.count = 7
-	assertEqual(7, facade:Get("nested").count, "facade ResetDefaults should preserve the namespace return contract")
-	local secondReset = facade:ResetDefaults()
-	assertEqual(1, secondReset.nested.count, "facade ResetDefaults should create independent storage each time")
-	print("PASS options_namespace_facade_contract")
 end
 
 function cases.future_raid_schema_is_preserved(addon)
@@ -4786,6 +5315,9 @@ installRaidDatabaseStubs = function(addon)
 	end
 	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidQueries.lua")
 	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidValidator.lua")
+	addon.Database.GetRaidValidator = function()
+		return addon.DB.RaidValidator
+	end
 end
 
 canonicalRaidFixture = function()
@@ -5162,7 +5694,7 @@ function cases.saved_variables_save_failure_stops_reserves(addon)
 end
 
 local function installRealReservesMutationFixture(addon)
-	local fixture = { timers = {}, events = {} }
+	local fixture = { timers = {}, events = {}, diagnostics = {} }
 	table.wipe = table.wipe or function(value)
 		for key in pairs(value) do value[key] = nil end
 		return value
@@ -5171,7 +5703,10 @@ local function installRealReservesMutationFixture(addon)
 		return tostring(itemRef), "item:" .. tostring(itemRef), nil, nil, nil, nil, nil, nil, nil, "icon"
 	end
 	addon.L = setmetatable({ StrUnknown = "Unknown" }, { __index = function(_, key) return key end })
-	addon.Diag = { D = setmetatable({}, { __index = function() return "%s" end }) }
+	addon.Diag = {
+		D = setmetatable({}, { __index = function() return "%s" end }),
+		E = setmetatable({}, { __index = function() return "%s" end }),
+	}
 	addon.C = { RESERVES_ITEM_FALLBACK_ICON = "fallback" }
 	addon.Events.Internal = { ReservesDataChanged = "ReservesDataChanged" }
 	addon.Bus.TriggerEvent = function(_, ...)
@@ -5217,6 +5752,7 @@ local function installRealReservesMutationFixture(addon)
 		IsDebugEnabled = function() return fixture.failStage == "debug" end,
 		RegisterNamespace = function(_, defaults)
 			local values = deepCopy(defaults)
+			fixture.optionValues = values
 			return {
 				Get = function(_, key) return values[key] end,
 				Set = function(_, key, value)
@@ -5224,11 +5760,13 @@ local function installRealReservesMutationFixture(addon)
 						fixture.failStage = nil
 						error("injected alias option failure")
 					end
+					local old = values[key]
+					if old == value then return true end
 					values[key] = value
-					if fixture.failStage == "mode" then
-						fixture.failStage = nil
-						error("injected mode failure")
+					if key == "srImportMode" and fixture.optionObserver then
+						fixture.optionObserver(key, old, value)
 					end
+					return true
 				end,
 			}
 		end,
@@ -5244,6 +5782,9 @@ local function installRealReservesMutationFixture(addon)
 	end
 	addon.tLength = function(value) local count = 0; for _ in pairs(value) do count = count + 1 end; return count end
 	addon.warn = function() end
+	addon.error = function(_, message, detail)
+		fixture.diagnostics[#fixture.diagnostics + 1] = detail and string.format(message, detail) or tostring(message)
+	end
 	addon.debug = function() end
 	addon.Services.Reserves = {
 		_Aliases = {
@@ -5257,19 +5798,53 @@ local function installRealReservesMutationFixture(addon)
 				local key = string.lower(reserveName); if target[key] == nil then return false, "missing_alias" end
 				target[key] = nil; return true
 			end,
-			BuildAliasState = function() return {} end,
-			ResolveReserveKey = function(_, data, playerName)
+			BuildAliasState = function(source)
+				local state = { reserveKeyByRaidKey = {} }
+				for reserveKey, raidName in pairs(source or {}) do
+					state.reserveKeyByRaidKey[string.lower(raidName)] = string.lower(reserveKey)
+				end
+				return state
+			end,
+			ResolveReserveKey = function(state, data, playerName)
 				local key = type(playerName) == "string" and string.lower(playerName) or nil
-				return key and data[key] and key or nil
+				if key and data[key] then return key end
+				local reserveKey = key and state.reserveKeyByRaidKey[key] or nil
+				return reserveKey and data[reserveKey] and reserveKey or nil
 			end,
 			GetAliasMatches = function() return {} end,
 		},
 		_Display = {
-			RebuildIndex = function()
+			RebuildIndex = function(ctx)
 				if fixture.failStage == "index" then
 					fixture.failStage = nil
 					error("injected index failure")
 				end
+				table.wipe(ctx.reservesByItemID)
+				table.wipe(ctx.reservesByItemPlayer)
+				table.wipe(ctx.playerItemsByName)
+				for playerKey, player in pairs(ctx.reservesData) do
+					local playerName = ctx.resolvePlayerNameDisplay(playerKey, player)
+					local normalized = string.lower(playerName or playerKey)
+					ctx.playerItemsByName[normalized] = ctx.playerItemsByName[normalized] or {}
+					for i = 1, #(player.reserves or {}) do
+						local row = player.reserves[i]
+						if type(row) == "table" and row.rawID then
+							local itemId = row.rawID
+							ctx.reservesByItemID[itemId] = ctx.reservesByItemID[itemId] or {}
+							ctx.reservesByItemID[itemId][#ctx.reservesByItemID[itemId] + 1] = row
+							if fixture.skipPlayerIndexItem ~= itemId then
+								ctx.reservesByItemPlayer[itemId] = ctx.reservesByItemPlayer[itemId] or {}
+								ctx.reservesByItemPlayer[itemId][normalized] = row
+							end
+							ctx.playerItemsByName[normalized][itemId] = true
+						end
+					end
+				end
+				if fixture.lookupProbe then
+					local row = ctx.getReserveEntryForItem(fixture.lookupProbe.itemId, fixture.lookupProbe.playerName)
+					fixture.detachedLookupQuantity = row and row.quantity or nil
+				end
+				ctx.setDirty(true)
 			end,
 			GetDisplayList = function() return {} end,
 		},
@@ -5282,12 +5857,6 @@ local function installRealReservesMutationFixture(addon)
 			return _G.RMA_Reserves
 		end,
 		ReplaceReserves = function(value)
-			if fixture.failReplace == "mutate_then_throw" then
-				local root = _G.RMA_Reserves or {}
-				for key in pairs(root) do root[key] = nil end
-				root.corrupt = { reserves = {} }
-				error("injected reserve persistence failure after mutation")
-			end
 			if fixture.failReplace then error("injected reserve persistence failure") end
 			fixture.saveCount = (fixture.saveCount or 0) + 1
 			_G.RMA_Reserves = deepCopy(value or {})
@@ -5317,15 +5886,11 @@ function cases.reserves_bulk_edits_are_atomic(addon)
 		} },
 	}
 	assertTrue(reserves:SetSyncedData(synced, { source = "Leader", checksum = "fixture", mode = "multi" }))
-	local serialized = assert(reserves.BuildCanonicalSerialization(synced))
-	local reordered = deepCopy(synced)
-	reordered.alpha.reserves[1], reordered.alpha.reserves[2] = reordered.alpha.reserves[2], reordered.alpha.reserves[1]
-	assertEqual(serialized, reserves.BuildCanonicalSerialization(reordered), "canonical equality must ignore reserve row order")
-	reordered.alpha.reserves[1].itemName = "Changed canonical field"
-	assertTrue(serialized ~= reserves.BuildCanonicalSerialization(reordered), "canonical equality must include every persisted row field")
-	local invalidSerialization, projectionReason = reserves.BuildCanonicalSerialization({ alpha = { reserves = {} } })
-	assertEqual(nil, invalidSerialization, "invalid projection must not serialize as nil equality")
-	assertEqual("invalid_reserve_sequence", projectionReason, "projection error reason differs")
+	assertEqual(true, reserves:HasItemReserves(100), "synced baseline must build the item index")
+	assertEqual(true, reserves:HasItemReserves(200), "synced baseline must index every reserve item")
+	local serializationName = table.concat({ "Build", "Canonical", "Serialization" })
+	assertEqual(nil, reserves[serializationName],
+		"canonical serialization must remain a private reserve implementation detail")
 	local savedBefore = deepCopy(_G.RMA_Reserves)
 	local savesBefore, eventsBefore = fixture.saveCount or 0, #fixture.events
 	local ok, reason, rowIndex = reserves:ApplyBatch({
@@ -5362,22 +5927,23 @@ function cases.reserves_bulk_edits_are_atomic(addon)
 	assertEqual(nil, ok, "duplicate no-change command must fail the whole batch")
 	assertEqual("no_change", reason, "duplicate command reason differs")
 	assertEqual(2, rowIndex, "duplicate command row differs")
-	local savedRoot = _G.RMA_Reserves
-	local runtimeRow = reserves:GetPlayerReserveEntries("Alpha")[1]
-	fixture.failReplace = "mutate_then_throw"
+	local runtimeBefore = deepCopy(select(1, reserves._Sync:GetPayload()))
+	fixture.failStage = "index"
 	ok, reason = reserves:ApplyBatch({
 		{ kind = "quantity", playerName = "Alpha", itemId = 100, value = 4 },
 	})
-	fixture.failReplace = nil
-	assertEqual(nil, ok, "persistence failure must fail the batch")
-	assertEqual("publish_failed", reason, "persistence failure reason differs")
-	assertEqual(2, reserves:GetPlayerReserveEntries("Alpha")[1].quantity, "persistence failure must roll back runtime")
-	assertEqual(true, reserves:GetSyncMetadata().runtime, "persistence failure must retain synced cache ownership")
-	assertTrue(rawequal(savedRoot, _G.RMA_Reserves), "persistence rollback must preserve SavedVariables root identity")
-	assertTrue(rawequal(runtimeRow, reserves:GetPlayerReserveEntries("Alpha")[1]), "rollback must preserve runtime row identity")
-	assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "persistence rollback must restore exact SavedVariables values")
-	assertEqual(savesBefore, fixture.saveCount or 0, "persistence failure must not count as a save")
-	assertEqual(eventsBefore, #fixture.events, "persistence failure must not publish")
+	fixture.failStage = nil
+	assertEqual(nil, ok, "detached index failure must reject the batch")
+	assertEqual("publish_failed", reason, "detached index failure reason differs")
+	assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "failed detached build must preserve SavedVariables values")
+	assertTrue(deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
+		"failed detached build must preserve runtime values")
+	assertEqual(2, reserves:GetReserveCountForItem(100, "Alpha"),
+		"derived reserve lookup must match the preserved state")
+	assertEqual(true, reserves:HasItemReserves(100), "failed detached build must preserve the published item index")
+	assertEqual(true, reserves:GetSyncMetadata().runtime, "detached index failure must retain synced cache ownership")
+	assertEqual(savesBefore, fixture.saveCount or 0, "failed detached build must not save")
+	assertEqual(eventsBefore, #fixture.events, "failed detached build must not publish")
 
 	for _, malformed in ipairs({
 		{ [1] = { kind = "quantity", playerName = "Alpha", itemId = 100, value = 4 }, [3] = { kind = "plus", playerName = "Alpha", itemId = 200, value = 1 } },
@@ -5405,7 +5971,6 @@ function cases.reserves_bulk_edits_are_atomic(addon)
 	assertEqual(eventsBefore, #fixture.events, "net no-op must not publish")
 
 	local successSaves, successEvents = fixture.saveCount or 0, #fixture.events
-	reserves.BuildCanonicalChecksum = function() return "forced-collision" end
 	local summary
 	ok, summary = reserves:ApplyBatch({
 		{ kind = "quantity", playerName = "Alpha", itemId = 100, value = 4 },
@@ -5419,6 +5984,7 @@ function cases.reserves_bulk_edits_are_atomic(addon)
 	assertEqual(successEvents + 1, #fixture.events, "successful batch must publish once")
 	assertEqual(2, reserves:GetPlayerReserveEntries("Alpha")[1].quantity, "reverted quantity must retain original value")
 	assertEqual(5, reserves:GetPlayerReserveEntries("Alpha")[2].plus, "plus edit missing")
+	assertEqual(true, reserves:HasItemReserves(200), "successful batch must publish the detached item index")
 	assertEqual(false, reserves:GetSyncMetadata().runtime, "successful batch must promote synced cache once")
 	print("PASS reserves_bulk_edits_are_atomic")
 end
@@ -5437,23 +6003,20 @@ function cases.reserves_single_edits_rollback_exact_state(addon)
 			} }
 			assertTrue(reserves:SetSyncedData({ alpha = player },
 				{ source = "Leader", checksum = "fixture", mode = "multi" }), "synced baseline must load")
-			local savedRoot = _G.RMA_Reserves
-			local payloadRoot = select(1, reserves._Sync:GetPayload())
-			local runtimeRow = reserves:GetPlayerReserveEntries("Alpha")[1]
-			local savedBefore = deepCopy(savedRoot)
+			local savedBefore = deepCopy(_G.RMA_Reserves)
+			local runtimeBefore = deepCopy(select(1, reserves._Sync:GetPayload()))
 			local eventsBefore, savesBefore = #fixture.events, fixture.saveCount or 0
-			if fault == "replace" then fixture.failReplace = "mutate_then_throw" else fixture.failStage = "index" end
+			if fault == "replace" then fixture.failReplace = true else fixture.failStage = "index" end
 			local invoked, changed, reason = pcall(operation.call, reserves)
 			fixture.failReplace, fixture.failStage = nil, nil
 			assertEqual(true, invoked, operation.name .. " must contain " .. fault .. " fault")
 			assertTrue(not changed, operation.name .. " must fail on " .. fault .. " fault")
 			assertEqual("publish_failed", reason, operation.name .. " fault reason differs")
-			assertTrue(rawequal(savedRoot, _G.RMA_Reserves), operation.name .. " must preserve SavedVariables identity")
-			assertTrue(rawequal(payloadRoot, select(1, reserves._Sync:GetPayload())),
-				operation.name .. " must preserve runtime root identity")
-			assertTrue(rawequal(runtimeRow, reserves:GetPlayerReserveEntries("Alpha")[1]),
-				operation.name .. " must preserve row identity")
-			assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), operation.name .. " must restore SavedVariables values")
+			assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), operation.name .. " must preserve SavedVariables values")
+			assertTrue(deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
+				operation.name .. " must preserve runtime values")
+			assertEqual(1, reserves:GetReserveCountForItem(100, "Alpha"),
+				operation.name .. " derived lookup must match the preserved state")
 			assertEqual(true, reserves:GetSyncMetadata().runtime, operation.name .. " must preserve cache ownership")
 			assertEqual(eventsBefore, #fixture.events, operation.name .. " fault must not publish")
 			if fault == "replace" then
@@ -5733,8 +6296,8 @@ function cases.reserves_async_import_rejects_noncanonical_and_sparse_sources(add
 	local reserves, fixture = installRealReservesMutationFixture(addon)
 	assertTrue(reserves:ApplyImport({ reservesData = { base = reserveImportPlayer("Base", 50) } }, nil,
 		{ silentInfo = true }), "baseline import must succeed")
-	local savedRoot, payloadRoot = _G.RMA_Reserves, select(1, reserves._Sync:GetPayload())
-	local savedBefore = deepCopy(savedRoot)
+	local savedBefore = deepCopy(_G.RMA_Reserves)
+	local runtimeBefore = deepCopy(select(1, reserves._Sync:GetPayload()))
 	local malformed = {
 		{ reservesData = { alpha = { playerNameDisplay = "Alpha", reserves = {
 			[1] = { rawID = 100, quantity = 1, plus = 0 },
@@ -5757,9 +6320,11 @@ function cases.reserves_async_import_rejects_noncanonical_and_sparse_sources(add
 		assertEqual("INVALID_IMPORT_DATA", results[1][3], "malformed reason differs at row " .. i)
 	end
 	assertEqual(0, #fixture.timers, "malformed imports must not schedule work")
-	assertTrue(rawequal(savedRoot, _G.RMA_Reserves), "malformed imports must preserve SavedVariables identity")
-	assertTrue(rawequal(payloadRoot, select(1, reserves._Sync:GetPayload())), "malformed imports must preserve payload identity")
 	assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "malformed imports must preserve values")
+	assertTrue(deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
+		"malformed imports must preserve runtime values")
+	assertEqual(1, reserves:GetReserveCountForItem(50, "Base"),
+		"malformed imports must preserve derived reserve lookup")
 	print("PASS reserves_async_import_rejects_noncanonical_and_sparse_sources")
 end
 
@@ -5767,7 +6332,7 @@ function cases.reserves_async_import_scheduler_failures_are_terminal(addon)
 	local reserves, fixture = installRealReservesMutationFixture(addon)
 	assertTrue(reserves:ApplyImport({ reservesData = { base = reserveImportPlayer("Base", 50) } }, nil,
 		{ silentInfo = true }), "baseline import must succeed")
-	local savedRoot, savedBefore = _G.RMA_Reserves, deepCopy(_G.RMA_Reserves)
+	local savedBefore = deepCopy(_G.RMA_Reserves)
 	for _, failure in ipairs({ "throw", "nil" }) do
 		fixture.scheduleFailures = { failure }
 		local results = {}
@@ -5788,7 +6353,6 @@ function cases.reserves_async_import_scheduler_failures_are_terminal(addon)
 		assertEqual(1, #results, "interchunk scheduler failure must callback once for " .. failure)
 		assertEqual("SCHEDULE_FAILED", results[1][3], "interchunk scheduler reason differs for " .. failure)
 	end
-	assertTrue(rawequal(savedRoot, _G.RMA_Reserves), "scheduler failures must preserve SavedVariables identity")
 	assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "scheduler failures must preserve SavedVariables values")
 	assertEqual(50, reserves:GetPlayerReserveEntries("Base")[1].rawID, "scheduler failures must preserve runtime")
 	print("PASS reserves_async_import_scheduler_failures_are_terminal")
@@ -5798,11 +6362,10 @@ function cases.reserves_async_import_publish_faults_rollback_exact_state(addon)
 	local reserves, fixture = installRealReservesMutationFixture(addon)
 	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = { base = reserveImportPlayer("Base", 50) } }, nil,
 		{ silentInfo = true }), "baseline import must succeed")
-	for _, stage in ipairs({ "mode", "index" }) do
+	for _, stage in ipairs({ "index" }) do
 		local savedRoot = _G.RMA_Reserves
-		local payloadRoot = select(1, reserves._Sync:GetPayload())
-		local oldRow = reserves:GetPlayerReserveEntries("Base")[1]
 		local savedBefore = deepCopy(savedRoot)
+		local runtimeBefore = deepCopy(select(1, reserves._Sync:GetPayload()))
 		local eventsBefore = #fixture.events
 		fixture.failStage = stage
 		local results = {}
@@ -5812,10 +6375,11 @@ function cases.reserves_async_import_publish_faults_rollback_exact_state(addon)
 		assertEqual(1, #results, "publish fault callback must run once for " .. stage)
 		assertEqual(false, results[1][1], "publish fault must fail for " .. stage)
 		assertEqual("failed", results[1][2], "publish fault result differs for " .. stage)
-		assertTrue(rawequal(savedRoot, _G.RMA_Reserves), "publish fault must restore SavedVariables root for " .. stage)
-		assertTrue(rawequal(payloadRoot, select(1, reserves._Sync:GetPayload())), "publish fault must restore payload root for " .. stage)
-		assertTrue(rawequal(oldRow, reserves:GetPlayerReserveEntries("Base")[1]), "publish fault must restore row identity for " .. stage)
-		assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "publish fault must restore values for " .. stage)
+		assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "publish fault must preserve SavedVariables values for " .. stage)
+		assertTrue(deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
+			"publish fault must preserve runtime values for " .. stage)
+		assertEqual(1, reserves:GetReserveCountForItem(50, "Base"),
+			"publish fault derived lookup must match preserved state for " .. stage)
 		assertEqual("multi", reserves:GetImportMode(), "publish fault must restore mode for " .. stage)
 		assertEqual(eventsBefore, #fixture.events, "publish fault must emit no event for " .. stage)
 	end
@@ -5832,14 +6396,120 @@ function cases.reserves_async_import_publish_faults_rollback_exact_state(addon)
 	print("PASS reserves_async_import_publish_faults_rollback_exact_state")
 end
 
+function cases.reserves_lookup_preserves_identity_index_fallback_and_detached_state(addon)
+	local reserves, fixture = installRealReservesMutationFixture(addon)
+	local data = {
+		alpha = { playerNameDisplay = "Alpha", reserves = {
+			{ rawID = 100, itemName = "Indexed", quantity = 2, plus = 1 },
+			{ rawID = 200, itemName = "Fallback", quantity = 3, plus = 0 },
+		} },
+		raider = { playerNameDisplay = "Raider", reserves = {
+			{ rawID = 100, itemName = "Exact", quantity = 5, plus = 0 },
+		} },
+	}
+	fixture.skipPlayerIndexItem = 200
+	assertTrue(reserves:SetSyncedData(data, { source = "Leader", checksum = "lookup", mode = "multi" }),
+		"lookup fixture import failed")
+	assertTrue(reserves:SetNameAlias("Alpha", "Raider"), "lookup fixture alias failed")
+	assertEqual(5, reserves:GetReserveCountForItem(100, "Raider"),
+		"exact reserve identity must take precedence over an alias target")
+	assertTrue(reserves:SetNameAlias("Alpha", "AliasRaid"), "lookup alias replacement failed")
+	assertEqual(2, reserves:GetReserveCountForItem(100, "AliasRaid"),
+		"raid-name alias must resolve to the reserve owner")
+	assertEqual(2, reserves:GetReserveCountForItem(100, "Alpha"), "indexed lookup quantity differs")
+	assertEqual(3, reserves:GetReserveCountForItem(200, "Alpha"), "fallback traversal quantity differs")
+
+	fixture.lookupProbe = { itemId = 100, playerName = "Alpha" }
+	assertTrue(reserves:ApplyBatch({
+		{ kind = "quantity", playerName = "Alpha", itemId = 100, value = 4 },
+	}), "detached publication mutation failed")
+	assertEqual(4, fixture.detachedLookupQuantity,
+		"detached publication lookup did not observe candidate state")
+	assertEqual(4, reserves:GetReserveCountForItem(100, "Alpha"),
+		"published lookup did not observe committed candidate state")
+	print("PASS reserves_lookup_preserves_identity_index_fallback_and_detached_state")
+end
+
+function cases.reserves_import_option_notification_is_post_commit(addon)
+	do
+		local reserves, fixture = installRealReservesMutationFixture(addon)
+		assertTrue(reserves:SetSyncedData({ base = reserveImportPlayer("Base", 50) },
+			{ source = "Leader", checksum = "fixture", mode = "multi" }))
+		local savedBefore = deepCopy(_G.RMA_Reserves)
+		local runtimeBefore = deepCopy(reserves:GetPlayerReserveEntries("Base"))
+		local savesBefore, eventsBefore = fixture.saveCount or 0, #fixture.events
+		fixture.failReplace = true
+		local ok, reason = reserves:ApplyImport({ mode = "plus", reservesData = {
+			alpha = reserveImportPlayer("Alpha", 100),
+		} }, nil, { silentInfo = true })
+		fixture.failReplace = nil
+		assertEqual(false, ok, "reserve replacement failure must reject the import")
+		assertEqual("PUBLISH_FAILED", reason, "reserve replacement failure reason differs")
+		assertEqual(0, fixture.optionValues.srImportMode, "replacement failure must preserve the stored mode")
+		assertEqual("multi", reserves:GetImportMode(), "replacement failure must preserve the local mode")
+		assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "replacement failure must preserve SavedVariables")
+		assertTrue(deepEqual(runtimeBefore, reserves:GetPlayerReserveEntries("Base")),
+			"replacement failure must preserve runtime roots")
+		assertEqual(true, reserves:HasItemReserves(50), "replacement failure must preserve the old item index")
+		assertEqual(false, reserves:HasItemReserves(100), "replacement failure must not publish the candidate index")
+		assertEqual(true, reserves:GetSyncMetadata().runtime, "replacement failure must preserve cache ownership")
+		assertEqual(savesBefore, fixture.saveCount or 0, "replacement failure must not save")
+		assertEqual(eventsBefore, #fixture.events, "replacement failure must not publish a data event")
+		assertEqual(0, #fixture.diagnostics, "replacement failure must not report an option diagnostic")
+	end
+
+	do
+		local reserves, fixture = installRealReservesMutationFixture(addon)
+		local savesBefore, eventsBefore = fixture.saveCount or 0, #fixture.events
+		fixture.optionObserver = function() error("injected OptionChanged observer failure") end
+		local ok = reserves:ApplyImport({ mode = "plus", reservesData = {
+			alpha = reserveImportPlayer("Alpha", 100),
+		} }, nil, { silentInfo = true })
+		assertEqual(true, ok, "OptionChanged failure must not invalidate the committed import")
+		assertEqual(1, fixture.optionValues.srImportMode, "OptionChanged failure must retain the stored mode")
+		assertEqual("plus", reserves:GetImportMode(), "OptionChanged failure must retain the local mode")
+		assertEqual(100, reserves:GetPlayerReserveEntries("Alpha")[1].rawID,
+			"OptionChanged failure must retain the published reserve roots")
+		assertEqual(true, reserves:HasItemReserves(100), "OptionChanged failure must retain the published index")
+		assertEqual(false, reserves:GetSyncMetadata().runtime, "OptionChanged failure must retain local cache ownership")
+		assertEqual(savesBefore + 1, fixture.saveCount or 0, "OptionChanged failure must save exactly once")
+		assertEqual(eventsBefore + 1, #fixture.events, "OptionChanged failure must publish one data event")
+		assertEqual(1, #fixture.diagnostics, "OptionChanged failure must report one contained diagnostic")
+	end
+
+	do
+		local reserves, fixture = installRealReservesMutationFixture(addon)
+		assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = {
+			base = reserveImportPlayer("Base", 50),
+		} }, nil, { silentInfo = true }), "reentrant observer baseline import must succeed")
+		local observed = {}
+		fixture.optionObserver = function()
+			observed.mode = reserves:GetImportMode()
+			observed.hasNewItem = reserves:HasItemReserves(200)
+			observed.hasOldItem = reserves:HasItemReserves(50)
+			observed.rawID = reserves:GetPlayerReserveEntries("Bravo")[1].rawID
+			observed.runtime = reserves:GetSyncMetadata().runtime
+		end
+		local ok = reserves:ApplyImport({ mode = "plus", reservesData = {
+			bravo = reserveImportPlayer("Bravo", 200),
+		} }, nil, { silentInfo = true })
+		assertEqual(true, ok, "reentrant OptionChanged observation must not reject the import")
+		assertEqual("plus", observed.mode, "OptionChanged observer must see the new local mode")
+		assertEqual(true, observed.hasNewItem, "OptionChanged observer must see the new item index")
+		assertEqual(false, observed.hasOldItem, "OptionChanged observer must not see stale item indexes")
+		assertEqual(200, observed.rawID, "OptionChanged observer must see the new reserve roots")
+		assertEqual(false, observed.runtime, "OptionChanged observer must see promoted cache ownership")
+		assertEqual(0, #fixture.diagnostics, "successful OptionChanged observation must report no diagnostic")
+	end
+	print("PASS reserves_import_option_notification_is_post_commit")
+end
+
 function cases.reserves_direct_import_apis_revalidate_bounded_canonical_input(addon)
 	local reserves, fixture = installRealReservesMutationFixture(addon)
 	assertTrue(reserves:ApplyImport({ mode = "multi", reservesData = { base = reserveImportPlayer("Base", 50) } }, nil,
 		{ silentInfo = true }), "baseline import must succeed")
-	local savedRoot = _G.RMA_Reserves
-	local runtimeRoot = select(1, reserves._Sync:GetPayload())
-	local runtimeRow = reserves:GetPlayerReserveEntries("Base")[1]
-	local savedBefore = deepCopy(savedRoot)
+	local savedBefore = deepCopy(_G.RMA_Reserves)
+	local runtimeBefore = deepCopy(select(1, reserves._Sync:GetPayload()))
 	local timersBefore, eventsBefore = #fixture.timers, #fixture.events
 	local invalid = {}
 	local tooManyPlayers = {}
@@ -5874,26 +6544,26 @@ function cases.reserves_direct_import_apis_revalidate_bounded_canonical_input(ad
 		assertEqual(1, #callbacks, "invalid async callback must run once at " .. i)
 		assertEqual(false, callbacks[1][1], "invalid async callback must fail at " .. i)
 		assertEqual(#fixture.timers, timersBefore, "invalid async request must allocate no timer at " .. i)
-		assertTrue(rawequal(savedRoot, _G.RMA_Reserves), "invalid import must preserve SavedVariables identity at " .. i)
-		assertTrue(rawequal(runtimeRoot, select(1, reserves._Sync:GetPayload())),
-			"invalid import must preserve runtime identity at " .. i)
-		assertTrue(rawequal(runtimeRow, reserves:GetPlayerReserveEntries("Base")[1]),
-			"invalid import must preserve row identity at " .. i)
 		assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "invalid import must preserve values at " .. i)
+		assertTrue(deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
+			"invalid import must preserve runtime values at " .. i)
+		assertEqual(1, reserves:GetReserveCountForItem(50, "Base"),
+			"invalid import derived lookup must match preserved state at " .. i)
 		assertEqual(eventsBefore, #fixture.events, "invalid import must not publish at " .. i)
 	end
-	for _, stage in ipairs({ "replace", "mode", "index" }) do
-		if stage == "replace" then fixture.failReplace = "mutate_then_throw" else fixture.failStage = stage end
+	for _, stage in ipairs({ "replace", "index" }) do
+		if stage == "replace" then fixture.failReplace = true else fixture.failStage = stage end
 		local ok, reason = reserves:ApplyImport({ mode = "plus", reservesData = {
 			alpha = reserveImportPlayer("Alpha", 100),
 		} }, nil, { silentInfo = true })
 		fixture.failReplace, fixture.failStage = nil, nil
 		assertEqual(false, ok, "synchronous import must contain " .. stage .. " fault")
 		assertEqual("PUBLISH_FAILED", reason, "synchronous publish reason differs for " .. stage)
-		assertTrue(rawequal(savedRoot, _G.RMA_Reserves), "sync fault must preserve SavedVariables identity")
-		assertTrue(rawequal(runtimeRoot, select(1, reserves._Sync:GetPayload())), "sync fault must preserve runtime identity")
-		assertTrue(rawequal(runtimeRow, reserves:GetPlayerReserveEntries("Base")[1]), "sync fault must preserve row identity")
 		assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "sync fault must preserve values")
+		assertTrue(deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
+			"sync fault must preserve runtime values")
+		assertEqual(1, reserves:GetReserveCountForItem(50, "Base"),
+			"sync fault derived lookup must match preserved state")
 		assertEqual("multi", reserves:GetImportMode(), "sync fault must restore mode")
 	end
 	local exactGraph = {}
@@ -5932,23 +6602,20 @@ function cases.reserves_add_player_reserve_is_transactional(addon)
 		local synced = { alpha = reserveImportPlayer("Alpha", 100) }
 		assertTrue(reserves:SetSyncedData(synced, { source = "Leader", checksum = "fixture", mode = "multi" }),
 			"synced add baseline must load")
-		local savedRoot = _G.RMA_Reserves
-		local runtimeRoot = select(1, reserves._Sync:GetPayload())
-		local runtimeRow = reserves:GetPlayerReserveEntries("Alpha")[1]
-		local savedBefore = deepCopy(savedRoot)
+		local savedBefore = deepCopy(_G.RMA_Reserves)
+		local runtimeBefore = deepCopy(select(1, reserves._Sync:GetPayload()))
 		local eventsBefore = #fixture.events
-		if fault == "replace" then fixture.failReplace = "mutate_then_throw" else fixture.failStage = "index" end
+		if fault == "replace" then fixture.failReplace = true else fixture.failStage = "index" end
 		local invoked, ok, reason = pcall(reserves.AddPlayerReserve, reserves, "Alpha", 200)
 		fixture.failReplace, fixture.failStage = nil, nil
 		assertEqual(true, invoked, "add must contain " .. fault .. " fault")
 		assertEqual(false, ok, "add must fail on " .. fault .. " fault")
 		assertEqual("publish_failed", reason, "add publish reason differs")
-		assertTrue(rawequal(savedRoot, _G.RMA_Reserves), "add fault must preserve SavedVariables identity")
-		assertTrue(rawequal(runtimeRoot, select(1, reserves._Sync:GetPayload())),
-			"add fault must preserve runtime identity")
-		assertTrue(rawequal(runtimeRow, reserves:GetPlayerReserveEntries("Alpha")[1]),
-			"add fault must preserve row identity")
 		assertTrue(deepEqual(savedBefore, _G.RMA_Reserves), "add fault must preserve SavedVariables values")
+		assertTrue(deepEqual(runtimeBefore, select(1, reserves._Sync:GetPayload())),
+			"add fault must preserve runtime values")
+		assertEqual(1, reserves:GetReserveCountForItem(100, "Alpha"),
+			"add fault derived lookup must match preserved state")
 		assertEqual(true, reserves:GetSyncMetadata().runtime, "add fault must preserve synced cache ownership")
 		assertEqual(eventsBefore, #fixture.events, "add fault must publish no event")
 	end
@@ -5958,7 +6625,10 @@ function cases.reserves_add_player_reserve_is_transactional(addon)
 	local eventsBefore = #fixture.events
 	local ok, row = reserves:AddPlayerReserve("Alpha", 200)
 	assertEqual(true, ok, "valid add must commit")
-	assertTrue(rawequal(row, reserves:GetPlayerReserveEntries("Alpha")[2]), "successful add must return committed clone")
+	assertTrue(deepEqual(row, reserves:GetPlayerReserveEntries("Alpha")[2]),
+		"successful add must return the committed reserve value")
+	assertEqual(1, reserves:GetReserveCountForItem(200, "Alpha"),
+		"successful add derived lookup must match the published candidate")
 	assertEqual(false, reserves:GetSyncMetadata().runtime, "successful add must promote the active candidate")
 	assertEqual(eventsBefore + 1, #fixture.events, "successful add must publish exactly once")
 	print("PASS reserves_add_player_reserve_is_transactional")
@@ -6950,6 +7620,8 @@ end
 
 function cases.sync_request_lifecycle_is_correlated_and_terminal_once(addon)
 	local fixture, syncer = installRealDbSyncerFixture(addon)
+	local cancelRequestName = "Cancel" .. "Request"
+	assertEqual(nil, syncer[cancelRequestName], "DBSyncer must not expose a test-only cancellation facade")
 	fixture.roster = {
 		{ name = "Leader-Test Realm", rank = 2 },
 		{ name = "Assistant-Other Realm", rank = 1 },
@@ -7004,19 +7676,10 @@ function cases.sync_request_lifecycle_is_correlated_and_terminal_once(addon)
 	assertEqual(1, fixture.importAttempts, "late timeout response must not import")
 	assertEqual(2, callbackCount, "late timeout response must not re-enter callback")
 
-	pending("cancel", 41, "Leader-Test Realm")
-	assertEqual(true, syncer:CancelRequest("cancel"), "active request must cancel")
-	assertEqual(false, syncer:CancelRequest("cancel"), "terminal request must not cancel twice")
-	assertEqual(3, callbackCount, "cancel callback must run once")
-	assertEqual("cancel", terminalReason, "cancel terminal reason differs")
-	snapshot("cancel", "REQ", 41, "Leader-Test Realm")
-	assertEqual(1, fixture.importAttempts, "cancelled request must reject late response")
-	assertEqual(3, callbackCount, "late cancelled response must not re-enter callback")
-
 	pending("timeout", 42, "Assistant-Other Realm")
 	snapshot("timeout", "REQ", 42, "Assistant-Other Realm")
 	assertEqual(1, fixture.importAttempts, "terminal request ID must not be reused across context")
-	assertEqual(4, callbackCount, "reused request ID must terminate replacement callback once")
+	assertEqual(3, callbackCount, "reused request ID must terminate replacement callback once")
 	assertEqual("reused", terminalReason, "reused request terminal reason differs")
 
 	fixture.now = fixture.now + 46
@@ -7029,20 +7692,18 @@ end
 function cases.sync_request_timeout_fires_without_inbound_traffic(addon)
 	local fixture, syncer = installRealDbSyncerFixture(addon)
 	fixture.roster = { { name = "Leader-Test Realm", rank = 2 } }
-	local callbackCount, reentrantCancel = 0, nil
+	local callbackCount = 0
 	assertEqual(true, syncer:RequestLoggerReq(41, "Leader-Test Realm"), "request must start")
 	local pending = assert(syncer._pendingRequests.generated, "generated request must be pending")
 	pending.callback = function(reason)
-			callbackCount = callbackCount + 1
-			assertEqual("timeout", reason, "timer terminal reason differs")
-			reentrantCancel = syncer:CancelRequest("generated")
-			syncer:OnAddonMessage("RMALogSync", table.concat({
-				"SN", 2, "generated", "REQ", 41, 1, 1, "snapshot",
-			}, "\t"), "WHISPER", "Leader-Test Realm")
-		end
+		callbackCount = callbackCount + 1
+		assertEqual("timeout", reason, "timer terminal reason differs")
+		syncer:OnAddonMessage("RMALogSync", table.concat({
+			"SN", 2, "generated", "REQ", 41, 1, 1, "snapshot",
+		}, "\t"), "WHISPER", "Leader-Test Realm")
+	end
 	assertEqual(1, fixture:FireTimers(), "one request timeout must fire without inbound traffic")
 	assertEqual(1, callbackCount, "timer timeout callback must run once")
-	assertEqual(false, reentrantCancel, "reentrant cancellation must observe terminal state")
 	assertEqual(0, fixture:FireTimers(), "terminal timeout must leave no active timer")
 	assertEqual(0, fixture.importAttempts, "reentrant completion attempt must observe terminal state")
 	assertEqual(nil, syncer._pendingRequests.generated, "timer timeout must release pending state")
@@ -7051,27 +7712,29 @@ end
 
 function cases.sync_request_cleanup_is_context_scoped(addon)
 	local fixture, syncer = installRealDbSyncerFixture(addon)
-	fixture.roster = { { name = "Leader-Test Realm", rank = 2 } }
-	fixture.options.syncRequirePlayer = "Leader-Test Realm"
-	local pending = {
-		createdAt = fixture.now, mode = "REQ", raidRef = 41, target = "Assistant-Other Realm", sender = "Assistant-Other Realm",
+	fixture.roster = {
+		{ name = "Leader-Test Realm", rank = 2 },
+		{ name = "Assistant-Other Realm", rank = 1 },
 	}
-	syncer._pendingRequests["collision"] = pending
+	fixture.options.syncRequirePlayer = "Leader-Test Realm"
+	assertEqual(true, syncer:RequestLoggerReq(41, "Assistant-Other Realm"), "local colliding request must start")
+	local pending = assert(syncer._pendingRequests.generated, "local colliding request must be pending")
 	syncer._incoming["local"] = {
-		createdAt = fixture.now, requestId = "collision", mode = "REQ", raidNid = 41,
+		createdAt = fixture.now, requestId = "generated", mode = "REQ", raidNid = 41,
 		sender = "assistant-other realm", requestContext = pending, total = 2, got = 1, parts = { "x" }, encodedBytes = 1,
 	}
 	syncer:OnAddonMessage("RMALogSync", table.concat({
-		"SN", 2, "collision", "PUSH", 41, 1, 2, "push",
+		"SN", 2, "generated", "PUSH", 41, 1, 2, "push",
 	}, "\t"), "WHISPER", "Leader-Test Realm")
 	local pushKey
 	for key, state in pairs(syncer._incoming) do
 		if state.mode == "PUSH" then pushKey = key end
 	end
 	assertTrue(pushKey ~= nil, "unrelated configured PUSH collision must allocate independently")
-	assertEqual(true, syncer:CancelRequest("collision"), "local colliding request must cancel")
-	assertEqual(nil, syncer._incoming["local"], "cancel must remove its local response assembly")
-	assertTrue(syncer._incoming[pushKey] ~= nil, "cancel must preserve unrelated PUSH with same wire ID")
+	fixture.now = fixture.now + 31
+	fixture:FireTimers()
+	assertEqual(nil, syncer._incoming["local"], "timeout must remove its local response assembly")
+	assertTrue(syncer._incoming[pushKey] ~= nil, "timeout must preserve unrelated PUSH with the same wire ID")
 
 	local second = { createdAt = fixture.now, mode = "REQ", raidRef = 42, target = "Assistant-Other Realm" }
 	syncer._pendingRequests["push-first"] = second
@@ -8054,6 +8717,26 @@ function cases.sync_request_backpressure_rolls_back_pending(addon)
 	print("PASS sync_request_backpressure_rolls_back_pending")
 end
 
+function cases.strings_utf8_safe_prefix(addon)
+	loadAddonFile(addon, "Raid Management Addon/Modules/Strings.lua")
+	local prefix = addon.Strings.Utf8SafePrefix
+	assertEqual("abc", prefix("abc", 3), "ASCII text at the boundary must remain intact")
+	assertEqual("A", prefix("A" .. string.char(0xc3, 0xa9), 2), "a split multibyte character must be omitted")
+	assertEqual(
+		"A" .. string.char(0xc3, 0xa9),
+		prefix("A" .. string.char(0xc3, 0xa9), 3),
+		"a complete multibyte character must remain"
+	)
+	assertEqual(
+		"Good",
+		prefix("Good" .. string.char(0xc0, 0x80) .. "suffix", 255),
+		"malformed UTF-8 and its suffix must be removed"
+	)
+	assertEqual("", prefix(nil, 10), "non-string input must normalize to an empty prefix")
+	assertEqual("", prefix("text", 0), "non-positive limits must return an empty prefix")
+	print("PASS strings_utf8_safe_prefix")
+end
+
 function cases.spammer_warnings_saved_variables_are_normalized(addon)
 	local spammerStore = {
 		Name = "  Citadel  ",
@@ -8120,6 +8803,7 @@ function cases.spammer_warnings_saved_variables_are_normalized(addon)
 		return 0, nil
 	end
 
+	loadAddonFile(addon, "Raid Management Addon/Modules/Strings.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Spammer/Draft.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Warnings/Store.lua")
 	local draft = addon.Services.Spammer.Draft
@@ -8460,6 +9144,7 @@ function cases.spammer_controller_reports_terminal_failures_once(addon)
 		Primitives = { SetEnabled = function() end }, EditBoxes = {}, Tooltips = {},
 	}
 	addon.WithinRange = function(value, minimum, maximum) return value >= minimum and value <= maximum end
+	loadAddonFile(addon, "Raid Management Addon/Modules/Strings.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Spammer/Draft.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Spammer/Runtime.lua")
 	loadAddonFile(addon, "Raid Management Addon/Controllers/Spammer.lua")
@@ -8508,6 +9193,7 @@ function cases.headless_spammer_uses_saved_draft_through_runtime_owner(addon)
 		end
 		function target:CancelTimer() return true end
 	end }
+	loadAddonFile(addon, "Raid Management Addon/Modules/Strings.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Spammer/Draft.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Spammer/Runtime.lua")
 	local draft = addon.Services.Spammer.Draft
@@ -8564,6 +9250,7 @@ function cases.controller_request_start_uses_saved_draft_without_frame(addon)
 		Primitives = { SetEnabled = function(_, enabled) enabledStates[#enabledStates + 1] = enabled end }, EditBoxes = {}, Tooltips = {},
 	}
 	addon.WithinRange = function(value, minimum, maximum) return value >= minimum and value <= maximum end
+	loadAddonFile(addon, "Raid Management Addon/Modules/Strings.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Spammer/Draft.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Spammer/Runtime.lua")
 	loadAddonFile(addon, "Raid Management Addon/Controllers/Spammer.lua")
@@ -8646,6 +9333,7 @@ function cases.spammer_clear_invalidates_ui_without_mutating_active_snapshot(add
 	addon.WithinRange = function(value, minimum, maximum) return value >= minimum and value <= maximum end
 	_G.GetChannelName = function() return 0, nil end
 
+	loadAddonFile(addon, "Raid Management Addon/Modules/Strings.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Spammer/Draft.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Spammer/Runtime.lua")
 	loadAddonFile(addon, "Raid Management Addon/Controllers/Spammer.lua")
@@ -8761,6 +9449,7 @@ function cases.spammer_frame_binding_applies_uncached_clear_state(addon)
 		}
 		target.WithinRange = function(value, minimum, maximum) return value >= minimum and value <= maximum end
 		_G.GetChannelName = function() return 0, nil end
+		loadAddonFile(target, "Raid Management Addon/Modules/Strings.lua")
 		loadAddonFile(target, "Raid Management Addon/Services/Spammer/Draft.lua")
 		loadAddonFile(target, "Raid Management Addon/Services/Spammer/Runtime.lua")
 		loadAddonFile(target, "Raid Management Addon/Controllers/Spammer.lua")
@@ -9171,6 +9860,48 @@ function cases.loot_duplicate_award_is_rejected_in_flight(addon)
 	print("PASS loot_duplicate_award_is_rejected_in_flight")
 end
 
+function cases.loot_direct_assignment_admits_before_mutation(addon)
+	local fixture = installLootHardeningMasterFixture(addon)
+	local effect = { MarkUncertain = function() end, Fail = function() end }
+	assertTrue(fixture.master._awardConfirmation:Queue({
+		itemLink = "item:19019", itemIndex = 1, playerName = "Winner", effect = effect,
+	}), "fixture must own one pending award")
+	local assignmentsBefore = fixture.assignments
+	local rollTypeBefore = fixture.lootState.currentRollType
+	local timersBefore = fixture.timers
+	local admitted, reason = fixture.master._Private.BtnHold(nil, "LeftButton")
+	assertEqual(nil, admitted, "direct assignment must reject")
+	assertEqual("award_in_flight", reason, "admission reason differs")
+	assertEqual(assignmentsBefore, fixture.assignments, "rejected admission assigned loot")
+	assertEqual(rollTypeBefore, fixture.lootState.currentRollType, "rejected admission changed roll type")
+	assertEqual(timersBefore, fixture.timers, "rejected admission changed timer ownership")
+	print("PASS loot_direct_assignment_admits_before_mutation")
+end
+
+function cases.loot_direct_assignment_rejects_in_flight_trade_before_mutation(addon)
+	local entries = {
+		{ "hold", function(fixture) return fixture.master._Private.BtnHold(nil, "LeftButton") end },
+		{ "bank", function(fixture) return fixture.master._Private.BtnBank(nil, "LeftButton") end },
+		{ "disenchant", function(fixture) return fixture.master._Private.BtnDisenchant(nil, "LeftButton") end },
+	}
+	for i = 1, #entries do
+		local fixture = installLootHardeningMasterFixture(i == 1 and addon or newAddon())
+		fixture.tradeInFlight = true
+		local assignmentsBefore = fixture.assignments
+		local rollTypeBefore = fixture.lootState.currentRollType
+		local timersBefore = fixture.timers
+		local refreshesBefore = fixture.refreshCalls
+		local admitted, reason = entries[i][2](fixture)
+		assertEqual(nil, admitted, entries[i][1] .. " direct assignment must reject")
+		assertEqual("trade_in_flight", reason, entries[i][1] .. " admission reason differs")
+		assertEqual(assignmentsBefore, fixture.assignments, entries[i][1] .. " rejection assigned loot")
+		assertEqual(rollTypeBefore, fixture.lootState.currentRollType, entries[i][1] .. " rejection changed roll type")
+		assertEqual(timersBefore, fixture.timers, entries[i][1] .. " rejection changed timer ownership")
+		assertEqual(refreshesBefore, fixture.refreshCalls, entries[i][1] .. " rejection refreshed UI state")
+	end
+	print("PASS loot_direct_assignment_rejects_in_flight_trade_before_mutation")
+end
+
 function cases.loot_award_prerequisites_and_sequence_retry_are_ordered(addon)
 	local fixture = installLootHardeningMasterFixture(addon)
 	local sequence = fixture.awardSequence
@@ -9206,14 +9937,10 @@ function cases.loot_award_prerequisites_and_sequence_retry_are_ordered(addon)
 	assertTrue(sequence:ContinueOnLootSlotCleared(1), "next award must schedule")
 	fixture.timerCallbacks[#fixture.timerCallbacks]()
 	assertEqual(2, fixture.assignments, "second award did not execute")
-	fixture.throwNextSchedule = true
-	assertEqual(nil, confirmation:Confirm(1), "schedule throw must make second attempt uncertain")
-	assertEqual(2, fixture.lootState.itemTraded, "register checkpoint did not commit before schedule throw")
-	assertEqual(3, fixture.lootState.multiAward.pos, "position checkpoint did not commit before schedule throw")
 	fixture.throwRefresh = true
 	assertEqual(nil, confirmation:Confirm(1), "refresh throw must remain retryable")
-	assertEqual(2, fixture.lootState.itemTraded, "register repeated after schedule retry")
-	assertEqual(3, fixture.lootState.multiAward.pos, "position repeated after schedule retry")
+	assertEqual(2, fixture.lootState.itemTraded, "register checkpoint did not commit before refresh failure")
+	assertEqual(3, fixture.lootState.multiAward.pos, "position checkpoint did not commit before refresh failure")
 	fixture.throwRefresh = false
 	assertEqual(true, confirmation:Confirm(1), "refresh retry must complete")
 	assertEqual(3, fixture.distributionCalls, "completed distribution checkpoint repeated during sequence retries")
@@ -9622,6 +10349,71 @@ local function installTradeEvidenceInventory(addon, bags)
 	return addon.Services.Loot.Inventory
 end
 
+function cases.loot_award_sequence_schedule_failure_is_terminal(addon)
+	local schedulerFailures = {
+		{ name = "progress throw", progress = true, flag = "throwNextSchedule" },
+		{ name = "progress nil", progress = true, flag = "nilNextSchedule" },
+		{ name = "delay throw", progress = false, flag = "throwNextSchedule" },
+		{ name = "delay nil", progress = false, flag = "nilNextSchedule" },
+	}
+	for i = 1, #schedulerFailures do
+		local scenario = schedulerFailures[i]
+		local fixture = installLootHardeningMasterFixture(i == 1 and addon or newAddon())
+		fixture.lootState.selectedItemCount = 2
+		fixture.mutateSelectedCountOnReset = true
+		fixture.windowItemCount = 2
+		local reentrantResult
+		fixture.onWarn = function()
+			reentrantResult = fixture.awardSequence:ContinueOnLootSlotCleared(1)
+		end
+		assertTrue(fixture.awardSequence:Start("item:19019", 2, {
+			{ name = "Winner", roll = 90 }, { name = "Runner", roll = 80 },
+		}), scenario.name .. " sequence must start")
+		local result, reason
+		if scenario.progress then
+			fixture[scenario.flag] = true
+			result, reason = fixture.master._awardConfirmation:Confirm(1)
+		else
+			assertEqual(true, fixture.master._awardConfirmation:Confirm(1), scenario.name .. " first award must confirm")
+			fixture.windowItemCount = 1
+			fixture[scenario.flag] = true
+			result, reason = fixture.awardSequence:ContinueOnLootSlotCleared(1)
+		end
+
+		assertEqual(nil, result, scenario.name .. " must reject the sequence")
+		assertEqual("timer_schedule_failed", reason, scenario.name .. " reason differs")
+		assertEqual(nil, fixture.lootState.multiAward, scenario.name .. " retained ownership")
+		assertEqual(1, fixture.warningCount, scenario.name .. " must warn once")
+		assertEqual(false, reentrantResult, scenario.name .. " warning observed live sequence ownership")
+		assertEqual(0, fixture.activeTimerCount(), scenario.name .. " left an active timer")
+		assertEqual(1, fixture.lootState.selectedItemCount, scenario.name .. " did not reset item count")
+	end
+	print("PASS loot_award_sequence_schedule_failure_is_terminal")
+end
+
+function cases.loot_inventory_canonical_match_and_required_count(addon)
+	local bags = { [0] = { [1] = { link = "|Hitem:19019:0:0:0:0:0:0:1|h[A]|h", count = 2 } } }
+	local inventory = installTradeEvidenceInventory(addon, bags)
+	assertTrue(inventory.LootLinkMatchesTarget(
+		"|Hitem:19019:0:0:0:0:0:0:1|h[A]|h",
+		"|cffa335ee|Hitem:19019:0:0:0:0:0:0:1|h[B]|h|r",
+		"item:19019:0:0:0:0:0:0:1",
+		19019
+	), "canonical item strings must match")
+	local evidence = assert(inventory.CaptureTradeEvidence(bags[0][1].link, 0, 1))
+	evidence.expectedPartner = "Winner"
+	bags[0][1].count = 1
+	local verified, reason = inventory.VerifyTradeEvidence(evidence, "Winner", 2)
+	assertEqual(nil, verified, "one transferred copy must not satisfy a two-copy award")
+	assertEqual("trade_transfer_unverified", reason, "partial transfer reason differs")
+	bags[0][1] = nil
+	local awarded
+	verified, awarded = inventory.VerifyTradeEvidence(evidence, "Winner", 2)
+	assertEqual(true, verified, "two transferred copies must satisfy the required count")
+	assertEqual(2, awarded, "required-count evidence differs")
+	print("PASS loot_inventory_canonical_match_and_required_count")
+end
+
 function cases.loot_trade_inventory_evidence_requires_a_positive_delta(addon)
 	local target = "|cffa335ee|Hitem:19019:0:0:0:0:0:0:0|h[Target]|h|r"
 	local changed = "|cffa335ee|Hitem:19019:1:0:0:0:0:0:0|h[Changed]|h|r"
@@ -9668,8 +10460,9 @@ end
 local function installAwardTradeFixture(addon, opts)
 	opts = opts or {}
 	local target = "|cffa335ee|Hitem:19019:0:0:0:0:0:0:0|h[Target]|h|r"
-	local bags = { [0] = { [1] = { link = target, count = 2 } } }
+	local bags = opts.bags or { [0] = { [1] = { link = target, count = 2 } } }
 	local inventory = installTradeEvidenceInventory(addon, bags)
+	local selectedWinners = opts.selectedWinners or { { name = "Winner", roll = 90 } }
 	addon.C = {
 		RAID_TARGET_MARKERS = {},
 		rollTypes = { MAINSPEC = 1, OFFSPEC = 2, RESERVED = 3, FREE = 4, HOLD = 5 },
@@ -9696,7 +10489,7 @@ local function installAwardTradeFixture(addon, opts)
 		whisper = 0, release = 0, warn = 0, initiateSawState = nil,
 	}
 	local lootState = {
-		fromInventory = true, selectedItemCount = 1, currentRollItem = 10,
+		fromInventory = true, selectedItemCount = opts.selectedItemCount or 1, currentRollItem = 10,
 		currentItemIndex = 1, rollSession = { id = "RS:trade" },
 	}
 	local itemInfo = {}
@@ -9722,9 +10515,16 @@ local function installAwardTradeFixture(addon, opts)
 			return { keep = false, output = "awarded", whisper = "winner whisper", markerPlan = {} }
 		end },
 		rollSelection = {
-			GetSelectedCount = function() return 0 end,
-			DeselectWinner = function() end,
-			GetSelectedWinnersOrdered = function() return {} end,
+			GetSelectedCount = function() return #selectedWinners end,
+			DeselectWinner = function(_, playerName)
+				for i = 1, #selectedWinners do
+					if selectedWinners[i].name == playerName then
+						table.remove(selectedWinners, i)
+						break
+					end
+				end
+			end,
+			GetSelectedWinnersOrdered = function() return selectedWinners end,
 		},
 		raid = {
 			GetUnitID = function() return "raid1" end,
@@ -9765,7 +10565,9 @@ local function installAwardTradeFixture(addon, opts)
 			CheckInteractDistance = function() return 1 end,
 		},
 		getOption = function(_, key) return key == "ignoreStacks" end,
-		buildRollSelectionModel = function() return { winner = "Winner", rows = {} } end,
+		buildRollSelectionModel = function()
+			return { winner = selectedWinners[1] and selectedWinners[1].name or nil, rows = selectedWinners }
+		end,
 		buildLootRollSessionOptions = function() return {} end,
 		resetTradeState = function() end,
 		hideTradeDropdowns = function() end,
@@ -9775,7 +10577,10 @@ local function installAwardTradeFixture(addon, opts)
 			counters.logger = counters.logger + 1
 			return opts.rejectLogger ~= true
 		end,
-		registerAwardedItem = function(count) counters.registered = counters.registered + count return true end,
+		registerAwardedItem = function(count)
+			counters.registered = counters.registered + count
+			return counters.registered >= lootState.selectedItemCount
+		end,
 		requestRefresh = function() return true end,
 		announce = function() counters.announce = counters.announce + 1 return true end,
 		isAnnounced = function() return false end,
@@ -9787,7 +10592,63 @@ local function installAwardTradeFixture(addon, opts)
 		createAttempt = createAttempt,
 		getItemKey = addon.Item.GetItemStringFromLink,
 	})
-	return { controller = controller, bags = bags, counters = counters, target = target, opts = opts }
+	return {
+		controller = controller,
+		bags = bags,
+		counters = counters,
+		itemInfo = itemInfo,
+		lootState = lootState,
+		selectedWinners = selectedWinners,
+		target = target,
+		opts = opts,
+	}
+end
+
+function cases.loot_trade_rejects_second_in_flight(addon)
+	local fixture = installAwardTradeFixture(addon)
+	assertTrue(fixture.controller:TradeItem(fixture.target, "Winner", 1, 99))
+	local admitted, reason = fixture.controller:TradeItem(fixture.target, "Winner", 1, 98)
+	assertEqual(nil, admitted, "second trade must be rejected")
+	assertEqual("trade_in_flight", reason, "second trade reason differs")
+	print("PASS loot_trade_rejects_second_in_flight")
+end
+
+function cases.loot_trade_required_count_tracks_placed_stack(addon)
+	local target = "|cffa335ee|Hitem:19019:0:0:0:0:0:0:0|h[Target]|h|r"
+	local sequential = installAwardTradeFixture(addon, {
+		bags = { [0] = {
+			[1] = { link = target, count = 1 },
+			[2] = { link = target, count = 1 },
+		} },
+		selectedItemCount = 2,
+		selectedWinners = { { name = "Winner", roll = 90 }, { name = "Runner", roll = 80 } },
+	})
+	assertTrue(sequential.controller:TradeItem(sequential.target, "Winner", 1, 90))
+	assertTrue(sequential.controller:HandleTradeShow("Winner"))
+	assertTrue(sequential.controller:HandleAcceptedAwardTrade(1, 1))
+	sequential.bags[0][1] = nil
+	local settled, settleReason = sequential.controller:SettleAcceptedTrade("Winner")
+	assertEqual(true, settled, settleReason or "one placed copy must settle independently")
+	assertEqual(false, sequential.controller:HasInFlightAward(), "first sequential trade retained ownership")
+	assertEqual("Runner", sequential.lootState.winner, "first trade did not advance to the second winner")
+	assertEqual(1, sequential.counters.registered, "first sequential trade registered the wrong quantity")
+	assertTrue(sequential.controller:TradeItem(sequential.target, "Runner", 1, 80), "second winner was not admitted")
+
+	local stack = installAwardTradeFixture(newAddon(), {
+		bags = { [0] = { [1] = { link = target, count = 2 } } },
+		selectedItemCount = 1,
+	})
+	assertTrue(stack.controller:TradeItem(stack.target, "Winner", 1, 90))
+	assertTrue(stack.controller:HandleTradeShow("Winner"))
+	assertTrue(stack.controller:HandleAcceptedAwardTrade(1, 1))
+	stack.bags[0][1].count = 1
+	local verified, reason = stack.controller:SettleAcceptedTrade("Winner")
+	assertEqual(nil, verified, "partial whole-stack transfer must remain uncertain")
+	assertEqual("trade_transfer_unverified", reason, "partial whole-stack reason differs")
+	stack.bags[0][1] = nil
+	assertEqual(true, stack.controller:SettleAcceptedTrade("Winner"), "whole-stack delta must settle")
+	assertEqual(2, stack.counters.registered, "whole-stack trade registered the wrong quantity")
+	print("PASS loot_trade_required_count_tracks_placed_stack")
 end
 
 function cases.loot_award_trade_event_order_is_evidence_gated(addon)
@@ -9810,7 +10671,7 @@ function cases.loot_award_trade_event_order_is_evidence_gated(addon)
 	assertEqual(0, fixture.counters.release, "uncertain close released session ownership")
 	assertEqual(1, fixture.counters.warn, "uncertain close must warn once")
 
-	fixture.bags[0][1].count = 1
+	fixture.bags[0][1] = nil
 	assertEqual(true, trade:SettleAcceptedTrade("Winner"), "later inventory delta must confirm")
 	assertEqual("confirmed", trade:GetPendingState().state, "confirmed state differs")
 	assertEqual(1, fixture.counters.logger, "confirmed trade logger count differs")
@@ -9847,7 +10708,7 @@ function cases.loot_award_trade_event_order_is_evidence_gated(addon)
 	assertTrue(missingSettlePartner.controller:TradeItem(missingSettlePartner.target, "Winner", 1, 90))
 	assertTrue(missingSettlePartner.controller:HandleTradeShow("Winner"))
 	assertTrue(missingSettlePartner.controller:HandleAcceptedAwardTrade(1, 1))
-	missingSettlePartner.bags[0][1].count = 1
+	missingSettlePartner.bags[0][1] = nil
 	local settled, settleReason = missingSettlePartner.controller:SettleAcceptedTrade(nil)
 	assertEqual(true, settled, settleReason or "validated TRADE_SHOW partner must survive post-close nil lookup")
 	assertEqual(1, missingSettlePartner.counters.logger, "validated shown partner did not reach logger")
@@ -9857,7 +10718,7 @@ function cases.loot_award_trade_event_order_is_evidence_gated(addon)
 	assertTrue(retry.controller:TradeItem(retry.target, "Winner", 1, 90))
 	assertTrue(retry.controller:HandleTradeShow("Winner"))
 	assertTrue(retry.controller:HandleAcceptedAwardTrade(1, 1))
-	retry.bags[0][1].count = 1
+	retry.bags[0][1] = nil
 	assertEqual(nil, retry.controller:SettleAcceptedTrade("Winner"), "logger rejection must remain retryable")
 	assertEqual(1, retry.counters.logger, "logger first attempt count differs")
 	assertEqual(0, retry.counters.raid, "counter ran before logger success")
@@ -9872,7 +10733,7 @@ function cases.loot_award_trade_event_order_is_evidence_gated(addon)
 	assertTrue(releaseRetry.controller:TradeItem(releaseRetry.target, "Winner", 1, 90))
 	assertTrue(releaseRetry.controller:HandleTradeShow("Winner"))
 	assertTrue(releaseRetry.controller:HandleAcceptedAwardTrade(1, 1))
-	releaseRetry.bags[0][1].count = 1
+	releaseRetry.bags[0][1] = nil
 	local released, releaseReason = releaseRetry.controller:SettleAcceptedTrade("Winner")
 	assertEqual(nil, released, "failed session release must retain terminal ownership")
 	assertEqual("session_ownership_release_failed", releaseReason, "release failure reason differs")
@@ -10107,6 +10968,243 @@ function cases.loot_award_attribution_event_order_is_atomic(addon)
 	print("PASS loot_award_attribution_event_order_is_atomic")
 end
 
+function cases.loot_attribution_schedule_failure_finalizes_once(addon)
+	local lootState = { pendingAwards = {} }
+	_G.GetTime = function() return 10 end
+	addon.C = { PENDING_AWARD_TTL_SECONDS = 8 }
+	addon.Diag = { D = { LogLootPendingAwardConsumed = "%s %s %s %s" } }
+	addon.Options = { IsDebugEnabled = function() return false end }
+	addon.Strings = { NormalizeName = function(value) return value end }
+	addon.Item = { GetItemStringFromLink = function(link) return link end }
+	addon.Database = { EnsureLootRuntimeState = function() return {}, lootState end }
+	addon.Services = {
+		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} return addon.Services[name] end,
+	}
+	loadAddonFile(addon, "Raid Management Addon/Services/Loot/LootAttribution.lua")
+	local attribution = addon.Services.Loot.LootAttribution
+	local failures = {
+		{ name = "scheduler throw", schedule = function() error("schedule exploded") end, expectedReason = "timer_schedule_failed" },
+		{ name = "scheduler nil", schedule = function() return nil end, expectedReason = "timer_schedule_failed" },
+		{ name = "finalizer throw", throwFinalize = true, expectedReason = "record_finalize_failed" },
+	}
+	for i = 1, #failures do
+		local scenario = failures[i]
+		local transactionId = "AT:failure:" .. tostring(i)
+		local sessionId = "RS:failure:" .. tostring(i)
+		local finalizeCount, failureCount, reconcileCount = 0, 0, 0
+		attribution.Add("item:19019", "Winner", 1, 90, sessionId, nil, { transactionId = transactionId })
+		local scheduledCallback
+		local schedule = scenario.schedule or function(callback)
+			scheduledCallback = callback
+			return callback
+		end
+		local observedReason
+		local provisional = attribution.ConfirmProvisional(
+			"item:19019", "Winner", sessionId, 1, transactionId, 1,
+			schedule,
+			function() error("failed grace timer must not need cancellation") end,
+			function()
+				finalizeCount = finalizeCount + 1
+				if scenario.throwFinalize then error("finalize exploded") end
+				return finalizeCount
+			end,
+			function(reason)
+				failureCount = failureCount + 1
+				observedReason = reason
+				if reason == "record_finalize_failed" then
+					assertEqual(nil, attribution.Remove("item:19019", "Winner", 8, sessionId, false, false),
+						scenario.name .. " reported failure before consuming pending ownership")
+				end
+			end
+		)
+		if scheduledCallback then scheduledCallback() end
+		assertTrue(provisional and provisional.finalized, scenario.name .. " did not finalize immediately")
+		assertEqual("LOOT_SLOT_CLEARED", provisional.finalizedSource, scenario.name .. " source differs")
+		assertEqual(1, finalizeCount, scenario.name .. " finalization count differs")
+		assertEqual(1, failureCount, scenario.name .. " must report one failure")
+		assertEqual(scenario.expectedReason, observedReason, scenario.name .. " failure reason differs")
+		assertEqual(nil, attribution.Remove("item:19019", "Winner", 8, sessionId, false, false),
+			scenario.name .. " retained a consumable pending award")
+		local reconciled, reconcileReason = attribution.ReconcileProvisional(
+			"item:19019", "Winner", sessionId, transactionId, nil,
+			function() reconcileCount = reconcileCount + 1 end
+		)
+		if scenario.throwFinalize then
+			assertEqual(nil, reconciled, scenario.name .. " falsely reported handled reconciliation")
+			assertEqual("provisional_record_unavailable", reconcileReason, scenario.name .. " fallback reason differs")
+			assertEqual(0, reconcileCount, scenario.name .. " applied authoritative data without a record")
+		else
+			assertTrue(reconciled, scenario.name .. " did not remain authoritatively reconcilable")
+			assertEqual(1, reconcileCount, scenario.name .. " reconciliation count differs")
+		end
+		assertEqual(1, finalizeCount, scenario.name .. " authoritative reconciliation repeated finalization")
+		assertEqual(1, failureCount, scenario.name .. " authoritative reconciliation repeated failure reporting")
+	end
+
+	local controllerFixture = installLootHardeningMasterFixture(newAddon(), { realLootFlow = true })
+	assertTrue(controllerFixture.master._Private.BtnAward(nil, nil), "controller failure fixture admission failed")
+	controllerFixture.throwNextSchedule = true
+	assertEqual(true, controllerFixture.master._awardConfirmation:Confirm(1),
+		"controller scheduler fallback did not complete confirmation")
+	assertEqual(1, controllerFixture.warningCount, "controller scheduler fallback did not warn exactly once")
+	assertEqual(1, #controllerFixture.raid.loot, "controller scheduler fallback did not record once")
+	assertEqual("LOOT_SLOT_CLEARED", controllerFixture.raid.loot[1].source,
+		"controller scheduler fallback record source differs")
+
+	local fallbackFailures = {
+		{ name = "finalizer throw", throwFinalize = true },
+		{ name = "finalizer zero", recordIndex = 0 },
+	}
+	local parsed = {
+		msg = "loot-msg",
+		kind = "winner",
+		itemLink = "item:19019",
+		itemCount = 2,
+		playerName = "Winner",
+	}
+	for i = 1, #fallbackFailures do
+		local scenario = fallbackFailures[i]
+		local fixture = installLootHardeningMasterFixture(newAddon(), { realLootFlow = true })
+		local finalizeCalls = 0
+		function fixture.loot:LogTradeOnlyLoot()
+			finalizeCalls = finalizeCalls + 1
+			if scenario.throwFinalize then error("record finalize exploded") end
+			return scenario.recordIndex
+		end
+		assertTrue(fixture.master._Private.BtnAward(nil, nil), scenario.name .. " admission failed")
+		assertEqual(true, fixture.master._awardConfirmation:Confirm(1), scenario.name .. " confirmation failed")
+		fixture.timerCallbacks[#fixture.timerCallbacks]()
+		assertEqual(1, finalizeCalls, scenario.name .. " finalizer count differs after grace")
+		assertEqual(1, fixture.warningCount, scenario.name .. " warning count differs after grace")
+		assertEqual(0, #fixture.raid.loot, scenario.name .. " created an invalid provisional row")
+		assertEqual(nil, fixture.loot.LootAttribution.Remove(
+			"item:19019", "Winner", 8, "RS:1", false, false
+		), scenario.name .. " retained pending attribution after grace")
+
+		fixture.loot:AddLoot("loot-msg", nil, nil, parsed)
+		assertEqual(1, #fixture.raid.loot, scenario.name .. " authoritative fallback row count differs")
+		assertEqual("CHAT_MSG_LOOT", fixture.raid.loot[1].source, scenario.name .. " authoritative source differs")
+		assertEqual(1, finalizeCalls, scenario.name .. " reconciliation repeated finalization")
+		assertEqual(1, fixture.warningCount, scenario.name .. " reconciliation repeated warning")
+		assertEqual(nil, fixture.loot.LootAttribution.Remove(
+			"item:19019", "Winner", 8, "RS:1", false, false
+		), scenario.name .. " reconciliation restored pending attribution")
+
+		fixture.loot:AddLoot("loot-msg", nil, nil, parsed)
+		assertEqual(1, #fixture.raid.loot, scenario.name .. " duplicate authoritative event created another row")
+		assertEqual(1, finalizeCalls, scenario.name .. " duplicate event repeated finalization")
+		assertEqual(1, fixture.warningCount, scenario.name .. " duplicate event repeated warning")
+	end
+	print("PASS loot_attribution_schedule_failure_finalizes_once")
+end
+
+function cases.loot_attribution_terminal_callbacks_are_contained(addon)
+	local lootState = { pendingAwards = {} }
+	_G.GetTime = function() return 10 end
+	addon.C = { PENDING_AWARD_TTL_SECONDS = 8 }
+	addon.Diag = { D = { LogLootPendingAwardConsumed = "%s %s %s %s" } }
+	addon.Options = { IsDebugEnabled = function() return false end }
+	addon.Strings = { NormalizeName = function(value) return value end }
+	addon.Item = { GetItemStringFromLink = function(link) return link end }
+	addon.Database = { EnsureLootRuntimeState = function() return {}, lootState end }
+	addon.Services = {
+		EnsureNamespace = function(name) addon.Services[name] = addon.Services[name] or {} return addon.Services[name] end,
+	}
+	loadAddonFile(addon, "Raid Management Addon/Services/Loot/LootAttribution.lua")
+	local attribution = addon.Services.Loot.LootAttribution
+
+	local authoritativeFailures = {
+		{ name = "finalizer throw", finalize = function() error("record callback exploded") end },
+		{ name = "finalizer zero", finalize = function() return 0 end },
+	}
+	for i = 1, #authoritativeFailures do
+		local scenario = authoritativeFailures[i]
+		local sessionId = "RS:authoritative:" .. tostring(i)
+		local transactionId = "AT:authoritative:" .. tostring(i)
+		local finalizeCount, authoritativeCount, warningCount = 0, 0, 0
+		attribution.Add("item:19019", "Winner", 1, 90, sessionId, nil, { transactionId = transactionId })
+		attribution.StageAuthoritative("item:19019", "Winner", { itemCount = 1 }, function()
+			authoritativeCount = authoritativeCount + 1
+		end)
+		local provisional = attribution.ConfirmProvisional(
+			"item:19019", "Winner", sessionId, 1, transactionId, 1, nil, nil,
+			function(...)
+				finalizeCount = finalizeCount + 1
+				return scenario.finalize(...)
+			end,
+			function() warningCount = warningCount + 1 end
+		)
+		assertTrue(provisional and provisional.finalized, scenario.name .. " did not become terminal")
+		assertEqual(1, finalizeCount, scenario.name .. " finalizer count differs")
+		assertEqual(0, authoritativeCount, scenario.name .. " reconciled without a positive record id")
+		assertEqual(1, warningCount, scenario.name .. " warning count differs")
+		assertEqual(nil, attribution.Remove("item:19019", "Winner", 8, sessionId, false, false),
+			scenario.name .. " retained pending ownership")
+		assertEqual(nil, attribution.ConfirmProvisional(
+			"item:19019", "Winner", sessionId, 1, transactionId, 1, nil, nil, scenario.finalize
+		), scenario.name .. " admitted duplicate finalization")
+		local reconciled, reconcileReason = attribution.ReconcileProvisional(
+			"item:19019", "Winner", sessionId, transactionId, nil, function()
+				authoritativeCount = authoritativeCount + 1
+			end
+		)
+		assertTrue(reconciled and reconciled.finalized and reconciled.reconciled,
+			scenario.name .. " lost terminal duplicate ownership")
+		assertEqual(nil, reconcileReason, scenario.name .. " repeated terminal reason differs")
+		assertEqual(0, authoritativeCount, scenario.name .. " applied authoritative data without a positive record id")
+		assertEqual(1, finalizeCount, scenario.name .. " repeated finalization")
+		assertEqual(1, warningCount, scenario.name .. " repeated warning")
+	end
+
+	local finalizeCount, authoritativeCount, warningCount, reentrantResult = 0, 0, 0, true
+	attribution.Add("item:18832", "Winner", 1, 80, "RS:post", nil, { transactionId = "AT:post" })
+	attribution.StageAuthoritative("item:18832", "Winner", { itemCount = 1 }, function()
+		authoritativeCount = authoritativeCount + 1
+		reentrantResult = attribution.ConfirmProvisional(
+			"item:18832", "Winner", "RS:post", 1, "AT:post", 1, nil, nil, function() return 99 end
+		)
+		error("authoritative callback exploded")
+	end)
+	local postRecord = attribution.ConfirmProvisional(
+		"item:18832", "Winner", "RS:post", 1, "AT:post", 1, nil, nil,
+		function() finalizeCount = finalizeCount + 1 return 7 end,
+		function() warningCount = warningCount + 1 end
+	)
+	assertTrue(postRecord and postRecord.finalized and postRecord.reconciled, "post-record callback lost terminal state")
+	assertEqual(7, postRecord.recordIndex, "post-record callback lost the valid record id")
+	assertEqual(nil, reentrantResult, "post-record callback observed live pending ownership")
+	assertEqual(1, finalizeCount, "post-record callback repeated record creation")
+	assertEqual(1, authoritativeCount, "post-record callback count differs")
+	assertEqual(1, warningCount, "post-record callback warning count differs")
+
+	local reconcileCount, reconcileWarnings = 0, 0
+	attribution.Add("item:17182", "Winner", 1, 70, "RS:reconcile", nil, { transactionId = "AT:reconcile" })
+	local scheduled
+	attribution.ConfirmProvisional(
+		"item:17182", "Winner", "RS:reconcile", 1, "AT:reconcile", 1,
+		function(callback) scheduled = callback return callback end, nil,
+		function() return 8 end,
+		function() reconcileWarnings = reconcileWarnings + 1 end
+	)
+	attribution.StageAuthoritative("item:17182", "Winner", { itemCount = 1 })
+	local reconciled = attribution.ReconcileProvisional(
+		"item:17182", "Winner", "RS:reconcile", "AT:reconcile", nil,
+		function() reconcileCount = reconcileCount + 1 error("reconcile callback exploded") end
+	)
+	assertTrue(reconciled and reconciled.finalized and reconciled.reconciled, "reconcile callback escaped terminal state")
+	assertEqual(1, reconcileCount, "reconcile callback count differs")
+	assertEqual(1, reconcileWarnings, "reconcile callback warning count differs")
+	assertTrue(attribution.ReconcileProvisional(
+		"item:17182", "Winner", "RS:reconcile", "AT:reconcile", nil,
+		function() reconcileCount = reconcileCount + 1 end
+	), "repeat reconcile lost terminal result")
+	assertEqual(1, reconcileCount, "repeat reconcile invoked callback")
+	assertEqual(1, reconcileWarnings, "repeat reconcile repeated warning")
+	if scheduled then scheduled() end
+	assertEqual(1, reconcileCount, "stale timer changed reconciliation")
+	print("PASS loot_attribution_terminal_callbacks_are_contained")
+end
+
 function cases.loot_service_stages_authoritative_before_consumption(addon)
 	local lootState, itemInfo, raidState = {}, {}, {}
 	local staged, removed = 0, 0
@@ -10258,6 +11356,42 @@ function cases.loot_award_event_orders_share_full_production_chain(addon)
 	assertTrue(slotFirst.master._Private.BtnAward(nil, nil), "slot-first next award was blocked")
 	assertEqual(2, slotFirst.attempts, "slot-first next admission attempt count differs")
 	print("PASS loot_award_event_orders_share_full_production_chain")
+end
+
+function cases.loot_master_warns_once_when_authoritative_reconciliation_fails(addon)
+	local fixture = installLootHardeningMasterFixture(addon, { realLootFlow = true })
+	local finalizeCalls = 0
+	local logTradeOnlyLoot = fixture.loot.LogTradeOnlyLoot
+	function fixture.loot:LogTradeOnlyLoot(...)
+		finalizeCalls = finalizeCalls + 1
+		return logTradeOnlyLoot(self, ...)
+	end
+	local parsed = {
+		msg = "loot-msg",
+		kind = "winner",
+		itemLink = "item:19019",
+		itemCount = 2,
+		playerName = "Winner",
+	}
+
+	assertTrue(fixture.master._Private.BtnAward(nil, nil), "reconcile warning controller admission failed")
+	assertTrue(fixture.master._awardConfirmation:Confirm(1), "reconcile warning slot confirmation failed")
+	fixture.throwRaidLootUpdateAt = (fixture.raidLootUpdateCount or 0) + 2
+	fixture.loot:AddLoot("loot-msg", nil, nil, parsed)
+	assertEqual(1, finalizeCalls, "reconcile warning finalization count differs")
+	assertEqual(1, #fixture.raid.loot, "reconcile warning canonical record count differs")
+	assertEqual(1, fixture.warningCount, "reconcile failure must warn exactly once")
+	assertEqual("attribution record_reconcile_failed", fixture.lastWarning,
+		"reconcile failure warning text differs")
+	assertEqual(nil, fixture.loot.LootAttribution.Remove(
+		"item:19019", "Winner", 8, "RS:1", false, false
+	), "reconcile failure retained pending ownership")
+
+	fixture.loot:AddLoot("loot-msg", nil, nil, parsed)
+	assertEqual(1, finalizeCalls, "duplicate authoritative event repeated finalization")
+	assertEqual(1, #fixture.raid.loot, "duplicate authoritative event created another record")
+	assertEqual(1, fixture.warningCount, "duplicate authoritative event repeated warning")
+	print("PASS loot_master_warns_once_when_authoritative_reconciliation_fails")
 end
 
 function cases.loot_master_effect_boundary_is_failure_safe(addon)

@@ -833,6 +833,7 @@ do
 			rollValue = rollValue,
 			rollSessionId = rollSessionId,
 			bossNid = bossNid,
+			source = "CHAT_MSG_LOOT",
 			lootSource = lootSource,
 		})
 	end
@@ -1274,12 +1275,15 @@ do
 	end
 
 	function module:ReconcileProvisionalAward(itemLink, looter, rollSessionId, authoritative)
-		local pending = LootAttribution.ReconcileProvisional(itemLink, looter, rollSessionId, nil, function(handle)
+		local pending, reason = LootAttribution.ReconcileProvisional(itemLink, looter, rollSessionId, nil, function(handle)
 			return module:CancelTimer(handle)
 		end, function(award)
 			applyAuthoritativeProvisional(award, authoritative)
 		end)
-		return pending ~= nil
+		if not pending then
+			return false, reason
+		end
+		return true
 	end
 
 	function module:RemovePendingAward(

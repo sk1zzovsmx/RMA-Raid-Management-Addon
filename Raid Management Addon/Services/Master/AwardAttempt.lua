@@ -12,27 +12,25 @@ Master.AwardAttempt = AwardAttempt
 
 local type, pcall = type, pcall
 
-local function copy(value, seen)
-	local valueType = type(value)
-	if valueType == "function" or valueType == "thread" or valueType == "userdata" then
-		return nil
-	end
-	if valueType ~= "table" then
+local function copyFlatTable(value)
+	if type(value) ~= "table" then
 		return value
 	end
-	seen = seen or {}
-	if seen[value] then
-		return seen[value]
-	end
 	local result = {}
-	seen[value] = result
 	for key, child in pairs(value) do
-		local copiedKey = copy(key, seen)
-		local copiedChild = copy(child, seen)
-		if copiedKey ~= nil and copiedChild ~= nil then
-			result[copiedKey] = copiedChild
+		local childType = type(child)
+		if childType ~= "function" and childType ~= "thread" and childType ~= "userdata" then
+			result[key] = child
 		end
 	end
+	return result
+end
+
+local function snapshotState(state)
+	local result = copyFlatTable(state)
+	result.source = copyFlatTable(state.source)
+	result.executorContext = copyFlatTable(state.executorContext)
+	result.checkpoints = copyFlatTable(state.checkpoints)
 	return result
 end
 
@@ -55,10 +53,10 @@ function AwardAttempt.CreateExecuting(opts)
 		itemLink = opts.itemLink,
 		winner = normalizedWinner,
 		winnerName = normalizedWinner,
-		source = copy(opts.source),
+		source = copyFlatTable(opts.source),
 		state = "executing",
 		failureReason = nil,
-		executorContext = copy(opts.executorContext),
+		executorContext = copyFlatTable(opts.executorContext),
 		checkpoints = {},
 	}
 	local instance = {}
@@ -75,7 +73,7 @@ function AwardAttempt.CreateExecuting(opts)
 
 	local function setContext(context)
 		if context ~= nil then
-			state.executorContext = copy(context)
+			state.executorContext = copyFlatTable(context)
 		end
 	end
 
@@ -116,7 +114,7 @@ function AwardAttempt.CreateExecuting(opts)
 		setContext(context)
 		local accepted, rejectedReason = true, nil
 		if type(opts.onConfirm) == "function" then
-			local ok, result, reason = pcall(opts.onConfirm, copy(state), context)
+			local ok, result, reason = pcall(opts.onConfirm, snapshotState(state), context)
 			accepted, rejectedReason = callbackResult(ok, result, reason, "award confirmation callback rejected")
 		end
 		if accepted then
@@ -159,7 +157,7 @@ function AwardAttempt.CreateExecuting(opts)
 		setContext(context)
 		local accepted, rejectedReason = true, nil
 		if type(opts.onFail) == "function" then
-			local ok, result, callbackReason = pcall(opts.onFail, reason, copy(state), context)
+			local ok, result, callbackReason = pcall(opts.onFail, reason, snapshotState(state), context)
 			accepted, rejectedReason = callbackResult(ok, result, callbackReason, "award failure callback rejected")
 		end
 		transitioning = false
@@ -169,7 +167,7 @@ function AwardAttempt.CreateExecuting(opts)
 		return true
 	end
 	function instance:GetState()
-		return copy(state)
+		return snapshotState(state)
 	end
 
 	return instance

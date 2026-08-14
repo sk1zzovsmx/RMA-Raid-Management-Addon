@@ -108,11 +108,13 @@ function Inventory.LootLinkMatchesTarget(slotLink, itemLink, wantedKey, wantedId
 	if slotLink == itemLink then
 		return true
 	end
-	if wantedKey then
-		local slotKey = Item.GetItemStringFromLink(slotLink) or slotLink
-		if slotKey == wantedKey then
-			return true
-		end
+	local targetKey = Item.GetItemStringFromLink(itemLink)
+	local slotKey = Item.GetItemStringFromLink(slotLink)
+	if targetKey and slotKey then
+		return slotKey == targetKey
+	end
+	if wantedKey and slotKey and slotKey == wantedKey then
+		return true
 	end
 	if wantedId then
 		local slotId = Item.GetItemIdFromLink(slotLink)
@@ -247,13 +249,14 @@ function Inventory.CaptureTradeEvidence(itemLink, bagId, slotId)
 		itemId = itemId,
 		bagId = bag,
 		slotId = slot,
+		sourceLocationKnown = true,
 		sourceLink = sourceLink,
 		sourceCount = tonumber(sourceCount) or 1,
 		totalCount = countOwnedItem(itemKey, itemId),
 	}
 end
 
-function Inventory.VerifyTradeEvidence(evidence, partnerName)
+function Inventory.VerifyTradeEvidence(evidence, partnerName, requiredCount)
 	if type(evidence) ~= "table" then
 		return nil, "trade_evidence_missing"
 	end
@@ -266,20 +269,24 @@ function Inventory.VerifyTradeEvidence(evidence, partnerName)
 		return nil, "trade_partner_changed"
 	end
 
-	local currentLink = GetContainerItemLink(evidence.bagId, evidence.slotId)
-	local sourceAfter = 0
-	if itemMatches(currentLink, evidence.itemKey, evidence.itemId) then
-		local _, currentCount = GetContainerItemInfo(evidence.bagId, evidence.slotId)
-		sourceAfter = tonumber(currentCount) or 1
+	local sourceDelta = 0
+	if evidence.sourceLocationKnown then
+		local currentLink = GetContainerItemLink(evidence.bagId, evidence.slotId)
+		local sourceAfter = 0
+		if itemMatches(currentLink, evidence.itemKey, evidence.itemId) then
+			local _, currentCount = GetContainerItemInfo(evidence.bagId, evidence.slotId)
+			sourceAfter = tonumber(currentCount) or 1
+		end
+		sourceDelta = (tonumber(evidence.sourceCount) or 0) - sourceAfter
 	end
-	local sourceDelta = (tonumber(evidence.sourceCount) or 0) - sourceAfter
 	local totalAfter = countOwnedItem(evidence.itemKey, evidence.itemId)
 	local totalDelta = (tonumber(evidence.totalCount) or 0) - totalAfter
 	local awardedCount = sourceDelta
 	if totalDelta > awardedCount then
 		awardedCount = totalDelta
 	end
-	if awardedCount > 0 then
+	local minimumAwardedCount = math.max(1, tonumber(requiredCount) or 1)
+	if awardedCount >= minimumAwardedCount then
 		return true, awardedCount
 	end
 	return nil, "trade_transfer_unverified"

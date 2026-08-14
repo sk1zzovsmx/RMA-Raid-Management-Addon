@@ -11,6 +11,11 @@ DB_SYNCER = ROOT / "Raid Management Addon" / "Database" / "DBSyncer.lua"
 
 
 class SyncCommunicationsBehaviorTests(unittest.TestCase):
+    def test_db_syncer_does_not_export_manual_request_cancellation(self) -> None:
+        source = DB_SYNCER.read_text(encoding="utf-8")
+        retired_name = "Cancel" + "Request"
+        self.assertNotIn(f"function module:{retired_name}", source)
+
     def test_sync_fixture_models_communications_boundaries(self) -> None:
         result = run_lua_case("sync_fixture_models_communications_boundaries")
 

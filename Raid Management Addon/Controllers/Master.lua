@@ -376,6 +376,7 @@ do
 
 	module._announced = false
 	module._cachedRosterVersion = nil
+	local tradeExecutionController
 	module._rollSelectionState = module._rollSelectionState
 		or {
 			mode = RollSelectionService.Mode.AUTO,
@@ -421,6 +422,14 @@ do
 						nil,
 						award.rollSessionId
 					)
+				end,
+				function(reason)
+					if reason == "timer_schedule_failed"
+						or reason == "record_finalize_failed"
+						or reason == "record_reconcile_failed"
+					then
+						addon:warn(L.WarnMLLootAttributionFailed:format(tostring(reason)))
+					end
 				end
 			)
 			if not provisional then
@@ -483,6 +492,9 @@ do
 	local function admitAwardEntry(allowActiveMultiAward)
 		if module._awardConfirmation:HasInFlight() then
 			return nil, "award_in_flight"
+		end
+		if tradeExecutionController and tradeExecutionController:HasInFlightAward() then
+			return nil, "trade_in_flight"
 		end
 		if
 			allowActiveMultiAward ~= true
@@ -1269,7 +1281,6 @@ do
 			addon:warn(Diag.W.ErrMLMultiSelectTooMany:format(maxSel))
 		end,
 	})
-	local tradeExecutionController
 	local itemSelectionController
 
 	local function invalidateRollSelectionModel()
@@ -2687,6 +2698,10 @@ do
 	end
 
 	local function assignToTarget(rollType, targetKey)
+		local admitted, admissionReason = admitAwardEntry(false)
+		if not admitted then
+			return nil, admissionReason
+		end
 		if lootState.lootCount <= 0 or not lootState[targetKey] then
 			return
 		end
@@ -2699,7 +2714,7 @@ do
 		local target = lootState[targetKey]
 		local ok, reason
 		if lootState.fromInventory then
-			ok = tradeExecutionController:TradeItem(itemLink, target, rollType, 0)
+			ok, reason = tradeExecutionController:TradeItem(itemLink, target, rollType, 0)
 		else
 			ok, reason = assignItem(itemLink, target, rollType, 0)
 		end

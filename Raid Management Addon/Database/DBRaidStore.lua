@@ -1195,99 +1195,33 @@ do
 		return type(value) == "number" and value > 0 and value == math.floor(value)
 	end
 
-	local function validateSequence(value, errorCode)
-		if type(value) ~= "table" then
-			return false, errorCode
-		end
-		local count, maximum = 0, 0
-		for key in pairs(value) do
-			if not isPositiveInteger(key) then
-				return false, errorCode
-			end
-			count = count + 1
-			if key > maximum then
-				maximum = key
-			end
-		end
-		if count ~= maximum then
-			return false, errorCode
-		end
-		return true
-	end
-
-	local function validateLoggerHistoryMutation(raid)
-		if type(raid) ~= "table" then
+	local function validateRaidHistory(raid)
+		local validator = Database.GetRaidValidator()
+		local report = validator:GetRaidRecordValidation(raid, 0, Database.GetRaidSchemaVersion())
+		if type(report) ~= "table" or type(report.details) ~= "table" then
 			return false, "INVALID_RAID"
 		end
-		if not isPositiveInteger(raid.raidNid) then
-			return false, "INVALID_RAID_NID"
-		end
-		local playerNids, bossNids, lootNids = {}, {}, {}
-		local players = type(raid.players) == "table" and raid.players or {}
-		local validSequence, sequenceError = validateSequence(players, "INVALID_PLAYER_COLLECTION")
-		if not validSequence then
-			return false, sequenceError
-		end
-		for i = 1, #players do
-			local nid = type(players[i]) == "table" and players[i].playerNid or nil
-			if not isPositiveInteger(nid) or playerNids[nid] then
-				return false, "INVALID_PLAYER_NID"
+		local details = report.details
+		local detailCount, maximumDetailIndex = 0, 0
+		for key in pairs(details) do
+			if not isPositiveInteger(key) then
+				return false, "INVALID_RAID"
 			end
-			playerNids[nid] = true
-		end
-		local bosses = type(raid.bossKills) == "table" and raid.bossKills or {}
-		validSequence, sequenceError = validateSequence(bosses, "INVALID_BOSS_COLLECTION")
-		if not validSequence then
-			return false, sequenceError
-		end
-		for i = 1, #bosses do
-			local boss = bosses[i]
-			local nid = type(boss) == "table" and boss.bossNid or nil
-			if not isPositiveInteger(nid) or bossNids[nid] then
-				return false, "INVALID_BOSS_NID"
-			end
-			bossNids[nid] = true
-			local attendees = type(boss.players) == "table" and boss.players or {}
-			validSequence, sequenceError = validateSequence(attendees, "INVALID_BOSS_PLAYER_COLLECTION")
-			if not validSequence then
-				return false, sequenceError
-			end
-			for j = 1, #attendees do
-				if not isPositiveInteger(attendees[j]) or not playerNids[attendees[j]] then
-					return false, "INVALID_BOSS_PLAYER"
-				end
+			detailCount = detailCount + 1
+			if key > maximumDetailIndex then
+				maximumDetailIndex = key
 			end
 		end
-		local lootRows = type(raid.loot) == "table" and raid.loot or {}
-		validSequence, sequenceError = validateSequence(lootRows, "INVALID_LOOT_COLLECTION")
-		if not validSequence then
-			return false, sequenceError
+		if detailCount ~= maximumDetailIndex then
+			return false, "INVALID_RAID"
 		end
-		for i = 1, #lootRows do
-			local loot = lootRows[i]
-			local nid = type(loot) == "table" and loot.lootNid or nil
-			local bossNid = type(loot) == "table" and loot.bossNid or nil
-			local looterNid = type(loot) == "table" and loot.looterNid or nil
-			if not isPositiveInteger(nid) or lootNids[nid] then
-				return false, "INVALID_LOOT_NID"
+		for i = 1, maximumDetailIndex do
+			local detail = details[i]
+			if type(detail) ~= "table" or type(detail.level) ~= "string" or type(detail.code) ~= "string" then
+				return false, "INVALID_RAID"
 			end
-			if bossNid ~= nil and bossNid ~= 0 and (not isPositiveInteger(bossNid) or not bossNids[bossNid]) then
-				return false, "INVALID_LOOT_BOSS"
-			end
-			if looterNid ~= nil and (not isPositiveInteger(looterNid) or not playerNids[looterNid]) then
-				return false, "INVALID_LOOT_PLAYER"
-			end
-			lootNids[nid] = true
-		end
-		local attendance = type(raid.attendance) == "table" and raid.attendance or {}
-		validSequence, sequenceError = validateSequence(attendance, "INVALID_ATTENDANCE_COLLECTION")
-		if not validSequence then
-			return false, sequenceError
-		end
-		for i = 1, #attendance do
-			local playerNid = type(attendance[i]) == "table" and attendance[i].playerNid or nil
-			if not isPositiveInteger(playerNid) or not playerNids[playerNid] then
-				return false, "INVALID_ATTENDANCE_PLAYER"
+			if detail.level == "E" then
+				return false, detail.code
 			end
 		end
 		return true
@@ -1328,7 +1262,7 @@ do
 		if not canonicalFound then
 			return false, "CONFLICT"
 		end
-		local valid, validationError = validateLoggerHistoryMutation(stagedRaid)
+		local valid, validationError = validateRaidHistory(stagedRaid)
 		if not valid then
 			return false, validationError
 		end
@@ -1414,7 +1348,7 @@ do
 		then
 			return false, "CONFLICT"
 		end
-		local valid, validationError = validateLoggerHistoryMutation(stagedRaid)
+		local valid, validationError = validateRaidHistory(stagedRaid)
 		if not valid then
 			return false, validationError
 		end
@@ -1472,7 +1406,7 @@ do
 		if type(raid) ~= "table" or (not isPositiveInteger(targetRevision) and not legacyZero) then
 			return nil, nil, "INVALID_IMPORT"
 		end
-		local valid, validationError = validateLoggerHistoryMutation(raid)
+		local valid, validationError = validateRaidHistory(raid)
 		if not valid then return nil, nil, validationError end
 		local insertionState = self:CaptureRaidInsertionState()
 		local insertedRaid, raidIndex
@@ -1490,6 +1424,96 @@ do
 			return nil, nil, "COMMIT_FAILED"
 		end
 		return insertedRaid, raidIndex
+	end
+
+	function module:CommitRaidHistoryCleanup(plan, currentRaidNid)
+		if type(plan) ~= "table" or tonumber(plan.protectedRaidNid) ~= tonumber(currentRaidNid) then
+			return nil, "CONFLICT"
+		end
+		if #plan.raidCandidates == 0 and #plan.lootCandidates == 0 then
+			return {
+				raidsRemoved = 0,
+				lootRemoved = 0,
+				removedRaidNids = {},
+				affectedRaidNids = {},
+			}
+		end
+		local root = ensureRaidsTable()
+		local candidate = copyRaidHistoryValue(root)
+		local byNid, deleteSet, lootDeleteSet = {}, {}, {}
+		for i = 1, #candidate do
+			byNid[tonumber(candidate[i].raidNid)] = candidate[i]
+		end
+		for i = 1, #plan.raidCandidates do
+			local entry = plan.raidCandidates[i]
+			local raid = byNid[entry.raidNid]
+			if
+				entry.raidNid == tonumber(currentRaidNid)
+				or not raid
+				or self:GetRaidSyncRevision(raid) ~= entry.baseRevision
+			then
+				return nil, "CONFLICT"
+			end
+			deleteSet[entry.raidNid] = true
+		end
+		for i = 1, #plan.lootCandidates do
+			local entry = plan.lootCandidates[i]
+			local raid = byNid[entry.raidNid]
+			local runtime = raid and self:EnsureRaidRuntime(raid) or nil
+			local loot = runtime and runtime.lootByNid and runtime.lootByNid[entry.lootNid] or nil
+			if
+				not raid
+				or not loot
+				or self:GetRaidSyncRevision(raid) ~= entry.baseRevision
+				or (tonumber(loot.syncRevision) or 0) ~= entry.lootRevision
+				or tonumber(loot.itemId) ~= entry.itemId
+				or loot.itemLink ~= entry.itemLink
+				or tonumber(loot.bossNid) ~= entry.bossNid
+			then
+				return nil, "CONFLICT"
+			end
+			lootDeleteSet[entry.raidNid] = lootDeleteSet[entry.raidNid] or {}
+			lootDeleteSet[entry.raidNid][entry.lootNid] = true
+		end
+		local removedRaidNids, affectedRaidNids = {}, {}
+		local raidsRemoved, lootRemoved = 0, 0
+		for i = #candidate, 1, -1 do
+			local raid = candidate[i]
+			local raidNid = tonumber(raid.raidNid)
+			if deleteSet[raidNid] then
+				tremove(candidate, i)
+				raidsRemoved = raidsRemoved + 1
+				removedRaidNids[#removedRaidNids + 1] = raidNid
+			elseif lootDeleteSet[raidNid] then
+				for lootIndex = #raid.loot, 1, -1 do
+					if lootDeleteSet[raidNid][tonumber(raid.loot[lootIndex].lootNid)] then
+						tremove(raid.loot, lootIndex)
+						lootRemoved = lootRemoved + 1
+					end
+				end
+				local valid, reason = validateRaidHistory(raid)
+				if not valid then
+					return nil, reason
+				end
+				self:TouchRaidSyncRevision(raid, "history_cleanup")
+				self:EnsureRaidRuntime(raid)
+				affectedRaidNids[#affectedRaidNids + 1] = raidNid
+			end
+		end
+		for i = #root, 1, -1 do
+			root[i] = nil
+		end
+		for i = 1, #candidate do
+			root[i] = candidate[i]
+		end
+		markRaidNidIndexDirty()
+		rebuildRaidNidIndex()
+		return {
+			raidsRemoved = raidsRemoved,
+			lootRemoved = lootRemoved,
+			removedRaidNids = removedRaidNids,
+			affectedRaidNids = affectedRaidNids,
+		}
 	end
 
 	function module:DeleteRaid(raidNid)

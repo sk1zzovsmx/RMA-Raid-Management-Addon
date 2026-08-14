@@ -235,6 +235,10 @@ function AwardConfirmation.Create(deps)
 
 		local confirmed, confirmReason = pending.effect:Confirm()
 		if not confirmed then
+			if confirmReason == "timer_schedule_failed" then
+				remove(index)
+				return nil, confirmReason
+			end
 			reportUncertain(pending, confirmReason)
 			return nil, confirmReason
 		end

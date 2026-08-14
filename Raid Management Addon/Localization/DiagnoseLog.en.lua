@@ -190,6 +190,7 @@ Diag.D.LogReservesImportWrongModePlus = "[Reserves] Wrong CSV for Plus System; p
 Diag.D.LogReservesEncodedImportStart = "[Reserves] Parsing encoded SoftRes payload"
 Diag.D.LogReservesEncodedImportRows = "[Reserves] Encoded SoftRes import rows=%d players=%d source=%s"
 Diag.W.LogReservesEncodedImportFailed = "[Reserves] Encoded SoftRes import failed: %s"
+Diag.E.LogReservesOptionNotificationFailed = "[Reserves] Import mode committed, but OptionChanged failed: %s"
 Diag.D.LogReservesAliasSet = "[Reserves] Alias set reserve=%s raid=%s"
 Diag.D.LogReservesAliasCleared = "[Reserves] Alias cleared reserve=%s"
 Diag.D.LogReservesQueryItemInfo = "[Reserves] Query item info itemId=%d"

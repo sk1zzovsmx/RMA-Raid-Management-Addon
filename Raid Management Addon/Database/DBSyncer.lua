@@ -1448,10 +1448,6 @@ do
 		return Metrics.Reset()
 	end
 
-	function module:CancelRequest(requestId)
-		return terminalizeRequest(tostring(requestId or ""), "cancel")
-	end
-
 	function module:RequestLoggerReq(raidRef, targetName)
 		if not ensureGroupSyncAvailable() then
 			return false

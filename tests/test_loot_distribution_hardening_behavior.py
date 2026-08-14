@@ -1,6 +1,9 @@
+from pathlib import Path
 import unittest
 
 from tests.lua_test_runner import run_lua_case
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class LootDistributionHardeningTests(unittest.TestCase):
@@ -14,14 +17,26 @@ class LootDistributionHardeningTests(unittest.TestCase):
     def test_duplicate_award_is_rejected_in_flight(self) -> None:
         self.assert_case("loot_duplicate_award_is_rejected_in_flight")
 
+    def test_direct_assignment_admits_before_mutation(self) -> None:
+        self.assert_case("loot_direct_assignment_admits_before_mutation")
+
+    def test_direct_assignment_rejects_in_flight_trade_before_mutation(self) -> None:
+        self.assert_case("loot_direct_assignment_rejects_in_flight_trade_before_mutation")
+
     def test_award_attempt_checkpoints_are_retry_safe(self) -> None:
         self.assert_case("loot_award_attempt_checkpoints_are_retry_safe")
+
+    def test_award_attempt_snapshots_supported_fields_only(self) -> None:
+        self.assert_case("loot_award_attempt_snapshots_supported_fields_only")
 
     def test_award_confirmation_retains_uncertain_effect(self) -> None:
         self.assert_case("loot_award_confirmation_retains_uncertain_effect")
 
     def test_award_prerequisites_and_sequence_retry_are_ordered(self) -> None:
         self.assert_case("loot_award_prerequisites_and_sequence_retry_are_ordered")
+
+    def test_award_sequence_schedule_failure_is_terminal(self) -> None:
+        self.assert_case("loot_award_sequence_schedule_failure_is_terminal")
 
     def test_slot_clear_stops_after_matched_confirmation_failure(self) -> None:
         self.assert_case("loot_slot_clear_stops_after_matched_confirmation_failure")
@@ -46,6 +61,15 @@ class LootDistributionHardeningTests(unittest.TestCase):
 
     def test_loot_award_attribution_event_order_is_atomic(self) -> None:
         self.assert_case("loot_award_attribution_event_order_is_atomic")
+
+    def test_attribution_schedule_failure_finalizes_once(self) -> None:
+        self.assert_case("loot_attribution_schedule_failure_finalizes_once")
+
+    def test_attribution_terminal_callbacks_are_contained(self) -> None:
+        self.assert_case("loot_attribution_terminal_callbacks_are_contained")
+
+    def test_master_warns_once_when_authoritative_reconciliation_fails(self) -> None:
+        self.assert_case("loot_master_warns_once_when_authoritative_reconciliation_fails")
 
     def test_loot_service_stages_authoritative_before_consumption(self) -> None:
         self.assert_case("loot_service_stages_authoritative_before_consumption")
@@ -80,11 +104,51 @@ class LootDistributionHardeningTests(unittest.TestCase):
     def test_distribution_clear_requires_ordered_owner_transition(self) -> None:
         self.assert_case("loot_distribution_clear_requires_ordered_owner_transition")
 
+    def test_distribution_generated_session_order_is_validated(self) -> None:
+        self.assert_case("loot_distribution_generated_session_order_is_validated")
+
+    def test_distribution_authority_handoff_without_provenance_is_validated(self) -> None:
+        self.assert_case("loot_distribution_authority_handoff_without_provenance_is_validated")
+
     def test_trade_inventory_evidence_requires_a_positive_delta(self) -> None:
         self.assert_case("loot_trade_inventory_evidence_requires_a_positive_delta")
 
+    def test_inventory_canonical_match_and_required_count(self) -> None:
+        self.assert_case("loot_inventory_canonical_match_and_required_count")
+
     def test_award_trade_event_order_is_evidence_gated(self) -> None:
         self.assert_case("loot_award_trade_event_order_is_evidence_gated")
+
+    def test_trade_rejects_second_in_flight(self) -> None:
+        self.assert_case("loot_trade_rejects_second_in_flight")
+
+    def test_trade_required_count_tracks_placed_stack(self) -> None:
+        self.assert_case("loot_trade_required_count_tracks_placed_stack")
+
+    def test_recovery_of_recovery_state_is_absent(self) -> None:
+        owner_paths = (
+            ROOT / "Raid Management Addon" / "Controllers" / "Master.lua",
+            ROOT / "Raid Management Addon" / "Services" / "Master" / "AwardConfirmation.lua",
+            ROOT / "Raid Management Addon" / "Services" / "Master" / "TradeExecution.lua",
+            ROOT / "Raid Management Addon" / "Services" / "Loot" / "LootAttribution.lua",
+        )
+        forbidden = tuple(
+            "".join(parts)
+            for parts in (
+                ("Retry", "PendingResolution"),
+                ("Retry", "Finalization"),
+                ("Retry", "TerminalPublication"),
+                ("record_finalization", "_exhausted"),
+                ("authoritative_reconciliation", "_exhausted"),
+                ("publication", "_retrying"),
+                ("publication", "_exhausted"),
+                ("provisional_capacity", "_exhausted"),
+            )
+        )
+        for path in owner_paths:
+            source = path.read_text(encoding="utf-8")
+            for identifier in forbidden:
+                self.assertNotIn(identifier, source, f"{identifier} leaked into {path}")
 
     def test_manual_hold_trade_requires_inventory_evidence(self) -> None:
         self.assert_case("loot_manual_hold_trade_requires_inventory_evidence")

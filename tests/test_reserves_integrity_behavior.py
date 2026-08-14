@@ -4,6 +4,10 @@ from tests.lua_test_runner import run_lua_case
 
 
 class ReservesIntegrityBehaviorTests(unittest.TestCase):
+    def test_reserve_lookup_preserves_identity_index_fallback_and_detached_state(self) -> None:
+        result = run_lua_case("reserves_lookup_preserves_identity_index_fallback_and_detached_state")
+        self.assertIn("PASS reserves_lookup_preserves_identity_index_fallback_and_detached_state", result.stdout)
+
     def test_failed_synced_mutations_do_not_promote_cache(self) -> None:
         result = run_lua_case("reserves_failed_synced_mutations_do_not_promote_cache")
         self.assertIn("PASS reserves_failed_synced_mutations_do_not_promote_cache", result.stdout)
@@ -42,9 +46,13 @@ class ReservesIntegrityBehaviorTests(unittest.TestCase):
         result = run_lua_case("reserves_async_import_scheduler_failures_are_terminal")
         self.assertIn("PASS reserves_async_import_scheduler_failures_are_terminal", result.stdout)
 
-    def test_async_import_publish_faults_rollback_exact_state(self) -> None:
+    def test_async_import_publish_failure_preserves_values_and_events(self) -> None:
         result = run_lua_case("reserves_async_import_publish_faults_rollback_exact_state")
         self.assertIn("PASS reserves_async_import_publish_faults_rollback_exact_state", result.stdout)
+
+    def test_import_option_notification_observes_committed_state(self) -> None:
+        result = run_lua_case("reserves_import_option_notification_is_post_commit")
+        self.assertIn("PASS reserves_import_option_notification_is_post_commit", result.stdout)
 
     def test_import_limits_and_schema_fail_closed(self) -> None:
         result = run_lua_case("reserves_import_limits_and_schema_fail_closed")
@@ -54,7 +62,7 @@ class ReservesIntegrityBehaviorTests(unittest.TestCase):
         result = run_lua_case("reserves_bulk_edits_are_atomic")
         self.assertIn("PASS reserves_bulk_edits_are_atomic", result.stdout)
 
-    def test_single_edits_rollback_exact_state(self) -> None:
+    def test_single_edits_publish_detached_values_atomically(self) -> None:
         result = run_lua_case("reserves_single_edits_rollback_exact_state")
         self.assertIn("PASS reserves_single_edits_rollback_exact_state", result.stdout)
 

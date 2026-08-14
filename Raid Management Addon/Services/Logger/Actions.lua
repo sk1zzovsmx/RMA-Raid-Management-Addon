@@ -191,7 +191,8 @@ getCurrentRaidNid = function()
 	if not currentRaid then
 		return nil
 	end
-	return Database.GetRaidNidByIndex(currentRaid)
+	local raids = Database.GetRaidStore():GetRawRaids()
+	return tonumber(raids[currentRaid] and raids[currentRaid].raidNid)
 end
 
 restoreCurrentRaidIndex = function(currentRaidNid)
@@ -201,7 +202,14 @@ restoreCurrentRaidIndex = function(currentRaidNid)
 		return
 	end
 
-	local currentRaidId = Database.GetRaidIndexByNid(currentRaidNid)
+	local currentRaidId
+	local raids = Database.GetRaidStore():GetRawRaids()
+	for i = 1, #raids do
+		if tonumber(raids[i] and raids[i].raidNid) == tonumber(currentRaidNid) then
+			currentRaidId = i
+			break
+		end
+	end
 	Database.SetCurrentRaid(currentRaidId)
 	if not currentRaidId then
 		Database.SetLastBoss(nil)
@@ -544,7 +552,6 @@ local function finalizeHistoryCleanupState(state)
 		return
 	end
 	state.finalized = true
-	state.raidStore:GetAllRaids()
 	restoreCurrentRaidIndex(state.currentRaidNid)
 end
 
@@ -627,13 +634,18 @@ end
 
 local function getHistoryCleanupContext()
 	local raidStore = Database.GetRaidStore()
-	local raids = raidStore:GetAllRaids()
+	local raids = raidStore:GetRawRaids()
 	return raidStore, raids
 end
 
 local function newHistoryCleanupPlan(protectedRaidNid)
 	return { raidNids = {}, raidCandidates = {}, lootNidsByRaidNid = {}, lootCandidates = {}, emptyRaids = 0, noBossEncounter = 0,
 		protectedRaidNid = tonumber(protectedRaidNid) }
+end
+
+local function getHistoryCleanupBaseRevision(raid)
+	local runtime = type(raid) == "table" and raid._runtime or nil
+	return tonumber(type(runtime) == "table" and runtime.syncRevision) or 0
 end
 
 local function stageRaidForHistoryCleanup(raid, plan, key)
@@ -647,7 +659,7 @@ local function stageRaidForHistoryCleanup(raid, plan, key)
 	plan.raidNids[#plan.raidNids + 1] = raidNid
 	plan.raidCandidates[#plan.raidCandidates + 1] = {
 		raidNid = raidNid,
-		baseRevision = Database.GetRaidStore():GetRaidSyncRevision(raid),
+		baseRevision = getHistoryCleanupBaseRevision(raid),
 		predicate = key,
 	}
 	plan[key] = plan[key] + 1
@@ -669,7 +681,7 @@ local function stageNonEpicLootAt(raid, lootRows, index, plan)
 		lootNids[#lootNids + 1] = lootNid
 		plan.lootCandidates[#plan.lootCandidates + 1] = {
 			raidNid = raidNid,
-			baseRevision = Database.GetRaidStore():GetRaidSyncRevision(raid),
+			baseRevision = getHistoryCleanupBaseRevision(raid),
 			lootNid = lootNid,
 			lootRevision = tonumber(loot.syncRevision) or 0,
 			itemId = tonumber(loot.itemId),
@@ -681,107 +693,23 @@ local function stageNonEpicLootAt(raid, lootRows, index, plan)
 	return false
 end
 
-local function findLootByNid(raid, lootNid)
-	for i = 1, #(raid and raid.loot or {}) do
-		if tonumber(raid.loot[i] and raid.loot[i].lootNid) == tonumber(lootNid) then
-			return raid.loot[i]
-		end
+local function executeHistoryCleanupPlan(raidStore, plan, result)
+	local committed, failure = raidStore:CommitRaidHistoryCleanup(plan, getCurrentRaidNid())
+	if not committed then
+		return false, failure
 	end
-	return nil
-end
-
-local function validateHistoryCleanupPlan(raidStore, plan)
-	local currentRaidNid = getCurrentRaidNid()
-	if currentRaidNid ~= tonumber(plan.protectedRaidNid) then
-		return false
-	end
-	local raids = raidStore:GetAllRaids()
-	local function resolveRaid(raidNid)
-		for i = 1, #(raids or {}) do
-			if tonumber(raids[i] and raids[i].raidNid) == tonumber(raidNid) then return raids[i] end
-		end
-		return nil
-	end
-	for i = 1, #plan.raidCandidates do
-		local candidate = plan.raidCandidates[i]
-		if candidate.raidNid == tonumber(currentRaidNid) then return false end
-		local raid = resolveRaid(candidate.raidNid)
-		if not raid or raidStore:GetRaidSyncRevision(raid) ~= candidate.baseRevision then return false end
-		if candidate.predicate == "emptyRaids" and hasRaidData(raid) then return false end
-		if candidate.predicate == "noBossEncounter" and not isRaidWithoutBossEncounter(raid) then return false end
-	end
-	for i = 1, #plan.lootCandidates do
-		local candidate = plan.lootCandidates[i]
-		local raid = resolveRaid(candidate.raidNid)
-		local loot = raid and findLootByNid(raid, candidate.lootNid) or nil
-		if not raid or raidStore:GetRaidSyncRevision(raid) ~= candidate.baseRevision or not loot then return false end
-		if (tonumber(loot.syncRevision) or 0) ~= candidate.lootRevision
-			or tonumber(loot.itemId) ~= candidate.itemId or loot.itemLink ~= candidate.itemLink
-			or tonumber(loot.bossNid) ~= candidate.bossNid or not isNonEpicLoot(loot) then return false end
-	end
-	return true
-end
-
-local function applyHistoryCleanupPlan(raidStore, plan, result)
-	if type(raidStore.DeleteLootByNid) ~= "function" or type(raidStore.DeleteRaidsByNid) ~= "function" then
-		error("raid history cleanup store contract is incomplete")
-	end
-	for raidNid, lootNids in pairs(plan.lootNidsByRaidNid) do
-		local removed = raidStore:DeleteLootByNid(raidNid, lootNids, "history_cleanup")
-		if removed > 0 then
-			result.nonEpicLoot = result.nonEpicLoot + removed
-			result.lootRemoved = result.lootRemoved + removed
-			result.affectedRaidNids[#result.affectedRaidNids + 1] = raidNid
-		end
-	end
-	local removedRaids, removedRaidNids = raidStore:DeleteRaidsByNid(plan.raidNids, {
-		protectedRaidNid = getCurrentRaidNid(),
-	})
-	if removedRaids > 0 then
-		result.emptyRaids = plan.emptyRaids
-		result.noBossEncounter = plan.noBossEncounter
-		result.raidsRemoved = removedRaids
-		for i = 1, #removedRaidNids do
-			result.affectedRaidNids[#result.affectedRaidNids + 1] = removedRaidNids[i]
-		end
+	result.emptyRaids = plan.emptyRaids
+	result.noBossEncounter = plan.noBossEncounter
+	result.raidsRemoved = committed.raidsRemoved
+	result.lootRemoved = committed.lootRemoved
+	result.nonEpicLoot = committed.lootRemoved
+	result.affectedRaidNids = committed.affectedRaidNids
+	for i = 1, #committed.removedRaidNids do
+		result.affectedRaidNids[#result.affectedRaidNids + 1] = committed.removedRaidNids[i]
 	end
 	result.changed = result.raidsRemoved > 0 or result.lootRemoved > 0
 	result.complete = true
-	return result
-end
-
-local function executeHistoryCleanupPlan(raidStore, plan, result)
-	if
-		type(raidStore.CaptureRaidHistoryState) ~= "function"
-		or type(raidStore.RestoreRaidHistoryState) ~= "function"
-	then
-		return false, "raid history cleanup snapshot contract is incomplete"
-	end
-	local captured, snapshot = pcall(raidStore.CaptureRaidHistoryState, raidStore)
-	if not captured then
-		return false, "raid history cleanup snapshot capture failed: " .. tostring(snapshot)
-	end
-	if type(snapshot) ~= "table" then
-		return false, "raid history cleanup snapshot capture returned invalid state"
-	end
-	-- This is the final operation before the first canonical delete.  Snapshot
-	-- capture is deliberately before it so a concurrent arrival during the
-	-- scan/capture window is preserved and rejected as a conflict.
-	if not validateHistoryCleanupPlan(raidStore, plan) then
-		return false, "CONFLICT"
-	end
-	local ok, failure = pcall(applyHistoryCleanupPlan, raidStore, plan, result)
-	if ok then
-		return true
-	end
-	local restored, restoreResult = pcall(raidStore.RestoreRaidHistoryState, raidStore, snapshot)
-	if not restored then
-		return false, tostring(failure), "raid history cleanup rollback threw: " .. tostring(restoreResult)
-	end
-	if restoreResult ~= true then
-		return false, tostring(failure), "raid history cleanup rollback returned false"
-	end
-	return false, tostring(failure)
+	return true
 end
 
 local function newLootSourceRebuildResult()
@@ -1372,15 +1300,12 @@ function Actions:CleanupRaidHistory(options)
 		end
 	end
 
-	local applied, failure, rollbackError = executeHistoryCleanupPlan(raidStore, plan, result)
+	local applied, failure = executeHistoryCleanupPlan(raidStore, plan, result)
 	if not applied then
 		result = newHistoryCleanupResult()
 		result.failed = true
 		result.conflict = failure == "CONFLICT"
-		result.error = failure
-		result.rollbackFailed = rollbackError ~= nil
-		result.rollbackError = rollbackError
-		result.rollbackUncertain = rollbackError ~= nil
+		result.error = tostring(failure)
 	end
 	restoreCurrentRaidIndex(currentRaidNid)
 	if result.changed then
@@ -1437,16 +1362,13 @@ function Actions:StartRaidHistoryCleanup(callback, opts)
 		if state.terminal then
 			return
 		end
-		local applied, failure, rollbackError = executeHistoryCleanupPlan(state.raidStore, state.plan, state.result)
+		local applied, failure = executeHistoryCleanupPlan(state.raidStore, state.plan, state.result)
 		if not applied then
 			restoreCurrentRaidIndex(state.currentRaidNid)
 			state.result = newHistoryCleanupResult()
 			state.result.failed = true
 			state.result.conflict = failure == "CONFLICT"
 			state.result.error = tostring(failure)
-			state.result.rollbackFailed = rollbackError ~= nil
-			state.result.rollbackError = rollbackError
-			state.result.rollbackUncertain = rollbackError ~= nil
 			state.terminal = true
 			if activeHistoryCleanup == state then
 				activeHistoryCleanup = nil

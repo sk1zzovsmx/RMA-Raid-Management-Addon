@@ -10,6 +10,10 @@ CONTROLLER_LUA = ROOT / "Raid Management Addon" / "Controllers" / "Spammer.lua"
 
 
 class SpammerWarningsBehaviorTests(unittest.TestCase):
+    def test_strings_utf8_safe_prefix(self) -> None:
+        result = run_lua_case("strings_utf8_safe_prefix")
+        self.assertIn("PASS strings_utf8_safe_prefix", result.stdout)
+
     def test_saved_variables_are_normalized_on_reload(self) -> None:
         result = run_lua_case("spammer_warnings_saved_variables_are_normalized")
         self.assertIn("PASS spammer_warnings_saved_variables_are_normalized", result.stdout)

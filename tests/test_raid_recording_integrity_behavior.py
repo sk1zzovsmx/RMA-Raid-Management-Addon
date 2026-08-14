@@ -7,6 +7,10 @@ from tests.lua_test_runner import run_lua_case
 
 
 class RaidRecordingIntegrityBehaviorTests(unittest.TestCase):
+    def test_raid_create_rejects_malformed_roster_metadata(self) -> None:
+        result = run_lua_case("raid_create_rejects_malformed_roster_metadata")
+        self.assertIn("PASS raid_create_rejects_malformed_roster_metadata", result.stdout)
+
     def test_raid_session_create_failure_is_atomic(self) -> None:
         result = run_lua_case("raid_session_create_failure_is_atomic")
         self.assertIn("PASS raid_session_create_failure_is_atomic", result.stdout)
@@ -14,6 +18,10 @@ class RaidRecordingIntegrityBehaviorTests(unittest.TestCase):
     def test_raid_session_replacement_preserves_event_order(self) -> None:
         result = run_lua_case("raid_session_replacement_preserves_event_order")
         self.assertIn("PASS raid_session_replacement_preserves_event_order", result.stdout)
+
+    def test_raid_state_resolves_roster_timers_after_toc_order_load(self) -> None:
+        result = run_lua_case("raid_state_resolves_roster_timers_after_toc_order_load")
+        self.assertIn("PASS raid_state_resolves_roster_timers_after_toc_order_load", result.stdout)
 
     def test_raid_session_switch_failure_rolls_back_candidate(self) -> None:
         result = run_lua_case("raid_session_switch_failure_rolls_back_candidate")
@@ -91,10 +99,6 @@ class RaidRecordingIntegrityBehaviorTests(unittest.TestCase):
         result = run_lua_case("equip_inspect_table_raid_identity_reresolves_stably")
         self.assertIn("PASS equip_inspect_table_raid_identity_reresolves_stably", result.stdout)
 
-    def test_equip_inspect_combat_retry_is_single_owned_chain(self) -> None:
-        result = run_lua_case("equip_inspect_combat_retry_is_single_owned_chain")
-        self.assertIn("PASS equip_inspect_combat_retry_is_single_owned_chain", result.stdout)
-
     def test_equip_inspect_orphan_does_not_clear_unrelated_active_target(self) -> None:
         result = run_lua_case("equip_inspect_orphan_does_not_clear_unrelated_active_target")
         self.assertIn("PASS equip_inspect_orphan_does_not_clear_unrelated_active_target", result.stdout)
@@ -143,9 +147,25 @@ class RaidRecordingIntegrityBehaviorTests(unittest.TestCase):
         result = run_lua_case("logger_async_cleanup_store_failure_is_atomic")
         self.assertIn("PASS logger_async_cleanup_store_failure_is_atomic", result.stdout)
 
-    def test_logger_cleanup_snapshot_failures_are_terminal(self) -> None:
-        result = run_lua_case("logger_cleanup_snapshot_failures_are_terminal")
-        self.assertIn("PASS logger_cleanup_snapshot_failures_are_terminal", result.stdout)
+    def test_logger_cleanup_detached_failure_is_atomic(self) -> None:
+        result = run_lua_case("logger_cleanup_detached_failure_is_atomic")
+        self.assertIn("PASS logger_cleanup_detached_failure_is_atomic", result.stdout)
+
+    def test_logger_cleanup_planning_is_non_mutating(self) -> None:
+        result = run_lua_case("logger_cleanup_planning_is_non_mutating")
+        self.assertIn("PASS logger_cleanup_planning_is_non_mutating", result.stdout)
+
+    def test_logger_cleanup_noop_preserves_canonical_identities(self) -> None:
+        result = run_lua_case("logger_cleanup_noop_preserves_canonical_identities")
+        self.assertIn("PASS logger_cleanup_noop_preserves_canonical_identities", result.stdout)
+
+    def test_logger_async_cleanup_noop_preserves_canonical_identities(self) -> None:
+        result = run_lua_case("logger_async_cleanup_noop_preserves_canonical_identities")
+        self.assertIn("PASS logger_async_cleanup_noop_preserves_canonical_identities", result.stdout)
+
+    def test_raid_store_cleanup_conflict_is_atomic(self) -> None:
+        result = run_lua_case("raid_store_cleanup_conflict_is_atomic")
+        self.assertIn("PASS raid_store_cleanup_conflict_is_atomic", result.stdout)
 
     def test_logger_refresh_requests_coalesce_behaviorally(self) -> None:
         result = run_lua_case("logger_refresh_requests_coalesce_behaviorally")
@@ -170,6 +190,14 @@ class RaidRecordingIntegrityBehaviorTests(unittest.TestCase):
     def test_logger_history_validation_is_strict_and_complete(self) -> None:
         result = run_lua_case("logger_history_validation_is_strict_and_complete")
         self.assertIn("PASS logger_history_validation_is_strict_and_complete", result.stdout)
+
+    def test_raid_store_uses_validator_first_error(self) -> None:
+        result = run_lua_case("raid_store_uses_validator_first_error")
+        self.assertIn("PASS raid_store_uses_validator_first_error", result.stdout)
+
+    def test_raid_store_rejects_malformed_validator_reports(self) -> None:
+        result = run_lua_case("raid_store_rejects_malformed_validator_reports")
+        self.assertIn("PASS raid_store_rejects_malformed_validator_reports", result.stdout)
 
     def test_logger_async_rebuild_outcomes_and_conflict(self) -> None:
         result = run_lua_case("logger_async_rebuild_outcomes_and_conflict")

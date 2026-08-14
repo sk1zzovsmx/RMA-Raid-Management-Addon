@@ -29,8 +29,7 @@ local tinsert = table.insert
 local tremove = table.remove
 local tonumber, tostring, type = tonumber, tostring, type
 local floor = math.floor
-local byte = string.byte
-local lower, strlen, strsub = string.lower, string.len, string.sub
+local lower, strlen = string.lower, string.len
 local sort = table.sort
 
 -- ----- Internal state ----- --
@@ -80,47 +79,12 @@ local defaultWarningTemplates = {
 }
 
 -- ----- Private helpers ----- --
-local function utf8SequenceLength(firstByte)
-	if firstByte <= 0x7f then return 1 end
-	if firstByte >= 0xc2 and firstByte <= 0xdf then return 2 end
-	if firstByte >= 0xe0 and firstByte <= 0xef then return 3 end
-	if firstByte >= 0xf0 and firstByte <= 0xf4 then return 4 end
-	return nil
-end
-
-local function isValidUtf8Sequence(text, index, sequenceLength)
-	local firstByte = byte(text, index)
-	for offset = 1, sequenceLength - 1 do
-		local continuation = byte(text, index + offset)
-		if not continuation or continuation < 0x80 or continuation > 0xbf then return false end
-		if offset == 1 then
-			if firstByte == 0xe0 and continuation < 0xa0 then return false end
-			if firstByte == 0xed and continuation > 0x9f then return false end
-			if firstByte == 0xf0 and continuation < 0x90 then return false end
-			if firstByte == 0xf4 and continuation > 0x8f then return false end
-		end
-	end
-	return true
-end
-
-local function utf8SafePrefix(text, maxBytes)
-	local index, lastValid, textLength = 1, 0, strlen(text)
-	while index <= textLength do
-		local sequenceLength = utf8SequenceLength(byte(text, index))
-		if not sequenceLength or index + sequenceLength - 1 > maxBytes then break end
-		if not isValidUtf8Sequence(text, index, sequenceLength) then break end
-		lastValid = index + sequenceLength - 1
-		index = lastValid + 1
-	end
-	return strsub(text, 1, lastValid)
-end
-
 local function normalizeBoundedText(value, maxBytes)
 	if type(value) ~= "string" then
 		return nil
 	end
 	local text = Strings.TrimText(value)
-	text = utf8SafePrefix(text, maxBytes)
+	text = Strings.Utf8SafePrefix(text, maxBytes)
 	if text == "" then
 		return nil
 	end
@@ -128,11 +92,19 @@ local function normalizeBoundedText(value, maxBytes)
 end
 
 local function validateBoundedText(value, maxBytes, field)
-	if type(value) ~= "string" then return nil, "invalid_" .. field end
+	if type(value) ~= "string" then
+		return nil, "invalid_" .. field
+	end
 	local text = Strings.TrimText(value)
-	if text == "" then return nil, "empty" end
-	if strlen(text) > maxBytes then return nil, field .. "_too_long" end
-	if utf8SafePrefix(text, maxBytes) ~= text then return nil, "invalid_" .. field end
+	if text == "" then
+		return nil, "empty"
+	end
+	if strlen(text) > maxBytes then
+		return nil, field .. "_too_long"
+	end
+	if Strings.Utf8SafePrefix(text, maxBytes) ~= text then
+		return nil, "invalid_" .. field
+	end
 	return text
 end
 
@@ -145,7 +117,9 @@ local function cloneWarnings(warnings)
 end
 
 local function replaceWarnings(target, source)
-	for key in pairs(target) do target[key] = nil end
+	for key in pairs(target) do
+		target[key] = nil
+	end
 	for i = 1, #source do
 		target[i] = source[i]
 	end
@@ -186,14 +160,21 @@ local function normalizeWarnings(warnings)
 			if name and content then
 				local canonical = warning.name == name and warning.content == content
 				for key in pairs(warning) do
-					if key ~= "name" and key ~= "content" then canonical = false break end
+					if key ~= "name" and key ~= "content" then
+						canonical = false
+						break
+					end
 				end
 				normalized[#normalized + 1] = canonical and warning or { name = name, content = content }
 			end
 		end
 	end
-	for key in pairs(warnings) do warnings[key] = nil end
-	for i = 1, #normalized do warnings[i] = normalized[i] end
+	for key in pairs(warnings) do
+		warnings[key] = nil
+	end
+	for i = 1, #normalized do
+		warnings[i] = normalized[i]
+	end
 	return warnings
 end
 
@@ -365,12 +346,16 @@ function Store.SaveWarning(wContent, wName, wID, isEdit)
 	local nameReason, contentReason
 	if type(wName) == "string" and Strings.TrimText(wName) ~= "" then
 		wName, nameReason = validateBoundedText(wName, MAX_WARNING_NAME_BYTES, "name")
-		if not wName then return nil, nameReason end
+		if not wName then
+			return nil, nameReason
+		end
 	else
 		wName = tostring((isEdit and wID > 0) and wID or (#warnings + 1))
 	end
 	wContent, contentReason = validateBoundedText(wContent, MAX_WARNING_CONTENT_BYTES, "content")
-	if not wContent then return nil, contentReason end
+	if not wContent then
+		return nil, contentReason
+	end
 
 	local normalizedName = lower(wName)
 	for i = 1, #warnings do

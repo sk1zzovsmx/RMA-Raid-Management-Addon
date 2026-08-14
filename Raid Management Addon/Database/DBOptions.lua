@@ -351,30 +351,11 @@ addon.options = setmetatable({}, {
 	__metatable = false,
 })
 
--- Iterate via this getter to avoid exposing the internal table directly.
-function Options.GetNamespaces()
-	local snapshot = {}
-	for name, ns in pairs(namespaces) do
-		local registeredNamespace = ns
-		snapshot[copyOptionValue(name)] = {
-			All = function()
-				return registeredNamespace:All()
-			end,
-			Get = function(_, key)
-				return registeredNamespace:Get(key)
-			end,
-			Name = function()
-				return registeredNamespace:Name()
-			end,
-			ResetDefaults = function()
-				return registeredNamespace:ResetDefaults()
-			end,
-			Set = function(_, key, value)
-				return registeredNamespace:Set(key, value)
-			end,
-		}
+function Options.ResetAllDefaults()
+	for _, ns in pairs(namespaces) do
+		ns:ResetDefaults()
 	end
-	return snapshot
+	return true
 end
 
 -- Convenience write when the caller does not know the namespace (for example Config UI).

@@ -1091,6 +1091,7 @@ assert(warnings[1] == "Cannot award: Alice has an active Loot Ban. Reason: late 
         run_trade_execution_lua("""
 assert(controller:TradeItem("item:1", "Alice", 1, 100) == true, "first trade result")
 assert(effects == 1 and trades == 1, "first counts " .. effects .. "/" .. trades)
+assert(controller:FailAcceptedTrade("TRADE_CLOSED") == true, "first trade cleanup")
 bans.Alice = true
 assert(controller:TradeItem("item:1", "Alice", 1, 100) == false, "second trade result")
 assert(effects == 1 and trades == 1, "second counts " .. effects .. "/" .. trades)
