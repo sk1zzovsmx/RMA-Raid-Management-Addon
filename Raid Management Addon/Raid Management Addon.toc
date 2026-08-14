@@ -9,6 +9,8 @@
 
 # Layer 0 - Third-party libraries
 Libs\LibStub\LibStub.lua
+Libs\LibSerialize\LibSerialize.lua
+Libs\ChatThrottleLib\ChatThrottleLib.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\LibBossIDs-1.0\lib.xml
 Libs\LibDeflate\LibDeflate.lua

@@ -68,6 +68,15 @@ class RaidReplicationBehaviorTests(unittest.TestCase):
     def test_group_loot_uses_raid_leader_as_authority(self) -> None:
         self.assert_case("raid_live_sync_group_loot_leader_authority")
 
+    def test_group_loot_service_rows_replicate_immediately_without_recovery(self) -> None:
+        self.assert_case("raid_live_group_loot_service_rows_broadcast_compactly")
+
+    def test_realistic_group_loot_sources_do_not_stall_before_recovery(self) -> None:
+        self.assert_case("raid_live_group_loot_realistic_sources_do_not_stall")
+
+    def test_live_loot_parts_are_bounded_and_order_independent(self) -> None:
+        self.assert_case("raid_live_loot_parts_are_bounded_and_order_independent")
+
     def test_fresh_leader_entry_does_not_start_recovery(self) -> None:
         self.assert_case("raid_fresh_leader_entry_creates_without_recovery")
 
@@ -188,11 +197,20 @@ class RaidReplicationBehaviorTests(unittest.TestCase):
     def test_conclusion_compacts_the_active_event_ledger_atomically(self) -> None:
         self.assert_case("raid_replication_conclusion")
 
-    def test_version_3_protocol_round_trips_every_closed_message_kind(self) -> None:
+    def test_version_4_protocol_round_trips_every_closed_message_kind(self) -> None:
         self.assert_case("raid_replication_protocol_round_trip")
 
-    def test_version_3_protocol_rejects_invalid_envelopes_and_bodies(self) -> None:
+    def test_version_4_protocol_rejects_invalid_envelopes_and_bodies(self) -> None:
         self.assert_case("raid_replication_protocol_rejects_invalid")
+
+    def test_version_4_compact_live_loot_is_exact_and_wire_bounded(self) -> None:
+        self.assert_case("raid_replication_protocol_compact_live_loot")
+
+    def test_version_4_compact_live_loot_accepts_need_and_greed_roll_types(self) -> None:
+        self.assert_case("raid_replication_protocol_accepts_group_loot_roll_types")
+
+    def test_version_4_compact_live_loot_rejects_malformed_scalars_and_bounds(self) -> None:
+        self.assert_case("raid_replication_protocol_rejects_malformed_compact_live_loot_scalars")
 
     def test_transfer_sessions_assemble_ranges_and_reject_conflicting_duplicates(self) -> None:
         self.assert_case("raid_transfer_session_assembly")

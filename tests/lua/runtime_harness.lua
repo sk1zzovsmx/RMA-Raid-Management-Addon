@@ -4604,6 +4604,13 @@ end
 local function installRaidReplicationProtocolFixture(addon)
 	installRaidReplicationEventFixture(addon)
 	loadAddonFile(addon, "Raid Management Addon/Modules/Json.lua")
+	addon.Item = addon.Item or {}
+	addon.Item.GetItemIdFromLink = function(itemLink)
+		return type(itemLink) == "string" and tonumber(string.match(itemLink, "item:(%d+)")) or nil
+	end
+	addon.Item.GetItemStringFromLink = function(itemLink)
+		return type(itemLink) == "string" and string.match(itemLink, "|H(item:[%-%d:]+)|h") or nil
+	end
 	addon.Comms = { Payload = {} }
 	local payload = addon.Comms.Payload
 	function payload.PackFields(separator, ...)
@@ -4646,6 +4653,35 @@ local function protocolBodies()
 			difficulty = 4,
 		},
 		EVENT = { event = buildRaidReplicationEvent("LOOT_DELETED", { lootNid = 4 }, 7, "12345678:42") },
+		LIVE_LOOT = {
+			event = {
+				raidUid = "r:1721120000:1:12345678",
+				authorityEpoch = 1,
+				sequence = 42,
+				eventUid = "r:1721120000:1:12345678:1:42",
+				eventType = "LOOT_ADDED",
+				payload = {
+					loot = {
+						lootNid = 31,
+						itemId = 47242,
+						itemName = "Pride of the Eredar",
+						itemString = "item:47242:0:0:0:0:0:0:0",
+						itemLink = "|cffa335ee|Hitem:47242:0:0:0:0:0:0:0|h[Pride of the Eredar]|h|r",
+						itemRarity = 4,
+						itemTexture = "Interface\\Icons\\INV_Jewelry_Ring_66",
+						itemCount = 1,
+						looterNid = 7,
+						rollType = 1,
+						rollValue = 94,
+						rollSessionId = "RS:42",
+						bossNid = 4,
+						time = 1721120200,
+						source = "DISTRIBUTION_AWARD",
+					},
+				},
+				resultDigest = "12345678:2048",
+			},
+		},
 		RANGE_REQ = { raidUid = "r1", authorityEpoch = 2, fromSequence = 4, toSequence = 7 },
 		RANGE_DATA = {
 			raidUid = "r1",
@@ -4682,24 +4718,38 @@ end
 
 function cases.raid_replication_protocol_round_trip(addon)
 	local protocol = installRaidReplicationProtocolFixture(addon)
-	assertEqual(3, protocol.VERSION, "protocol version differs")
+	assertEqual(4, protocol.VERSION, "protocol version differs")
 	local bodies = protocolBodies()
-	local kinds = { "HEAD_REQ", "HEAD", "EVENT", "RANGE_REQ", "RANGE_DATA", "SNAP_REQ", "SNAP_DATA", "OFFER", "RESULT" }
+	local kinds = {
+		"HEAD_REQ",
+		"HEAD",
+		"EVENT",
+		"LIVE_LOOT",
+		"RANGE_REQ",
+		"RANGE_DATA",
+		"SNAP_REQ",
+		"SNAP_DATA",
+		"OFFER",
+		"RESULT",
+	}
 	for i = 1, #kinds do
 		local kind = kinds[i]
-		local fireAndForget = kind == "HEAD_REQ" or kind == "HEAD" or kind == "EVENT"
+		local fireAndForget = kind == "HEAD_REQ" or kind == "HEAD" or kind == "EVENT" or kind == "LIVE_LOOT"
 		local requestId, target
 		if not fireAndForget then
 			requestId = "request-" .. i
 			target = "Recipient"
 		end
-		local message = assert(protocol.Encode(kind, requestId, target, bodies[kind]))
+		local message, messageReason = protocol.Encode(kind, requestId, target, bodies[kind])
+		assertTrue(message ~= nil, kind .. " did not encode: " .. tostring(messageReason))
 		assertTrue(#message <= 243, kind .. " envelope exceeds the safe wire limit")
-		local decoded = assert(protocol.Decode(message))
+		local decoded, decodeReason = protocol.Decode(message)
+		assertTrue(decoded ~= nil, kind .. " did not decode: " .. tostring(decodeReason))
 		assertEqual(kind, decoded.kind, kind .. " decoded kind differs")
 		assertEqual(requestId or "-", decoded.requestId, kind .. " decoded request ID differs")
 		assertEqual(target or "-", decoded.target, kind .. " decoded target differs")
 		assertTrue(deepEqual(bodies[kind], decoded.body), kind .. " decoded body differs")
+		assertEqual(nil, protocol.Decode(string.gsub(message, "^R4", "R3")), "R3 wire was accepted")
 	end
 	local legacyHead = deepCopy(bodies.HEAD)
 	legacyHead.zone = nil
@@ -4730,6 +4780,40 @@ function cases.raid_replication_protocol_round_trip(addon)
 	assertEqual(nil, oversizedMessage, "oversize envelope was accepted")
 	assertEqual("MESSAGE_TOO_LARGE", oversizedReason, "oversize envelope failed for the wrong reason")
 	print("PASS raid_replication_protocol_round_trip")
+end
+
+function cases.raid_replication_protocol_compact_live_loot(addon)
+	local protocol = installRaidReplicationProtocolFixture(addon)
+	local event = protocolBodies().LIVE_LOOT.event
+	local verbose, verboseReason = protocol.Encode("EVENT", "-", "-", { event = event })
+	assertEqual(nil, verbose, "representative verbose loot unexpectedly fit")
+	assertEqual("MESSAGE_TOO_LARGE", verboseReason)
+	local wire, reason = protocol.Encode("LIVE_LOOT", "-", "-", { event = event })
+	assertTrue(wire ~= nil, "compact live loot did not encode: " .. tostring(reason))
+	assertTrue(#wire <= 243, "compact live loot exceeded 243 bytes")
+	local decoded, decodeReason = protocol.Decode(wire)
+	assertTrue(decoded ~= nil, "compact live loot did not decode: " .. tostring(decodeReason))
+	assertEqual("LIVE_LOOT", decoded.kind)
+	assertTrue(deepEqual(event, decoded.body.event), "compact live loot did not reconstruct exactly")
+	print("PASS raid_replication_protocol_compact_live_loot")
+end
+
+function cases.raid_replication_protocol_accepts_group_loot_roll_types(addon)
+	local protocol = installRaidReplicationProtocolFixture(addon)
+	for _, rollType in ipairs({ 8, 9 }) do
+		local event = deepCopy(protocolBodies().LIVE_LOOT.event)
+		event.payload.loot.rollType = rollType
+		local wire, reason = protocol.Encode("LIVE_LOOT", "-", "-", { event = event })
+		assertTrue(wire ~= nil, "group-loot roll type " .. rollType .. " did not encode: " .. tostring(reason))
+		assertTrue(#wire <= 243, "group-loot roll type " .. rollType .. " exceeded 243 bytes")
+		local decoded, decodeReason = protocol.Decode(wire)
+		assertTrue(decoded ~= nil, "group-loot roll type " .. rollType .. " did not decode: " .. tostring(decodeReason))
+		assertTrue(
+			deepEqual(event, decoded.body.event),
+			"group-loot roll type " .. rollType .. " did not round-trip exactly"
+		)
+	end
+	print("PASS raid_replication_protocol_accepts_group_loot_roll_types")
 end
 
 function cases.raid_replication_protocol_rejects_invalid(addon)
@@ -4781,7 +4865,7 @@ function cases.raid_replication_protocol_rejects_invalid(addon)
 		)
 	end
 	assertEqual(nil, protocol.Encode("EXEC", "request", "Target", {}), "unknown message kind was accepted")
-	assertEqual(nil, protocol.Decode("R3\tEXEC\trequest\tTarget\tgarbage"), "unknown decoded kind was accepted")
+	assertEqual(nil, protocol.Decode("R4\tEXEC\trequest\tTarget\tgarbage"), "unknown decoded kind was accepted")
 	local unsupportedBodyCalls = 0
 	local decodeBody = protocol.DecodeBody
 	protocol.DecodeBody = function(...)
@@ -4915,7 +4999,7 @@ function cases.raid_replication_protocol_rejects_invalid(addon)
 	maximumChunk.chunk = string.rep("x", 220)
 	local maximumChunkBody = assert(protocol.EncodeBody(maximumChunk))
 	assertTrue(
-		protocol.Decode("R3\tRANGE_DATA\trequest\tTarget\t" .. maximumChunkBody) ~= nil,
+		protocol.Decode("R4\tRANGE_DATA\trequest\tTarget\t" .. maximumChunkBody) ~= nil,
 		"220-byte chunk was rejected"
 	)
 	local maximumReason = deepCopy(bodies.RESULT)
@@ -4925,7 +5009,7 @@ function cases.raid_replication_protocol_rejects_invalid(addon)
 		"96-byte RESULT reason was rejected"
 	)
 
-	assertEqual(nil, protocol.Decode("R3\tSNAP_REQ\trequest\tTarget\t%%%"), "malformed encoded body was accepted")
+	assertEqual(nil, protocol.Decode("R4\tSNAP_REQ\trequest\tTarget\t%%%"), "malformed encoded body was accepted")
 	local jsonDecodeCalls = 0
 	local jsonDecode = addon.Json.Decode
 	addon.Json.Decode = function(...)
@@ -4935,13 +5019,179 @@ function cases.raid_replication_protocol_rejects_invalid(addon)
 	local controlBytes = { 0, 31, 11, 10, 13 }
 	for i = 1, #controlBytes do
 		local bodyText = '{"raidUid":"r1' .. string.char(controlBytes[i]) .. '"}'
-		local controlBody, controlReason = protocol.Decode("R3\tSNAP_REQ\trequest\tTarget\t" .. bodyText)
+		local controlBody, controlReason = protocol.Decode("R4\tSNAP_REQ\trequest\tTarget\t" .. bodyText)
 		assertEqual(nil, controlBody, "raw control byte " .. controlBytes[i] .. " was accepted")
 		assertEqual("MALFORMED_MESSAGE_BODY_CONTROL", controlReason, "raw control byte rejection reason differs")
 	end
 	assertEqual(0, jsonDecodeCalls, "raw control body reached JSON decoding")
 	addon.Json.Decode = jsonDecode
+
+	local compactEvent = protocolBodies().LIVE_LOOT.event
+	local compactSlots = {
+		compactEvent.raidUid,
+		compactEvent.authorityEpoch,
+		compactEvent.sequence,
+		compactEvent.resultDigest,
+		31,
+		compactEvent.payload.loot.itemLink,
+		1,
+		7,
+		1,
+		94,
+		"RS:42",
+		4,
+		1721120200,
+		"DISTRIBUTION_AWARD",
+		compactEvent.payload.loot.itemTexture,
+		addon.Json.NULL,
+	}
+	local function rejectCompact(label, slots)
+		local encoded = assert(protocol.EncodeBody(slots))
+		local body, compactReason = protocol.Decode("R4\tLIVE_LOOT\t-\t-\t" .. encoded)
+		assertEqual(nil, body, label .. " was accepted")
+		assertTrue(
+			compactReason == "INVALID_MESSAGE_BODY"
+				or compactReason == "NON_RECONSTRUCTIBLE_LIVE_LOOT"
+				or compactReason == "MESSAGE_TOO_LARGE",
+			label .. " rejected with unexpected reason " .. tostring(compactReason)
+		)
+	end
+	local arity = deepCopy(compactSlots)
+	arity[16] = nil
+	rejectCompact("compact dense-array arity", arity)
+	local nullSlot = deepCopy(compactSlots)
+	nullSlot[5] = addon.Json.NULL
+	rejectCompact("compact required null slot", nullSlot)
+	local malformedLink = deepCopy(compactSlots)
+	malformedLink[6] = "item:47242"
+	rejectCompact("compact malformed hyperlink", malformedLink)
+	local mismatched = deepCopy(compactEvent)
+	mismatched.payload.loot.itemId = 1
+	assertEqual(
+		nil,
+		protocol.Encode("LIVE_LOOT", "-", "-", { event = mismatched }),
+		"mismatched derived item ID was accepted"
+	)
+	local unexpectedKey = deepCopy(compactEvent)
+	unexpectedKey.payload.loot.extra = true
+	assertEqual(
+		nil,
+		protocol.Encode("LIVE_LOOT", "-", "-", { event = unexpectedKey }),
+		"unexpected loot key was accepted"
+	)
+	local malformedSource = deepCopy(compactSlots)
+	malformedSource[16] = {
+		"BOSS",
+		4,
+		addon.Json.NULL,
+		addon.Json.NULL,
+		addon.Json.NULL,
+		addon.Json.NULL,
+		addon.Json.NULL,
+		{ { "Name", "KIND", "key", 7, "extra" } },
+	}
+	rejectCompact("compact malformed nested source tuple", malformedSource)
+	local oversized = deepCopy(compactEvent)
+	oversized.payload.loot.itemTexture = string.rep("x", 300)
+	local oversizedWire, oversizedReason = protocol.Encode("LIVE_LOOT", "-", "-", { event = oversized })
+	assertEqual(nil, oversizedWire, "oversized compact live loot was accepted")
+	assertEqual("MESSAGE_TOO_LARGE", oversizedReason, "oversized compact live loot failed for the wrong reason")
 	print("PASS raid_replication_protocol_rejects_invalid")
+end
+
+function cases.raid_replication_protocol_rejects_malformed_compact_live_loot_scalars(addon)
+	local protocol = installRaidReplicationProtocolFixture(addon)
+	local compactEvent = protocolBodies().LIVE_LOOT.event
+	local compactSlots = {
+		compactEvent.raidUid,
+		compactEvent.authorityEpoch,
+		compactEvent.sequence,
+		compactEvent.resultDigest,
+		31,
+		compactEvent.payload.loot.itemLink,
+		1,
+		7,
+		1,
+		94,
+		"RS:42",
+		4,
+		1721120200,
+		"DISTRIBUTION_AWARD",
+		compactEvent.payload.loot.itemTexture,
+		addon.Json.NULL,
+	}
+	local function copyCompactSlots()
+		local copy = {}
+		for i = 1, #compactSlots do
+			copy[i] = compactSlots[i]
+		end
+		return copy
+	end
+	local function rejectCompact(label, slot, value)
+		local slots = copyCompactSlots()
+		slots[slot] = value
+		local encoded = assert(protocol.EncodeBody(slots))
+		local body = protocol.Decode("R4\tLIVE_LOOT\t-\t-\t" .. encoded)
+		assertEqual(nil, body, label .. " was accepted")
+	end
+
+	local malformedScalars = {
+		{ "raid UID table", 1, {} },
+		{ "authority epoch string", 2, "1" },
+		{ "sequence boolean", 3, true },
+		{ "digest table", 4, {} },
+		{ "loot NID string", 5, "31" },
+		{ "item link table", 6, {} },
+		{ "item count boolean", 7, true },
+		{ "looter NID table", 8, {} },
+		{ "roll type string", 9, "1" },
+		{ "roll value boolean", 10, false },
+		{ "roll session table", 11, {} },
+		{ "boss NID string", 12, "4" },
+		{ "time table", 13, {} },
+		{ "source table", 14, {} },
+		{ "item texture table", 15, {} },
+		{ "loot source string", 16, "source" },
+	}
+	for i = 1, #malformedScalars do
+		local case = malformedScalars[i]
+		rejectCompact(case[1], case[2], case[3])
+	end
+
+	local boundedScalars = {
+		{ "authority epoch lower bound", 2, 0 },
+		{ "authority epoch upper bound", 2, 1000000 },
+		{ "sequence lower bound", 3, 0 },
+		{ "sequence upper bound", 3, 1000000000 },
+		{ "loot NID lower bound", 5, 0 },
+		{ "loot NID upper bound", 5, 1000000000 },
+		{ "item count lower bound", 7, 0 },
+		{ "item count upper bound", 7, 1000000000 },
+		{ "looter NID lower bound", 8, 0 },
+		{ "looter NID upper bound", 8, 1000000000 },
+		{ "roll type lower bound", 9, -1 },
+		{ "roll type upper bound", 9, 10 },
+		{ "roll value lower bound", 10, -1 },
+		{ "roll value upper bound", 10, 1000000000 },
+		{ "boss NID lower bound", 12, -1 },
+		{ "boss NID upper bound", 12, 1000000000 },
+		{ "time lower bound", 13, 0 },
+		{ "time upper bound", 13, 10000000000 },
+	}
+	for i = 1, #boundedScalars do
+		local case = boundedScalars[i]
+		rejectCompact(case[1], case[2], case[3])
+	end
+
+	local optionalNulls = copyCompactSlots()
+	optionalNulls[11] = addon.Json.NULL
+	optionalNulls[14] = addon.Json.NULL
+	optionalNulls[15] = addon.Json.NULL
+	optionalNulls[16] = addon.Json.NULL
+	local optionalBody, optionalReason =
+		protocol.Decode("R4\tLIVE_LOOT\t-\t-\t" .. assert(protocol.EncodeBody(optionalNulls)))
+	assertTrue(optionalBody ~= nil, "JSON-null optional compact slots were rejected: " .. tostring(optionalReason))
+	print("PASS raid_replication_protocol_rejects_malformed_compact_live_loot_scalars")
 end
 
 function cases.lua_51_smoke()
@@ -11753,9 +12003,12 @@ function cases.reserves_direct_import_apis_revalidate_bounded_canonical_input(ad
 			{ rawID = 1, source = "bad\nsource" },
 		} } }
 	invalid[#invalid + 1] = {
-		alpha = { playerNameDisplay = "Alpha", reserves = {
-			{ rawID = 1, itemName = string.char(0xc3, 0xa9) },
-		} },
+		alpha = {
+			playerNameDisplay = "Alpha",
+			reserves = {
+				{ rawID = 1, itemName = string.char(0xc3, 0xa9) },
+			},
+		},
 	}
 	for i = 1, #invalid do
 		local ok, reason = reserves:ApplyImport(
@@ -18597,7 +18850,8 @@ local function beginRangeRequest(fixture, callback, target)
 			rangeMetadata(),
 			"RANGE_DATA",
 			rangeMetadata(),
-			callback
+			callback,
+			fixture.session.RATE_CLASS_LIVE
 		)
 	)
 end
@@ -18612,7 +18866,16 @@ function cases.raid_transfer_session_assembly(addon)
 		injectedCalls = injectedCalls + 1
 	end
 	local transfer = { events = { string.rep("a", 260), string.rep("b", 260) } }
-	assertTrue(fixture.session:QueueTransfer("RANGE_DATA", requestId, "Tester", rangeMetadata(), transfer))
+	assertTrue(
+		fixture.session:QueueTransfer(
+			"RANGE_DATA",
+			requestId,
+			"Tester",
+			rangeMetadata(),
+			transfer,
+			fixture.session.RATE_CLASS_LIVE
+		)
+	)
 	local messages = fixture.batches[1].messages
 	assertTrue(#messages > 1, "assembly test must use multiple chunks")
 	local last = assert(fixture.protocol.Decode(messages[#messages]))
@@ -18638,7 +18901,16 @@ function cases.raid_transfer_session_assembly(addon)
 	requestId = beginRangeRequest(fixture, function(ok, reason)
 		failureCalls, failureReason = failureCalls + 1, reason
 	end)
-	assertTrue(fixture.session:QueueTransfer("RANGE_DATA", requestId, "Tester", rangeMetadata(), transfer))
+	assertTrue(
+		fixture.session:QueueTransfer(
+			"RANGE_DATA",
+			requestId,
+			"Tester",
+			rangeMetadata(),
+			transfer,
+			fixture.session.RATE_CLASS_LIVE
+		)
+	)
 	messages = fixture.batches[#fixture.batches].messages
 	local first = assert(fixture.protocol.Decode(messages[1]))
 	assertTrue(fixture.session:ReceiveChunk("Leader", first))
@@ -18816,7 +19088,8 @@ function cases.raid_transfer_session_correlation(addon)
 			{ raidUid = "r1", authorityEpoch = 1, sequence = 7 },
 			function()
 				sequenceCalls = sequenceCalls + 1
-			end
+			end,
+			fixture.session.RATE_CLASS_LIVE
 		)
 	)
 	local wrongSequence = {
@@ -18923,7 +19196,8 @@ function cases.raid_transfer_session_decode_bounds(addon)
 		"oversized",
 		"Recipient",
 		{ raidUid = "r1", authorityEpoch = 1, sequence = 1 },
-		{ snapshot = string.rep("x", 56321) }
+		{ snapshot = string.rep("x", 56321) },
+		fixture.session.RATE_CLASS_LIVE
 	)
 	assertEqual(false, queued, "oversized outgoing body was accepted")
 	assertEqual("TRANSFER_TOO_LARGE", queueReason, "oversized outgoing reason differs")
@@ -18964,7 +19238,8 @@ function cases.raid_transfer_session_atomic_batch(addon)
 		"request-1",
 		"Recipient",
 		{ raidUid = "r1", authorityEpoch = 1, sequence = 1 },
-		{ snapshot = string.rep("x", 600) }
+		{ snapshot = string.rep("x", 600) },
+		fixture.session.RATE_CLASS_LIVE
 	)
 	assertEqual(false, queued, "rejected batch reported success")
 	assertEqual("backpressure", reason, "batch rejection reason differs")
@@ -18985,7 +19260,8 @@ function cases.raid_transfer_session_rechunks_snapshot_at_safe_wire_limit(addon)
 		"request-1",
 		"Recipient",
 		{ raidUid = "r1", authorityEpoch = 1, sequence = 1 },
-		{ snapshot = string.rep("x", 300) }
+		{ snapshot = string.rep("x", 300) },
+		fixture.session.RATE_CLASS_LIVE
 	)
 	assertEqual(true, queued, "snapshot transfer was rejected: " .. tostring(reason))
 	local messages = fixture.batches[1].messages
@@ -19000,98 +19276,184 @@ end
 function cases.raid_transfer_session_rate_limits(addon)
 	local fixture = installRaidTransferSessionFixture(addon)
 	for i = 1, 6 do
-		assertEqual(true, fixture.session:AllowIncomingRequest("Sender-Realm"), "inbound request within limit failed")
+		assertEqual(
+			true,
+			fixture.session:AllowIncomingRequest("Sender-Realm", fixture.session.RATE_CLASS_LIVE),
+			"live inbound request within limit failed"
+		)
 	end
-	local allowed, reason = fixture.session:AllowIncomingRequest("sender-OtherRealm")
-	assertEqual(false, allowed, "seventh inbound request was accepted")
-	assertEqual("RATE_LIMIT", reason, "inbound rate reason differs")
-	fixture.now = 130
-	assertEqual(true, fixture.session:AllowIncomingRequest("Sender-Realm"), "inbound rate did not expire at 30 seconds")
+	local allowed, reason, retryDelay =
+		fixture.session:AllowIncomingRequest("sender-OtherRealm", fixture.session.RATE_CLASS_LIVE)
+	assertEqual(false, allowed, "seventh live inbound request was accepted")
+	assertEqual("RATE_LIMIT", reason, "live inbound rate reason differs")
+	assertEqual(30, retryDelay, "live inbound retry delay differs")
+	for i = 1, 6 do
+		assertEqual(
+			true,
+			fixture.session:AllowIncomingRequest("Sender-Realm", fixture.session.RATE_CLASS_HISTORY),
+			"history inbound request within limit failed"
+		)
+	end
+	allowed, reason, retryDelay =
+		fixture.session:AllowIncomingRequest("sender-OtherRealm", fixture.session.RATE_CLASS_HISTORY)
+	assertEqual(false, allowed, "seventh history inbound request was accepted")
+	assertEqual("RATE_LIMIT", reason, "history inbound rate reason differs")
+	assertEqual(30, retryDelay, "history inbound retry delay differs")
 
 	for i = 1, 4 do
-		assertTrue(beginRangeRequest(fixture, function() end, "Outbound"), "outbound request within limit failed")
+		assertTrue(beginRangeRequest(fixture, function() end, "Peer"), "live outbound request within limit failed")
 	end
 	local encodeBodyCalls = fixture.protocolEncodeBodyCalls
 	local queueCalls = #fixture.queued
-	local requestId, requestReason = fixture.session:BeginRequest(
+	local requestId, requestReason, requestRetryDelay = fixture.session:BeginRequest(
 		"RANGE_REQ",
-		"Outbound",
+		"Peer",
 		rangeMetadata(),
 		"RANGE_DATA",
 		rangeMetadata(),
-		function() end
+		function() end,
+		fixture.session.RATE_CLASS_LIVE
 	)
-	assertEqual(nil, requestId, "fifth outbound request was accepted")
-	assertEqual("RATE_LIMIT", requestReason, "outbound request rate reason differs")
+	assertEqual(nil, requestId, "fifth live outbound request was accepted")
+	assertEqual("RATE_LIMIT", requestReason, "live outbound request rate reason differs")
+	assertEqual(30, requestRetryDelay, "live outbound retry delay differs")
 	assertEqual(encodeBodyCalls, fixture.protocolEncodeBodyCalls, "rate-limited request reached protocol encoding")
 	assertEqual(queueCalls, #fixture.queued, "rate-limited request allocated queue work")
-	fixture.now = 160
-	assertTrue(
-		fixture.session:BeginRequest(
-			"RANGE_REQ",
-			"Outbound",
-			rangeMetadata(),
-			"RANGE_DATA",
-			rangeMetadata(),
-			function() end
-		),
-		"outbound request rate did not expire at 30 seconds"
-	)
 
 	for i = 1, 4 do
 		assertTrue(
 			fixture.session:QueueTransfer(
 				"SNAP_DATA",
-				"batch-" .. i,
-				"BatchTarget",
+				"history-" .. i,
+				"Peer",
 				{ raidUid = "r1", authorityEpoch = 1, sequence = 1 },
-				{ snapshot = "x" }
+				{ snapshot = "x" },
+				fixture.session.RATE_CLASS_HISTORY
 			),
-			"transfer batch within limit failed"
+			"history transfer within limit failed"
 		)
 	end
 	encodeBodyCalls = fixture.protocolEncodeBodyCalls
 	local channelCalls = fixture.channelEncodeCalls
 	local batchCalls = #fixture.batches
-	allowed, reason = fixture.session:QueueTransfer(
+	allowed, reason, retryDelay = fixture.session:QueueTransfer(
 		"SNAP_DATA",
-		"batch-5",
-		"BatchTarget",
+		"history-5",
+		"Peer",
 		{ raidUid = "r1", authorityEpoch = 1, sequence = 1 },
-		{ snapshot = "x" }
+		{ snapshot = "x" },
+		fixture.session.RATE_CLASS_HISTORY
 	)
-	assertEqual(false, allowed, "fifth transfer batch was accepted")
-	assertEqual("RATE_LIMIT", reason, "transfer batch rate reason differs")
+	assertEqual(false, allowed, "fifth history transfer was accepted")
+	assertEqual("RATE_LIMIT", reason, "history transfer rate reason differs")
+	assertEqual(30, retryDelay, "history transfer retry delay differs")
 	assertEqual(encodeBodyCalls, fixture.protocolEncodeBodyCalls, "rate-limited batch reached serialization")
 	assertEqual(channelCalls, fixture.channelEncodeCalls, "rate-limited batch reached channel encoding")
 	assertEqual(batchCalls, #fixture.batches, "rate-limited batch allocated queue work")
-	fixture.now = 190
+	requestId, requestReason = fixture.session:BeginRequest(
+		"RANGE_REQ",
+		"Peer",
+		rangeMetadata(),
+		"RANGE_DATA",
+		rangeMetadata(),
+		function() end,
+		fixture.session.RATE_CLASS_LIVE
+	)
+	assertEqual(nil, requestId, "history transfer released the capped live rate class")
+	assertEqual("RATE_LIMIT", requestReason, "live class did not remain capped")
+	fixture.now = fixture.now + 30
 	assertTrue(
 		fixture.session:QueueTransfer(
 			"SNAP_DATA",
-			"batch-expired",
-			"BatchTarget",
+			"history-expired",
+			"Peer",
 			{ raidUid = "r1", authorityEpoch = 1, sequence = 1 },
-			{ snapshot = "x" }
+			{ snapshot = "x" },
+			fixture.session.RATE_CLASS_HISTORY
 		),
-		"transfer rate did not expire at 30 seconds"
+		"history transfer rate did not expire at exactly 30 seconds"
+	)
+	assertTrue(
+		fixture.session:BeginRequest(
+			"RANGE_REQ",
+			"Peer",
+			rangeMetadata(),
+			"RANGE_DATA",
+			rangeMetadata(),
+			function() end,
+			fixture.session.RATE_CLASS_LIVE
+		),
+		"live request rate did not expire at exactly 30 seconds"
 	)
 
 	for i = 1, 140 do
-		fixture.session:AllowIncomingRequest("Unique" .. i)
+		fixture.session:AllowIncomingRequest("Unique" .. i, fixture.session.RATE_CLASS_LIVE)
 	end
 	local ratePeers = 0
-	for _ in pairs(fixture.session._incomingRates) do
+	for _ in pairs(fixture.session._incomingRates.live) do
 		ratePeers = ratePeers + 1
 	end
 	assertTrue(ratePeers <= 128, "inbound rate map grew beyond its bound")
 	fixture.now = fixture.now + 31
-	fixture.session:AllowIncomingRequest("Fresh")
+	fixture.session:AllowIncomingRequest("Fresh", fixture.session.RATE_CLASS_LIVE)
 	ratePeers = 0
-	for _ in pairs(fixture.session._incomingRates) do
+	for _ in pairs(fixture.session._incomingRates.live) do
 		ratePeers = ratePeers + 1
 	end
 	assertEqual(1, ratePeers, "expired inbound rate entries were not pruned")
+
+	addon.DB.SyncSession = nil
+	local expiryFixture = installRaidTransferSessionFixture(addon)
+	local timeoutRequest = beginRangeRequest(expiryFixture, function() end, "TimeoutPeer")
+	assertEqual(1, expiryFixture.session:Expire(131), "first request timeout did not run")
+	assertTrue(
+		type(expiryFixture.session._incomingRates.live) == "table",
+		"expiry removed the live incoming rate class"
+	)
+	assertTrue(
+		type(expiryFixture.session._incomingRates.history) == "table",
+		"expiry removed the history incoming rate class"
+	)
+	assertTrue(
+		type(expiryFixture.session._outgoingRates.live) == "table",
+		"expiry removed the live outgoing rate class"
+	)
+	assertTrue(
+		type(expiryFixture.session._outgoingRates.history) == "table",
+		"expiry removed the history outgoing rate class"
+	)
+	assertEqual(1, expiryFixture.session:Expire(162), "second request timeout did not clean up")
+	assertEqual(nil, expiryFixture.session._pendingRequests[timeoutRequest], "timed-out request remained pending")
+	assertTrue(
+		expiryFixture.session:AllowIncomingRequest("AfterExpiry", expiryFixture.session.RATE_CLASS_LIVE),
+		"live admission failed after expiry"
+	)
+	assertTrue(
+		expiryFixture.session:AllowIncomingRequest("AfterExpiry", expiryFixture.session.RATE_CLASS_HISTORY),
+		"history admission failed after expiry"
+	)
+
+	addon.DB.SyncSession = nil
+	local capacityFixture = installRaidTransferSessionFixture(addon)
+	assertTrue(capacityFixture.session:AllowIncomingRequest("Capacity1", capacityFixture.session.RATE_CLASS_LIVE))
+	capacityFixture.now = 102
+	for i = 2, 128 do
+		assertTrue(
+			capacityFixture.session:AllowIncomingRequest("Capacity" .. i, capacityFixture.session.RATE_CLASS_LIVE)
+		)
+	end
+	capacityFixture.now = 105
+	assertTrue(capacityFixture.session:AllowIncomingRequest("Capacity1", capacityFixture.session.RATE_CLASS_LIVE))
+	local capacityAllowed, capacityReason, capacityDelay =
+		capacityFixture.session:AllowIncomingRequest("CapacityNew", capacityFixture.session.RATE_CLASS_LIVE)
+	assertEqual(false, capacityAllowed, "full rate class accepted a new peer")
+	assertEqual("RATE_CAPACITY", capacityReason, "full rate class reason differs")
+	assertEqual(27, capacityDelay, "capacity retry delay did not wait for a peer slot")
+	capacityFixture.now = capacityFixture.now + capacityDelay
+	assertTrue(
+		capacityFixture.session:AllowIncomingRequest("CapacityNew", capacityFixture.session.RATE_CLASS_LIVE),
+		"capacity admission did not succeed at the returned retry delay"
+	)
 	print("PASS raid_transfer_session_rate_limits")
 end
 
@@ -19450,7 +19812,7 @@ local function makeLiveRecord(sequence, digest)
 	}
 end
 
-local function installLiveReplicationRealStore(addon, client, seedActiveRaid)
+local function installLiveReplicationRealStore(addon, client, seedActiveRaid, seedServerTime)
 	resetSavedVariables()
 	_G.GetTime = function()
 		return 100
@@ -19474,14 +19836,14 @@ local function installLiveReplicationRealStore(addon, client, seedActiveRaid)
 	loadAddonFile(addon, "Raid Management Addon/Database/SavedVariables.lua")
 	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidValidator.lua")
 	loadAddonFile(addon, "Raid Management Addon/Database/DBRaidStore.lua")
-	local store = addon.Database.GetRaidStore()
-	assert(store:SetAuthorityGuard(function()
+	local rawStore = addon.Database.GetRaidStore()
+	assert(rawStore:SetAuthorityGuard(function()
 		return true
 	end))
 	if seedActiveRaid then
-		local _, index, raidUid = assert(store:CreateActiveRaid({
+		local _, index, raidUid = assert(rawStore:CreateActiveRaid({
 			authorityKey = client.name .. "-TestRealm",
-			serverTime = 100,
+			serverTime = seedServerTime or 100,
 			realm = "Test Realm",
 			zone = "Naxxramas",
 			size = 10,
@@ -19493,9 +19855,38 @@ local function installLiveReplicationRealStore(addon, client, seedActiveRaid)
 		}))
 		client.seedRaidIndex = index
 		client.seedRaidUid = raidUid
-		client.seedRecord = assert(store:BuildSnapshot(raidUid))
+		client.seedRecord = assert(rawStore:BuildSnapshot(raidUid))
 	end
-	return store
+	client.raidArchive = _G.RMA_Raids
+	local function withClientArchive(callback)
+		local previousArchive = _G.RMA_Raids
+		_G.RMA_Raids = client.raidArchive
+		local first, second, third, fourth, fifth, sixth
+		local succeeded, failureReason = pcall(function()
+			first, second, third, fourth, fifth, sixth = callback()
+		end)
+		client.raidArchive = _G.RMA_Raids
+		_G.RMA_Raids = previousArchive
+		if not succeeded then
+			error(failureReason, 0)
+		end
+		return first, second, third, fourth, fifth, sixth
+	end
+	return setmetatable({}, {
+		__index = function(_, key)
+			local method = rawStore[key]
+			if type(method) ~= "function" then
+				return method
+			end
+			return function(_, ...)
+				local argumentCount = select("#", ...)
+				local arguments = { ... }
+				return withClientArchive(function()
+					return method(rawStore, unpack(arguments, 1, argumentCount))
+				end)
+			end
+		end,
+	})
 end
 
 local installProductionReentryRuntime
@@ -19516,6 +19907,8 @@ local function installLiveReplicationClient(network, name, initialRecord, option
 		callbacks = {},
 		requests = {},
 		transfers = {},
+		sentEnvelopes = {},
+		sentWires = {},
 		cancelledRequests = {},
 		traces = {},
 		warnings = {},
@@ -19622,7 +20015,8 @@ local function installLiveReplicationClient(network, name, initialRecord, option
 		end
 	end
 	if options.realStore then
-		client.store = installLiveReplicationRealStore(addon, client, options.seedActiveRaid)
+		client.store =
+			installLiveReplicationRealStore(addon, client, options.seedActiveRaid, options.seedServerTime)
 	else
 		client.store = newLiveReplicationStore(client.callbacks, initialRecord)
 	end
@@ -19665,6 +20059,8 @@ local function installLiveReplicationClient(network, name, initialRecord, option
 			for i = 1, #messages do
 				local envelope = client.protocol.Decode(messages[i])
 				client.requests[#client.requests + 1] = envelope.kind
+				client.sentEnvelopes[#client.sentEnvelopes + 1] = deepCopy(envelope)
+				client.sentWires[#client.sentWires + 1] = messages[i]
 				network:deliver(name, prefix, messages[i], target and "WHISPER" or "RAID", target)
 			end
 			return true
@@ -19694,6 +20090,14 @@ local function installLiveReplicationClient(network, name, initialRecord, option
 				client.transfers[#client.transfers + 1] = kind
 				local recipient = network.clients[target]
 					or network.clients[string.upper(string.sub(target, 1, 1)) .. string.sub(target, 2)]
+				if not recipient then
+					for clientName, candidate in pairs(network.clients) do
+						if string.lower(clientName) == string.lower(target) then
+							recipient = candidate
+							break
+						end
+					end
+				end
 				return recipient and recipient.receiveTransfer(name, kind, requestId, metadata, body) or false
 			end
 			local envelopeBody = deepCopy(metadata)
@@ -19797,6 +20201,16 @@ local function installLiveReplicationClient(network, name, initialRecord, option
 		if timer then
 			timer.callback()
 			return true
+		end
+		return false
+	end
+	function client:FireTimerByDelay(expectedDelay)
+		for index, timer in pairs(self.timers or {}) do
+			if timer and timer.delay == expectedDelay and not timer.cancelled then
+				self.timers[index] = nil
+				timer.callback()
+				return true
+			end
 		end
 		return false
 	end
@@ -19924,12 +20338,27 @@ local function deliverFaithfulFinalSnapshot(fixture, requestEnvelope, finalSnaps
 		raidUid = finalSnapshot.raidUid,
 		authorityEpoch = finalSnapshot.authorityEpoch,
 		sequence = finalSnapshot.sequence,
-	}, { snapshot = finalSnapshot }))
+	}, { snapshot = finalSnapshot }, fixture.session.RATE_CLASS_LIVE))
 	local batch = fixture.batches[#fixture.batches]
 	for i = 1, #batch.messages do
 		local accepted, reason =
 			fixture.syncer:OnAddonMessage("RMARaidSync", batch.messages[i], "WHISPER", "Leader-Test Realm")
 		assertTrue(accepted ~= nil and accepted ~= false, "faithful final chunk rejected: " .. tostring(reason))
+	end
+end
+
+local function deliverFaithfulRange(fixture, requestEnvelope, events)
+	assert(fixture.session:QueueTransfer("RANGE_DATA", requestEnvelope.requestId, "Member", {
+		raidUid = requestEnvelope.body.raidUid,
+		authorityEpoch = requestEnvelope.body.authorityEpoch,
+		fromSequence = requestEnvelope.body.fromSequence,
+		toSequence = requestEnvelope.body.toSequence,
+	}, { events = events }, fixture.session.RATE_CLASS_LIVE))
+	local batch = fixture.batches[#fixture.batches]
+	for i = 1, #batch.messages do
+		local accepted, reason =
+			fixture.syncer:OnAddonMessage("RMARaidSync", batch.messages[i], "WHISPER", "Leader-Test Realm")
+		assertTrue(accepted ~= nil and accepted ~= false, "faithful range chunk rejected: " .. tostring(reason))
 	end
 end
 
@@ -20646,6 +21075,16 @@ function cases.raid_handover_without_local_head_discovers_before_create(addon)
 	print("PASS raid_handover_without_local_head_discovers_before_create")
 end
 
+local function countMessageKind(kinds, expected)
+	local count = 0
+	for i = 1, #kinds do
+		if kinds[i] == expected then
+			count = count + 1
+		end
+	end
+	return count
+end
+
 function cases.raid_live_sync_oversized_event_head_fallback()
 	local network = newLiveReplicationNetwork()
 	local leader = installLiveReplicationClient(network, "Leader", makeLiveRecord(0), { realProtocol = true })
@@ -20664,10 +21103,142 @@ function cases.raid_live_sync_oversized_event_head_fallback()
 	assertEqual(nil, direct, "representative oversized event unexpectedly fit direct wire")
 	assertEqual("MESSAGE_TOO_LARGE", directReason, "oversized protocol rejection reason differs")
 	assert(leader.store:Commit(event))
-	assertEqual(1, member.store.record.sequence, "HEAD fallback did not converge oversized event")
-	assertEqual("HEAD", leader.requests[1], "oversized event did not fall back to HEAD")
-	assertEqual("RANGE_REQ", member.requests[1], "HEAD fallback did not request missing range")
+	assertEqual(0, countMessageKind(leader.requests, "HEAD"), "oversized event sent an immediate HEAD")
+	assertEqual(
+		0,
+		countMessageKind(member.requests, "RANGE_REQ"),
+		"oversized event started range recovery before trailing HEAD"
+	)
+	assertTrue(leader:FireTimerByDelay(0.25), "oversized event did not schedule trailing HEAD")
+	assertEqual(1, member.store.record.sequence, "trailing HEAD did not converge oversized event")
+	assertEqual(1, countMessageKind(leader.requests, "HEAD"), "oversized event did not publish one trailing HEAD")
+	assertEqual(1, countMessageKind(member.requests, "RANGE_REQ"), "trailing HEAD did not request missing range")
 	print("PASS raid_live_sync_oversized_event_head_fallback")
+end
+
+local function commitRealCompactLiveLoot(leader, lootNid)
+	local record = assert(leader.store:GetActiveRecord())
+	local raidUid = assert(leader.store:GetRaidUid(record.state))
+	local loot = deepCopy(protocolBodies().LIVE_LOOT.event.payload.loot)
+	loot.lootNid = lootNid
+	loot.looterNid = 1
+	loot.source = nil
+	return assert(leader.store:CommitAuthoritativeEvent(raidUid, "LOOT_ADDED", {
+		loot = loot,
+	}))
+end
+
+local function installAlignedRealLiveReplicationClients(network, options)
+	options = options or {}
+	local leader = installLiveReplicationClient(network, "Leader", nil, {
+		realProtocol = true,
+		realStore = true,
+		seedActiveRaid = true,
+		seedServerTime = options.seedServerTime,
+	})
+	local snapshot = assert(leader.store:BuildSnapshot(leader.seedRaidUid))
+	local memberB = installLiveReplicationClient(network, "MemberB", nil, { realProtocol = true, realStore = true })
+	local memberC = installLiveReplicationClient(network, "MemberC", nil, { realProtocol = true, realStore = true })
+	assert(memberB.store:ReplaceActiveFromSnapshot(snapshot))
+	assert(memberC.store:ReplaceActiveFromSnapshot(snapshot))
+	leader.currentRaid, memberB.currentRaid, memberC.currentRaid = 1, 1, 1
+	return leader, memberB, memberC
+end
+
+local function realisticGroupLootPayload(lootNid, lootSource)
+	return {
+		loot = {
+			lootNid = lootNid,
+			itemId = 50732,
+			itemName = "Bloodsurge, Kel'Thuzad's Blade of Agony",
+			itemString = "item:50732:0:0:0:0:0:0:0",
+			itemLink = "|cffa335ee|Hitem:50732:0:0:0:0:0:0:0|h[Bloodsurge, Kel'Thuzad's Blade of Agony]|h|r",
+			itemRarity = 4,
+			itemTexture = "Interface\\Icons\\INV_Sword_150",
+			itemCount = 1,
+			looterNid = 1,
+			rollType = 8,
+			rollValue = 100,
+			rollSessionId = "GL:4294967295",
+			bossNid = lootSource and lootSource.bossNid or 0,
+			time = 1721120200,
+			source = "CHAT_MSG_LOOT",
+			lootSource = lootSource,
+		},
+	}
+end
+
+local function realisticLootSource(kind)
+	local source = {
+		kind = kind,
+		bossNid = kind == "boss" and 12 or 13,
+		sourceNpcId = kind == "boss" and 36597 or 0,
+		sourceName = kind == "boss" and "The Lich King" or "Shared",
+		sourceKey = kind == "boss" and "icecrown-citadel:the-lich-king" or nil,
+		openedAt = 1721120190,
+		snapshotId = 4294967295,
+	}
+	if kind == "shared" then
+		source.candidates = {
+			{ name = "Blood Prince Council", kind = "boss", sourceKey = "icecrown-citadel:blood-prince-council", npcId = 37970 },
+			{ name = "Queen Lana'thel", kind = "boss", sourceKey = "icecrown-citadel:blood-queen-lanathel", npcId = 37955 },
+		}
+	end
+	return source
+end
+
+function cases.raid_live_loot_broadcast_advances_multiple_replicas()
+	local network = newLiveReplicationNetwork()
+	local leader, memberB, memberC = installAlignedRealLiveReplicationClients(network)
+	for lootNid = 1, 4 do
+		commitRealCompactLiveLoot(leader, lootNid)
+	end
+	local leaderRecord = assert(leader.store:GetActiveRecord())
+	for _, member in pairs({ memberB, memberC }) do
+		local replica = assert(member.store:GetActiveRecord())
+		assertEqual(leaderRecord.sequence, replica.sequence, "compact loot replica sequence differs")
+		assertEqual(leaderRecord.digest, replica.digest, "compact loot replica digest differs")
+		assertEqual(4, #(replica.state.loot or {}), "compact loot replica count differs")
+		assertEqual(0, countMessageKind(member.requests, "RANGE_REQ"), "compact loot opened range recovery")
+		assertEqual(0, countMessageKind(member.requests, "SNAP_REQ"), "compact loot opened snapshot recovery")
+	end
+	assertEqual(4, countMessageKind(leader.requests, "LIVE_LOOT"), "compact loot broadcast count differs")
+	assertEqual(0, countMessageKind(leader.requests, "HEAD"), "compact loot sent an immediate HEAD")
+	assertTrue(leader:FireTimerByDelay(0.25), "compact loot did not schedule a trailing HEAD")
+	assertEqual(1, countMessageKind(leader.requests, "HEAD"), "compact loot trailing HEAD count differs")
+	assertEqual(
+		leaderRecord.sequence,
+		leader.sentEnvelopes[#leader.sentEnvelopes].body.sequence,
+		"trailing HEAD position differs"
+	)
+	print("PASS raid_live_loot_broadcast_advances_multiple_replicas")
+end
+
+function cases.raid_live_loot_lost_final_recovers_from_trailing_head()
+	local network = newLiveReplicationNetwork()
+	local leader, memberB, memberC = installAlignedRealLiveReplicationClients(network)
+	for lootNid = 1, 3 do
+		commitRealCompactLiveLoot(leader, lootNid)
+	end
+	network.clients.MemberB = nil
+	commitRealCompactLiveLoot(leader, 4)
+	network.clients.MemberB = memberB
+	local leaderRecord = assert(leader.store:GetActiveRecord())
+	assertEqual(
+		leaderRecord.sequence - 1,
+		assert(memberB.store:GetActiveRecord()).sequence,
+		"test setup did not lose final compact loot"
+	)
+	assertTrue(leader:FireTimerByDelay(0.25), "lost compact loot did not schedule a trailing HEAD")
+	assertEqual(1, countMessageKind(memberB.requests, "RANGE_REQ"), "lost compact loot did not request one range")
+	assertEqual(1, countMessageKind(leader.transfers, "RANGE_DATA"), "authority did not serve one recovery range")
+	local repaired = assert(memberB.store:GetActiveRecord())
+	assertEqual(leaderRecord.sequence, repaired.sequence, "lost compact loot did not converge from trailing HEAD")
+	assertEqual(leaderRecord.digest, repaired.digest, "lost compact loot digest did not converge from trailing HEAD")
+	assertEqual(4, #(repaired.state.loot or {}), "lost compact loot count did not converge from trailing HEAD")
+	assertEqual(0, countMessageKind(memberC.requests, "RANGE_REQ"), "aligned replica requested a range")
+	assertEqual(0, countMessageKind(memberC.requests, "SNAP_REQ"), "aligned replica requested a snapshot")
+	print("PASS raid_live_loot_lost_final_recovers_from_trailing_head")
 end
 
 function cases.raid_live_sync_range_recovery()
@@ -20770,7 +21341,8 @@ function cases.raid_live_sync_snapshot_coalesces_newer_snapshot_burst()
 		network:deliver(heldSnapshot.sender, heldSnapshot.prefix, heldSnapshot.wire, "WHISPER", heldSnapshot.target),
 		"held snapshot was not accepted"
 	)
-	assertEqual(1, countKind(member.requests, "RANGE_REQ"), "snapshot completion did not request one catch-up range")
+	assertEqual(0, countKind(member.requests, "RANGE_REQ"), "checkpointed follow-up bypassed snapshot recovery")
+	assertEqual(2, countKind(member.requests, "SNAP_REQ"), "snapshot completion did not request one catch-up snapshot")
 	assertEqual(
 		leader.store.record.sequence,
 		member.store.record.sequence,
@@ -21903,6 +22475,16 @@ function cases.raid_live_sync_real_session_future_conclusion(addon)
 	assertEqual(1, #fixture.queued, "future conclusion did not send exactly one immediate request")
 	local request = assert(fixture.protocol.Decode(fixture.queued[1].message))
 	assertEqual("SNAP_REQ", request.kind, "future conclusion attempted range before final snapshot")
+	assertEqual(
+		1,
+		#fixture.session._outgoingRates.live.leader,
+		"active snapshot request did not use the live rate class"
+	)
+	assertEqual(
+		nil,
+		fixture.session._outgoingRates.history.leader,
+		"active snapshot request consumed history rate budget"
+	)
 	assertEqual(1, #fixture.timers, "immediate final snapshot request did not use real session timer")
 	assertEqual(100, fixture.now, "future conclusion required timeout advancement before snapshot request")
 	print("PASS raid_live_sync_real_session_future_conclusion")
@@ -21928,6 +22510,8 @@ function cases.raid_live_sync_real_session_final_head(addon)
 	finalSnapshot.checkpointSequence = 3
 	finalSnapshot.events = {}
 	deliverFaithfulFinalSnapshot(fixture, request, finalSnapshot)
+	assertEqual(1, #fixture.session._outgoingRates.live.member, "active snapshot data did not use the live rate class")
+	assertEqual(nil, fixture.session._outgoingRates.history.member, "active snapshot data consumed history rate budget")
 	local status, statusReason = fixture.syncer:GetStatus()
 	assertEqual(
 		3,
@@ -21996,6 +22580,50 @@ function cases.raid_live_sync_real_session_range_coalescing(addon)
 	print("PASS raid_live_sync_real_session_range_coalescing")
 end
 
+function cases.raid_live_sync_range_coalesces_newer_head_burst(addon)
+	local fixture = installFaithfulLiveReplica(addon)
+	local firstHead = {
+		raidUid = "raid-live",
+		authorityEpoch = 1,
+		sequence = 3,
+		checkpointSequence = 0,
+		digest = "00000003:1",
+		status = "active",
+	}
+	local wire = assert(fixture.protocol.Encode("HEAD", "-", "-", firstHead))
+	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
+	local firstRequest = assert(fixture.protocol.Decode(fixture.queued[1].message))
+	assertEqual("RANGE_REQ", firstRequest.kind, "first recovery is not a range request")
+
+	for sequence = 4, 7 do
+		local head = {
+			raidUid = "raid-live",
+			authorityEpoch = 1,
+			sequence = sequence,
+			checkpointSequence = 0,
+			digest = "0000000" .. tostring(sequence) .. ":1",
+			status = "active",
+		}
+		wire = assert(fixture.protocol.Encode("HEAD", "-", "-", head))
+		fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
+	end
+	assertEqual(1, #fixture.queued, "newer HEAD burst opened replacement requests")
+	assertEqual(0, #fixture.cancelled, "newer HEAD burst cancelled the active range")
+	assertEqual(7, fixture.syncer._recovery.followUp.sequence, "newest HEAD was not retained")
+
+	deliverFaithfulRange(fixture, firstRequest, { makeLiveEvent(2), makeLiveEvent(3) })
+	assertEqual(2, #fixture.queued, "initial range did not open one catch-up range")
+	local catchUp = assert(fixture.protocol.Decode(fixture.queued[2].message))
+	assertEqual("RANGE_REQ", catchUp.kind, "catch-up recovery is not a range request")
+	assertEqual(4, catchUp.body.fromSequence, "catch-up range begins at the wrong sequence")
+	assertEqual(7, catchUp.body.toSequence, "catch-up range omits the newest HEAD")
+	deliverFaithfulRange(fixture, catchUp, { makeLiveEvent(4), makeLiveEvent(5), makeLiveEvent(6), makeLiveEvent(7) })
+	assertEqual(7, fixture.store.record.sequence, "catch-up range did not install the newest sequence")
+	assertEqual("00000007:1", fixture.store.record.digest, "catch-up range did not install the newest digest")
+	assertEqual("synchronized", fixture.syncer:GetStatus(), "catch-up range did not finish synchronized")
+	print("PASS raid_live_sync_range_coalesces_newer_head_burst")
+end
+
 function cases.raid_live_sync_real_session_monotonic_supersession(addon)
 	local fixture = installFaithfulLiveReplica(addon)
 	local rangeHead = {
@@ -22011,10 +22639,6 @@ function cases.raid_live_sync_real_session_monotonic_supersession(addon)
 	local first = assert(fixture.protocol.Decode(fixture.queued[1].message))
 	assertEqual("RANGE_REQ", first.kind, "initial pending recovery is not range")
 
-	local event = makeConclusionEvent(4)
-	event.eventUid = assert(addon.DB.RaidEvents.BuildEventUid(event.raidUid, event.authorityEpoch, event.sequence))
-	wire = assert(fixture.protocol.Encode("EVENT", "-", "-", { event = event }))
-	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
 	local finalHead = {
 		raidUid = "raid-live",
 		authorityEpoch = 1,
@@ -22025,8 +22649,11 @@ function cases.raid_live_sync_real_session_monotonic_supersession(addon)
 	}
 	wire = assert(fixture.protocol.Encode("HEAD", "-", "-", finalHead))
 	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
-	assertEqual(2, #fixture.queued, "newer conclusion did not replace range with one final request")
-	assertEqual(1, #fixture.cancelled, "superseded range timer was not cancelled")
+	assertEqual(1, #fixture.queued, "newer conclusion replaced the active range before it finished")
+	assertEqual(0, #fixture.cancelled, "newer conclusion cancelled the active range")
+	assertEqual(4, fixture.syncer._recovery.followUp.sequence, "newer conclusion was not retained")
+	deliverFaithfulRange(fixture, first, { makeLiveEvent(2), makeLiveEvent(3) })
+	assertEqual(2, #fixture.queued, "completed follow-up did not open one final request")
 	local finalRequest = assert(fixture.protocol.Decode(fixture.queued[2].message))
 	assertEqual("SNAP_REQ", finalRequest.kind, "newer conclusion replacement is not snapshot")
 	local snapshot = makeLiveRecord(4)
@@ -22040,6 +22667,239 @@ function cases.raid_live_sync_real_session_monotonic_supersession(addon)
 	fixture.session:Expire(fixture.now)
 	assertEqual(queued, #fixture.queued, "superseded range or completed snapshot retried")
 	print("PASS raid_live_sync_real_session_monotonic_supersession")
+end
+
+local function consumeLiveRecoveryBudget(fixture)
+	for i = 1, 4 do
+		assert(
+			fixture.session:BeginRequest(
+				"RANGE_REQ",
+				"Leader",
+				rangeMetadata(),
+				"RANGE_DATA",
+				rangeMetadata(),
+				function() end,
+				fixture.session.RATE_CLASS_LIVE
+			)
+		)
+	end
+end
+
+function cases.raid_live_sync_retries_latest_rate_limited_head(addon)
+	local fixture = installFaithfulLiveReplica(addon)
+	consumeLiveRecoveryBudget(fixture)
+	local initialQueued = #fixture.queued
+	local firstHead = {
+		raidUid = "raid-live",
+		authorityEpoch = 1,
+		sequence = 3,
+		checkpointSequence = 0,
+		digest = "00000003:1",
+		status = "active",
+	}
+	local wire = assert(fixture.protocol.Encode("HEAD", "-", "-", firstHead))
+	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
+	assertEqual(initialQueued, #fixture.queued, "rate-limited HEAD opened a request immediately")
+	local retry = assert(fixture.syncer._admissionRetry, "rate-limited HEAD did not retain a retry target")
+	assertEqual(30, retry.timer.delay, "rate retry delay differs from the session boundary")
+	local scheduledTimer = retry.timer
+
+	local newestHead = {
+		raidUid = "raid-live",
+		authorityEpoch = 1,
+		sequence = 4,
+		checkpointSequence = 0,
+		digest = "00000004:1",
+		status = "active",
+	}
+	wire = assert(fixture.protocol.Encode("HEAD", "-", "-", newestHead))
+	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
+	assertEqual(scheduledTimer, fixture.syncer._admissionRetry.timer, "newer HEAD allocated a second retry timer")
+	assertEqual(4, fixture.syncer._admissionRetry.head.sequence, "newer HEAD did not replace the retry target")
+	fixture.now = fixture.now + 30
+	scheduledTimer.callback()
+	assertEqual(initialQueued + 1, #fixture.queued, "retry did not request the retained newest HEAD")
+	local retriedRequest = assert(fixture.protocol.Decode(fixture.queued[#fixture.queued].message))
+	assertEqual(4, retriedRequest.body.toSequence, "retry requested a stale HEAD position")
+
+	local secondFixture = installFaithfulLiveReplica(newAddon())
+	consumeLiveRecoveryBudget(secondFixture)
+	wire = assert(secondFixture.protocol.Encode("HEAD", "-", "-", firstHead))
+	secondFixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
+	local secondRetry = assert(secondFixture.syncer._admissionRetry, "second rate-limited HEAD did not schedule retry")
+	secondRetry.timer.callback()
+	assertEqual(nil, secondFixture.syncer._admissionRetry, "second admission failure retained another retry")
+	assertEqual("failed", secondFixture.syncer:GetStatus(), "second admission failure was not terminal")
+	print("PASS raid_live_sync_retries_latest_rate_limited_head")
+end
+
+function cases.raid_live_sync_retained_retry_ignores_delayed_head(addon)
+	local fixture = installFaithfulLiveReplica(addon)
+	consumeLiveRecoveryBudget(fixture)
+	local retainedHead = {
+		raidUid = "raid-live",
+		authorityEpoch = 1,
+		sequence = 4,
+		checkpointSequence = 0,
+		digest = "00000004:1",
+		status = "active",
+	}
+	local wire = assert(fixture.protocol.Encode("HEAD", "-", "-", retainedHead))
+	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
+	assert(fixture.syncer._admissionRetry, "newest target was not retained")
+	fixture.now = fixture.now + 30
+	local delayedHead = {
+		raidUid = "raid-live",
+		authorityEpoch = 1,
+		sequence = 3,
+		checkpointSequence = 0,
+		digest = "00000003:1",
+		status = "active",
+	}
+	wire = assert(fixture.protocol.Encode("HEAD", "-", "-", delayedHead))
+	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
+	local request = assert(fixture.protocol.Decode(fixture.queued[#fixture.queued].message))
+	assertEqual("RANGE_REQ", request.kind, "delayed HEAD did not start recovery")
+	assertEqual(4, request.body.toSequence, "delayed HEAD discarded the retained newest target")
+	assertEqual(nil, fixture.syncer._admissionRetry, "admitted retained target kept a retry timer")
+	print("PASS raid_live_sync_retained_retry_ignores_delayed_head")
+end
+
+function cases.raid_live_sync_retained_retry_rejects_delayed_digest_conflict(addon)
+	local fixture = installFaithfulLiveReplica(addon)
+	fixture.store.record = makeLiveRecord(3)
+	consumeLiveRecoveryBudget(fixture)
+	local retainedHead = {
+		raidUid = "raid-live",
+		authorityEpoch = 1,
+		sequence = 4,
+		checkpointSequence = 0,
+		digest = "00000004:1",
+		status = "active",
+	}
+	local wire = assert(fixture.protocol.Encode("HEAD", "-", "-", retainedHead))
+	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
+	local retry = assert(fixture.syncer._admissionRetry, "newest target was not retained")
+	local retryTimer = retry.timer
+	local queued = #fixture.queued
+	local conflictingHead = {
+		raidUid = "raid-live",
+		authorityEpoch = 1,
+		sequence = 3,
+		checkpointSequence = 0,
+		digest = "ffffffff:3",
+		status = "active",
+	}
+	wire = assert(fixture.protocol.Encode("HEAD", "-", "-", conflictingHead))
+	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
+	local status, reason = fixture.syncer:GetStatus()
+	assertEqual("suspended", status, "delayed digest conflict did not suspend recovery")
+	assertEqual("DIGEST_CONFLICT", reason, "delayed digest conflict reason differs")
+	assertEqual(nil, fixture.syncer._admissionRetry, "delayed digest conflict retained retry state")
+	assertEqual(true, retryTimer.cancelled, "delayed digest conflict did not cancel retry timer")
+	assertEqual(queued, #fixture.queued, "delayed digest conflict opened a recovery request")
+	print("PASS raid_live_sync_retained_retry_rejects_delayed_digest_conflict")
+end
+
+local function makeFaithfulReplicaEvent(fixture)
+	local store = fixture.store
+	local original = assert(store:CaptureRaidHistoryState())
+	local active = assert(store:GetActiveRecord())
+	local raidUid = assert(store:GetRaidUid(active.state))
+	assert(store:SetAuthorityGuard(function()
+		return true
+	end))
+	local event = assert(store:CommitAuthoritativeEvent(raidUid, "RAID_METADATA_UPDATED", {
+		metadata = { zone = "Ulduar" },
+	}))
+	assert(store:RestoreRaidHistoryState(original))
+	assert(store:SetAuthorityGuard(function()
+		return fixture.localRaidLeader
+	end))
+	return event
+end
+
+function cases.raid_live_sync_real_store_event_clears_admission_retry(addon)
+	local fixture = installFaithfulLiveReplica(addon, { realStore = true })
+	local event = makeFaithfulReplicaEvent(fixture)
+	consumeLiveRecoveryBudget(fixture)
+	local head = {
+		raidUid = event.raidUid,
+		authorityEpoch = event.authorityEpoch,
+		sequence = event.sequence,
+		checkpointSequence = 0,
+		digest = event.resultDigest,
+		status = "active",
+	}
+	local wire = assert(fixture.protocol.Encode("HEAD", "-", "-", head))
+	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
+	local retry = assert(fixture.syncer._admissionRetry, "real-store retry was not scheduled")
+	local retryTimer = retry.timer
+	wire = assert(fixture.protocol.Encode("EVENT", "-", "-", { event = event }))
+	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
+	assertEqual(nil, fixture.syncer._admissionRetry, "real-store event did not clear its retry target")
+	assertEqual(true, retryTimer.cancelled, "real-store event did not cancel the retry timer")
+	local queued = #fixture.queued
+	retryTimer.callback()
+	assertEqual(queued, #fixture.queued, "cancelled retry callback opened a stale request")
+	print("PASS raid_live_sync_real_store_event_clears_admission_retry")
+end
+
+function cases.raid_live_sync_digest_mismatch_clears_admission_retry(addon)
+	local fixture = installFaithfulLiveReplica(addon, { realStore = true })
+	local record = assert(fixture.store:GetActiveRecord())
+	local raidUid = assert(fixture.store:GetRaidUid(record.state))
+	consumeLiveRecoveryBudget(fixture)
+	local head = {
+		raidUid = raidUid,
+		authorityEpoch = record.authorityEpoch,
+		sequence = 2,
+		checkpointSequence = 0,
+		digest = "ffffffff:2",
+		status = "active",
+	}
+	local wire = assert(fixture.protocol.Encode("HEAD", "-", "-", head))
+	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
+	local retry = assert(fixture.syncer._admissionRetry, "digest-mismatch retry was not scheduled")
+	local retryTimer = retry.timer
+	local event = {
+		raidUid = raidUid,
+		authorityEpoch = record.authorityEpoch,
+		sequence = 2,
+		eventUid = assert(addon.DB.RaidEvents.BuildEventUid(raidUid, record.authorityEpoch, 2)),
+		eventType = "RAID_METADATA_UPDATED",
+		payload = { metadata = { zone = "Ulduar" } },
+		resultDigest = "ffffffff:2",
+	}
+	wire = assert(fixture.protocol.Encode("EVENT", "-", "-", { event = event }))
+	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
+	assertEqual("suspended", fixture.syncer:GetStatus(), "digest mismatch did not suspend recovery")
+	assertEqual(nil, fixture.syncer._admissionRetry, "digest mismatch retained the retry target")
+	assertEqual(true, retryTimer.cancelled, "digest mismatch did not cancel the retry timer")
+	print("PASS raid_live_sync_digest_mismatch_clears_admission_retry")
+end
+
+function cases.raid_live_sync_admission_retry_timer_unavailable_is_terminal(addon)
+	local fixture = installFaithfulLiveReplica(addon)
+	consumeLiveRecoveryBudget(fixture)
+	fixture.syncer.ScheduleTimer = function()
+		return nil
+	end
+	local head = {
+		raidUid = "raid-live",
+		authorityEpoch = 1,
+		sequence = 3,
+		checkpointSequence = 0,
+		digest = "00000003:1",
+		status = "active",
+	}
+	local wire = assert(fixture.protocol.Encode("HEAD", "-", "-", head))
+	fixture.syncer:OnAddonMessage("RMARaidSync", wire, "RAID", "Leader-Test Realm")
+	local status, reason = fixture.syncer:GetStatus()
+	assertEqual("failed", status, "unavailable retry timer did not fail recovery")
+	assertEqual("TIMER_UNAVAILABLE", reason, "unavailable retry timer reported the admission reason")
+	assertEqual(nil, fixture.syncer._admissionRetry, "unavailable retry timer retained state")
+	print("PASS raid_live_sync_admission_retry_timer_unavailable_is_terminal")
 end
 
 function cases.raid_live_sync_real_session_direct_event_cancellation(addon)
@@ -22628,6 +23488,178 @@ function cases.raid_handover_replays_group_loot_after_snapshot(addon)
 	assertEqual(true, loot:ReplayAuthorityRecoveryFacts(fixture.raidUid), "empty Group Loot replay failed")
 	assertEqual(9, fixture.sequence, "repeat Group Loot replay duplicated canonical state")
 	print("PASS raid_handover_replays_group_loot_after_snapshot")
+end
+
+function cases.raid_live_group_loot_service_rows_broadcast_compactly(addon)
+	local fixture = installAuthorityRecoveryLootFixture(addon)
+	fixture:SetRecovering(false)
+	fixture.loot._PassiveGroupLoot.GetPassiveLootRollEntryByRollId = function(rollId)
+		return {
+			sessionId = "GL:live:" .. tostring(rollId),
+			winner = { playerName = "Stale" },
+		}
+	end
+	local rollTypes = { 8, 9 }
+	local rollValues = { 71, 72 }
+	for index = 1, 4 do
+		local message = "Stale receives loot: [Group Loot " .. tostring(index) .. "]"
+		local itemLink = "|cffff8000|Hitem:19019|h[Thunderfury]|h|r"
+		local handled, reason = fixture.loot:AddLoot(message, nil, nil, {
+			msg = message,
+			kind = "winner",
+			itemLink = itemLink,
+			itemCount = 1,
+			playerName = "Stale",
+			rollType = rollTypes[index],
+			rollValue = rollValues[index],
+			sessionId = "GL:live:" .. tostring(index),
+			rollId = 100 + index,
+		})
+		assertTrue(handled, "Group Loot service receipt was rejected: " .. tostring(reason))
+	end
+	assertEqual(4, #fixture.raid.loot, "Group Loot service did not commit four rows")
+	for index = 1, #fixture.raid.loot do
+		assertEqual(nil, fixture.raid.loot[index].looter, "Group Loot row retained a display-only looter name")
+	end
+	assertEqual(8, fixture.raid.loot[1].rollType, "Need roll type changed")
+	assertEqual(9, fixture.raid.loot[2].rollType, "Greed roll type changed")
+	assertEqual(nil, fixture.raid.loot[3].rollType, "missing Group Loot roll type was invented")
+	assertEqual(nil, fixture.raid.loot[4].rollType, "missing Group Loot roll type was invented")
+	assertEqual(0, fixture.raid.loot[3].rollValue, "missing Group Loot roll value was not normalized")
+	assertEqual(0, fixture.raid.loot[4].rollValue, "missing Group Loot roll value was not normalized")
+
+	local network = newLiveReplicationNetwork()
+	local leader, memberB = installAlignedRealLiveReplicationClients(network)
+	local leaderRecord = assert(leader.store:GetActiveRecord())
+	local raidUid = assert(leader.store:GetRaidUid(leaderRecord.state))
+	for index = 1, #fixture.raid.loot do
+		assert(leader.store:CommitAuthoritativeEvent(raidUid, "LOOT_ADDED", {
+			loot = deepCopy(fixture.raid.loot[index]),
+		}))
+	end
+
+	leaderRecord = assert(leader.store:GetActiveRecord())
+	local replica = assert(memberB.store:GetActiveRecord())
+	assertEqual(4, #(leaderRecord.state.loot or {}), "leader Group Loot count differs")
+	assertEqual(4, #(replica.state.loot or {}), "replica Group Loot count differs before trailing HEAD")
+	assertEqual(leaderRecord.sequence, replica.sequence, "Group Loot replica sequence differs")
+	assertEqual(leaderRecord.digest, replica.digest, "Group Loot replica digest differs")
+	assertEqual(4, countMessageKind(leader.requests, "LIVE_LOOT"), "Group Loot compact broadcast count differs")
+	assertEqual(0, countMessageKind(memberB.requests, "RANGE_REQ"), "Group Loot opened range recovery")
+	assertEqual(0, countMessageKind(memberB.requests, "SNAP_REQ"), "Group Loot opened snapshot recovery")
+	print("PASS raid_live_group_loot_service_rows_broadcast_compactly")
+end
+
+function cases.raid_live_group_loot_realistic_sources_do_not_stall()
+	local network = newLiveReplicationNetwork()
+	local leader, memberB = installAlignedRealLiveReplicationClients(network, { seedServerTime = 1721120000 })
+	local raidUid = assert(leader.store:GetRaidUid(assert(leader.store:GetActiveRecord()).state))
+	commitRealCompactLiveLoot(leader, 1)
+	commitRealCompactLiveLoot(leader, 2)
+	local sources = { realisticLootSource("boss"), realisticLootSource("shared") }
+	for index = 1, #sources do
+		assert(leader.store:CommitAuthoritativeEvent(
+			raidUid,
+			"LOOT_ADDED",
+			realisticGroupLootPayload(index + 2, sources[index])
+		))
+	end
+	local leaderCount = #(assert(leader.store:GetActiveRecord()).state.loot or {})
+	local replicaCount = #(assert(memberB.store:GetActiveRecord()).state.loot or {})
+	local partCount, maximumWireBytes = 0, 0
+	for index = 1, #leader.sentWires do
+		local wire = leader.sentWires[index]
+		local envelope = assert(leader.protocol.Decode(wire))
+		if envelope.kind == "LIVE_LOOT_PART" then
+			partCount = partCount + 1
+			maximumWireBytes = math.max(maximumWireBytes, #wire)
+		end
+	end
+	print(string.format(
+		"STALL before_trailing_head leader=%d replica=%d live_loot=%d parts=%d max_wire=%d head=%d",
+		leaderCount,
+		replicaCount,
+		countMessageKind(leader.requests, "LIVE_LOOT"),
+		partCount,
+		maximumWireBytes,
+		countMessageKind(leader.requests, "HEAD")
+	))
+	assertEqual(4, leaderCount, "realistic Group Loot authority count differs")
+	assertEqual(4, replicaCount, "realistic Group Loot replica stalled before trailing recovery")
+	assertTrue(partCount >= 2, "oversized Group Loot did not use live fragments")
+	assertTrue(maximumWireBytes <= 243, "live loot fragment exceeded addon wire bound")
+	print("PASS raid_live_group_loot_realistic_sources_do_not_stall")
+end
+
+function cases.raid_live_loot_parts_are_bounded_and_order_independent()
+	local network = newLiveReplicationNetwork()
+	local leader, member = installAlignedRealLiveReplicationClients(network, { seedServerTime = 1721120000 })
+	local raidUid = assert(leader.store:GetRaidUid(assert(leader.store:GetActiveRecord()).state))
+	local memberClient = network.clients.MemberB
+	network.clients.MemberB = nil
+	local firstWire = #leader.sentWires + 1
+	assert(leader.store:CommitAuthoritativeEvent(
+		raidUid,
+		"LOOT_ADDED",
+		realisticGroupLootPayload(1, realisticLootSource("shared"))
+	))
+	local parts = {}
+	for index = firstWire, #leader.sentWires do
+		local wire = leader.sentWires[index]
+		local envelope = assert(leader.protocol.Decode(wire))
+		if envelope.kind == "LIVE_LOOT_PART" then
+			parts[#parts + 1] = wire
+		end
+	end
+	assertTrue(#parts > 1, "representative oversized loot did not fragment")
+	network.clients.MemberB = memberClient
+	local duplicateAccepted = member.syncer:OnAddonMessage(
+		"RMARaidSync",
+		parts[#parts],
+		"RAID",
+		"Leader-Test Realm"
+	)
+	assertTrue(duplicateAccepted, "first out-of-order fragment was rejected")
+	assertTrue(member.syncer:OnAddonMessage(
+		"RMARaidSync",
+		parts[#parts],
+		"RAID",
+		"Leader-Test Realm"
+	), "identical duplicate fragment was rejected")
+	for index = #parts - 1, 1, -1 do
+		assertTrue(member.syncer:OnAddonMessage(
+			"RMARaidSync",
+			parts[index],
+			"RAID",
+			"Leader-Test Realm"
+		), "out-of-order fragment was rejected")
+	end
+	assertEqual(1, #(assert(member.store:GetActiveRecord()).state.loot or {}), "reordered fragments did not apply once")
+	assertEqual(nil, leader.protocol.Encode("LIVE_LOOT_PART", "-", "-", {
+		raidUid = raidUid,
+		authorityEpoch = 1,
+		sequence = 2,
+		partIndex = 0,
+		partCount = 2,
+		chunk = "x",
+	}), "zero fragment index was accepted")
+	assertEqual(nil, leader.protocol.Encode("LIVE_LOOT_PART", "-", "-", {
+		raidUid = raidUid,
+		authorityEpoch = 1,
+		sequence = 2,
+		partIndex = 1,
+		partCount = 33,
+		chunk = "x",
+	}), "excessive fragment count was accepted")
+	assertEqual(nil, leader.protocol.Encode("LIVE_LOOT_PART", "-", "-", {
+		raidUid = raidUid,
+		authorityEpoch = 1,
+		sequence = 2,
+		partIndex = 1,
+		partCount = 1,
+		chunk = string.rep("x", 221),
+	}), "oversized fragment chunk was accepted")
+	print("PASS raid_live_loot_parts_are_bounded_and_order_independent")
 end
 
 function cases.raid_handover_loot_chat_gate_is_side_effect_free(addon)
@@ -23574,8 +24606,9 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 		distribution.PublishItemDone("item:19100", "Winner"),
 		"master looter could not finalize bounded-retry award"
 	)
-	assertTrue(leader:FireHandoverTimer(), "bounded authority retry one was not scheduled")
-	assertTrue(leader:FireHandoverTimer(), "bounded authority retry two was not scheduled")
+	assertTrue(leader:FireTimerByDelay(1), "bounded authority retry one was not scheduled")
+	assertTrue(leader:FireTimerByDelay(1), "bounded authority retry two was not scheduled")
+	assertTrue(leader:FireTimerByDelay(0.25), "bounded authority retry did not retain the trailing HEAD")
 	assertEqual(0, #(leader.timers or {}), "exhausted authority retry continued scheduling")
 	assertEqual(beforeExhaustedRetry, leader.store.record.sequence, "exhausted authority retry mutated canonical state")
 	leader.acceptDistributionAwards = true
@@ -24499,7 +25532,7 @@ local function installHistoricalConsentFixture(addon)
 			raidUid = snapshot.raidUid,
 			authorityEpoch = snapshot.authorityEpoch,
 			sequence = snapshot.sequence,
-		}, { snapshot = snapshot })
+		}, { snapshot = snapshot }, self.session.RATE_CLASS_HISTORY)
 		assertTrue(queued, "historical snapshot transfer failed: " .. tostring(queueReason))
 		local messages = self.batches[#self.batches].messages
 		local maximum = parts or #messages
@@ -24729,6 +25762,16 @@ function cases.raid_history_two_peer_retry_and_result_matrix()
 	assertEqual(1, #member.offers, "member did not receive the real offer")
 	local accepted, requestId = member.syncer:AcceptHistoricalOffer("Leader-TestRealm", offerId)
 	assertTrue(accepted, "member did not accept the real offer")
+	assertEqual(
+		1,
+		#member.session._outgoingRates.history.leader,
+		"accepted historical SNAP_REQ did not use history rate class"
+	)
+	assertEqual(
+		nil,
+		member.session._outgoingRates.live.leader,
+		"accepted historical SNAP_REQ consumed live rate budget"
+	)
 	assertEqual(0, #member.archive.order, "dropped first request imported history")
 	assertEqual("transferring_history", member.syncer:GetStatus(), "accepted transfer status differs")
 	local feedbackBefore = #leader.feedback
@@ -24745,6 +25788,16 @@ function cases.raid_history_two_peer_retry_and_result_matrix()
 	network.now = 130.25
 	assertEqual(1, member.session:Expire(network.now), "first request timeout did not retry")
 	assertEqual(2, network.snapRequests, "retry did not traverse the real sender")
+	assertEqual(
+		1,
+		#leader.session._outgoingRates.history.member,
+		"accepted historical SNAP_DATA did not use history rate class"
+	)
+	assertEqual(
+		nil,
+		leader.session._outgoingRates.live.member,
+		"accepted historical SNAP_DATA consumed live rate budget"
+	)
 	local messageKinds = {}
 	for i = 1, #network.messages do
 		messageKinds[#messageKinds + 1] = network.messages[i].envelope.kind

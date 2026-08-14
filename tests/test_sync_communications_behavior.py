@@ -21,6 +21,12 @@ class SyncCommunicationsBehaviorTests(unittest.TestCase):
     def test_oversized_real_protocol_event_falls_back_to_head_and_converges(self) -> None:
         self.assert_case("raid_live_sync_oversized_event_head_fallback")
 
+    def test_compact_live_loot_broadcast_advances_every_aligned_replica(self) -> None:
+        self.assert_case("raid_live_loot_broadcast_advances_multiple_replicas")
+
+    def test_lost_final_live_loot_recovers_from_consolidated_head(self) -> None:
+        self.assert_case("raid_live_loot_lost_final_recovers_from_trailing_head")
+
     def test_missing_event_recovers_one_contiguous_range(self) -> None:
         self.assert_case("raid_live_sync_range_recovery")
 
@@ -60,8 +66,29 @@ class SyncCommunicationsBehaviorTests(unittest.TestCase):
     def test_real_session_coalesces_identical_range_recovery(self) -> None:
         self.assert_case("raid_live_sync_real_session_range_coalescing")
 
+    def test_range_recovery_coalesces_newer_head_burst(self) -> None:
+        self.assert_case("raid_live_sync_range_coalesces_newer_head_burst")
+
     def test_real_session_newer_conclusion_supersedes_pending_range(self) -> None:
         self.assert_case("raid_live_sync_real_session_monotonic_supersession")
+
+    def test_rate_limited_live_recovery_retries_latest_head_once(self) -> None:
+        self.assert_case("raid_live_sync_retries_latest_rate_limited_head")
+
+    def test_retained_live_retry_ignores_a_delayed_older_head(self) -> None:
+        self.assert_case("raid_live_sync_retained_retry_ignores_delayed_head")
+
+    def test_retained_live_retry_rejects_a_delayed_digest_conflict(self) -> None:
+        self.assert_case("raid_live_sync_retained_retry_rejects_delayed_digest_conflict")
+
+    def test_real_store_event_clears_its_admission_retry(self) -> None:
+        self.assert_case("raid_live_sync_real_store_event_clears_admission_retry")
+
+    def test_digest_mismatch_clears_live_admission_retry(self) -> None:
+        self.assert_case("raid_live_sync_digest_mismatch_clears_admission_retry")
+
+    def test_unavailable_admission_retry_timer_is_terminal(self) -> None:
+        self.assert_case("raid_live_sync_admission_retry_timer_unavailable_is_terminal")
 
     def test_real_session_direct_event_cancels_obsolete_recovery(self) -> None:
         self.assert_case("raid_live_sync_real_session_direct_event_cancellation")
@@ -109,6 +136,7 @@ class SyncCommunicationsBehaviorTests(unittest.TestCase):
         self.assert_case("raid_transfer_session_rechunks_snapshot_at_safe_wire_limit")
 
     def test_transfer_session_rate_limits_have_exact_boundaries(self) -> None:
+        # Covers independently bounded live and historical transfer budgets.
         self.assert_case("raid_transfer_session_rate_limits")
 
     def test_comms_batch_preflight_prevents_partial_enqueue(self) -> None:

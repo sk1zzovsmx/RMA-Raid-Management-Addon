@@ -1,7 +1,7 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: addon.DB.RaidStore, addon.DB.SyncProtocol, addon.DB.SyncSession, addon.Comms, addon.Services.Raid, addon.Timer
 -- shared: addon.DB.Syncer
--- exports: event-driven version-3 active-raid replication and recovery
+-- exports: event-driven version-4 active-raid replication and recovery
 -- events: handles RMARaidSync; listens raid commits, load, raid creation, roster, and zone changes
 
 local addon = select(2, ...)
@@ -34,6 +34,7 @@ local module = DB.Syncer
 local COMM_PREFIX = "RMARaidSync"
 local MAX_WIRE_BYTES = 255
 local MAX_RANGE_EVENTS = 512
+local LIVE_HEAD_DELAY_SECONDS = 0.25
 local RECENT_CONCLUSION_TTL_SECONDS = 45
 local DISCOVERY_RETRY_SECONDS = 3
 local MAX_REENTRY_TRANSITION_EVENTS = 2
@@ -50,6 +51,11 @@ local HISTORY_ACCEPTED_TTL_SECONDS = 65
 local HISTORY_TRANSFER_TTL_SECONDS = 65
 local MAX_HISTORY_OFFERS = 32
 local MAX_HISTORY_RESULTS = 32
+local LIVE_LOOT_PART_TTL_SECONDS = 5
+local MAX_LIVE_LOOT_ASSEMBLIES = 16
+local MAX_LIVE_LOOT_PARTS = 32
+local MAX_LIVE_LOOT_PAYLOAD_BYTES = 8192
+local MAX_LIVE_LOOT_CHUNK_BYTES = 180
 
 if Options and Options.RegisterNamespace then
 	Options.RegisterNamespace("Logger", {
@@ -94,6 +100,9 @@ module._outgoingOffers = {}
 module._historyResults = {}
 module._historyTransfer = nil
 module._nextOfferId = tonumber(module._nextOfferId) or 0
+module._pendingHeadAdvertisement = nil
+module._admissionRetry = nil
+module._liveLootAssemblies = {}
 
 Timer.BindMixin(module, "Database/DBSyncer")
 
@@ -288,6 +297,19 @@ local function headFromRecord(record, raidUid)
 	return head
 end
 
+local function pruneLiveLootAssemblies(now)
+	local oldestKey, oldestTime
+	for key, assembly in pairs(module._liveLootAssemblies) do
+		if type(assembly) ~= "table" or tonumber(assembly.expiresAt) == nil or assembly.expiresAt <= now then
+			module._liveLootAssemblies[key] = nil
+		elseif not oldestTime or assembly.createdAt < oldestTime then
+			oldestKey = key
+			oldestTime = assembly.createdAt
+		end
+	end
+	return oldestKey
+end
+
 local function samePositionAndDigest(localHead, remoteHead)
 	return localHead
 		and remoteHead
@@ -330,6 +352,56 @@ local function sendDirectFireAndForget(kind, target, body)
 		return false, reason
 	end
 	return Comms.QueueAddonMessage(COMM_PREFIX, message, "WHISPER", target)
+end
+
+local function cancelPendingHead()
+	local pending = module._pendingHeadAdvertisement
+	if pending and pending.timer then
+		module:CancelTimer(pending.timer)
+	end
+	module._pendingHeadAdvertisement = nil
+end
+
+local function scheduleConsolidatedHead(record, raidUid)
+	local head = headFromRecord(record, raidUid)
+	if not head or head.status ~= "active" then
+		return false, "NO_ACTIVE_RAID"
+	end
+	cancelPendingHead()
+	local pending = { head = head }
+	module._pendingHeadAdvertisement = pending
+	local scheduled, timerOrReason = pcall(module.ScheduleTimer, module, function()
+		if module._pendingHeadAdvertisement ~= pending then
+			return
+		end
+		module._pendingHeadAdvertisement = nil
+		local currentRecord, currentRaidUid = currentRecordAndUid()
+		local currentHead = headFromRecord(currentRecord, currentRaidUid)
+		if not Raid:IsRaidLeader() or normalizeName(Raid:GetRaidLeaderName()) ~= localPlayer
+			or not currentHead or currentHead.status ~= "active"
+			or currentHead.raidUid ~= pending.head.raidUid
+			or currentHead.authorityEpoch ~= pending.head.authorityEpoch
+			or currentHead.sequence ~= pending.head.sequence
+		then
+			return
+		end
+		sendGroup("HEAD", currentHead)
+	end, LIVE_HEAD_DELAY_SECONDS)
+	if scheduled and timerOrReason then
+		pending.timer = timerOrReason
+		return true
+	end
+	if module._pendingHeadAdvertisement == pending then
+		module._pendingHeadAdvertisement = nil
+	end
+	local currentRecord, currentRaidUid = currentRecordAndUid()
+	local currentHead = headFromRecord(currentRecord, currentRaidUid)
+	if Raid:IsRaidLeader() and normalizeName(Raid:GetRaidLeaderName()) == localPlayer
+		and currentHead and currentHead.status == "active"
+	then
+		return sendGroup("HEAD", currentHead)
+	end
+	return false, timerOrReason or "HEAD_SCHEDULE_FAILED"
 end
 
 local function cancelDiscovery()
@@ -431,6 +503,45 @@ local function releaseRecovery(recovery, reason, cancelPending)
 	return true
 end
 
+local function clearAdmissionRetry(reason)
+	local retry = module._admissionRetry
+	if not retry then
+		return false
+	end
+	module._admissionRetry = nil
+	if retry.timer then
+		module:CancelTimer(retry.timer)
+		retry.timer = nil
+	end
+	return true
+end
+
+local function sameAdmissionRetryTarget(retry, sender, head)
+	return retry
+		and retry.sender == sender
+		and retry.head
+		and head
+		and retry.head.raidUid == head.raidUid
+		and retry.head.authorityEpoch == head.authorityEpoch
+		and retry.head.sequence == head.sequence
+		and retry.head.digest == head.digest
+end
+
+local function preferAdmissionRetryHead(sender, remoteHead)
+	local retry = module._admissionRetry
+	if
+		retry
+		and retry.sender == sender
+		and retry.head
+		and retry.head.raidUid == remoteHead.raidUid
+		and retry.head.authorityEpoch == remoteHead.authorityEpoch
+		and retry.head.sequence > remoteHead.sequence
+	then
+		return retry.head
+	end
+	return remoteHead
+end
+
 local function samePositionWithDifferentDigest(expected, actual)
 	return expected
 		and expected.sequence == actual.sequence
@@ -450,6 +561,20 @@ local function rejectInflightDigestConflict(sender, remotePosition)
 		)
 	then
 		releaseRecovery(recovery, "DIGEST_CONFLICT", true)
+		clearAdmissionRetry("DIGEST_CONFLICT")
+		setStatus(STATUS_SUSPENDED, "DIGEST_CONFLICT")
+		return true
+	end
+	local retry = module._admissionRetry
+	if
+		retry
+		and retry.sender == sender
+		and retry.head
+		and retry.head.raidUid == remotePosition.raidUid
+		and retry.head.authorityEpoch == remotePosition.authorityEpoch
+		and samePositionWithDifferentDigest(retry.head, remotePosition)
+	then
+		clearAdmissionRetry("DIGEST_CONFLICT")
 		setStatus(STATUS_SUSPENDED, "DIGEST_CONFLICT")
 		return true
 	end
@@ -461,6 +586,7 @@ local broadcastCommittedEvent
 local suspendReentry
 local publishReentryReady
 local cancelReentry
+local compareHead
 
 local function finishRecovery(recovery, succeeded, reason)
 	if not releaseRecovery(recovery, reason, false) then
@@ -476,6 +602,7 @@ local function finishRecovery(recovery, succeeded, reason)
 		return publishReentryReady(recovery.reentry, recovery.raidUid)
 	end
 	if succeeded then
+		clearAdmissionRetry("RECOVERY_SUCCEEDED")
 		setStatus(STATUS_SYNCHRONIZED, "UP_TO_DATE")
 		return true
 	end
@@ -498,10 +625,10 @@ local function sameRecovery(left, right)
 		and left.digest == right.digest
 end
 
-local function coalesceReplicaSnapshot(pending, recovery)
+local function coalesceReplicaRecovery(pending, recovery)
 	if
-		pending.kind ~= "SNAP_REQ"
-		or (recovery.kind ~= "SNAP_REQ" and recovery.kind ~= "RANGE_REQ")
+		(pending.kind ~= "RANGE_REQ" and pending.kind ~= "SNAP_REQ")
+		or (recovery.kind ~= "RANGE_REQ" and recovery.kind ~= "SNAP_REQ")
 		or pending.handover
 		or pending.reentry
 		or recovery.handover
@@ -519,24 +646,73 @@ local function coalesceReplicaSnapshot(pending, recovery)
 	return true
 end
 
+local function admissionRetryDelay(reason, retryDelay)
+	if reason == "RATE_LIMIT" or reason == "RATE_CAPACITY" then
+		if type(retryDelay) == "number" and retryDelay >= 0 then
+			return retryDelay
+		end
+		return nil
+	end
+	if reason == "backpressure" or reason == "scheduler_unavailable" then
+		return LIVE_HEAD_DELAY_SECONDS
+	end
+	return nil
+end
+
+local function scheduleAdmissionRetry(sender, remoteHead, reason, retryDelay)
+	local delay = admissionRetryDelay(reason, retryDelay)
+	if delay == nil then
+		return false, reason
+	end
+	local retry = module._admissionRetry
+	if retry then
+		if
+			retry.sender == sender
+			and retry.head
+			and retry.head.raidUid == remoteHead.raidUid
+			and retry.head.authorityEpoch == remoteHead.authorityEpoch
+		then
+			if retry.retryUsed then
+				clearAdmissionRetry("ADMISSION_RETRY_EXHAUSTED")
+				return false, reason
+			end
+			if remoteHead.sequence > retry.head.sequence then
+				retry.head = remoteHead
+			end
+			return true
+		end
+		clearAdmissionRetry("ADMISSION_RETRY_REPLACED")
+	end
+	retry = {
+		sender = sender,
+		head = remoteHead,
+		retryUsed = false,
+	}
+	module._admissionRetry = retry
+	local scheduled, timerOrReason = pcall(module.ScheduleTimer, module, function()
+		if module._admissionRetry ~= retry then
+			return
+		end
+		retry.timer = nil
+		retry.retryUsed = true
+		compareHead(retry.sender, retry.head, true)
+	end, delay)
+	if not scheduled or not timerOrReason then
+		module._admissionRetry = nil
+		return false, "TIMER_UNAVAILABLE"
+	end
+	retry.timer = timerOrReason
+	return true
+end
+
 local function admitRecovery(recovery)
 	local pending = module._recovery
 	if pending then
 		if sameRecovery(pending, recovery) then
 			return true, "RECOVERY_PENDING"
 		end
-		if coalesceReplicaSnapshot(pending, recovery) then
+		if coalesceReplicaRecovery(pending, recovery) then
 			return true, "RECOVERY_PENDING"
-		end
-		if
-			pending.sender == recovery.sender
-			and pending.raidUid == recovery.raidUid
-			and pending.authorityEpoch == recovery.authorityEpoch
-			and recovery.sequence > pending.sequence
-		then
-			releaseRecovery(pending, "RECOVERY_SUPERSEDED", true)
-			module._recovery = recovery
-			return nil
 		end
 		return false, "RECOVERY_IN_PROGRESS"
 	end
@@ -563,6 +739,8 @@ local function requestRange(remoteSender, fromSequence, toSequence, remoteHead, 
 		fromSequence = fromSequence,
 		toSequence = toSequence,
 		digest = remoteHead.digest,
+		checkpointSequence = remoteHead.checkpointSequence,
+		status = remoteHead.status,
 		handover = handover,
 	}
 	local admitted, admissionReason = admitRecovery(recovery)
@@ -570,7 +748,7 @@ local function requestRange(remoteSender, fromSequence, toSequence, remoteHead, 
 		return admitted, admissionReason
 	end
 	setStatus(STATUS_RECOVERING, "MISSING_RANGE")
-	local requestId, reason = Session:BeginRequest(
+	local requestId, reason, retryDelay = Session:BeginRequest(
 		"RANGE_REQ",
 		remoteSender,
 		body,
@@ -581,18 +759,26 @@ local function requestRange(remoteSender, fromSequence, toSequence, remoteHead, 
 				return
 			end
 			if not ok or type(result) ~= "table" then
+				local fallback = recovery.followUp or remoteHead
 				releaseRecovery(recovery, why or "RANGE_FAILED", false)
-				requestSnapshot(remoteSender, remoteHead, handover)
+				requestSnapshot(remoteSender, fallback, handover)
 				return
 			end
 			local applied, applyReason = applyRange(result.events, remoteHead)
 			if not applied then
+				local fallback = recovery.followUp or remoteHead
 				releaseRecovery(recovery, applyReason or "RANGE_INVALID", false)
-				requestSnapshot(remoteSender, remoteHead, handover)
+				requestSnapshot(remoteSender, fallback, handover)
 				return
 			end
-			finishRecovery(recovery, true, applyReason)
-		end
+			local followUp = recovery.followUp
+			local finished = finishRecovery(recovery, true, applyReason)
+			if followUp and followUp.sequence > remoteHead.sequence then
+				return compareHead(followUp.sender, followUp)
+			end
+			return finished
+		end,
+		Session.RATE_CLASS_LIVE
 	)
 	if not requestId then
 		local failureReason = reason or "RANGE_REQUEST_FAILED"
@@ -600,9 +786,17 @@ local function requestRange(remoteSender, fromSequence, toSequence, remoteHead, 
 		if handover then
 			return finishHandoverRecovery(handover, false, failureReason)
 		end
+		local retried, retryReason = scheduleAdmissionRetry(remoteSender, remoteHead, failureReason, retryDelay)
+		if retried then
+			return false, failureReason
+		end
+		if retryReason == "TIMER_UNAVAILABLE" then
+			failureReason = retryReason
+		end
 		setStatus(STATUS_FAILED, failureReason)
 		return false, failureReason
 	end
+	clearAdmissionRetry("LIVE_REQUEST_ADMITTED")
 	if module._recovery == recovery then
 		recovery.requestId = requestId
 	end
@@ -627,6 +821,8 @@ requestSnapshot = function(remoteSender, remoteHead, handover, reentry)
 		authorityEpoch = remoteHead.authorityEpoch,
 		sequence = remoteHead.sequence,
 		digest = remoteHead.digest,
+		checkpointSequence = remoteHead.checkpointSequence,
+		status = remoteHead.status,
 		handover = handover,
 		reentry = reentry,
 	}
@@ -635,7 +831,7 @@ requestSnapshot = function(remoteSender, remoteHead, handover, reentry)
 		return admitted, admissionReason
 	end
 	setStatus(STATUS_RECOVERING, "SNAPSHOT_REQUIRED")
-	local requestId, reason = Session:BeginRequest(
+	local requestId, reason, retryDelay = Session:BeginRequest(
 		"SNAP_REQ",
 		remoteSender,
 		body,
@@ -672,20 +868,12 @@ requestSnapshot = function(remoteSender, remoteHead, handover, reentry)
 			end
 			local followUp = recovery.followUp
 			local finished = finishRecovery(recovery, replaced ~= nil, replaceReason)
-			if
-				replaced ~= nil
-				and followUp
-				and followUp.sequence > snapshot.sequence
-			then
-				return requestRange(
-					followUp.sender,
-					snapshot.sequence + 1,
-					followUp.sequence,
-					followUp
-				)
+			if replaced ~= nil and followUp then
+				return compareHead(followUp.sender, followUp)
 			end
 			return finished
-		end
+		end,
+		Session.RATE_CLASS_LIVE
 	)
 	if not requestId then
 		local failureReason = reason or "SNAPSHOT_REQUEST_FAILED"
@@ -696,9 +884,17 @@ requestSnapshot = function(remoteSender, remoteHead, handover, reentry)
 		if reentry then
 			return suspendReentry(reentry, failureReason)
 		end
+		local retried, retryReason = scheduleAdmissionRetry(remoteSender, remoteHead, failureReason, retryDelay)
+		if retried then
+			return false, failureReason
+		end
+		if retryReason == "TIMER_UNAVAILABLE" then
+			failureReason = retryReason
+		end
 		setStatus(STATUS_FAILED, failureReason)
 		return false, failureReason
 	end
+	clearAdmissionRetry("LIVE_REQUEST_ADMITTED")
 	if module._recovery == recovery then
 		recovery.requestId = requestId
 	end
@@ -1123,6 +1319,7 @@ local function refreshAuthority()
 	elseif module._recovery then
 		releaseRecovery(module._recovery, "AUTHORITY_CHANGED", true)
 	end
+	clearAdmissionRetry("AUTHORITY_CHANGED")
 	local record, raidUid = currentRecordAndUid()
 	local head = headFromRecord(record, raidUid)
 	if isRealAuthorityHandover(previousAuthority, currentAuthority)
@@ -1226,12 +1423,23 @@ local function requestActiveRaidIfNeeded(eventName, instanceName, instanceKey, i
 	end, DISCOVERY_RETRY_SECONDS)
 end
 
-local function compareHead(remoteSender, remoteHead)
+compareHead = function(remoteSender, remoteHead)
 	if rejectInflightDigestConflict(remoteSender, remoteHead) then
 		return false, "DIGEST_CONFLICT"
 	end
 	local record, raidUid = currentRecordAndUid()
 	local localHead = headFromRecord(record, raidUid)
+	if
+		localHead
+		and localHead.raidUid == remoteHead.raidUid
+		and localHead.authorityEpoch == remoteHead.authorityEpoch
+		and localHead.sequence == remoteHead.sequence
+		and localHead.digest ~= remoteHead.digest
+	then
+		clearAdmissionRetry("DIGEST_CONFLICT")
+		return setStatus(STATUS_SUSPENDED, "DIGEST_CONFLICT")
+	end
+	remoteHead = preferAdmissionRetryHead(remoteSender, remoteHead)
 	if not localHead and remoteHead.status == "complete" then
 		local completed = RaidStore:GetRecord(remoteHead.raidUid)
 		if completed and completed.status == "complete" then
@@ -1239,6 +1447,10 @@ local function compareHead(remoteSender, remoteHead)
 		end
 	end
 	if samePositionAndDigest(localHead, remoteHead) then
+		local retry = module._admissionRetry
+		if sameAdmissionRetryTarget(retry, remoteSender, remoteHead) then
+			clearAdmissionRetry("RECOVERY_SATISFIED")
+		end
 		if module._recovery then
 			releaseRecovery(module._recovery, "RECOVERY_SATISFIED", true)
 		end
@@ -1256,6 +1468,7 @@ local function compareHead(remoteSender, remoteHead)
 		and localHead.authorityEpoch == remoteHead.authorityEpoch
 		and localHead.sequence == remoteHead.sequence
 	then
+		clearAdmissionRetry("DIGEST_CONFLICT")
 		return setStatus(STATUS_SUSPENDED, "DIGEST_CONFLICT")
 	end
 	if
@@ -1285,6 +1498,7 @@ end
 
 local handleHead
 local handleEvent
+local handleLiveLootPart
 local handleRangeRequest
 local handleRangeData
 local handleSnapshotRequest
@@ -1338,10 +1552,14 @@ handleEvent = function(sender, envelope)
 	if event.sequence == record.sequence + 1 then
 		local applied, reason = RaidStore:ApplyReplicaEvent(event)
 		if not applied then
+			if reason == "DIGEST_MISMATCH" then
+				clearAdmissionRetry("DIGEST_MISMATCH")
+			end
 			return setStatus(STATUS_SUSPENDED, reason or "EVENT_REJECTED")
 		end
 		TriggerEvent(LoggerDataChangedEvent, "raid_sync")
 		local recovery = module._recovery
+		local followUp = recovery and recovery.followUp or nil
 		if
 			recovery
 			and recovery.raidUid == event.raidUid
@@ -1350,10 +1568,19 @@ handleEvent = function(sender, envelope)
 		then
 			releaseRecovery(recovery, "RECOVERY_SATISFIED_BY_EVENT", true)
 		end
+		local currentRecord, currentRaidUid = currentRecordAndUid()
+		local localHead = headFromRecord(currentRecord, currentRaidUid)
+		if sameAdmissionRetryTarget(module._admissionRetry, sender, localHead) then
+			clearAdmissionRetry("RECOVERY_SATISFIED_BY_EVENT")
+		end
+		if followUp and followUp.sequence > event.sequence then
+			return compareHead(followUp.sender, followUp)
+		end
 		return setStatus(STATUS_SYNCHRONIZED, "UP_TO_DATE")
 	end
 	if event.sequence <= record.sequence then
 		if event.sequence == record.sequence and event.resultDigest ~= record.digest then
+			clearAdmissionRetry("DIGEST_CONFLICT")
 			return setStatus(STATUS_SUSPENDED, "DIGEST_CONFLICT")
 		end
 		return true
@@ -1380,12 +1607,78 @@ handleEvent = function(sender, envelope)
 	return requestRange(sender, record.sequence + 1, event.sequence, remoteHead)
 end
 
+local function liveLootAssemblyKey(sender, body)
+	return table.concat({ sender, body.raidUid, tostring(body.authorityEpoch), tostring(body.sequence) }, "\t")
+end
+
+handleLiveLootPart = function(sender, envelope)
+	local body = envelope.body
+	local now = GetTime()
+	local oldestKey = pruneLiveLootAssemblies(now)
+	local key = liveLootAssemblyKey(sender, body)
+	local assembly = module._liveLootAssemblies[key]
+	if not assembly then
+		if countEntries(module._liveLootAssemblies) >= MAX_LIVE_LOOT_ASSEMBLIES and oldestKey then
+			module._liveLootAssemblies[oldestKey] = nil
+		end
+		assembly = {
+			createdAt = now,
+			expiresAt = now + LIVE_LOOT_PART_TTL_SECONDS,
+			partCount = body.partCount,
+			parts = {},
+			received = 0,
+			bytes = 0,
+		}
+		module._liveLootAssemblies[key] = assembly
+	elseif assembly.partCount ~= body.partCount then
+		module._liveLootAssemblies[key] = nil
+		return false, "LIVE_LOOT_PART_CONFLICT"
+	end
+
+	local existing = assembly.parts[body.partIndex]
+	if existing then
+		if existing == body.chunk then
+			return true
+		end
+		module._liveLootAssemblies[key] = nil
+		return false, "LIVE_LOOT_PART_CONFLICT"
+	end
+	if assembly.bytes + #body.chunk > MAX_LIVE_LOOT_PAYLOAD_BYTES then
+		module._liveLootAssemblies[key] = nil
+		return false, "LIVE_LOOT_PART_TOO_LARGE"
+	end
+	assembly.parts[body.partIndex] = body.chunk
+	assembly.received = assembly.received + 1
+	assembly.bytes = assembly.bytes + #body.chunk
+	if assembly.received < assembly.partCount then
+		return true
+	end
+
+	module._liveLootAssemblies[key] = nil
+	local serialized = table.concat(assembly.parts)
+	if #serialized < 1 or #serialized > MAX_LIVE_LOOT_PAYLOAD_BYTES then
+		return false, "LIVE_LOOT_PART_DECODE_FAILED"
+	end
+	local event, decodeReason = Protocol.DecodeLiveLootPayload(serialized)
+	if not event then
+		return false, decodeReason or "LIVE_LOOT_PART_DECODE_FAILED"
+	end
+	if
+		event.raidUid ~= body.raidUid
+		or event.authorityEpoch ~= body.authorityEpoch
+		or event.sequence ~= body.sequence
+	then
+		return false, "LIVE_LOOT_PART_METADATA_MISMATCH"
+	end
+	return handleEvent(sender, { body = { event = event } })
+end
+
 handleRangeRequest = function(sender, envelope)
 	local currentAuthority = normalizeName(Raid:GetRaidLeaderName())
 	if not Raid:IsRaidLeader() and sender ~= currentAuthority then
 		return false, "NOT_AUTHORITY"
 	end
-	local allowed, reason = Session:AllowIncomingRequest(sender)
+	local allowed, reason = Session:AllowIncomingRequest(sender, Session.RATE_CLASS_LIVE)
 	if not allowed then
 		return false, reason
 	end
@@ -1402,7 +1695,7 @@ handleRangeRequest = function(sender, envelope)
 	if not events or #events ~= body.toSequence - body.fromSequence + 1 then
 		return false, rangeReason or "RANGE_UNAVAILABLE"
 	end
-	return Session:QueueTransfer("RANGE_DATA", envelope.requestId, sender, body, { events = events })
+	return Session:QueueTransfer("RANGE_DATA", envelope.requestId, sender, body, { events = events }, Session.RATE_CLASS_LIVE)
 end
 
 handleRangeData = function(sender, envelope)
@@ -1416,7 +1709,7 @@ handleSnapshotRequest = function(sender, envelope)
 		if not Raid:IsGroupMember(sender) then
 			return false, "HISTORY_CONSENT_REQUIRED"
 		end
-		local allowed, reason = Session:AllowIncomingRequest(sender)
+		local allowed, reason = Session:AllowIncomingRequest(sender, Session.RATE_CLASS_HISTORY)
 		if not allowed then
 			return false, reason
 		end
@@ -1440,13 +1733,13 @@ handleSnapshotRequest = function(sender, envelope)
 			authorityEpoch = snapshot.authorityEpoch,
 			sequence = snapshot.sequence,
 		}
-		return Session:QueueTransfer("SNAP_DATA", envelope.requestId, sender, metadata, { snapshot = snapshot })
+		return Session:QueueTransfer("SNAP_DATA", envelope.requestId, sender, metadata, { snapshot = snapshot }, Session.RATE_CLASS_HISTORY)
 	end
 	local currentAuthority = normalizeName(Raid:GetRaidLeaderName())
 	if not Raid:IsRaidLeader() and sender ~= currentAuthority then
 		return false, "NOT_AUTHORITY"
 	end
-	local allowed, reason = Session:AllowIncomingRequest(sender)
+	local allowed, reason = Session:AllowIncomingRequest(sender, Session.RATE_CLASS_LIVE)
 	if not allowed then
 		return false, reason
 	end
@@ -1471,7 +1764,7 @@ handleSnapshotRequest = function(sender, envelope)
 		authorityEpoch = snapshot.authorityEpoch,
 		sequence = snapshot.sequence,
 	}
-	return Session:QueueTransfer("SNAP_DATA", envelope.requestId, sender, metadata, { snapshot = snapshot })
+	return Session:QueueTransfer("SNAP_DATA", envelope.requestId, sender, metadata, { snapshot = snapshot }, Session.RATE_CLASS_LIVE)
 end
 
 handleSnapshotData = function(sender, envelope)
@@ -1567,6 +1860,8 @@ local HANDLERS = {
 	HEAD_REQ = handleHeadRequest,
 	HEAD = handleHead,
 	EVENT = handleEvent,
+	LIVE_LOOT = handleEvent,
+	LIVE_LOOT_PART = handleLiveLootPart,
 	RANGE_REQ = handleRangeRequest,
 	RANGE_DATA = handleRangeData,
 	SNAP_REQ = handleSnapshotRequest,
@@ -1576,11 +1871,12 @@ local HANDLERS = {
 }
 
 function module:GetProtocolVersion()
-	return Protocol.VERSION or 3
+	return Protocol.VERSION or 4
 end
 
 function module:GetStatus()
 	pruneHistoryRuntime()
+	pruneLiveLootAssemblies(GetTime())
 	return self._status, self._statusReason
 end
 
@@ -1759,7 +2055,8 @@ function module:AcceptHistoricalOffer(sender, offerId)
 				Bus.TriggerEvent(LoggerSelectRaidEvent, importedIndex, "sync")
 			end
 			setStatus(outcome == "CONFLICT" and STATUS_FAILED or STATUS_SYNCHRONIZED, outcome)
-		end
+		end,
+		Session.RATE_CLASS_HISTORY
 	)
 	if not requestId then
 		offer.state = "offered"
@@ -1823,7 +2120,14 @@ function module:OnAddonMessage(prefix, message, channel, rawSender)
 	then
 		return recordReentryHead(sender, envelope.body)
 	end
-	if kind == "HEAD" or kind == "EVENT" or kind == "RANGE_DATA" or kind == "SNAP_DATA" then
+	if
+		kind == "HEAD"
+		or kind == "EVENT"
+		or kind == "LIVE_LOOT"
+		or kind == "LIVE_LOOT_PART"
+		or kind == "RANGE_DATA"
+		or kind == "SNAP_DATA"
+	then
 		local handoverResponse = handover
 			and handover.newAuthority == localPlayer
 			and module._recovery
@@ -1843,12 +2147,60 @@ function module:OnAddonMessage(prefix, message, channel, rawSender)
 			return false
 		end
 	end
-	if kind ~= "HEAD_REQ" and kind ~= "HEAD" and kind ~= "EVENT" then
+	if
+		kind ~= "HEAD_REQ"
+		and kind ~= "HEAD"
+		and kind ~= "EVENT"
+		and kind ~= "LIVE_LOOT"
+		and kind ~= "LIVE_LOOT_PART"
+	then
 		if normalizeName(envelope.target) ~= localPlayer then
 			return false
 		end
 	end
 	return handler(sender, envelope, channel)
+end
+
+local function buildFragmentedLiveLoot(event)
+	local serialized, serializeReason = Protocol.EncodeLiveLootPayload(event)
+	if not serialized then
+		return nil, serializeReason
+	end
+	if #serialized > MAX_LIVE_LOOT_PAYLOAD_BYTES then
+		return nil, "LIVE_LOOT_TOO_LARGE"
+	end
+
+	for chunkBytes = MAX_LIVE_LOOT_CHUNK_BYTES, 1, -1 do
+		local partCount = math.ceil(#serialized / chunkBytes)
+		if partCount > MAX_LIVE_LOOT_PARTS then
+			return nil, "LIVE_LOOT_TOO_MANY_PARTS"
+		end
+		local messages = {}
+		local retrySmaller = false
+		for partIndex = 1, partCount do
+			local chunk = string.sub(serialized, (partIndex - 1) * chunkBytes + 1, partIndex * chunkBytes)
+			local message, reason = Protocol.Encode("LIVE_LOOT_PART", "-", "-", {
+				raidUid = event.raidUid,
+				authorityEpoch = event.authorityEpoch,
+				sequence = event.sequence,
+				partIndex = partIndex,
+				partCount = partCount,
+				chunk = chunk,
+			})
+			if not message then
+				if reason == "MESSAGE_TOO_LARGE" then
+					retrySmaller = true
+					break
+				end
+				return nil, reason
+			end
+			messages[partIndex] = message
+		end
+		if not retrySmaller then
+			return messages
+		end
+	end
+	return nil, "MESSAGE_TOO_LARGE"
 end
 
 broadcastCommittedEvent = function(_, event)
@@ -1902,18 +2254,40 @@ broadcastCommittedEvent = function(_, event)
 			}
 		end
 	end
-	local sent, reason = sendGroup("EVENT", { event = event })
-	if not sent and reason == "MESSAGE_TOO_LARGE" then
-		local head = headFromRecord(record, event.raidUid)
-		if head then
-			sendGroup("HEAD", head)
-		end
-	end
 	if event.eventType == "RAID_CONCLUDED" then
+		cancelPendingHead()
+		sendGroup("EVENT", { event = event })
 		local finalHead = headFromRecord(record, event.raidUid)
 		if finalHead then
 			sendGroup("HEAD", finalHead)
 		end
+		return
+	end
+	if event.eventType == "LOOT_ADDED" then
+		local wire, reason = Protocol.Encode("LIVE_LOOT", "-", "-", { event = event })
+		if wire then
+			local queued, queueReason = Comms.SendAddonBatch(COMM_PREFIX, { wire })
+			if not queued then
+				setStatus(STATUS_FAILED, queueReason or "LIVE_LOOT_SEND_FAILED")
+			end
+		elseif reason == "MESSAGE_TOO_LARGE" then
+			local messages, fragmentReason = buildFragmentedLiveLoot(event)
+			if not messages then
+				setStatus(STATUS_FAILED, fragmentReason or "LIVE_LOOT_FRAGMENT_FAILED")
+			else
+				local queued, queueReason = Comms.SendAddonBatch(COMM_PREFIX, messages)
+				if not queued then
+					setStatus(STATUS_FAILED, queueReason or "LIVE_LOOT_SEND_FAILED")
+				end
+			end
+		elseif reason ~= "NON_RECONSTRUCTIBLE_LIVE_LOOT" then
+			setStatus(STATUS_FAILED, reason or "LIVE_LOOT_ENCODE_FAILED")
+		end
+	else
+		sendGroup("EVENT", { event = event })
+	end
+	if record.status == "active" then
+		scheduleConsolidatedHead(record, event.raidUid)
 	end
 end
 

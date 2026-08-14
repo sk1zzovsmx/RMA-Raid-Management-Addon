@@ -36,6 +36,7 @@ local RATE_WINDOW_SECONDS = 30
 local MAX_INCOMING_REQUESTS_PER_SENDER = 6
 local MAX_OUTGOING_OPERATIONS_PER_TARGET = 4
 local MAX_RATE_PEERS = 128
+local RATE_CLASSES = { live = true, history = true }
 
 local REQUEST_PENDING = "pending"
 local REQUEST_ASSEMBLING = "assembling"
@@ -47,8 +48,18 @@ Session._assemblies = Session._assemblies or {}
 Session._assemblyCount = tonumber(Session._assemblyCount) or 0
 Session._assembliesBySender = Session._assembliesBySender or {}
 Session._nextRequestId = tonumber(Session._nextRequestId) or -1
-Session._incomingRates = Session._incomingRates or {}
-Session._outgoingRates = Session._outgoingRates or {}
+Session.RATE_CLASS_LIVE = "live"
+Session.RATE_CLASS_HISTORY = "history"
+
+local function normalizeRateClasses(rateMaps)
+	if type(rateMaps) == "table" and type(rateMaps.live) == "table" and type(rateMaps.history) == "table" then
+		return rateMaps
+	end
+	return { live = {}, history = {} }
+end
+
+Session._incomingRates = normalizeRateClasses(Session._incomingRates)
+Session._outgoingRates = normalizeRateClasses(Session._outgoingRates)
 
 Timer.BindMixin(Session, "Database/DBSyncSession")
 
@@ -99,6 +110,31 @@ local function pruneRateMap(rateMap, now)
 	return peerCount
 end
 
+local function rateRetryDelay(rateMap, now)
+	local earliest
+	for _, timestamps in pairs(rateMap) do
+		local finalTimestamp = timestamps[#timestamps]
+		if finalTimestamp and (not earliest or finalTimestamp < earliest) then
+			earliest = finalTimestamp
+		end
+	end
+	if not earliest then
+		return 0
+	end
+	local retryDelay = earliest + RATE_WINDOW_SECONDS - now
+	if retryDelay < 0 then
+		return 0
+	end
+	return retryDelay
+end
+
+local function getRateMap(rateClasses, rateClass)
+	if not RATE_CLASSES[rateClass] then
+		return nil, "INVALID_RATE_CLASS"
+	end
+	return rateClasses[rateClass]
+end
+
 local function allowRate(rateMap, peer, limit, now)
 	local normalizedPeer = normalizeSender(peer)
 	if not normalizedPeer then
@@ -108,13 +144,17 @@ local function allowRate(rateMap, peer, limit, now)
 	local timestamps = rateMap[normalizedPeer]
 	if not timestamps then
 		if peerCount >= MAX_RATE_PEERS then
-			return false, "RATE_CAPACITY"
+			return false, "RATE_CAPACITY", rateRetryDelay(rateMap, now)
 		end
 		timestamps = {}
 		rateMap[normalizedPeer] = timestamps
 	end
 	if #timestamps >= limit then
-		return false, "RATE_LIMIT"
+		local retryDelay = timestamps[1] + RATE_WINDOW_SECONDS - now
+		if retryDelay < 0 then
+			retryDelay = 0
+		end
+		return false, "RATE_LIMIT", retryDelay
 	end
 	timestamps[#timestamps + 1] = now
 	return true, normalizedPeer
@@ -318,16 +358,15 @@ local function buildTransferMessages(kind, requestId, target, metadata, encoded,
 	return messages
 end
 
-function Session:AllowIncomingRequest(sender)
-	return allowRate(self._incomingRates, sender, MAX_INCOMING_REQUESTS_PER_SENDER, GetTime())
+function Session:AllowIncomingRequest(sender, rateClass)
+	local rateMap, rateReason = getRateMap(self._incomingRates, rateClass)
+	if not rateMap then
+		return false, rateReason
+	end
+	return allowRate(rateMap, sender, MAX_INCOMING_REQUESTS_PER_SENDER, GetTime())
 end
 
-function Session:BeginRequest(kind, target, body, expectedResponseKind, expectedMetadata, callback)
-	local rateAllowed, normalizedTarget =
-		allowRate(self._outgoingRates, target, MAX_OUTGOING_OPERATIONS_PER_TARGET, GetTime())
-	if not rateAllowed then
-		return nil, normalizedTarget
-	end
+function Session:BeginRequest(kind, target, body, expectedResponseKind, expectedMetadata, callback, rateClass)
 	if type(target) ~= "string" or target == "" or type(callback) ~= "function" then
 		return nil, "INVALID_REQUEST"
 	end
@@ -337,6 +376,15 @@ function Session:BeginRequest(kind, target, body, expectedResponseKind, expected
 	local metadataCopy = copyExpectedMetadata(expectedResponseKind, expectedMetadata)
 	if not metadataCopy then
 		return nil, "INVALID_RESPONSE_CONTRACT"
+	end
+	local rateMap, rateReason = getRateMap(self._outgoingRates, rateClass)
+	if not rateMap then
+		return nil, rateReason
+	end
+	local rateAllowed, normalizedTarget, retryDelay =
+		allowRate(rateMap, target, MAX_OUTGOING_OPERATIONS_PER_TARGET, GetTime())
+	if not rateAllowed then
+		return nil, normalizedTarget, retryDelay
 	end
 	local requestId, idReason = nextRequestId()
 	if not requestId then
@@ -372,14 +420,18 @@ function Session:BeginRequest(kind, target, body, expectedResponseKind, expected
 	return requestId
 end
 
-function Session:QueueTransfer(kind, requestId, target, metadata, body)
-	local rateAllowed, rateReason =
-		allowRate(self._outgoingRates, target, MAX_OUTGOING_OPERATIONS_PER_TARGET, GetTime())
-	if not rateAllowed then
-		return false, rateReason
-	end
+function Session:QueueTransfer(kind, requestId, target, metadata, body, rateClass)
 	if type(metadata) ~= "table" or type(body) ~= "table" then
 		return false, "INVALID_TRANSFER"
+	end
+	local rateMap, rateReason = getRateMap(self._outgoingRates, rateClass)
+	if not rateMap then
+		return false, rateReason
+	end
+	local rateAllowed, normalizedTarget, retryDelay =
+		allowRate(rateMap, target, MAX_OUTGOING_OPERATIONS_PER_TARGET, GetTime())
+	if not rateAllowed then
+		return false, normalizedTarget, retryDelay
 	end
 	local encoded, reason = encodeTransferText(body)
 	if not encoded then
@@ -548,8 +600,10 @@ end
 
 function Session:Expire(now)
 	now = tonumber(now) or GetTime()
-	pruneRateMap(self._incomingRates, now)
-	pruneRateMap(self._outgoingRates, now)
+	pruneRateMap(self._incomingRates.live, now)
+	pruneRateMap(self._incomingRates.history, now)
+	pruneRateMap(self._outgoingRates.live, now)
+	pruneRateMap(self._outgoingRates.history, now)
 	local expiredRequests = {}
 	for _, request in pairs(self._pendingRequests) do
 		if request.deadline <= now then
