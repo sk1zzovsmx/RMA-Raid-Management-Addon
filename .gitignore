@@ -4,6 +4,7 @@
 .venv/
 .mcp.json
 .worktrees/
+.archived-worktrees/
 .superpowers/
 
 # Local tooling, notes, and generated development state

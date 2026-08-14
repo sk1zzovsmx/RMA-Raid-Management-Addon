@@ -31,9 +31,8 @@ localization, refresh logic, and frame behavior.
 
 ## Namespace Ownership
 
-Product-oriented dependency and communication rules are defined in
-[`FEATURE_BOUNDARIES.md`](FEATURE_BOUNDARIES.md). The directory layers describe
-runtime placement; the feature boundaries describe workflow and data ownership.
+The directory layers describe runtime placement; concrete feature owners define
+workflow and data ownership.
 
 - `Init.lua` seeds `addon.Database`, `addon.Services`, `addon.Controllers`,
   `addon.Widgets`, `addon.UI`, `addon.Events`, `addon.State`, and the main event

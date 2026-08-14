@@ -98,164 +98,6 @@ other addons or old project identities.
 - Do not escalate models or reasoning effort only because a test failed.
   Escalate when new evidence shows greater scope, ambiguity, or runtime risk.
 
-### Task Mode: GREENFIELD_REWRITE
-
-Use `GREENFIELD_REWRITE` only when the user explicitly asks for that exact mode.
-Default work remains scoped, conservative, and incremental. In this mode,
-`docs/GREENFIELD_REWRITE_CONTRACT.md` is the tracked, committable contract; keep
-this AGENTS section aligned with it.
-
-GREENFIELD_REWRITE is product-improvement work, not bug-for-bug reproduction.
-Existing project files are behavioral evidence and product-intent evidence, not
-an architecture to preserve. The rewrite must keep the public addon contract
-stable while improving reliability, runtime safety, raid usability,
-maintainability, ownership, and internal data flow.
-
-Contract principle:
-
-- Primary goal: improve the addon, not merely reproduce the old code.
-- Compatibility goal: preserve the public/external contract unless a behavior is
-  explicitly classified as broken, unsafe, confusing, or obsolete.
-- Architecture goal: build one coherent architecture with clear ownership,
-  stable data flow, minimal accidental API surface, and appropriate file
-  boundaries.
-- Anti-goal: do not keep wrappers, file splits, tests, or behavior only because
-  the current implementation has them.
-- Bug-for-bug preservation is forbidden; broken behavior must be fixed with a
-  documented behavior delta.
-- A batch is committable only when behavior, architecture, docs, tests, TOC,
-  registry, and validation gates agree.
-
-Stable external surface:
-
-- Addon name, folder, TOC metadata, `30300` interface, WotLK 3.3.5a runtime, and
-  Lua 5.1 compatibility.
-- Runtime short name `RMA`, `/rma`, slash aliases, `RMA_*` SavedVariables,
-  addon-message prefixes, and user-visible RMA branding.
-- User-facing raid, loot, reserves, logger, attendance, warnings, LFM, minimap,
-  config, diagnostics, and sync workflows.
-- Persisted `RMA_*` data that existing users already have.
-- XML frame identities referenced by runtime Lua, unless migrated in one
-  coherent batch with all Lua, docs, tests, and smoke notes updated.
-
-Non-stable implementation surfaces:
-
-- Current file count, folder split, private function names, temporary Bind APIs,
-  pass-through wrappers, and ModuleRegistry entries created only by file
-  boundaries.
-- Tests that lock implementation details rather than user-visible behavior.
-- Current bugs, timing flaws, duplicated helper families, UI inconsistencies, or
-  accidental behavior.
-
-Before editing in GREENFIELD_REWRITE mode:
-
-1. Inspect the repository and infer language, runtime, structure, entry points,
-   behavior, configuration, persistence, tests, and build workflow.
-2. Summarize what the project is.
-3. Identify preserved external behavior and required public interfaces.
-4. Identify the intended product or architecture improvement.
-5. Identify data migration risk, WoW runtime risk, tests, smoke checks, and
-   likely files to keep, merge, rework, or delete.
-6. Propose a new architecture from scratch.
-
-Then rewrite as a clean implementation with one coherent architecture, one
-naming system, one data-flow model, and one implementation philosophy. Do not
-perform incremental refactoring, optimize for minimal diffs, preserve old file
-organization or helper functions unless required, mix old and new architecture,
-leave transitional code, leave duplicate implementations, or leave dead code.
-
-Product behavior to preserve and improve includes Master Loot, roll tracking,
-Loot Counter, SoftRes/Reserves, Loot History/Logger, Raid Attendance and
-Inspect, Raid Warnings, LFM Spam, Minimap, Configuration, Diagnostics, database
-access, slash commands, addon-message sync, and widgets. Review these as
-product-oriented macro areas rather than isolated file slices.
-
-Every batch must name at least one intended improvement:
-
-- bug fix
-- UX improvement
-- runtime safety
-- data integrity
-- performance
-- maintainability
-
-When current behavior changes, record the behavior delta: old behavior, new
-behavior, reason, whether the old behavior was broken/unsafe/confusing/obsolete,
-compatibility impact, migration impact, and tests or smoke checks that prove
-the intended behavior.
-
-### Cohesion-First Module Boundaries
-
-Module boundaries are cohesion-first and product-first. The boundary question is
-whether the file owns a durable concept, data shape, runtime integration,
-feature UI composition, or testable algorithm that deserves its own API and
-load-order cost.
-
-Do not split or merge by line count alone. Prefer fewer accidental files, but do
-not merge cohesive owners only to reduce count. A new Lua file is allowed only
-when it owns a clear concept, policy, data shape, runtime integration boundary,
-UI composition owner, or testable algorithm. Small pass-through files default to
-merge or delete.
-
-Extraction is allowed only when it reduces caller complexity, stabilizes a
-contract, or isolates a real policy/integration boundary. Each TOC entry must
-justify its load-order and dependency cost. ModuleRegistry entries must
-represent real runtime dependencies, not artifacts of unnecessary file splitting.
-
-Shared logic belongs to the nearest cohesive owner: feature owner,
-service/domain owner, UI primitive owner, or runtime infrastructure owner. Do
-not add generic `Utils`, `Common`, `Shared`, or catch-all `Helpers` modules just
-because code looks similar. Local duplication may remain only when variants have
-materially different semantics, caller state, runtime constraints, or failure
-behavior.
-
-Facades may stay only when they add validation, compose multiple owners into a
-policy, isolate a stable external contract, or reduce caller complexity without
-hiding ownership. Pass-through modules, one-function wrappers, single-event
-handler files, and files that only rename a concrete owner method are forbidden.
-When deleting wrappers, update callers to the real owner, remove stale TOC
-entries, remove stale registry dependencies, update generated docs, and record
-the reduction.
-
-UI architecture remains explicit: XML owns static layout only; Lua owns
-behavior, state, event handlers, row construction, list refresh, dynamic
-visibility, and user actions. Feature UI controllers must not own domain rules
-that belong in services, and services must not own frame-specific layout
-details.
-
-Runtime safety remains binding: Lua is 5.1, WotLK 3.3.5a APIs only, no
-unbounded `OnUpdate`, no heavy combat work, and inspect, sync, chat, tooltip,
-item-info, and loot operations must be throttled and failure-safe.
-
-GREENFIELD_REWRITE tests should protect behavior, external contracts,
-validation gates, and rejected anti-patterns. They must not lock temporary file
-splits, private helper names, exact internal Bind APIs, ModuleRegistry entries
-that may disappear after consolidation, TOC entries for modules that the
-cohesion gate may still merge, current bugs, or accidental implementation
-behavior.
-
-The verification target is not merely "tests pass". Each batch must pass
-through implementation, behavior delta review, architecture/cohesion review,
-quality review, and runtime smoke review when applicable. Then run or explicitly
-account for Python tests, `tools/check-rma.ps1`, `stylua --check`, `luacheck`,
-TOC validation, Lua 5.1 validation, `xpcall` scan, XML handler scan, and
-`git diff --check`.
-
-Before staging or calling the rewrite committable, produce a commit coherence
-report covering TOC-referenced changed runtime files, untracked runtime files,
-deleted runtime references, registry dependency risk, changed tracked policy
-artifacts, validation commands run or not run, and remaining residual risks.
-
-GREENFIELD_REWRITE is complete only when external behavior remains compatible
-or behavior deltas are documented, at least one real product/architecture
-improvement is delivered, SavedVariables remain safe, `/rma` aliases remain
-coherent, addon-message behavior remains compatible or versioned, XML remains
-layout-only, Lua remains 5.1-compatible, TOC/load order is valid, no new
-pass-through wrapper or accidental public API is introduced, touched code has
-clear ownership, tests protect behavior rather than temporary internals,
-validation gates are reported honestly, runtime smoke risk is documented, and
-residual work is recorded instead of hidden.
-
 ---
 
 ## 3) Runtime Constraints
@@ -263,7 +105,7 @@ residual work is recorded instead of hidden.
 - Client/API target: Wrath of the Lich King 3.3.5a.
 - TOC Interface: `30300`.
 - Runtime Lua: Lua 5.1.
-- Do not introduce Ace2 or Ace3 dependencies.
+- Do not introduce Ace2 or Ace3.
 - Do not modify vendored libraries under `Libs/*`.
 - Do not use Retail/Classic-only APIs such as `C_Timer`, `C_AddOns`,
   `Settings.*`, `MenuUtil`, `SetAtlas`, or `SetColorTexture`.
@@ -295,7 +137,7 @@ tooling/docs clone.
 
 ## 5) Runtime Architecture
 
-Preserve clear ownership boundaries while the imported code is simplified.
+Preserve these ownership boundaries while the imported code is simplified.
 
 - `Init.lua` owns bootstrap, shared runtime tables, and main event wiring.
 - `Database/*` owns persistence contracts, options, schemas, and store access.
@@ -356,6 +198,9 @@ Use canonical namespaces where existing code already does:
 
 ## 7) SavedVariables And Persistence
 
+- The addon declares the six account SavedVariables listed in Project Identity.
+- Database owners validate and mutate their canonical `RMA_*` data; unrelated
+  modules must not write persistence globals directly.
 - Treat fresh SavedVariables as strict mode.
 - Store only canonical restore-critical data.
 - Avoid persisting duplicated, derived, or runtime-only fields.
@@ -364,18 +209,13 @@ Use canonical namespaces where existing code already does:
   references.
 - Any SavedVariables schema change must be deliberate, documented in the change,
   and validated with a reload smoke test.
-- Keep bootstrap, RMA schema migrations, and imports separate: bootstrap
-  initializes current `RMA_*` keys, migrations evolve existing `RMA_*` schema
-  versions, and non-RMA imports must be explicit tools outside normal startup.
-- Do not add migrations from non-RMA keys unless explicitly requested as an
-  import tool.
+- Keep bootstrap, migrations, and imports separate. Imports from non-RMA keys
+  must be explicit tools outside normal startup and require a direct user request.
 
 Options:
 
-- Keep options under `RMA_Options`.
-- Prefer registered option namespaces and typed getter/setter helpers already
-  present in the code.
-- Do not write options through ad hoc globals.
+- Keep options in `RMA_Options` through the existing database option owner.
+- Do not write options through ad hoc globals or bypass their owning feature.
 
 ---
 

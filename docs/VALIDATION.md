@@ -84,7 +84,7 @@ git status --short --branch
 
 After changing exported `addon.*` module names, slash command routing,
 SavedVariables, or addon-message prefixes, review `ARCHITECTURE.md` and
-`FEATURE_API_MAP.md` for drift.
+`API_SURFACE.md` for drift.
 
 ## Manual In-Game Acceptance
 

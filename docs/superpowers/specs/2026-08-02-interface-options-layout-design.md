@@ -6,8 +6,8 @@ Date: 2026-08-02
 
 Approved design for reorganizing `Interface > AddOns > RMA` and unifying the
 visual layout of its configuration panels. This design is intentionally scoped
-to the existing configuration surface. It does not migrate the runtime to
-AceConfig or change option persistence and behavior.
+to the existing configuration surface. It does not replace the configuration
+framework or change option persistence and behavior.
 
 ## Context
 
@@ -40,7 +40,7 @@ overloaded and semantically inaccurate.
 
 ## Non-Goals
 
-- Migrating the configuration system to AceConfig or AceDBOptions.
+- Replacing the configuration framework or persistence owner.
 - Redesigning operational windows outside Interface Options.
 - Changing option semantics, defaults, SavedVariables, or slash commands.
 - Adding new configuration options.
@@ -55,9 +55,8 @@ all RMA Interface Options pages. Panel shells and named controls remain declared
 in XML. Lua defines row composition, calculates geometry, binds behavior, and
 refreshes visible state.
 
-This approach fixes the shared cause instead of adding per-panel offsets. It
-also avoids pulling the unfinished Ace3 rewrite foundation into a bounded UI
-correction.
+This approach fixes the shared cause instead of adding per-panel offsets or
+pulling unrelated framework changes into a bounded UI correction.
 
 ## Category Structure
 

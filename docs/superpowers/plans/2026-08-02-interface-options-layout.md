@@ -16,7 +16,7 @@
 - Keep XML layout-only; do not add `<Scripts>` or `<On...>` handlers.
 - Keep user-facing strings in `addon.L`.
 - Do not change option keys, defaults, namespaces, SavedVariables, slash commands, or wire formats.
-- Do not add Ace3 as part of this bounded correction.
+- Do not replace the existing configuration framework as part of this bounded correction.
 - Reuse `addon.UI.Layout`; do not introduce another layout module, generic helper namespace, compatibility facade, or duplicate hidden controls.
 - Preserve the compact `/rma config` window; this plan changes the Blizzard Interface Options pages only.
 - Use focused checks after each task and the full applicable validation gate once at the end.

@@ -30,7 +30,7 @@ rg --files
 - Target client: WotLK 3.3.5a
 - TOC Interface: `30300`
 - Lua runtime: Lua 5.1
-- No Ace2 or Ace3 dependency introduction
+- Do not introduce Ace2 or Ace3
 - No runtime use of `io`, `os`, or `debug`
 - No Retail/Classic-only APIs such as `C_Timer`, `C_AddOns`, `Settings.*`,
   `MenuUtil`, `SetAtlas`, `SetColorTexture`, or `SetMask`
@@ -77,5 +77,5 @@ gate. When requested, test in a WotLK 3.3.5a client:
 - login with no Lua errors
 - `/rma` opens help
 - main windows create without missing-frame errors
-- `/reload` preserves expected `RMA_*` SavedVariables
+- `/reload` preserves the expected `RMA_*` SavedVariables
 - raid, loot, reserves, logger, warnings, and spammer workflows still operate

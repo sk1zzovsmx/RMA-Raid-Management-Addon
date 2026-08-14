@@ -34,8 +34,7 @@ internal export is allowed when repository callers have been migrated.
 | FrameXML globals | Named `RMA*` frames and templates referenced by runtime Lua | Stable while referenced; migrate XML and Lua together. |
 | TOC identity | Addon folder, title, Interface `30300`, version, and SavedVariables declarations | Release and client-loading contract. |
 
-Detailed wire ownership remains in `FEATURE_API_MAP.md`. Product ownership and
-command/query/notification rules remain in `FEATURE_BOUNDARIES.md`.
+Detailed wire and product ownership is documented in `ARCHITECTURE.md`.
 
 ## Addon-Message Compatibility
 
