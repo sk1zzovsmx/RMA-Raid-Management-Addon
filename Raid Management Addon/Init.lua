@@ -87,6 +87,7 @@ local function seedBootstrapEvents()
 	Wow.InspectTalentReady = Wow.InspectTalentReady or "wow.INSPECT_TALENT_READY"
 	Wow.GetItemInfoReceived = Wow.GetItemInfoReceived or "wow.GET_ITEM_INFO_RECEIVED"
 	Wow.PlayerRegenEnabled = Wow.PlayerRegenEnabled or "wow.PLAYER_REGEN_ENABLED"
+	Wow.PartyLootMethodChanged = Wow.PartyLootMethodChanged or "wow.PARTY_LOOT_METHOD_CHANGED"
 	Wow.ZoneChangedNewArea = Wow.ZoneChangedNewArea or "wow.ZONE_CHANGED_NEW_AREA"
 	Wow.PartyLootMethodChanged = Wow.PartyLootMethodChanged or "wow.PARTY_LOOT_METHOD_CHANGED"
 	Wow.PlayerTargetChanged = Wow.PlayerTargetChanged or "wow.PLAYER_TARGET_CHANGED"
@@ -649,6 +650,7 @@ do
 		INSPECT_TALENT_READY = "INSPECT_TALENT_READY",
 		GET_ITEM_INFO_RECEIVED = "GET_ITEM_INFO_RECEIVED",
 		PLAYER_REGEN_ENABLED = "PLAYER_REGEN_ENABLED",
+		PARTY_LOOT_METHOD_CHANGED = "PARTY_LOOT_METHOD_CHANGED",
 		PLAYER_LOGOUT = "PLAYER_LOGOUT",
 		PARTY_LOOT_METHOD_CHANGED = "PARTY_LOOT_METHOD_CHANGED",
 	}
@@ -721,6 +723,10 @@ do
 			local minimap = addon.Minimap
 			if minimap and minimap.EnsureUI then
 				minimap:EnsureUI()
+			end
+			local quickBar = addon.Controllers and addon.Controllers.QuickBar
+			if quickBar and quickBar.EnsureUI then
+				quickBar:EnsureUI()
 			end
 			local reservesService = getService("Reserves")
 			if reservesService and reservesService.Load then

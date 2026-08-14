@@ -15,13 +15,15 @@ DBSYNCER_LUA = ROOT / "Raid Management Addon" / "Database" / "DBSyncer.lua"
 DIAGNOSE_LOG_LUA = ROOT / "Raid Management Addon" / "Localization" / "DiagnoseLog.en.lua"
 LOCALIZATION_LUA = ROOT / "Raid Management Addon" / "Localization" / "localization.en.lua"
 EXPECTED_ORDERED_NAMES_SHA256 = (
-    "695b52f4411e0541a98eb67dc8f745b517d0f4bb6e4ab71979940335c7e9855f"
+    "ce25782a47e22d0874c1e46a6e6f9ecb2bed99d5f47e10feddd6ef6f71f710e9"
 )
 REQUIRED_PUBLIC_FRAMES = {
     "RMAConfig",
     "RMAInterfaceOptionsPanel",
     "RMAInterfaceOptionsMasterLootPanel",
     "RMAInterfaceOptionsMasterLootPanelScrollChild",
+    "RMAInterfaceOptionsQuickBarPanel",
+    "RMAInterfaceOptionsQuickBarPanelScrollChild",
     "RMAInterfaceOptionsLootHistoryPanel",
     "RMAInterfaceOptionsLootHistoryPanelScrollChild",
     "RMAInterfaceOptionsLFMSpamPanel",
@@ -45,7 +47,7 @@ class ConfigXmlContractTest(unittest.TestCase):
     def test_ordered_name_contract_is_unchanged(self) -> None:
         names = re.findall(r'\bname="([^"]+)"', source())
         digest = hashlib.sha256("\n".join(names).encode("utf-8")).hexdigest()
-        self.assertEqual(220, len(names))
+        self.assertEqual(242, len(names))
         self.assertEqual(EXPECTED_ORDERED_NAMES_SHA256, digest)
 
     def test_required_public_frames_remain_declared(self) -> None:
@@ -55,6 +57,13 @@ class ConfigXmlContractTest(unittest.TestCase):
     def test_xml_remains_layout_only(self) -> None:
         xml = source()
         self.assertNotRegex(xml, r"<Scripts>|<On[A-Za-z]+>")
+
+    def test_quick_bar_panel_is_layout_only_and_exposes_settings(self) -> None:
+        xml = source()
+        self.assertIn('name="RMAInterfaceOptionsQuickBarPanel"', xml)
+        self.assertNotRegex(xml, r"<Scripts>|<On[A-Za-z]+>")
+        for suffix in ("OrientationDropDown", "ShowML", "ShowGL", "ShowSR", "ShowHIS", "ShowRW"):
+            self.assertIn(suffix, xml)
 
     def test_repeated_geometry_is_reduced(self) -> None:
         xml = source()

@@ -12,6 +12,26 @@ SLASH_EVENTS = ROOT / "Raid Management Addon" / "EntryPoints" / "SlashEvents.lua
 
 
 class RuntimeFoundationsBehaviorTest(unittest.TestCase):
+    def test_minimap_remains_available_without_quick_bar(self) -> None:
+        result = run_lua_case("rma_minimap_remains_available_without_quick_bar")
+        self.assertIn("PASS rma_minimap_remains_available_without_quick_bar", result.stdout)
+
+    def test_quick_bar_slash_routes_show_hide_and_help(self) -> None:
+        result = run_lua_case("rma_quick_bar_slash_routes_show_hide_and_help")
+        self.assertIn("PASS rma_quick_bar_slash_routes_show_hide_and_help", result.stdout)
+
+    def test_quick_bar_routes_actions_and_persists_position(self) -> None:
+        result = run_lua_case("rma_quick_bar_routes_actions_and_persists_position")
+        self.assertIn("PASS rma_quick_bar_routes_actions_and_persists_position", result.stdout)
+
+    def test_quick_bar_configures_layout_and_glow(self) -> None:
+        result = run_lua_case("rma_quick_bar_configures_layout_and_glow")
+        self.assertIn("PASS rma_quick_bar_configures_layout_and_glow", result.stdout)
+
+    def test_quick_bar_config_panel_routes_settings(self) -> None:
+        result = run_lua_case("rma_quick_bar_config_panel_routes_settings")
+        self.assertIn("PASS rma_quick_bar_config_panel_routes_settings", result.stdout)
+
     def test_harness_executes_lua_51(self) -> None:
         result = run_lua_case("lua_51_smoke")
 
@@ -20,6 +40,10 @@ class RuntimeFoundationsBehaviorTest(unittest.TestCase):
     def test_group_helpers_preserve_wotlk_roster_semantics(self) -> None:
         result = run_lua_case("rma_group_helpers_preserve_wotlk_roster_semantics")
         self.assertIn("PASS rma_group_helpers_preserve_wotlk_roster_semantics", result.stdout)
+
+    def test_manual_loot_method_enforces_authority(self) -> None:
+        result = run_lua_case("rma_manual_loot_method_enforces_authority")
+        self.assertIn("PASS rma_manual_loot_method_enforces_authority", result.stdout)
 
     def test_colors_own_class_and_markup_helpers(self) -> None:
         result = run_lua_case("rma_colors_own_class_and_markup_helpers")

@@ -127,6 +127,37 @@ local function clearLootWindowPromptState()
 end
 
 -- ----- Public methods ----- --
+function module:RequestLootMethod(method)
+	if method ~= "master" and method ~= "group" then
+		addon:warn(L.MsgQuickBarLootMethodUnsupported)
+		return false, "unsupported_method"
+	end
+	if not UnitInRaid("player") then
+		addon:warn(L.MsgQuickBarRaidRequired)
+		return false, "not_in_raid"
+	end
+	if not hasRaidLeaderAuthority() then
+		addon:warn(L.MsgQuickBarLeaderRequired)
+		return false, "not_leader"
+	end
+	if self:GetLootMethodName() == method then
+		return true
+	end
+	if method == "master" then
+		local playerName = getPlayerName()
+		if not playerName or playerName == "" then
+			addon:warn(L.MsgQuickBarPlayerNameUnavailable)
+			return false, "player_name_unavailable"
+		end
+		SetLootMethod("master", playerName)
+		addon:info(L.MsgQuickBarMasterLootSet)
+	else
+		SetLootMethod("group")
+		addon:info(L.MsgQuickBarGroupLootSet)
+	end
+	return true
+end
+
 function module:HandleAutoMasterLootTargetChanged()
 	-- PLAYER_TARGET_CHANGED
 	if GetOption("Master", "autoMasterLootOnBossTarget") ~= true then

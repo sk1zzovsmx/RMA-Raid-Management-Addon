@@ -269,10 +269,6 @@ local function sendGroupMessage(prefix, msg, opts)
 	return false
 end
 
-function Comms.Sync(prefix, msg)
-	return sendGroupMessage(prefix, msg)
-end
-
 local function resolveChannelId(channelName)
 	if type(channelName) ~= "string" or channelName == "" or type(GetChannelList) ~= "function" then
 		return nil, "channel_unavailable"

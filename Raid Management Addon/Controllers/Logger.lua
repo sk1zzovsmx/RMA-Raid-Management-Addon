@@ -132,6 +132,14 @@ local LoggerEvents = {
 		InternalEvents.RaidRosterDelta,
 		"Logger controller roster-delta event is not initialized"
 	),
+	RaidReentryDecisionRequired = assert(
+		InternalEvents.RaidReentryDecisionRequired,
+		"Logger controller raid re-entry decision-required event is not initialized"
+	),
+	RaidReentryDecisionResolved = assert(
+		InternalEvents.RaidReentryDecisionResolved,
+		"Logger controller raid re-entry decision-resolved event is not initialized"
+	),
 }
 
 local rollTypes = addon.C.rollTypes
@@ -2445,6 +2453,36 @@ RegisterCallback(LoggerEvents.LoggerRaidOfferReceived, function(_, offer)
 		tonumber(offer.lootCount) or 0
 	)
 	ShowPopup("RMALOGGER_RAID_OFFER", offer.sender, summary, offer)
+end)
+
+local RAID_REENTRY_CONFIRM_POPUP = "RMA_RAID_REENTRY_CONFIRM"
+if not IsPopupDefined(RAID_REENTRY_CONFIRM_POPUP) then
+	DefinePopup(RAID_REENTRY_CONFIRM_POPUP, {
+		text = "%s",
+		button1 = _G.YES or _G.OKAY,
+		button2 = _G.NO or _G.CANCEL,
+		timeout = 0,
+		whileDead = 1,
+		hideOnEscape = false,
+		OnAccept = function(_, data)
+			TriggerEvent(LoggerEvents.RaidReentryDecisionResolved, data.raidUid, "resume", data.context)
+		end,
+		OnCancel = function(_, data)
+			TriggerEvent(LoggerEvents.RaidReentryDecisionResolved, data.raidUid, "replace", data.context)
+		end,
+	})
+end
+
+RegisterCallback(LoggerEvents.RaidReentryDecisionRequired, function(_, summary)
+	if type(summary) ~= "table" or type(summary.raid) ~= "table" then
+		return
+	end
+	local text = L.PopupRaidReentryConfirm:format(
+		tostring(summary.raid.zone),
+		tonumber(summary.raid.size) or 0,
+		RaidProjections.GetDifficultyLabel(summary.raid)
+	)
+	ShowPopup(RAID_REENTRY_CONFIRM_POPUP, text, nil, summary)
 end)
 
 module.ToggleLootHistory = function()

@@ -14,6 +14,12 @@ local function assertTrue(value, message)
 	end
 end
 
+local function assertContains(text, expected, message)
+	if not string.find(tostring(text), expected, 1, true) then
+		fail((message or "text does not contain expected value") .. ": expected " .. tostring(expected) .. ", got " .. tostring(text))
+	end
+end
+
 local function deepCopy(value, seen)
 	if type(value) ~= "table" then
 		return value
@@ -2208,40 +2214,9 @@ local function createDistributionSessionFixture(addon, localName)
 			}
 		end,
 	}
-	local function splitFields(text, sep, out)
-		out = out or {}
-		for key in pairs(out) do
-			out[key] = nil
-		end
-		local start = 1
-		while true do
-			local index = string.find(text or "", sep, start, true)
-			if not index then
-				out[#out + 1] = string.sub(text or "", start)
-				break
-			end
-			out[#out + 1] = string.sub(text, start, index - 1)
-			start = index + string.len(sep)
-		end
-		return out, #out
-	end
-	payload.EncodeText = function(value)
-		return tostring(value or "")
-	end
-	payload.DecodeText = function(value)
-		return value
-	end
-	payload.PackFields = function(sep, ...)
-		local values = { ... }
-		for i = 1, #values do
-			values[i] = tostring(values[i])
-		end
-		return table.concat(values, sep)
-	end
-	payload.SplitFields = splitFields
 	local function recordMessage(prefix, message, channel, target, opts)
 		local envelope = payload.Deserialize(message)
-		local kind = type(envelope) == "table" and envelope[2] or tostring(message or ""):match("^([^|]+)")
+		local kind = type(envelope) == "table" and envelope[2] or nil
 		local queueName = opts and opts.queueName
 		if queueName == nil then
 			queueName = tostring(prefix) .. ":" .. tostring(channel) .. ":" .. string.lower(tostring(target or "group"))
@@ -2267,9 +2242,6 @@ local function createDistributionSessionFixture(addon, localName)
 		Payload = payload,
 		RegisterPrefixIfAvailable = function()
 			return true
-		end,
-		Sync = function(prefix, message)
-			return recordMessage(prefix, message, "RAID", nil)
 		end,
 		QueueAddonMessage = function(prefix, message, channel, target, opts)
 			return recordMessage(prefix, message, channel, target, opts)
@@ -2325,71 +2297,13 @@ local function createDistributionSessionFixture(addon, localName)
 	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Loot/DistributionSession.lua")
 	fixture.owner = addon.Services.Loot.DistributionSession
-	local function optionalText(value)
-		return value ~= nil and value ~= "" and value or false
+	function fixture:Deliver(kind, body, sender, requestId, target)
+		local message = assert(payload.Serialize({ 5, kind, requestId or false, target or false, body }))
+		local channel = target and "WHISPER" or "RAID"
+		return self.owner.HandleMessage("RMADist", message, channel, sender or self.authority)
 	end
-	local function optionalNumber(value)
-		return value ~= nil and value ~= "" and tonumber(value) or false
-	end
-	local function convertLegacyMessage(message)
-		local fields = splitFields(message, "|", {})
-		local kind = fields[1]
-		local requestId = false
-		local body
-		if kind == "CLEAR" then
-			body = { sessionId = fields[3] }
-		elseif kind == "ITEM" then
-			body = { fields[3], fields[4], tonumber(fields[5]), tonumber(fields[6]), fields[7], fields[8], fields[9], tonumber(fields[10]) }
-		elseif kind == "WINDOW_BEGIN" then
-			body = { fields[3], tonumber(fields[4]), tonumber(fields[5]) }
-		elseif kind == "WINDOW_ITEM" then
-			body = { fields[3], tonumber(fields[4]), fields[5], tonumber(fields[6]), tonumber(fields[7]), fields[8], fields[9], fields[10], tonumber(fields[11]) }
-		elseif kind == "WINDOW_END" or kind == "SESSION_END" then
-			body = { fields[3], tonumber(fields[4]) }
-		elseif kind == "ROLL_START" then
-			body = { fields[3], fields[4], optionalNumber(fields[5]), optionalNumber(fields[6]) }
-		elseif kind == "ROLL_END" then
-			body = { fields[3], fields[4], optionalText(fields[5]), optionalNumber(fields[6]), optionalText(fields[7]) }
-		elseif kind == "ITEM_DONE" then
-			body = { fields[3], fields[4], optionalText(fields[5]) }
-		elseif kind == "ITEM_CANCELLED" then
-			body = { fields[3], fields[4], optionalText(fields[5]), optionalText(fields[6]) }
-		elseif kind == "ROLL_TICK" then
-			body = { fields[3], fields[4], optionalNumber(fields[5]) }
-		elseif kind == "TIE_START" then
-			body = { fields[3], fields[4], optionalText(fields[5]) }
-		elseif kind == "AWARDED" then
-			body = { fields[3], fields[4], optionalText(fields[5]), optionalText(fields[6]), optionalNumber(fields[7]) }
-		elseif kind == "HELLO" then
-			body = {}
-		elseif kind == "SNAP_REQ" then
-			requestId = optionalText(fields[3])
-			body = {}
-		elseif kind == "SNAP" then
-			requestId = optionalText(fields[3])
-			local rows = {}
-			if fields[5] and fields[5] ~= "" then
-				rows[1] = {
-					itemKey = fields[5], count = optionalNumber(fields[6]), quality = optionalNumber(fields[7]),
-					itemLink = optionalText(fields[8]), itemName = optionalText(fields[9]),
-					itemTexture = optionalText(fields[10]), slot = optionalNumber(fields[11]),
-					state = optionalText(fields[12]), rollType = optionalText(fields[13]),
-					duration = optionalNumber(fields[14]), winnerName = optionalText(fields[15]),
-					rollValue = optionalNumber(fields[16]), reason = optionalText(fields[17]),
-					remaining = optionalNumber(fields[18]), tieNamesText = optionalText(fields[19]),
-				}
-			end
-			body = { fields[4], assert(payload.Serialize(rows)) }
-		elseif kind == "SNAP_CHUNK" then
-			requestId = optionalText(fields[3])
-			body = { fields[4], tonumber(fields[5]), tonumber(fields[6]), fields[7] }
-		else
-			return message
-		end
-		return assert(payload.Serialize({ 5, kind, requestId, false, body }))
-	end
-	function fixture:Deliver(message, sender)
-		return self.owner.HandleMessage("RMADist", convertLegacyMessage(message), "RAID", sender or self.authority)
+	function fixture:SnapshotBody(sessionId, rows)
+		return { sessionId, assert(payload.Serialize(rows)) }
 	end
 	function fixture:CountSent(kind)
 		local count = 0
@@ -2412,6 +2326,26 @@ local function distributionItem(key, slot)
 		count = 1,
 		quality = 4,
 		slot = slot,
+	}
+end
+
+local function distributionSnapshotRow(itemKey, itemName)
+	return {
+		itemKey = itemKey,
+		count = 1,
+		quality = 4,
+		itemLink = itemKey,
+		itemName = itemName,
+		itemTexture = "texture",
+		slot = 1,
+		state = "active",
+		rollType = false,
+		duration = false,
+		winnerName = false,
+		rollValue = false,
+		reason = false,
+		remaining = false,
+		tieNamesText = false,
 	}
 end
 
@@ -2476,61 +2410,61 @@ end
 function cases.loot_distribution_window_receiver_is_session_scoped(addon)
 	local fixture = createDistributionSessionFixture(addon)
 	local owner = fixture.owner
-	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:1:10|1|1")
-	fixture:Deliver("WINDOW_ITEM|2|LeaderA:1:10|1|item:old|1|4|item:old|Old|texture|1")
-	fixture:Deliver("WINDOW_END|2|LeaderA:1:10|1")
+	fixture:Deliver("WINDOW_BEGIN", { "LeaderA:1:10", 1, 1 })
+	fixture:Deliver("WINDOW_ITEM", { "LeaderA:1:10", 1, "item:old", 1, 4, "item:old", "Old", "texture", 1 })
+	fixture:Deliver("WINDOW_END", { "LeaderA:1:10", 1 })
 	local committed = owner.GetDisplayModel()
 	assertEqual(1, committed.revision, "initial complete revision did not commit")
 	assertEqual("item:old", committed.rows[1].itemKey, "initial row differs")
 
-	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:1:10|2|2")
-	fixture:Deliver("WINDOW_ITEM|2|LeaderA:1:10|2|item:new|1|4|item:new|New|texture|1")
-	fixture:Deliver("WINDOW_END|2|LeaderA:1:10|2")
+	fixture:Deliver("WINDOW_BEGIN", { "LeaderA:1:10", 2, 2 })
+	fixture:Deliver("WINDOW_ITEM", { "LeaderA:1:10", 2, "item:new", 1, 4, "item:new", "New", "texture", 1 })
+	fixture:Deliver("WINDOW_END", { "LeaderA:1:10", 2 })
 	assertTrue(deepEqual(committed, owner.GetDisplayModel()), "missing row replaced complete display")
 
-	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:1:10|2|1")
-	fixture:Deliver("WINDOW_ITEM|2|LeaderA:1:10|2|item:dup|1|4|item:dup|Dup|texture|1")
-	fixture:Deliver("WINDOW_ITEM|2|LeaderA:1:10|2|item:dup|1|4|item:dup|Changed|texture|1")
-	fixture:Deliver("WINDOW_END|2|LeaderA:1:10|2")
+	fixture:Deliver("WINDOW_BEGIN", { "LeaderA:1:10", 2, 1 })
+	fixture:Deliver("WINDOW_ITEM", { "LeaderA:1:10", 2, "item:dup", 1, 4, "item:dup", "Dup", "texture", 1 })
+	fixture:Deliver("WINDOW_ITEM", { "LeaderA:1:10", 2, "item:dup", 1, 4, "item:dup", "Changed", "texture", 1 })
+	fixture:Deliver("WINDOW_END", { "LeaderA:1:10", 2 })
 	assertTrue(deepEqual(committed, owner.GetDisplayModel()), "duplicate row replaced complete display")
 
-	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:1:10|2|0")
-	fixture:Deliver("WINDOW_END|2|LeaderA:1:10|2")
+	fixture:Deliver("WINDOW_BEGIN", { "LeaderA:1:10", 2, 0 })
+	fixture:Deliver("WINDOW_END", { "LeaderA:1:10", 2 })
 	local empty = owner.GetDisplayModel()
 	assertEqual(2, empty.revision, "complete zero-row revision did not commit")
 	assertEqual(0, #empty.rows, "zero-row window retained rows")
 
-	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:1:10|3|129")
-	fixture:Deliver("WINDOW_ITEM|2|LeaderA:1:10|3|item:oversized|1|4|item:oversized|Oversized|texture|1")
-	fixture:Deliver("WINDOW_END|2|LeaderA:1:10|3")
+	fixture:Deliver("WINDOW_BEGIN", { "LeaderA:1:10", 3, 129 })
+	fixture:Deliver("WINDOW_ITEM", { "LeaderA:1:10", 3, "item:oversized", 1, 4, "item:oversized", "Oversized", "texture", 1 })
+	fixture:Deliver("WINDOW_END", { "LeaderA:1:10", 3 })
 	assertTrue(deepEqual(empty, owner.GetDisplayModel()), "oversized expected row count mutated display")
 
-	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:1:10|2|1")
-	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:1:10|4|1")
-	fixture:Deliver("WINDOW_ITEM|2|LeaderA:1:10|4|item:gap|1|4|item:gap|Gap|texture|1")
-	fixture:Deliver("WINDOW_END|2|LeaderA:1:10|4")
+	fixture:Deliver("WINDOW_BEGIN", { "LeaderA:1:10", 2, 1 })
+	fixture:Deliver("WINDOW_BEGIN", { "LeaderA:1:10", 4, 1 })
+	fixture:Deliver("WINDOW_ITEM", { "LeaderA:1:10", 4, "item:gap", 1, 4, "item:gap", "Gap", "texture", 1 })
+	fixture:Deliver("WINDOW_END", { "LeaderA:1:10", 4 })
 	assertTrue(deepEqual(empty, owner.GetDisplayModel()), "equal or gapped revision mutated display")
-	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:2:20|1|0")
-	fixture:Deliver("WINDOW_END|2|LeaderA:2:20|1")
+	fixture:Deliver("WINDOW_BEGIN", { "LeaderA:2:20", 1, 0 })
+	fixture:Deliver("WINDOW_END", { "LeaderA:2:20", 1 })
 	local nextSession = owner.GetDisplayModel()
 	assertEqual("LeaderA:2:20", nextSession.sessionId, "same authority could not advance to a new session")
-	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:1:10|3|0")
-	fixture:Deliver("WINDOW_END|2|LeaderA:1:10|3")
+	fixture:Deliver("WINDOW_BEGIN", { "LeaderA:1:10", 3, 0 })
+	fixture:Deliver("WINDOW_END", { "LeaderA:1:10", 3 })
 	assertTrue(deepEqual(nextSession, owner.GetDisplayModel()), "superseded same-authority session resurrected")
 
 	fixture.authority = "LeaderB"
-	fixture:Deliver("WINDOW_BEGIN|2|LeaderB:1:30|1|1", "LeaderB")
+	fixture:Deliver("WINDOW_BEGIN", { "LeaderB:1:30", 1, 1 }, "LeaderB")
 	assertTrue(
 		owner._streams["LeaderB|LeaderB:1:30"] and owner._streams["LeaderB|LeaderB:1:30"].window,
 		"new authority begin was rejected"
 	)
-	fixture:Deliver("WINDOW_ITEM|2|LeaderB:1:30|1|item:b|1|4|item:b|B|texture|1", "LeaderB")
+	fixture:Deliver("WINDOW_ITEM", { "LeaderB:1:30", 1, "item:b", 1, 4, "item:b", "B", "texture", 1 }, "LeaderB")
 	assertEqual(1, #owner._streams["LeaderB|LeaderB:1:30"].window.order, "new authority row was rejected")
-	fixture:Deliver("WINDOW_END|2|LeaderB:1:30|1", "LeaderB")
+	fixture:Deliver("WINDOW_END", { "LeaderB:1:30", 1 }, "LeaderB")
 	local authorityDisplay = owner.GetDisplayModel()
 	assertEqual("LeaderB:1:30", authorityDisplay.sessionId, "new authority did not replace session")
-	fixture:Deliver("WINDOW_BEGIN|2|LeaderA:3:30|4|0", "LeaderA")
-	fixture:Deliver("WINDOW_END|2|LeaderA:3:30|4", "LeaderA")
+	fixture:Deliver("WINDOW_BEGIN", { "LeaderA:3:30", 4, 0 }, "LeaderA")
+	fixture:Deliver("WINDOW_END", { "LeaderA:3:30", 4 }, "LeaderA")
 	assertTrue(deepEqual(authorityDisplay, owner.GetDisplayModel()), "delayed old-authority window mutated display")
 	print("PASS loot_distribution_window_receiver_is_session_scoped")
 end
@@ -2538,20 +2472,25 @@ end
 function cases.loot_distribution_snapshot_cannot_resurrect_ended_session(addon)
 	local fixture = createDistributionSessionFixture(addon)
 	local owner = fixture.owner
-	fixture:Deliver("WINDOW_BEGIN|2|ended|1|1")
-	fixture:Deliver("WINDOW_ITEM|2|ended|1|item:old|1|4|item:old|Old|texture|1")
-	fixture:Deliver("WINDOW_END|2|ended|1")
-	fixture:Deliver("SESSION_END|2|ended|1")
+	fixture:Deliver("WINDOW_BEGIN", { "ended", 1, 1 })
+	fixture:Deliver("WINDOW_ITEM", { "ended", 1, "item:old", 1, 4, "item:old", "Old", "texture", 1 })
+	fixture:Deliver("WINDOW_END", { "ended", 1 })
+	fixture:Deliver("SESSION_END", { "ended", 1 })
 	local ended = owner.GetDisplayModel()
 	assertEqual(0, #ended.rows, "session end must clear owned display")
-	local snapshot = "item:resurrect|1|4|item:resurrect|Resurrect|texture|1|active|||||||"
-	fixture:Deliver("SNAP|2|request|ended|" .. snapshot)
+	local snapshot = {
+		itemKey = "item:resurrect", count = 1, quality = 4, itemLink = "item:resurrect",
+		itemName = "Resurrect", itemTexture = "texture", slot = 1, state = "active",
+		rollType = false, duration = false, winnerName = false, rollValue = false,
+		reason = false, remaining = false, tieNamesText = false,
+	}
+	fixture:Deliver("SNAP", fixture:SnapshotBody("ended", { snapshot }), nil, "request")
 	assertTrue(deepEqual(ended, owner.GetDisplayModel()), "snapshot resurrected ended session")
-	fixture:Deliver("WINDOW_BEGIN|2|ended|2|0")
-	fixture:Deliver("WINDOW_END|2|ended|2")
+	fixture:Deliver("WINDOW_BEGIN", { "ended", 2, 0 })
+	fixture:Deliver("WINDOW_END", { "ended", 2 })
 	assertTrue(deepEqual(ended, owner.GetDisplayModel()), "atomic traffic resurrected tombstoned session")
-	fixture:Deliver("ROLL_END|2|ended|item:old|Winner|100|late")
-	assertTrue(deepEqual(ended, owner.GetDisplayModel()), "legacy state traffic resurrected tombstoned session")
+	fixture:Deliver("ROLL_END", { "ended", "item:old", "Winner", 100, "late" })
+	assertTrue(deepEqual(ended, owner.GetDisplayModel()), "late state traffic resurrected tombstoned session")
 	print("PASS loot_distribution_snapshot_cannot_resurrect_ended_session")
 end
 
@@ -2671,7 +2610,7 @@ function cases.loot_distribution_r5_rejects_invalid_body_scalars()
 	local addon = newAddon()
 	local fixture = createDistributionSessionFixture(addon, "Follower")
 	local owner = fixture.owner
-	fixture:Deliver("CLEAR|2|scalar-session")
+	fixture:Deliver("CLEAR", { sessionId = "scalar-session" })
 	local beforeRoll = owner.GetDisplayModel()
 	local invalidRoll = assert(addon.Comms.Payload.Serialize({
 		5,
@@ -2731,7 +2670,7 @@ function cases.loot_distribution_snapshot_requests_are_correlated_and_bounded()
 	local fixture = createDistributionSessionFixture(addon, "Follower")
 	local owner = fixture.owner
 	local payload = addon.Comms.Payload
-	fixture:Deliver("CLEAR|2|unsolicited-session")
+	fixture:Deliver("CLEAR", { sessionId = "unsolicited-session" })
 	local unsolicited = assert(payload.Serialize({
 		5,
 		"SNAP_CHUNK",
@@ -2796,37 +2735,42 @@ function cases.loot_distribution_clear_requires_ordered_owner_transition(addon)
 	local fixture = createDistributionSessionFixture(addon)
 	local owner = fixture.owner
 	local function commit(sessionId, revision, itemKey)
-		fixture:Deliver("WINDOW_BEGIN|2|" .. sessionId .. "|" .. revision .. "|1")
-		fixture:Deliver(
-			"WINDOW_ITEM|2|"
-				.. sessionId
-				.. "|"
-				.. revision
-				.. "|"
-				.. itemKey
-				.. "|1|4|"
-				.. itemKey
-				.. "|Item|texture|1"
-		)
-		fixture:Deliver("WINDOW_END|2|" .. sessionId .. "|" .. revision)
+		fixture:Deliver("WINDOW_BEGIN", { sessionId, revision, 1 })
+		fixture:Deliver("WINDOW_ITEM", { sessionId, revision, itemKey, 1, 4, itemKey, "Item", "texture", 1 })
+		fixture:Deliver("WINDOW_END", { sessionId, revision })
 	end
 	commit("LeaderA:3:30", 1, "item:c")
 	local ownerC = owner.GetDisplayModel()
-	fixture:Deliver("CLEAR|2|LeaderA:2:20")
+	fixture:Deliver("CLEAR", { sessionId = "LeaderA:2:20" })
 	assertTrue(deepEqual(ownerC, owner.GetDisplayModel()), "delayed CLEAR replaced the newer owner")
 	local rejectedRequest = assert(owner.RequestSnapshot())
-	fixture:Deliver("SNAP|2|" .. rejectedRequest .. "|LeaderA:4:40|item:snap|1|4|item:snap|Snap|texture|1|active|||||||")
+	fixture:Deliver(
+		"SNAP",
+		fixture:SnapshotBody("LeaderA:4:40", { distributionSnapshotRow("item:snap", "Snap") }),
+		nil,
+		rejectedRequest
+	)
 	assertTrue(deepEqual(ownerC, owner.GetDisplayModel()), "snapshot changed session without an explicit transition")
-	fixture:Deliver("CLEAR|2|LeaderA:4:40")
+	fixture:Deliver("CLEAR", { sessionId = "LeaderA:4:40" })
 	local cleared = owner.GetDisplayModel()
 	assertEqual("LeaderA:4:40", cleared.sessionId, "newer ordered CLEAR did not transition session")
 	local acceptedRequest = assert(owner.RequestSnapshot())
-	fixture:Deliver("SNAP|2|" .. acceptedRequest .. "|LeaderA:4:40|item:snap|1|4|item:snap|Snap|texture|1|active|||||||")
+	fixture:Deliver(
+		"SNAP",
+		fixture:SnapshotBody("LeaderA:4:40", { distributionSnapshotRow("item:snap", "Snap") }),
+		nil,
+		acceptedRequest
+	)
 	local snapshotOwner = owner.GetDisplayModel()
 	assertEqual("item:snap", snapshotOwner.rows[1].itemKey, "snapshot after explicit CLEAR did not apply")
-	fixture:Deliver("CLEAR|2|LeaderA:5:50")
+	fixture:Deliver("CLEAR", { sessionId = "LeaderA:5:50" })
 	local afterSnapshotClear = owner.GetDisplayModel()
-	fixture:Deliver("SNAP|2|late|LeaderA:4:40|item:late|1|4|item:late|Late|texture|1|active|||||||")
+	fixture:Deliver(
+		"SNAP",
+		fixture:SnapshotBody("LeaderA:4:40", { distributionSnapshotRow("item:late", "Late") }),
+		nil,
+		"late"
+	)
 	assertTrue(deepEqual(afterSnapshotClear, owner.GetDisplayModel()), "superseded snapshot-only owner resurrected")
 	print("PASS loot_distribution_clear_requires_ordered_owner_transition")
 end
@@ -2836,19 +2780,9 @@ function cases.loot_distribution_generated_session_order_is_validated(addon)
 	local owner = fixture.owner
 	fixture.authority = "Authority"
 	local function commit(sessionId, revision, itemKey)
-		fixture:Deliver("WINDOW_BEGIN|2|" .. sessionId .. "|" .. revision .. "|1")
-		fixture:Deliver(
-			"WINDOW_ITEM|2|"
-				.. sessionId
-				.. "|"
-				.. revision
-				.. "|"
-				.. itemKey
-				.. "|1|4|"
-				.. itemKey
-				.. "|Item|texture|1"
-		)
-		fixture:Deliver("WINDOW_END|2|" .. sessionId .. "|" .. revision)
+		fixture:Deliver("WINDOW_BEGIN", { sessionId, revision, 1 })
+		fixture:Deliver("WINDOW_ITEM", { sessionId, revision, itemKey, 1, 4, itemKey, "Item", "texture", 1 })
+		fixture:Deliver("WINDOW_END", { sessionId, revision })
 	end
 	commit("Authority:1:100", 1, "item:current")
 	local current = owner.GetDisplayModel()
@@ -2864,32 +2798,32 @@ function cases.loot_distribution_generated_session_order_is_validated(addon)
 	}
 	for i = 1, #rejected do
 		local sessionId = rejected[i]
-		fixture:Deliver("WINDOW_BEGIN|2|" .. sessionId .. "|1|0")
-		fixture:Deliver("WINDOW_END|2|" .. sessionId .. "|1")
+		fixture:Deliver("WINDOW_BEGIN", { sessionId, 1, 0 })
+		fixture:Deliver("WINDOW_END", { sessionId, 1 })
 		assertTrue(
 			deepEqual(current, owner.GetDisplayModel()),
 			"invalid generated window replaced current session: " .. sessionId
 		)
-		fixture:Deliver("CLEAR|2|" .. sessionId)
+		fixture:Deliver("CLEAR", { sessionId = sessionId })
 		assertTrue(
 			deepEqual(current, owner.GetDisplayModel()),
 			"invalid generated CLEAR replaced current session: " .. sessionId
 		)
 	end
 	fixture.authority = "NextAuthority"
-	fixture:Deliver("CLEAR|2|Other:1:101", "NextAuthority")
+	fixture:Deliver("CLEAR", { sessionId = "Other:1:101" }, "NextAuthority")
 	assertTrue(
 		deepEqual(current, owner.GetDisplayModel()),
 		"new authority admitted a session ID owned by another sender"
 	)
 	fixture.authority = "Authority"
 
-	fixture:Deliver("CLEAR|2|Authority:2:101")
+	fixture:Deliver("CLEAR", { sessionId = "Authority:2:101" })
 	local newer = owner.GetDisplayModel()
 	assertEqual("Authority:2:101", newer.sessionId, "newer timestamp did not replace current session")
-	fixture:Deliver("CLEAR|2|Authority:1:101")
+	fixture:Deliver("CLEAR", { sessionId = "Authority:1:101" })
 	assertTrue(deepEqual(newer, owner.GetDisplayModel()), "lower ordinal replaced session at the same timestamp")
-	fixture:Deliver("CLEAR|2|Authority:3:101")
+	fixture:Deliver("CLEAR", { sessionId = "Authority:3:101" })
 	assertEqual(
 		"Authority:3:101",
 		owner.GetDisplayModel().sessionId,
@@ -2907,22 +2841,22 @@ function cases.loot_distribution_authority_handoff_without_provenance_is_validat
 	assertEqual("Tester:2:10", localClear.sessionId, "local clear did not create the expected generated session")
 
 	fixture.authority = "NewLeader"
-	fixture:Deliver("CLEAR|2|NewLeader:1:20", "NewLeader")
+	fixture:Deliver("CLEAR", { sessionId = "NewLeader:1:20" }, "NewLeader")
 	assertEqual(
 		"NewLeader:1:20",
 		owner.GetDisplayModel().sessionId,
 		"new authority CLEAR was rejected without owner provenance"
 	)
-	fixture:Deliver("WINDOW_BEGIN|2|NewLeader:2:30|1|1", "NewLeader")
-	fixture:Deliver("WINDOW_ITEM|2|NewLeader:2:30|1|item:new|1|4|item:new|New|texture|1", "NewLeader")
-	fixture:Deliver("WINDOW_END|2|NewLeader:2:30|1", "NewLeader")
+	fixture:Deliver("WINDOW_BEGIN", { "NewLeader:2:30", 1, 1 }, "NewLeader")
+	fixture:Deliver("WINDOW_ITEM", { "NewLeader:2:30", 1, "item:new", 1, 4, "item:new", "New", "texture", 1 }, "NewLeader")
+	fixture:Deliver("WINDOW_END", { "NewLeader:2:30", 1 }, "NewLeader")
 	local active = owner.GetDisplayModel()
 	assertEqual("NewLeader:2:30", active.sessionId, "new authority window did not become active")
 	assertEqual("item:new", active.rows[1].itemKey, "new authority window row differs")
 
-	fixture:Deliver("CLEAR|2|NewLeader:1:29", "NewLeader")
+	fixture:Deliver("CLEAR", { sessionId = "NewLeader:1:29" }, "NewLeader")
 	assertTrue(deepEqual(active, owner.GetDisplayModel()), "older same-authority candidate replaced active session")
-	fixture:Deliver("CLEAR|2|NewLeader:invalid", "NewLeader")
+	fixture:Deliver("CLEAR", { sessionId = "NewLeader:invalid" }, "NewLeader")
 	assertTrue(deepEqual(active, owner.GetDisplayModel()), "malformed same-authority candidate replaced active session")
 	print("PASS loot_distribution_authority_handoff_without_provenance_is_validated")
 end
@@ -3169,10 +3103,10 @@ end
 
 function cases.loot_distribution_remote_final_award_is_complete_and_idempotent(addon)
 	local fixture = createDistributionSessionFixture(addon)
-	fixture:Deliver("ITEM|2|LeaderA:1:10|item:19019|3|4|item:19019|Thunderfury|texture|1")
-	fixture:Deliver("ROLL_START|2|LeaderA:1:10|item:19019|1|")
-	fixture:Deliver("ROLL_END|2|LeaderA:1:10|item:19019|Winner|99|master_loot:AT:1")
-	fixture:Deliver("ITEM_DONE|2|LeaderA:1:10|item:19019|Winner")
+	fixture:Deliver("ITEM", { "LeaderA:1:10", "item:19019", 3, 4, "item:19019", "Thunderfury", "texture", 1 })
+	fixture:Deliver("ROLL_START", { "LeaderA:1:10", "item:19019", 1, false })
+	fixture:Deliver("ROLL_END", { "LeaderA:1:10", "item:19019", "Winner", 99, "master_loot:AT:1" })
+	fixture:Deliver("ITEM_DONE", { "LeaderA:1:10", "item:19019", "Winner" })
 	local doneEvents = 0
 	local final
 	for i = 1, #fixture.events do
@@ -3191,7 +3125,7 @@ function cases.loot_distribution_remote_final_award_is_complete_and_idempotent(a
 	assertEqual("master_loot:AT:1", final.row.reason, "final award transaction reason differs")
 	assertEqual("Winner", final.row.winnerName, "final award winner differs")
 
-	fixture:Deliver("ITEM_DONE|2|LeaderA:1:10|item:19019|Winner")
+	fixture:Deliver("ITEM_DONE", { "LeaderA:1:10", "item:19019", "Winner" })
 	doneEvents = 0
 	local replayEvents = 0
 	for i = 1, #fixture.events do
@@ -5915,72 +5849,6 @@ function cases.raid_reentry_create_defers_attendance_until_transition_finishes(a
 	assertEqual(true, raid:NotifyDeferredRaidCreate(deferredRaidId))
 	assertEqual(2, fixture.attendanceCommits, "attendance did not seed after the deferred RaidCreate")
 	print("PASS raid_reentry_create_defers_attendance_until_transition_finishes")
-end
-
-function cases.raid_reentry_popup_routes_explicit_decisions(addon)
-	local callbacks, dialogs, resolved = {}, {}, {}
-	addon.Events = {
-		Internal = {
-			RaidReentryDecisionRequired = "RaidReentryDecisionRequired",
-			RaidReentryDecisionResolved = "RaidReentryDecisionResolved",
-		},
-	}
-	addon.Bus = {
-		RegisterCallback = function(eventName, callback)
-			callbacks[eventName] = callback
-		end,
-		TriggerEvent = function(eventName, ...)
-			if eventName == "RaidReentryDecisionResolved" then
-				resolved[#resolved + 1] =
-					{ raidUid = select(1, ...), decision = select(2, ...), context = select(3, ...) }
-			end
-		end,
-	}
-	addon.L = { PopupRaidReentryConfirm = "Resume the previous raid?\nZone: %s\nSize: %d\nDifficulty: %s" }
-	addon.Services = { Raid = { Projections = {
-		GetDifficultyLabel = function()
-			return "10N"
-		end,
-	} } }
-	addon.UI = {
-		Popups = {
-			Define = function(key, dialog)
-				dialogs[key] = dialog
-				return true
-			end,
-			IsDefined = function(key)
-				return dialogs[key] ~= nil
-			end,
-			Show = function(key, text, _, data)
-				addon._shown = { key = key, text = text, data = data }
-				return true
-			end,
-		},
-	}
-	_G.YES, _G.NO = "Yes", "No"
-	loadAddonFile(addon, "Raid Management Addon/Controllers/RaidRecovery.lua")
-	callbacks.RaidReentryDecisionRequired(nil, {
-		raidUid = "raid-live",
-		context = { zone = "Naxxramas", size = 10, difficulty = 1 },
-		raid = { zone = "Naxxramas", size = 10, difficulty = 1 },
-	})
-	local shown = assert(addon._shown, "re-entry popup was not shown")
-	assertEqual("RMA_RAID_REENTRY_CONFIRM", shown.key)
-	assertTrue(string.find(shown.text, "Naxxramas", 1, true) ~= nil)
-	assertTrue(string.find(shown.text, "10", 1, true) ~= nil)
-	assertTrue(string.find(shown.text, "10N", 1, true) ~= nil)
-	local dialog = assert(dialogs[shown.key], "re-entry popup was not defined")
-	dialog.OnAccept(nil, shown.data)
-	assertEqual("resume", resolved[1].decision)
-	dialog.OnCancel(nil, shown.data, "clicked")
-	assertEqual("replace", resolved[2].decision)
-	if dialog.hideOnEscape then
-		dialog.OnCancel(nil, shown.data, "escape")
-	end
-	assertEqual(false, dialog.hideOnEscape, "Escape could silently choose No")
-	assertEqual(2, #resolved, "Escape emitted a recovery decision")
-	assertEqual(nil, dialog.OnHide, "popup hide mutated recovery")
-	print("PASS raid_reentry_popup_routes_explicit_decisions")
 end
 
 function cases.raid_state_resolves_roster_timers_after_toc_order_load(addon)
@@ -19422,6 +19290,573 @@ function cases.raid_capabilities_accept_numeric_unit_identity(addon)
 	print("PASS raid_capabilities_accept_numeric_unit_identity")
 end
 
+function cases.rma_manual_loot_method_enforces_authority(addon)
+	local fixture = {
+		inRaid = true,
+		isLeader = true,
+		lootMethod = "group",
+	}
+	local calls = {}
+
+	_G.UnitInRaid = function() return fixture.inRaid end
+	_G.UnitName = function(unit)
+		if unit == "player" then return "Tester" end
+		return nil
+	end
+	_G.SetLootMethod = function(method, masterLooter)
+		calls[#calls + 1] = { method = method, masterLooter = masterLooter }
+	end
+	_G.GetTime = function() return 0 end
+	_G.UnitExists = function() return false end
+	_G.UnitGUID = function() return nil end
+	_G.UnitIsDead = function() return false end
+
+	addon.L = {
+		MsgQuickBarLootMethodUnsupported = "RMA: Unsupported loot method.",
+		MsgQuickBarRaidRequired = "RMA: You must be in a raid to change the loot method.",
+		MsgQuickBarLeaderRequired = "RMA: Only the raid leader can change the loot method.",
+		MsgQuickBarPlayerNameUnavailable = "RMA: Your player name is unavailable.",
+		MsgQuickBarMasterLootSet = "RMA: Loot method set to Master Loot.",
+		MsgQuickBarGroupLootSet = "RMA: Loot method set to Group Loot.",
+	}
+	addon.Bus.TriggerEvent = function() end
+	addon.Database.GetPlayerName = function() return "Tester" end
+	addon.Events.Internal = {
+		ScreenNotice = "ScreenNotice",
+		GroupLootRestoreNeeded = "GroupLootRestoreNeeded",
+	}
+	addon.Options = {
+		RegisterNamespace = function() end,
+		GetValue = function() return false end,
+	}
+	addon.Services.EnsureNamespace = function(name)
+		addon.Services[name] = addon.Services[name] or {}
+		return addon.Services[name]
+	end
+	addon.Services.Raid = {
+		GetCreatureId = function() return nil end,
+		GetPlayerRoleState = function() return { isLeader = fixture.isLeader } end,
+		GetLootMethodName = function() return fixture.lootMethod end,
+	}
+	addon.warn = function() end
+	addon.info = function() end
+
+	loadAddonFile(addon, "Raid Management Addon/Services/Raid/LootMethod.lua")
+	local Raid = addon.Services.Raid
+	assertEqual(false, Raid:RequestLootMethod("freeforall"), "unsupported methods must be rejected")
+	fixture.inRaid = false
+	assertEqual(false, Raid:RequestLootMethod("master"), "solo players must be rejected")
+	fixture.inRaid = true
+	fixture.isLeader = false
+	assertEqual(false, Raid:RequestLootMethod("group"), "non-leaders must be rejected")
+	fixture.isLeader = true
+	assertEqual(true, Raid:RequestLootMethod("master"), "leader master-loot request must succeed")
+	assertEqual("master", calls[1].method, "master-loot method differs")
+	assertEqual("Tester", calls[1].masterLooter, "master looter must be the player")
+	fixture.lootMethod = "group"
+	assertEqual(true, Raid:RequestLootMethod("group"), "already-active method must be idempotent")
+	assertEqual(1, #calls, "idempotent request must not call SetLootMethod")
+	print("PASS rma_manual_loot_method_enforces_authority")
+end
+
+function cases.rma_quick_bar_routes_actions_and_persists_position(addon)
+	local fixture = {
+		lootMethod = "group",
+		historyToggles = 0,
+		reservesToggles = 0,
+		warningToggles = 0,
+	}
+	local minimapStore = { values = {} }
+	function minimapStore:Get(key) return self.values[key] end
+	function minimapStore:Set(key, value) self.values[key] = value end
+	local callbacks = {}
+
+	local function makeWidget(width, height)
+		local widget = { width = width or 0, height = height or 0, shown = true }
+		function widget:SetScript(kind, callback) self[kind] = callback end
+		function widget:RegisterForClicks() end
+		function widget:SetText(text) self.text = text end
+		function widget:SetVertexColor(r, g, b) self.vertexColor = { r, g, b } end
+		function widget:ClearAllPoints() self.point = nil end
+		function widget:SetPoint(point, relativeTo, relativePoint, x, y)
+			self.point, self.relativeTo, self.relativePoint, self.x, self.y = point, relativeTo, relativePoint, x, y
+		end
+		function widget:SetSize(newWidth, newHeight) self.width, self.height = newWidth, newHeight end
+		function widget:GetWidth() return self.width end
+		function widget:GetHeight() return self.height end
+		function widget:Show() self.shown = true end
+		function widget:Hide() self.shown = false end
+		function widget:IsShown() return self.shown end
+		function widget:Click() self.OnClick(self) end
+		function widget:MouseDown(button) self.OnMouseDown(self, button) end
+		function widget:MouseUp(button) self.OnMouseUp(self, button) end
+		return widget
+	end
+	local function makeFrame(centerX, centerY)
+		local frame = makeWidget(206, 32)
+		frame.name = "RMAQuickBarFrame"
+		frame.shown = false
+		frame.centerX, frame.centerY = centerX or 512, centerY or 204
+		function frame:GetName() return self.name end
+		function frame:GetCenter() return self.centerX, self.centerY end
+		function frame:StartMoving() self.moving = true end
+		function frame:StopMovingOrSizing() self.moving = false end
+		return frame
+	end
+	local frame = makeFrame()
+
+	local refs = {
+		Handle = makeWidget(24, 24),
+		ML = makeWidget(32, 24),
+		GL = makeWidget(32, 24),
+		HIS = makeWidget(38, 24),
+		SR = makeWidget(32, 24),
+		RW = makeWidget(32, 24),
+		Separator1 = makeWidget(),
+		Separator2 = makeWidget(),
+		Separator3 = makeWidget(),
+		MLGlow = makeWidget(50, 50),
+		GLGlow = makeWidget(50, 50),
+	}
+	_G.UIParent = {
+		GetWidth = function() return 1024 end,
+		GetHeight = function() return 768 end,
+		GetCenter = function() return 512, 384 end,
+	}
+	_G.RMAQuickBarFrame = frame
+	addon.Bus = {
+		TriggerEvent = function(eventName, ...)
+			local callback = callbacks[eventName]
+			if callback then callback(...) end
+		end,
+		RegisterCallback = function(eventName, callback) callbacks[eventName] = callback end,
+	}
+	installInitStubs(addon)
+	loadAddonFile(addon, "Raid Management Addon/Init.lua")
+	addon.L = {
+		BtnQuickBarML = "ML", BtnQuickBarGL = "GL", BtnQuickBarHIS = "HIS", BtnQuickBarSR = "SR", BtnQuickBarRW = "RW",
+		StrQuickBarHandleTooltip = "drag", StrQuickBarMasterLootTooltip = "master", StrQuickBarGroupLootTooltip = "group",
+		StrQuickBarHistoryTooltip = "history", StrQuickBarSoftResTooltip = "reserves", StrQuickBarRaidWarningTooltip = "warnings",
+		PopupQuickBarMasterLoot = "master?", PopupQuickBarGroupLoot = "group?",
+	}
+	addon.Options = { RegisterNamespace = function(_, defaults)
+		local quickBarKeyCount = 0
+		for key in pairs(defaults) do
+			assertTrue(
+				key == "quickBar" or key == "quickBarX" or key == "quickBarY"
+				or key == "quickBarOrientation" or key == "quickBarShowML" or key == "quickBarShowGL"
+				or key == "quickBarShowSR" or key == "quickBarShowHIS" or key == "quickBarShowRW",
+				"QuickBar options contain an unexpected key"
+			)
+			quickBarKeyCount = quickBarKeyCount + 1
+		end
+		assertEqual(9, quickBarKeyCount, "QuickBar options must contain exactly nine keys")
+		for key, value in pairs(defaults) do
+			if minimapStore.values[key] == nil then minimapStore.values[key] = value end
+		end
+		return minimapStore
+	end }
+	addon.UI = {
+		Frames = {
+			GetRef = function(_, suffix) return refs[suffix] end,
+			SetScriptSafely = function(widget, kind, callback) widget:SetScript(kind, callback) end,
+			SetShown = function(target, shown) if shown then target:Show() else target:Hide() end end,
+		},
+		Tooltips = { Bind = function() end },
+		Popups = { ShowConfirm = function(key, _, accept) fixture.popupKey, fixture.popupAccept = key, accept end },
+	}
+	addon.Controllers = {
+		Logger = { ToggleLootHistory = function() fixture.historyToggles = fixture.historyToggles + 1 end },
+		Warnings = { Toggle = function() fixture.warningToggles = fixture.warningToggles + 1 end },
+	}
+	addon.Widgets = { ReservesUI = { Toggle = function() fixture.reservesToggles = fixture.reservesToggles + 1 end } }
+	addon.Services.Raid = {
+		GetLootMethodName = function() return fixture.lootMethod end,
+		RequestLootMethod = function(_, method)
+			fixture.requestedMethod = method
+			if not fixture.deferLootMethodUpdate then
+				fixture.lootMethod = method
+			end
+			return true
+		end,
+	}
+
+	loadAddonFile(addon, "Raid Management Addon/Controllers/QuickBar.lua")
+	local controller = addon.Controllers.QuickBar
+	controller:EnsureUI()
+	assertEqual(false, controller:IsShown(), "QuickBar must default to hidden")
+	assertEqual(false, frame:IsShown(), "default-hidden frame must stay hidden")
+	assertEqual(0, frame.x, "default X differs")
+	assertEqual(-180, frame.y, "default Y differs")
+	fixture.deferLootMethodUpdate = true
+	refs.ML:Click()
+	assertEqual("RMA_QUICK_BAR_MASTER_LOOT", fixture.popupKey, "ML popup key differs")
+	fixture.popupAccept()
+	assertEqual("master", fixture.requestedMethod, "ML action differs")
+	assertEqual(true, refs.MLGlow:IsShown(), "successful ML request must update the glow immediately")
+	assertEqual(false, refs.GLGlow:IsShown(), "successful ML request must clear the GL glow immediately")
+	fixture.deferLootMethodUpdate = false
+	fixture.lootMethod = "master"
+	addon:PARTY_LOOT_METHOD_CHANGED()
+	fixture.deferLootMethodUpdate = true
+	refs.GL:Click()
+	fixture.popupAccept()
+	assertEqual("group", fixture.requestedMethod, "GL action differs")
+	assertEqual(false, refs.MLGlow:IsShown(), "successful GL request must clear the ML glow immediately")
+	assertEqual(true, refs.GLGlow:IsShown(), "successful GL request must update the glow immediately")
+	fixture.deferLootMethodUpdate = false
+	fixture.lootMethod = "group"
+	addon:PARTY_LOOT_METHOD_CHANGED()
+	refs.HIS:Click()
+	refs.SR:Click()
+	refs.RW:Click()
+	assertEqual(1, fixture.historyToggles, "history toggle count differs")
+	assertEqual(1, fixture.reservesToggles, "SoftRes toggle count differs")
+	assertEqual(1, fixture.warningToggles, "warning toggle count differs")
+	assertEqual(false, refs.MLGlow:IsShown(), "group loot must hide ML glow")
+	assertEqual(true, refs.GLGlow:IsShown(), "group loot must show GL glow")
+	fixture.lootMethod = "master"
+	addon:PARTY_LOOT_METHOD_CHANGED()
+	assertEqual(true, refs.MLGlow:IsShown(), "master loot must show ML glow")
+	assertEqual(false, refs.GLGlow:IsShown(), "master loot must hide GL glow")
+	frame.centerX, frame.centerY = 612, 284
+	refs.Handle:MouseDown("LeftButton")
+	refs.Handle:MouseUp("LeftButton")
+	assertEqual(100, minimapStore:Get("quickBarX"), "saved X differs")
+	assertEqual(-100, minimapStore:Get("quickBarY"), "saved Y differs")
+	controller:SetShown(true)
+	assertEqual(true, minimapStore:Get("quickBar"), "visibility must persist")
+
+	addon.Controllers.QuickBar = nil
+	local restoredFrame = makeFrame()
+	_G.RMAQuickBarFrame = restoredFrame
+	loadAddonFile(addon, "Raid Management Addon/Controllers/QuickBar.lua")
+	local restoredController = addon.Controllers.QuickBar
+	restoredController:EnsureUI()
+	assertEqual(true, restoredController:IsShown(), "saved visibility must restore")
+	assertEqual(true, restoredFrame:IsShown(), "saved-visible frame must restore")
+	assertEqual(100, restoredFrame.x, "restored X differs")
+	assertEqual(-100, restoredFrame.y, "restored Y differs")
+
+	minimapStore:Set("quickBarX", 10000)
+	minimapStore:Set("quickBarY", -10000)
+	addon.Controllers.QuickBar = nil
+	local clampedFrame = makeFrame()
+	_G.RMAQuickBarFrame = clampedFrame
+	loadAddonFile(addon, "Raid Management Addon/Controllers/QuickBar.lua")
+	addon.Controllers.QuickBar:EnsureUI()
+	assertEqual(403.5, clampedFrame.x, "clamped X differs")
+	assertEqual(-368, clampedFrame.y, "clamped Y differs")
+	print("PASS rma_quick_bar_routes_actions_and_persists_position")
+end
+
+function cases.rma_quick_bar_configures_layout_and_glow(addon)
+	local fixture = { lootMethod = "group" }
+	local minimapStore = { values = {} }
+	function minimapStore:Get(key) return self.values[key] end
+	function minimapStore:Set(key, value) self.values[key] = value end
+	local callbacks = {}
+
+	local function makeWidget(width, height)
+		local widget = { width = width or 0, height = height or 0, shown = true }
+		function widget:SetScript(kind, callback) self[kind] = callback end
+		function widget:RegisterForClicks() end
+		function widget:SetText(text) self.text = text end
+		function widget:SetVertexColor(r, g, b) self.vertexColor = { r, g, b } end
+		function widget:ClearAllPoints() self.point = nil end
+		function widget:SetPoint(point, relativeTo, relativePoint, x, y)
+			self.point, self.relativeTo, self.relativePoint, self.x, self.y = point, relativeTo, relativePoint, x, y
+		end
+		function widget:SetSize(newWidth, newHeight) self.width, self.height = newWidth, newHeight end
+		function widget:GetWidth() return self.width end
+		function widget:GetHeight() return self.height end
+		function widget:Show() self.shown = true end
+		function widget:Hide() self.shown = false end
+		function widget:IsShown() return self.shown end
+		return widget
+	end
+	local frame = makeWidget(206, 32)
+	frame.name = "RMAQuickBarFrame"
+	frame.shown = false
+	frame.centerX, frame.centerY = 512, 204
+	function frame:GetName() return self.name end
+	function frame:GetCenter() return self.centerX, self.centerY end
+	function frame:StartMoving() self.moving = true end
+	function frame:StopMovingOrSizing() self.moving = false end
+
+	local refs = {
+		Handle = makeWidget(24, 24),
+		ML = makeWidget(32, 24),
+		GL = makeWidget(32, 24),
+		HIS = makeWidget(38, 24),
+		SR = makeWidget(32, 24),
+		RW = makeWidget(32, 24),
+		Separator1 = makeWidget(),
+		Separator2 = makeWidget(),
+		Separator3 = makeWidget(),
+		MLGlow = makeWidget(50, 50),
+		GLGlow = makeWidget(50, 50),
+	}
+	_G.UIParent = {
+		GetWidth = function() return 1024 end,
+		GetHeight = function() return 768 end,
+		GetCenter = function() return 512, 384 end,
+	}
+	_G.RMAQuickBarFrame = frame
+	addon.Bus = {
+		TriggerEvent = function(eventName, ...)
+			local callback = callbacks[eventName]
+			if callback then callback(...) end
+		end,
+		RegisterCallback = function(eventName, callback) callbacks[eventName] = callback end,
+	}
+	installInitStubs(addon)
+	loadAddonFile(addon, "Raid Management Addon/Init.lua")
+	addon.L = {
+		BtnQuickBarML = "ML", BtnQuickBarGL = "GL", BtnQuickBarHIS = "HIS", BtnQuickBarSR = "SR", BtnQuickBarRW = "RW",
+		StrQuickBarHandleTooltip = "drag", StrQuickBarMasterLootTooltip = "master", StrQuickBarGroupLootTooltip = "group",
+		StrQuickBarHistoryTooltip = "history", StrQuickBarSoftResTooltip = "reserves", StrQuickBarRaidWarningTooltip = "warnings",
+		PopupQuickBarMasterLoot = "master?", PopupQuickBarGroupLoot = "group?",
+	}
+	addon.Options = { RegisterNamespace = function(_, defaults)
+		for key, value in pairs(defaults) do
+			if minimapStore.values[key] == nil then minimapStore.values[key] = value end
+		end
+		return minimapStore
+	end }
+	addon.UI = {
+		Frames = {
+			GetRef = function(_, suffix) return refs[suffix] end,
+			SetScriptSafely = function(widget, kind, callback) widget:SetScript(kind, callback) end,
+			SetShown = function(target, shown) if shown then target:Show() else target:Hide() end end,
+		},
+		Tooltips = { Bind = function() end },
+		Popups = { ShowConfirm = function() end },
+	}
+	addon.Controllers = {
+		Logger = { ToggleLootHistory = function() end },
+		Warnings = { Toggle = function() end },
+	}
+	addon.Widgets = { ReservesUI = { Toggle = function() end } }
+	addon.Services.Raid = {
+		GetLootMethodName = function() return fixture.lootMethod end,
+		RequestLootMethod = function() return true end,
+	}
+
+	loadAddonFile(addon, "Raid Management Addon/Controllers/QuickBar.lua")
+	local controller = addon.Controllers.QuickBar
+	controller:EnsureUI()
+	assertEqual("horizontal", controller:GetOrientation(), "default orientation differs")
+	for _, key in ipairs({ "ML", "GL", "SR", "HIS", "RW" }) do
+		assertEqual(true, controller:IsButtonShown(key), key .. " must default visible")
+	end
+
+	controller:SetOrientation("vertical")
+	assertEqual("vertical", minimapStore:Get("quickBarOrientation"), "vertical orientation must persist")
+	assertEqual("TOP", refs.ML.point, "vertical ML anchor differs")
+	assertEqual("TOP", refs.GL.point, "vertical GL anchor differs")
+
+	controller:SetButtonShown("GL", false)
+	controller:SetButtonShown("HIS", false)
+	assertEqual(false, refs.GL:IsShown(), "GL must hide immediately")
+	assertEqual(false, refs.HIS:IsShown(), "HIS must hide immediately")
+	assertEqual(true, refs.Separator1:IsShown(), "separator before SR must remain")
+	assertEqual(true, refs.Separator2:IsShown(), "separator before RW must compact")
+	assertEqual(false, refs.Separator3:IsShown(), "unused separator must hide")
+
+	for _, key in ipairs({ "ML", "SR", "RW" }) do
+		controller:SetButtonShown(key, false)
+	end
+	assertEqual(true, refs.Handle:IsShown(), "handle-only mode must keep the icon")
+	assertEqual(false, refs.Separator1:IsShown(), "handle-only mode must hide separators")
+
+	controller:SetButtonShown("ML", true)
+	fixture.lootMethod = "master"
+	controller:RefreshLootMethod()
+	assertEqual(true, refs.MLGlow:IsShown(), "Master Loot must show ML glow")
+	assertEqual(false, refs.GLGlow:IsShown(), "Master Loot must hide GL glow")
+	controller:SetButtonShown("GL", true)
+	fixture.lootMethod = "group"
+	addon:PARTY_LOOT_METHOD_CHANGED()
+	assertEqual(false, refs.MLGlow:IsShown(), "Group Loot must hide ML glow")
+	assertEqual(true, refs.GLGlow:IsShown(), "Group Loot must show GL glow")
+	print("PASS rma_quick_bar_configures_layout_and_glow")
+end
+
+function cases.rma_minimap_remains_available_without_quick_bar(addon)
+	local fixture = { tooltipCalls = 0, configToggles = 0 }
+	local minimapStore = { values = {} }
+	function minimapStore:Get(key) return self.values[key] end
+	function minimapStore:Set(key, value) self.values[key] = value end
+
+	local frame = { shown = false }
+	function frame:SetScript(kind, callback) self[kind] = callback end
+	function frame:SetUserPlaced() end
+	function frame:ClearAllPoints() end
+	function frame:SetPoint() end
+	function frame:RegisterForClicks() end
+	function frame:Show() self.shown = true end
+	function frame:Hide() self.shown = false end
+	function frame:IsShown() return self.shown end
+	_G.RMA_MINIMAP_GUI = frame
+	_G.UIParent = {}
+	_G.Minimap = { GetCenter = function() return 0, 0 end }
+	_G.CreateFrame = function() return {} end
+	_G.IsAltKeyDown = function() return false end
+	_G.IsShiftKeyDown = function() return false end
+	_G.GetCursorPosition = function() return 0, 0 end
+	_G.EasyMenu = function(menu) fixture.menu = menu end
+	_G.RAID_WARNING = "Raid Warning"
+
+	addon.L = {
+		StrLootMaster = "Loot Master",
+		StrLootReserve = "Loot Reserve",
+		StrLootCounter = "Loot Counter",
+		StrLootHistory = "Loot History",
+		StrRaidAttendance = "Attendance",
+		StrLFMSpam = "LFM Spam",
+		StrClearIcons = "Clear Icons",
+		StrQuickBar = "Show QuickBar",
+		StrMinimapLClick = "left",
+		StrMinimapRClick = "right",
+		StrMinimapSClick = "shift",
+		StrMinimapAClick = "alt",
+	}
+	addon.Options = {
+		RegisterNamespace = function(_, defaults)
+			for key, value in pairs(defaults) do
+				if minimapStore.values[key] == nil then minimapStore.values[key] = value end
+			end
+			return minimapStore
+		end,
+	}
+	addon.UI = {
+		Frames = {
+			Get = function(name) return name == "RMA_MINIMAP_GUI" and frame or nil end,
+			SetShown = function(target, shown) if shown then target:Show() else target:Hide() end end,
+			SetScriptSafely = function(target, kind, callback) target:SetScript(kind, callback) end,
+		},
+		Tooltips = {
+			ShowLines = function() fixture.tooltipCalls = fixture.tooltipCalls + 1 end,
+			Hide = function() end,
+		},
+	}
+	addon.Colors = {
+		WrapText = function(text) return text end,
+		NormalizeHexColor = function(color) return color end,
+	}
+	addon.C = { R_COLOR = "ffffffff" }
+	addon.Services.Raid = {
+		IsPlayerInRaid = function() return false end,
+		CanUseCapability = function() return true end,
+		CanObservePassiveLoot = function() return false end,
+		ClearRaidIcons = function() end,
+	}
+	addon.Controllers = {
+		Master = { Toggle = function() end },
+		Logger = { ToggleLootHistory = function() end },
+		Attendance = { Toggle = function() end },
+		Warnings = { Toggle = function() end },
+		Spammer = { Toggle = function() end },
+		Config = { Toggle = function() fixture.configToggles = fixture.configToggles + 1 end },
+	}
+	addon.Widgets = {
+		LootCounter = { Toggle = function() end },
+		ReservesUI = { Toggle = function() end },
+	}
+
+	loadAddonFile(addon, "Raid Management Addon/EntryPoints/Minimap.lua")
+	local minimap = addon.Minimap
+	assertEqual(frame, minimap:EnsureUI(), "Minimap must bind without QuickBar")
+	assertTrue(type(frame.OnEnter) == "function", "Minimap tooltip script must bind")
+	assertTrue(type(frame.OnClick) == "function", "Minimap click script must bind")
+	frame.OnEnter(frame)
+	assertEqual(1, fixture.tooltipCalls, "Minimap tooltip must remain available")
+	frame.OnClick(frame, "LeftButton")
+	assertTrue(type(fixture.menu) == "table", "Minimap menu must remain available")
+	assertEqual("Loot Master", fixture.menu[1].text, "ordinary minimap menu entries must remain available")
+	for i = 1, #fixture.menu do
+		if fixture.menu[i].text == "Show QuickBar" then
+			assertEqual(fixture.menu[#fixture.menu], fixture.menu[i], "QuickBar must be the final minimap row")
+			assertEqual(" ", fixture.menu[#fixture.menu - 1].text, "QuickBar separator must precede its row")
+			assertEqual(1, fixture.menu[i].disabled, "missing QuickBar menu row must be disabled")
+		end
+	end
+	local quickBarToggles = 0
+	addon.Controllers.QuickBar = {
+		IsShown = function() return false end,
+		SetShown = function(_, shown)
+			assertEqual(true, shown, "QuickBar toggle must invert current visibility")
+			quickBarToggles = quickBarToggles + 1
+		end,
+	}
+	frame.OnClick(frame, "LeftButton")
+	for i = 1, #fixture.menu do
+		if fixture.menu[i].text == "Show QuickBar" then
+			assertEqual(nil, fixture.menu[i].disabled, "available QuickBar menu row must be enabled")
+			fixture.menu[i].func()
+		end
+	end
+	assertEqual(1, quickBarToggles, "available QuickBar menu row must toggle visibility")
+	frame.OnClick(frame, "RightButton")
+	assertEqual(1, fixture.configToggles, "Minimap right-click must remain available")
+	print("PASS rma_minimap_remains_available_without_quick_bar")
+end
+
+function cases.rma_quick_bar_slash_routes_show_hide_and_help(addon)
+	local fixture = { requestedShown = {}, chatText = "" }
+	addon.L = setmetatable({
+		StrCmdCommands = "Commands: %s",
+		StrCmdQuickBarShow = "show QuickBar",
+		StrCmdQuickBarHide = "hide QuickBar",
+	}, { __index = function() return "" end })
+	addon.State = {}
+	addon.Options = { GetValue = function() return nil end }
+	addon.UI = {}
+	addon.Widgets = { LootCounter = {}, ReservesUI = {} }
+	addon.Colors = {
+		WrapText = function(text) return text end,
+		NormalizeHexColor = function(color) return color end,
+	}
+	addon.Database = {}
+	addon.Services = {}
+	addon.EntryPoints = { Debug = { Handle = function() end, ShowHelp = function() end } }
+	addon.Controllers = {
+		Master = {}, Logger = {}, Attendance = {}, Warnings = {}, Spammer = {}, Config = {},
+		QuickBar = {
+			SetShown = function(_, shown) fixture.requestedShown[#fixture.requestedShown + 1] = shown end,
+		},
+	}
+	addon.Comms = {}
+	addon.Item = {}
+	addon.C = { MA_COLOR = "ffffffff" }
+	addon.info = function(_, _, text)
+		fixture.chatText = fixture.chatText .. tostring(text) .. "\n"
+	end
+	addon.warn = function() end
+	addon.Strings = {
+		SplitArgs = function(value)
+			value = tostring(value or "")
+			local first, rest = string.match(value, "^%s*(%S*)%s*(.-)%s*$")
+			return first, rest
+		end,
+	}
+	_G.SlashCmdList = {}
+
+	loadAddonFile(addon, "Raid Management Addon/EntryPoints/SlashEvents.lua")
+	SlashCmdList.RMA("quickbar show")
+	assertEqual(true, fixture.requestedShown[1], "quickbar show differs")
+	SlashCmdList.RMA("quickbar hide")
+	assertEqual(false, fixture.requestedShown[2], "quickbar hide differs")
+	SlashCmdList.RMA("quickbar")
+	SlashCmdList.RMA("quickbar toggle")
+	assertEqual(2, #fixture.requestedShown, "invalid arguments must not change visibility")
+	SlashCmdList.RMA("help quickbar")
+	assertContains(fixture.chatText, "show", "QuickBar help must list show")
+	assertContains(fixture.chatText, "hide", "QuickBar help must list hide")
+	print("PASS rma_quick_bar_slash_routes_show_hide_and_help")
+end
+
 function cases.rma_group_helpers_preserve_wotlk_roster_semantics(addon)
 	local raidCount = 2
 	local partyCount = 0
@@ -22872,7 +23307,20 @@ local function installReentryEntryWiring(client)
 		},
 	}
 	_G.YES, _G.NO = "Yes", "No"
-	loadAddonFile(addon, "Raid Management Addon/Controllers/RaidRecovery.lua")
+	-- Logger's production popup wiring is covered by raid_reentry_popup_routes_explicit_decisions.
+	-- This live-replication fixture keeps only the decision boundary so it can isolate the sync runtime.
+	local popupKey = "RMA_RAID_REENTRY_CONFIRM"
+	addon.UI.Popups.Define(popupKey, {
+		OnAccept = function(_, data)
+			addon.Bus.TriggerEvent(addon.Events.Internal.RaidReentryDecisionResolved, data.raidUid, "resume", data.context)
+		end,
+		OnCancel = function(_, data)
+			addon.Bus.TriggerEvent(addon.Events.Internal.RaidReentryDecisionResolved, data.raidUid, "replace", data.context)
+		end,
+	})
+	addon.Bus.RegisterCallback(addon.Events.Internal.RaidReentryDecisionRequired, function(_, summary)
+		addon.UI.Popups.Show(popupKey, nil, nil, summary)
+	end)
 	local observedEvents = {
 		addon.Events.Internal.RaidReentryRecoveryReady,
 		addon.Events.Internal.RaidReentryDecisionRequired,
@@ -25743,6 +26191,8 @@ local function installLoggerShareFixture(addon)
 	local isRaidLeader = true
 	local warnings = {}
 	local offers = {}
+	local callbacks, dialogs, resolved = {}, {}, {}
+	local shown
 	local offerResult, offerReason = true, nil
 	local frameBinding
 	local scaffoldDefinition
@@ -25847,6 +26297,7 @@ local function installLoggerShareFixture(addon)
 		RaidSyncStatusSuspended = "Suspended",
 		RaidSyncStatusFailed = "Failed",
 		StrUnknown = "Unknown",
+		PopupRaidReentryConfirm = "Resume the previous raid?\nZone: %s\nSize: %d\nDifficulty: %s",
 	}, {
 		__index = function(_, key)
 			return key
@@ -25924,9 +26375,26 @@ local function installLoggerShareFixture(addon)
 			RaidLootUpdate = "RaidLootUpdate",
 			LoggerRaidOfferReceived = "LoggerRaidOfferReceived",
 			RaidRosterDelta = "RaidRosterDelta",
+			RaidReentryDecisionRequired = "RaidReentryDecisionRequired",
+			RaidReentryDecisionResolved = "RaidReentryDecisionResolved",
 		},
 	}
-	addon.Bus = { TriggerEvent = noop, RegisterCallback = noop }
+	addon.Bus = {
+		RegisterCallback = function(eventName, callback)
+			callbacks[eventName] = callbacks[eventName] or {}
+			callbacks[eventName][#callbacks[eventName] + 1] = callback
+		end,
+		TriggerEvent = function(eventName, ...)
+			if eventName == "RaidReentryDecisionResolved" then
+				resolved[#resolved + 1] =
+					{ raidUid = select(1, ...), decision = select(2, ...), context = select(3, ...) }
+			end
+			local listeners = callbacks[eventName] or {}
+			for i = 1, #listeners do
+				listeners[i](eventName, ...)
+			end
+		end,
+	}
 	addon.Services = {
 		Logger = {
 			Store = {
@@ -26039,11 +26507,17 @@ local function installLoggerShareFixture(addon)
 	addon.UI = {
 		Rows = { SetLoggerRowIndex = noop, ApplyLoggerSkin = noop },
 		Popups = {
-			Define = noop,
-			IsDefined = function()
-				return false
+			Define = function(key, dialog)
+				dialogs[key] = dialog
+				return true
 			end,
-			Show = noop,
+			IsDefined = function(key)
+				return dialogs[key] ~= nil
+			end,
+			Show = function(key, text, _, data)
+				shown = { key = key, text = text, data = data }
+				return true
+			end,
 			Hide = noop,
 			Resize = noop,
 			ShowConfirm = noop,
@@ -26175,6 +26649,7 @@ local function installLoggerShareFixture(addon)
 	_G.GetInstanceInfo = function()
 		return "Ulduar", "raid", 3, nil, nil, 0, false
 	end
+	_G.YES, _G.NO = "Yes", "No"
 
 	loadAddonFile(addon, "Raid Management Addon/Controllers/Logger.lua")
 	local raidController = addon.Controllers.Logger.Raids._ctrl
@@ -26188,6 +26663,12 @@ local function installLoggerShareFixture(addon)
 		sendButton = _G[shareName .. "SendBtn"],
 		warnings = warnings,
 		offers = offers,
+		callbacks = callbacks,
+		dialogs = dialogs,
+		resolved = resolved,
+		getShownPopup = function()
+			return shown
+		end,
 		currentButton = _G[listName .. "CurrentBtn"],
 		setGrouped = function(value)
 			grouped = value == true
@@ -26216,6 +26697,32 @@ local function installLoggerShareFixture(addon)
 			offerResult, offerReason = result, reason
 		end,
 	}
+end
+
+function cases.raid_reentry_popup_routes_explicit_decisions(addon)
+	local fixture = installLoggerShareFixture(addon)
+	addon.Bus.TriggerEvent(addon.Events.Internal.RaidReentryDecisionRequired, {
+		raidUid = "raid-live",
+		context = { zone = "Naxxramas", size = 10, difficulty = 1 },
+		raid = { zone = "Naxxramas", size = 10, difficulty = 1 },
+	})
+	local shown = assert(fixture.getShownPopup(), "re-entry popup was not shown")
+	assertEqual("RMA_RAID_REENTRY_CONFIRM", shown.key)
+	assertTrue(string.find(shown.text, "Naxxramas", 1, true) ~= nil)
+	assertTrue(string.find(shown.text, "10", 1, true) ~= nil)
+	assertTrue(string.find(shown.text, "25 Heroic", 1, true) ~= nil)
+	local dialog = assert(fixture.dialogs[shown.key], "re-entry popup was not defined")
+	dialog.OnAccept(nil, shown.data)
+	assertEqual("resume", fixture.resolved[1].decision)
+	dialog.OnCancel(nil, shown.data, "clicked")
+	assertEqual("replace", fixture.resolved[2].decision)
+	if dialog.hideOnEscape then
+		dialog.OnCancel(nil, shown.data, "escape")
+	end
+	assertEqual(false, dialog.hideOnEscape, "Escape could silently choose No")
+	assertEqual(2, #fixture.resolved, "Escape emitted a recovery decision")
+	assertEqual(nil, dialog.OnHide, "popup hide mutated recovery")
+	print("PASS raid_reentry_popup_routes_explicit_decisions")
 end
 
 function cases.logger_replica_defaults_to_active_archive_without_promoting_current(addon)
@@ -27045,6 +27552,163 @@ function cases.raid_history_consent_rejections(addon)
 	fixture.syncer:GetStatus()
 	assertEqual(nil, fixture.syncer._historyTransfer, "stale accepted transfer survived its cleanup budget")
 	print("PASS raid_history_consent_rejections")
+end
+
+function cases.rma_quick_bar_config_panel_routes_settings(addon)
+	local fixture = {
+		orientation = "vertical",
+		shown = { ML = true, GL = true, SR = true, HIS = true, RW = true },
+		directQuickBarOptionWrites = 0,
+	}
+
+	local function makeWidget(name)
+		local widget = { name = name, shown = false }
+		function widget:GetName() return self.name end
+		function widget:SetText(value) self.text = value end
+		function widget:SetChecked(value) self.checked = value end
+		function widget:GetChecked() return self.checked end
+		function widget:SetMinMaxValues() end
+		function widget:SetValueStep() end
+		function widget:SetValue(value) self.value = value end
+		function widget:GetValue() return self.value end
+		function widget:Enable() self.enabled = true end
+		function widget:Disable() self.enabled = false end
+		function widget:SetTextColor() end
+		function widget:SetScript(kind, callback) self[kind] = callback end
+		function widget:HookScript(kind, callback) self[kind] = callback end
+		function widget:Show()
+			self.shown = true
+			if self.OnShow then self.OnShow(self) end
+		end
+		function widget:Click(checked)
+			self.checked = checked
+			if self.OnClick then self.OnClick(self) end
+		end
+		return widget
+	end
+
+	local refs = {
+		OrientationDropDown = makeWidget("RMAInterfaceOptionsQuickBarPanelScrollChildOrientationDropDown"),
+		ShowML = makeWidget("RMAInterfaceOptionsQuickBarPanelScrollChildShowML"),
+		ShowGL = makeWidget("RMAInterfaceOptionsQuickBarPanelScrollChildShowGL"),
+		ShowSR = makeWidget("RMAInterfaceOptionsQuickBarPanelScrollChildShowSR"),
+		ShowHIS = makeWidget("RMAInterfaceOptionsQuickBarPanelScrollChildShowHIS"),
+		ShowRW = makeWidget("RMAInterfaceOptionsQuickBarPanelScrollChildShowRW"),
+	}
+	local genericRefs = {}
+	local function getGenericRef(suffix)
+		if not genericRefs[suffix] then genericRefs[suffix] = makeWidget("Generic" .. tostring(suffix)) end
+		return genericRefs[suffix]
+	end
+	local quickBarPanel = makeWidget("RMAInterfaceOptionsQuickBarPanel")
+	local quickBarContent = makeWidget("RMAInterfaceOptionsQuickBarPanelScrollChild")
+	_G.RMAInterfaceOptionsQuickBarPanel = quickBarPanel
+	_G.RMAInterfaceOptionsQuickBarPanelScrollChild = quickBarContent
+	for _, frameName in ipairs({
+		"RMAInterfaceOptionsPanel", "RMAInterfaceOptionsMasterLootPanel", "RMAInterfaceOptionsLootHistoryPanel",
+		"RMAInterfaceOptionsLFMSpamPanel", "RMAInterfaceOptionsRaidWarningPanel", "RMAInterfaceOptionsHelpPanel",
+	}) do
+		_G[frameName] = makeWidget(frameName)
+	end
+	_G.RMAInterfaceOptionsMasterLootPanelScrollChild = makeWidget("RMAInterfaceOptionsMasterLootPanelScrollChild")
+	_G.RMAInterfaceOptionsLootHistoryPanelScrollChild = makeWidget("RMAInterfaceOptionsLootHistoryPanelScrollChild")
+	_G.RMAInterfaceOptionsLFMSpamPanelScrollChild = makeWidget("RMAInterfaceOptionsLFMSpamPanelScrollChild")
+	_G.RMAInterfaceOptionsRaidWarningPanelScrollChild = makeWidget("RMAInterfaceOptionsRaidWarningPanelScrollChild")
+	_G.RMAInterfaceOptionsHelpPanelScrollChild = makeWidget("RMAInterfaceOptionsHelpPanelScrollChild")
+
+	addon.L = setmetatable({
+		StrConfigPanelTitle = "Raid Management Addon",
+		StrConfigPanelQuickBar = "QuickBar",
+		StrConfigQuickBarHorizontal = "Horizontal",
+		StrConfigQuickBarVertical = "Vertical",
+	}, { __index = function() return "" end })
+	addon.EntryPoints = { Debug = { GetHelpText = function() return "" end } }
+	addon.Options = {
+		RegisterNamespace = function() return {} end,
+		GetByKey = function() return nil end,
+		Set = function(_, key)
+			if string.find(tostring(key), "quickBar", 1, true) then fixture.directQuickBarOptionWrites = fixture.directQuickBarOptionWrites + 1 end
+		end,
+		ResetAllDefaults = function() end,
+		SetDebugEnabled = function() end,
+		IsDebugEnabled = function() return false end,
+		NormalizeLoggerLootQualityThreshold = function(value) return value or 0 end,
+	}
+	addon.Diag = { D = { LogSyncConfigAction = "%s" } }
+	addon.Events = { Internal = { OptionsLoaded = "OPTIONS" }, BuildConfigOptionChangedName = function() return nil end }
+	local callbacks = {}
+	addon.Bus = { RegisterCallback = function(eventName, callback) callbacks[eventName] = callback end, TriggerEvent = function() end }
+	addon.Strings = { TrimText = function(value) return value end }
+	addon.Controllers = {
+		Spammer = {}, Warnings = {},
+		QuickBar = {
+			GetOrientation = function() return fixture.orientation end,
+			SetOrientation = function(_, value) fixture.requestedOrientation = value; fixture.orientation = value end,
+			IsButtonShown = function(_, key) return fixture.shown[key] end,
+			SetButtonShown = function(_, key, shown) fixture.buttonKey = key; fixture.buttonShown = shown; fixture.shown[key] = shown end,
+		},
+	}
+	addon.Services = { Spammer = { Draft = {} }, Warnings = { Store = {} }, Logger = { Actions = {} } }
+	addon.UI = {
+		ModuleState = { Ensure = function() return {} end },
+		Frames = {
+			MakeModuleFrameGetter = function() return function() return nil end end,
+			GetRef = function(frameOrName, suffix)
+				if frameOrName == quickBarContent or frameOrName == "RMAInterfaceOptionsQuickBarPanelScrollChild" then return refs[suffix] end
+				return getGenericRef(suffix)
+			end,
+			SetScriptSafely = function(widget, kind, callback) if widget then widget:SetScript(kind, callback) end end,
+			HookScriptSafely = function(widget, kind, callback) if widget then widget:HookScript(kind, callback) end end,
+			SetFrameTitle = function() end,
+			BindModuleFrame = function(_, frame) return frame and frame:GetName() end,
+		},
+		Scaffold = { DefineModule = function() end },
+		Layout = {
+			ApplyRows = function() end,
+			CheckRow = function() return {} end, DropDownRow = function() return {} end, TextRow = function() return {} end,
+			EditRow = function() return {} end, SliderRow = function() return {} end, CommandRow = function() return {} end,
+			EditCommandRow = function() return {} end, ButtonRow = function() return {} end,
+		},
+		Popups = { ShowConfirm = function() end },
+	}
+	_G.SETTINGS = "Settings"
+	_G.HIGHLIGHT_FONT_COLOR = { r = 1, g = 1, b = 1 }
+	_G.NORMAL_FONT_COLOR = { r = 1, g = 1, b = 1 }
+	_G.UIDROPDOWNMENU_OPEN_MENU = "OPEN"
+	_G.UIDROPDOWNMENU_MENU_LEVEL = 1
+	_G.UIDropDownMenu_Initialize = function(dropDown, initializer) dropDown.initializer = initializer; initializer() end
+	_G.UIDropDownMenu_CreateInfo = function() return {} end
+	_G.UIDropDownMenu_AddButton = function(info) refs.OrientationDropDown.options = refs.OrientationDropDown.options or {}; table.insert(refs.OrientationDropDown.options, info) end
+	_G.UIDropDownMenu_SetWidth = function() end
+	_G.UIDropDownMenu_SetButtonWidth = function() end
+	_G.UIDropDownMenu_SetText = function(_, value) fixture.orientationSelection = value == "Vertical" and "vertical" or "horizontal" end
+	_G.UIDropDownMenu_SetSelectedValue = function(_, value) fixture.orientationSelection = value end
+	_G.UIDropDownMenu_EnableDropDown = function() end
+	_G.UIDropDownMenu_DisableDropDown = function() end
+	_G.CloseDropDownMenus = function() end
+	_G.InterfaceOptions_AddCategory = function() end
+
+	function fixture.selectOrientation(value)
+		for i = 1, #refs.OrientationDropDown.options do
+			local info = refs.OrientationDropDown.options[i]
+			if info.value == value then return info.func(nil, info.arg1, info.arg2) end
+		end
+		fail("orientation option missing: " .. tostring(value))
+	end
+
+	loadAddonFile(addon, "Raid Management Addon/Controllers/Config.lua")
+	assert(callbacks.OPTIONS)()
+	assertEqual("QuickBar", quickBarPanel.name, "QuickBar panel title differs")
+	assertEqual("Raid Management Addon", quickBarPanel.parent, "QuickBar panel parent differs")
+	quickBarPanel:Show()
+	assertEqual("vertical", fixture.orientationSelection, "orientation refresh differs")
+	refs.ShowML:Click(false)
+	assertEqual("ML", fixture.buttonKey, "ML config key differs")
+	assertEqual(false, fixture.buttonShown, "ML config value differs")
+	fixture.selectOrientation("horizontal")
+	assertEqual("horizontal", fixture.requestedOrientation, "orientation request differs")
+	assertEqual(0, fixture.directQuickBarOptionWrites, "Config must not write QuickBar options directly")
+	print("PASS rma_quick_bar_config_panel_routes_settings")
 end
 
 local caseName = arg[1]

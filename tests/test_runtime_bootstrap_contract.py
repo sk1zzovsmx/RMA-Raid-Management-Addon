@@ -207,6 +207,7 @@ class RuntimeBootstrapContractTest(unittest.TestCase):
             "SplitFields",
             "EncodeText",
             "DecodeText",
+            "function Comms.Sync",
             'WIRE_MARKER = "R4"',
         ):
             self.assertNotIn(obsolete, comms + protocol)

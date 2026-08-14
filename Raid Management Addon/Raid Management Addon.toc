@@ -96,7 +96,6 @@ Services\Raid\Attendance.lua
 Services\Raid\LootRecords.lua
 Services\Raid\Session.lua
 Services\Raid\Projections.lua
-Controllers\RaidRecovery.lua
 Services\InspectCoordinator.lua
 Services\SpecInspect.lua
 Services\EquipInspect.lua
@@ -156,12 +155,14 @@ Controllers\Logger.lua
 Controllers\Attendance.lua
 Controllers\Warnings.lua
 Controllers\Spammer.lua
+Controllers\QuickBar.lua
 EntryPoints\Minimap.lua
 Controllers\Config.lua
 EntryPoints\SlashEvents.lua
 
 # Layer 6 - Concrete UI frames
 UI\Minimap.xml
+UI\QuickBar.xml
 UI\Spammer.xml
 UI\Warnings.xml
 UI\Config.xml

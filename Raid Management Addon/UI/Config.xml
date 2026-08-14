@@ -499,6 +499,56 @@
 			</ScrollFrame>
 		</Frames>
 	</Frame>
+	<!-- Blizzard Interface Options QuickBar panel -->
+	<Frame name="RMAInterfaceOptionsQuickBarPanel" parent="UIParent" hidden="true">
+		<Size>
+			<AbsDimension x="560" y="560" />
+		</Size>
+		<Frames>
+			<ScrollFrame name="$parentScrollFrame" inherits="RMAOptionsScrollFrameTemplate">
+				<Anchors>
+					<Anchor point="TOPLEFT" />
+					<Anchor point="BOTTOMRIGHT">
+						<Offset>
+							<AbsDimension x="-42" y="36" />
+						</Offset>
+					</Anchor>
+				</Anchors>
+				<ScrollChild>
+					<Frame name="RMAInterfaceOptionsQuickBarPanelScrollChild">
+						<Size>
+							<AbsDimension x="520" y="420" />
+						</Size>
+						<Layers>
+							<Layer level="ARTWORK">
+								<FontString name="$parentTitle" inherits="GameFontNormalLarge" />
+								<FontString name="$parentOrientationStr" inherits="RMAConfigFontStringTemplate" />
+								<FontString name="$parentOrientationDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate" />
+								<FontString name="$parentShowMLStr" inherits="RMAConfigFontStringTemplate" />
+								<FontString name="$parentShowMLDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate" />
+								<FontString name="$parentShowGLStr" inherits="RMAConfigFontStringTemplate" />
+								<FontString name="$parentShowGLDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate" />
+								<FontString name="$parentShowSRStr" inherits="RMAConfigFontStringTemplate" />
+								<FontString name="$parentShowSRDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate" />
+								<FontString name="$parentShowHISStr" inherits="RMAConfigFontStringTemplate" />
+								<FontString name="$parentShowHISDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate" />
+								<FontString name="$parentShowRWStr" inherits="RMAConfigFontStringTemplate" />
+								<FontString name="$parentShowRWDesc" inherits="RMAConfigCompactDescriptionFontStringTemplate" />
+							</Layer>
+						</Layers>
+						<Frames>
+							<Frame name="$parentOrientationDropDown" inherits="UIDropDownMenuTemplate" />
+							<CheckButton name="$parentShowML" inherits="RMAConfigCheckButtonTemplate" />
+							<CheckButton name="$parentShowGL" inherits="RMAConfigCheckButtonTemplate" />
+							<CheckButton name="$parentShowSR" inherits="RMAConfigCheckButtonTemplate" />
+							<CheckButton name="$parentShowHIS" inherits="RMAConfigCheckButtonTemplate" />
+							<CheckButton name="$parentShowRW" inherits="RMAConfigCheckButtonTemplate" />
+						</Frames>
+					</Frame>
+				</ScrollChild>
+			</ScrollFrame>
+		</Frames>
+	</Frame>
     <!-- Blizzard Interface Options Loot History panel -->
 	<Frame name="RMAInterfaceOptionsLootHistoryPanel" parent="UIParent" hidden="true">
 		<Size>

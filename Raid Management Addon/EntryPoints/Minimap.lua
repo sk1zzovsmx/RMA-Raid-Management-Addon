@@ -64,6 +64,11 @@ function uiState.AcquireRefs(frame)
 end
 
 local function buildMenu()
+	local quickBarController = Controllers.QuickBar
+	local hasQuickBar = quickBarController
+		and quickBarController.IsShown
+		and quickBarController.SetShown
+	local quickBarVisible = hasQuickBar and quickBarController:IsShown() or false
 	local hasRaidGroup = IsPlayerInRaid(Raid)
 	local hasLootAccess = CanUseCapability(Raid, "loot")
 	local hasRaidIconsAccess = CanUseCapability(Raid, "raid_icons")
@@ -149,6 +154,18 @@ local function buildMenu()
 			disabled = disableRaidActions,
 			func = function()
 				ClearRaidIcons(Raid)
+			end,
+		},
+		{ text = " ", disabled = 1, notCheckable = 1 },
+		{
+			text = L.StrQuickBar,
+			checked = quickBarVisible,
+			disabled = not hasQuickBar and 1 or nil,
+			func = function()
+				local controller = Controllers.QuickBar
+				if controller and controller.IsShown and controller.SetShown then
+					controller:SetShown(not controller:IsShown())
+				end
 			end,
 		},
 	}

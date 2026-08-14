@@ -1,0 +1,52 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+	<Frame name="RMAQuickBarFrame" inherits="RMADialogTemplate" parent="UIParent"
+		movable="true" enableMouse="true" clampedToScreen="true" hidden="true">
+		<Size><AbsDimension x="206" y="32" /></Size>
+		<Anchors><Anchor point="CENTER"><Offset><AbsDimension x="0" y="-180" /></Offset></Anchor></Anchors>
+		<Layers>
+			<Layer level="ARTWORK">
+				<Texture name="$parentSeparator1" file="Interface\Buttons\WHITE8X8" hidden="true" />
+				<Texture name="$parentSeparator2" file="Interface\Buttons\WHITE8X8" hidden="true" />
+				<Texture name="$parentSeparator3" file="Interface\Buttons\WHITE8X8" hidden="true" />
+			</Layer>
+		</Layers>
+		<Frames>
+			<Button name="$parentHandle">
+				<Size><AbsDimension x="24" y="24" /></Size>
+				<NormalTexture file="Interface\Buttons\UI-GroupLoot-Dice-Up" />
+				<HighlightTexture file="Interface\Buttons\ButtonHilight-Square" alphaMode="ADD" />
+			</Button>
+			<Button name="$parentML" inherits="RMAActionButtonTemplate">
+				<Size><AbsDimension x="32" y="24" /></Size>
+				<Layers>
+					<Layer level="OVERLAY">
+						<Texture name="$parentGlow" file="Interface\Buttons\UI-ActionButton-Border" alphaMode="ADD" hidden="true">
+							<Size><AbsDimension x="50" y="50" /></Size>
+							<Anchors><Anchor point="CENTER" /></Anchors>
+						</Texture>
+					</Layer>
+				</Layers>
+			</Button>
+			<Button name="$parentGL" inherits="RMAActionButtonTemplate">
+				<Size><AbsDimension x="32" y="24" /></Size>
+				<Layers>
+					<Layer level="OVERLAY">
+						<Texture name="$parentGlow" file="Interface\Buttons\UI-ActionButton-Border" alphaMode="ADD" hidden="true">
+							<Size><AbsDimension x="50" y="50" /></Size>
+							<Anchors><Anchor point="CENTER" /></Anchors>
+						</Texture>
+					</Layer>
+				</Layers>
+			</Button>
+			<Button name="$parentHIS" inherits="RMAActionButtonTemplate">
+				<Size><AbsDimension x="38" y="24" /></Size>
+			</Button>
+			<Button name="$parentSR" inherits="RMAActionButtonTemplate">
+				<Size><AbsDimension x="32" y="24" /></Size>
+			</Button>
+			<Button name="$parentRW" inherits="RMAActionButtonTemplate">
+				<Size><AbsDimension x="32" y="24" /></Size>
+			</Button>
+		</Frames>
+	</Frame>
+</Ui>

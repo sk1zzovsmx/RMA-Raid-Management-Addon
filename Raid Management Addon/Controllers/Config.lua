@@ -78,6 +78,8 @@ do
 	local interfacePanelFrameName = "RMAInterfaceOptionsPanel"
 	local masterLootPanelFrameName = "RMAInterfaceOptionsMasterLootPanel"
 	local masterLootContentFrameName = "RMAInterfaceOptionsMasterLootPanelScrollChild"
+	local quickBarPanelFrameName = "RMAInterfaceOptionsQuickBarPanel"
+	local quickBarContentFrameName = "RMAInterfaceOptionsQuickBarPanelScrollChild"
 	local lootHistoryPanelFrameName = "RMAInterfaceOptionsLootHistoryPanel"
 	local lootHistoryContentFrameName = "RMAInterfaceOptionsLootHistoryPanelScrollChild"
 	local lfmSpamPanelFrameName = "RMAInterfaceOptionsLFMSpamPanel"
@@ -88,6 +90,7 @@ do
 	local helpContentFrameName = "RMAInterfaceOptionsHelpPanelScrollChild"
 	local cleanupPopupFrameName = "RMALootHistoryCleanupPopup"
 	local interfacePanelBound = false
+	local quickBarPanelBound = false
 	local lootHistoryPanelBound = false
 	local cleanupPopupBound = false
 	local lfmSpamPanelBound = false
@@ -114,6 +117,17 @@ do
 		"askGroupLootAfterBossLoot",
 		"autoSpamLootOnLootOpened",
 		"autoSpamSoftResOnLootOpened",
+	}
+	local quickBarButtonSuffixes = {
+		ShowML = "ML",
+		ShowGL = "GL",
+		ShowSR = "SR",
+		ShowHIS = "HIS",
+		ShowRW = "RW",
+	}
+	local quickBarOrientations = {
+		{ value = "horizontal", labelKey = "StrConfigQuickBarHorizontal" },
+		{ value = "vertical", labelKey = "StrConfigQuickBarVertical" },
 	}
 
 	-- ----- Private helpers ----- --
@@ -312,6 +326,15 @@ do
 		return ApplyOptionsRows(frameName, rows, cfg)
 	end
 
+	local function getQuickBarController()
+		local controller = Controllers.QuickBar
+		if controller and controller.GetOrientation and controller.SetOrientation
+			and controller.IsButtonShown and controller.SetButtonShown then
+			return controller
+		end
+		return nil
+	end
+
 	local function layoutRootPanel()
 		applyOptionsLayout(interfacePanelFrameName, {
 			{ type = "title", suffix = "Title", gap = 18 },
@@ -385,6 +408,22 @@ do
 			gap = 0,
 		})
 		applyOptionsLayout(masterLootContentFrameName, rows, optionsPanelLayoutCfg)
+	end
+
+	local function layoutQuickBarPanel()
+		applyOptionsLayout(quickBarContentFrameName, {
+			{ type = "title", suffix = "Title", gap = 16 },
+			Layout.DropDownRow("Orientation", "OrientationDropDown", {
+				descHeight = 22,
+				height = 48,
+				gap = 8,
+			}),
+			Layout.CheckRow("ShowML", { height = 40, gap = 4 }),
+			Layout.CheckRow("ShowGL", { height = 40, gap = 4 }),
+			Layout.CheckRow("ShowSR", { height = 40, gap = 4 }),
+			Layout.CheckRow("ShowHIS", { height = 40, gap = 4 }),
+			Layout.CheckRow("ShowRW", { height = 40, gap = 0 }),
+		}, optionsPanelLayoutCfg)
 	end
 
 	local function layoutLootHistoryPanel()
@@ -733,6 +772,89 @@ do
 		if frameName == masterLootContentFrameName then
 			layoutMasterLootPanel()
 		end
+	end
+
+	local function localizeQuickBarPanel()
+		setText(quickBarContentFrameName, "Title", L.StrConfigPanelQuickBar)
+		setText(quickBarContentFrameName, "OrientationStr", L.StrConfigQuickBarOrientation)
+		setText(quickBarContentFrameName, "OrientationDesc", L.StrConfigQuickBarOrientationDesc)
+		for suffix in pairs(quickBarButtonSuffixes) do
+			setText(quickBarContentFrameName, suffix .. "Str", L["StrConfigQuickBar" .. suffix])
+			setText(quickBarContentFrameName, suffix .. "Desc", L["StrConfigQuickBar" .. suffix .. "Desc"])
+		end
+		layoutQuickBarPanel()
+	end
+
+	local function refreshQuickBarPanel()
+		local controller = getQuickBarController()
+		local dropDown = Frames.GetRef(quickBarContentFrameName, "OrientationDropDown")
+		if controller then
+			local orientation = controller:GetOrientation()
+			UIDropDownMenu_SetText(dropDown, orientation == "vertical"
+				and L.StrConfigQuickBarVertical or L.StrConfigQuickBarHorizontal)
+			UIDropDownMenu_SetSelectedValue(dropDown, orientation)
+			if UIDropDownMenu_EnableDropDown then
+				UIDropDownMenu_EnableDropDown(dropDown)
+			end
+		elseif UIDropDownMenu_DisableDropDown then
+			UIDropDownMenu_DisableDropDown(dropDown)
+		end
+		for suffix, key in pairs(quickBarButtonSuffixes) do
+			setChecked(quickBarContentFrameName, suffix, controller and controller:IsButtonShown(key) == true)
+			setOptionControlEnabled(quickBarContentFrameName, suffix, controller ~= nil)
+		end
+	end
+
+	local function onQuickBarOrientationClick(_button, _owner, value)
+		local controller = getQuickBarController()
+		if controller then
+			controller:SetOrientation(value)
+		end
+		if CloseDropDownMenus then
+			CloseDropDownMenus()
+		end
+		refreshQuickBarPanel()
+	end
+
+	local function initializeQuickBarOrientationDropDown()
+		for i = 1, #quickBarOrientations do
+			local option = quickBarOrientations[i]
+			local info = UIDropDownMenu_CreateInfo()
+			info.hasArrow = false
+			info.notCheckable = 1
+			info.text = L[option.labelKey]
+			info.value = option.value
+			info.func = onQuickBarOrientationClick
+			info.arg1 = UIDROPDOWNMENU_OPEN_MENU
+			info.arg2 = option.value
+			UIDropDownMenu_AddButton(info, UIDROPDOWNMENU_MENU_LEVEL)
+		end
+	end
+
+	local function bindQuickBarPanel()
+		if quickBarPanelBound then
+			return
+		end
+		local content = _G[quickBarContentFrameName]
+		if not content then
+			return
+		end
+		local dropDown = Frames.GetRef(content, "OrientationDropDown")
+		UIDropDownMenu_Initialize(dropDown, initializeQuickBarOrientationDropDown)
+		UIDropDownMenu_SetWidth(dropDown, 110)
+		UIDropDownMenu_SetButtonWidth(dropDown, 130)
+		for suffix, key in pairs(quickBarButtonSuffixes) do
+			local buttonKey = key
+			Frames.SetScriptSafely(Frames.GetRef(content, suffix), "OnClick", function(self)
+				local controller = getQuickBarController()
+				if controller then
+					local checked = self:GetChecked()
+					controller:SetButtonShown(buttonKey, checked == true or checked == 1)
+				end
+				refreshQuickBarPanel()
+			end)
+		end
+		quickBarPanelBound = true
 	end
 
 	local function localizeHelpPanel()
@@ -1507,6 +1629,12 @@ do
 				controls = true,
 			},
 			{
+				frameName = quickBarPanelFrameName,
+				title = L.StrConfigPanelQuickBar,
+				parent = L.StrConfigPanelTitle,
+				quickBar = true,
+			},
+			{
 				frameName = lootHistoryPanelFrameName,
 				title = L.StrLootHistory,
 				parent = L.StrConfigPanelTitle,
@@ -1561,6 +1689,17 @@ do
 					refreshConfigControls(masterLootContentFrameName)
 				end
 				bindInterfaceOptionsPanel(panel)
+			elseif spec.quickBar then
+				localizeQuickBarPanel()
+				bindQuickBarPanel()
+				refreshQuickBarPanel()
+				if panel.HookScript then
+					Frames.HookScriptSafely(panel, "OnShow", function()
+						localizeQuickBarPanel()
+						bindQuickBarPanel()
+						refreshQuickBarPanel()
+					end)
+				end
 			elseif spec.root then
 				localizeRootPanel()
 				if panel.HookScript then

@@ -143,6 +143,7 @@ local cmdReserves, cmdMinimap, cmdValidate =
 local cmdHelp, cmdBug, cmdVersion = { "help" }, { "bug", "report" }, { "version", "ver", "about" }
 local cmdSpecInspect = { "specinspect", "inspectspec" }
 local cmdPerf = { "perf", "performance" }
+local cmdQuickBar = { "quickbar" }
 
 -- ----- Private helpers ----- --
 local helpString = "%s: %s"
@@ -163,6 +164,7 @@ local function showHelp()
 	printHelp("attendance", L.StrRaidAttendance)
 	printHelp("debug", L.StrCmdDebug)
 	printHelp("counter", L.StrCmdCounter)
+	printHelp("quickbar", L.StrCmdQuickBar)
 	printHelp("reserves", L.StrCmdReserves)
 	printHelp("specinspect [force]", L.StrCmdSpecInspect)
 	printHelp("validate", L.StrCmdValidate)
@@ -174,6 +176,28 @@ end
 local function showToggleHelp(commandRoot)
 	addon:info(format(L.StrCmdCommands, commandRoot), "RMA")
 	printHelp("toggle", L.StrCmdToggle)
+end
+
+local function showQuickBarHelp()
+	addon:info(format(L.StrCmdCommands, "RMA quickbar"), "RMA")
+	printHelp("show", L.StrCmdQuickBarShow)
+	printHelp("hide", L.StrCmdQuickBarHide)
+end
+
+local function handleQuickBarCommand(rest)
+	local sub = Strings.SplitArgs(rest)
+	local controller = Controllers.QuickBar
+	if not (controller and controller.SetShown) then
+		addon:warn(L.MsgFeatureUnavailable, "QuickBar", sub or "")
+		return
+	end
+	if sub == "show" then
+		controller:SetShown(true)
+	elseif sub == "hide" then
+		controller:SetShown(false)
+	else
+		showQuickBarHelp()
+	end
 end
 
 local function registerAliases(list, fn)
@@ -948,6 +972,8 @@ local function handleHelpCommand(rest)
 		showToggleHelp("RMA ml")
 	elseif topic == "counter" or topic == "counters" or topic == "counts" then
 		showToggleHelp("RMA counter")
+	elseif topic == "quickbar" then
+		showQuickBarHelp()
 	elseif topic == "debug" or topic == "dbg" or topic == "debugger" then
 		DebugEntryPoint.ShowHelp()
 	elseif topic == "perf" or topic == "performance" then
@@ -1024,6 +1050,7 @@ registerAliases(cmdLogger, handleLoggerCommand)
 registerAliases(cmdAttendance, handleAttendanceCommand)
 registerAliases(cmdLoot, handleLootCommand)
 registerAliases(cmdCounter, handleCounterCommand)
+registerAliases(cmdQuickBar, handleQuickBarCommand)
 registerAliases(cmdSpecInspect, handleSpecInspectCommand)
 registerAliases(cmdReserves, handleReservesCommand)
 registerAliases(cmdValidate, handleValidateCommand)
