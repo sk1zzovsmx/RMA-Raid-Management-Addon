@@ -1718,6 +1718,10 @@ do
 		triggerSelectionEvent(module, "selectedRaid", "ui")
 	end)
 
+	RegisterCallback(LoggerEvents.LoggerDataChanged, function()
+		controller:Dirty()
+	end)
+
 	RegisterCallback(LoggerEvents.LoggerSelectRaid, function(_, raidId, reason)
 		local raidIdType = type(raidId)
 		if raidId ~= nil and raidIdType ~= "number" and raidIdType ~= "string" then

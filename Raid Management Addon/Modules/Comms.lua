@@ -396,7 +396,7 @@ local function resolveChannelId(channelName)
 		return nil, "channel_unavailable"
 	end
 	local resolved
-	for i = 1, #rows, 3 do
+	for i = 1, #rows, 2 do
 		local id, name = tonumber(rows[i]), rows[i + 1]
 		if id and id > 0 and type(name) == "string" and string.lower(name) == wanted then
 			if resolved and resolved ~= id then

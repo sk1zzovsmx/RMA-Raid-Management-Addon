@@ -11,6 +11,14 @@ DB_SYNCER = ROOT / "Raid Management Addon" / "Database" / "DBSyncer.lua"
 
 
 class SyncCommunicationsBehaviorTests(unittest.TestCase):
+    def test_real_raid_capabilities_accept_numeric_unit_identity(self) -> None:
+        result = run_lua_case("raid_capabilities_accept_numeric_unit_identity")
+
+        self.assertIn(
+            "PASS raid_capabilities_accept_numeric_unit_identity",
+            result.stdout,
+        )
+
     def test_db_syncer_does_not_export_manual_request_cancellation(self) -> None:
         source = DB_SYNCER.read_text(encoding="utf-8")
         retired_name = "Cancel" + "Request"
@@ -31,6 +39,30 @@ class SyncCommunicationsBehaviorTests(unittest.TestCase):
 
         self.assertIn(
             "PASS real_db_syncer_authorizes_chunks_and_whisper_requests",
+            result.stdout,
+        )
+
+    def test_remote_item_done_accelerates_persistent_history_pull(self) -> None:
+        result = run_lua_case("sync_remote_item_done_accelerates_persistent_pull")
+
+        self.assertIn(
+            "PASS sync_remote_item_done_accelerates_persistent_pull",
+            result.stdout,
+        )
+
+    def test_persistent_schedule_survives_request_exception(self) -> None:
+        result = run_lua_case("sync_request_throw_preserves_persistent_schedule")
+
+        self.assertIn(
+            "PASS sync_request_throw_preserves_persistent_schedule",
+            result.stdout,
+        )
+
+    def test_distribution_event_reports_current_mutation_sender(self) -> None:
+        result = run_lua_case("loot_distribution_reports_current_mutation_sender")
+
+        self.assertIn(
+            "PASS loot_distribution_reports_current_mutation_sender",
             result.stdout,
         )
 
@@ -161,6 +193,56 @@ class SyncCommunicationsBehaviorTests(unittest.TestCase):
         result = run_lua_case("sync_history_import_is_atomic_across_build_and_commit_failures")
 
         self.assertIn("PASS sync_history_import_is_atomic_across_build_and_commit_failures", result.stdout)
+
+    def test_late_join_bootstrap_replaces_unrelated_local_history(self) -> None:
+        result = run_lua_case("sync_late_join_bootstrap_replaces_unrelated_local_history")
+
+        self.assertIn("PASS sync_late_join_bootstrap_replaces_unrelated_local_history", result.stdout)
+
+    def test_authoritative_bootstrap_rolls_back_atomically(self) -> None:
+        result = run_lua_case("sync_authoritative_bootstrap_rolls_back_atomically")
+
+        self.assertIn("PASS sync_authoritative_bootstrap_rolls_back_atomically", result.stdout)
+
+    def test_sync_lineage_gates_incremental_delta(self) -> None:
+        result = run_lua_case("sync_lineage_gates_incremental_delta")
+
+        self.assertIn("PASS sync_lineage_gates_incremental_delta", result.stdout)
+
+    def test_authoritative_delta_maps_source_to_local_raid(self) -> None:
+        result = run_lua_case("sync_authoritative_delta_maps_source_to_local_raid")
+
+        self.assertIn("PASS sync_authoritative_delta_maps_source_to_local_raid", result.stdout)
+
+    def test_multipart_authority_change_rejects_completed_payload(self) -> None:
+        result = run_lua_case("sync_multipart_authority_change_rejects_completed_payload")
+
+        self.assertIn("PASS sync_multipart_authority_change_rejects_completed_payload", result.stdout)
+
+    def test_multipart_bootstrap_rejects_replaced_local_raid(self) -> None:
+        result = run_lua_case("sync_multipart_bootstrap_rejects_replaced_local_raid")
+
+        self.assertIn("PASS sync_multipart_bootstrap_rejects_replaced_local_raid", result.stdout)
+
+    def test_multipart_bootstrap_rejects_signature_drift(self) -> None:
+        result = run_lua_case("sync_multipart_bootstrap_rejects_signature_drift")
+
+        self.assertIn("PASS sync_multipart_bootstrap_rejects_signature_drift", result.stdout)
+
+    def test_bootstrap_rejects_snapshot_header_signature_mismatch(self) -> None:
+        result = run_lua_case("sync_bootstrap_rejects_snapshot_header_signature_mismatch")
+
+        self.assertIn("PASS sync_bootstrap_rejects_snapshot_header_signature_mismatch", result.stdout)
+
+    def test_sync_master_looter_is_authoritative_without_rank(self) -> None:
+        result = run_lua_case("sync_master_looter_is_authoritative_without_rank")
+
+        self.assertIn("PASS sync_master_looter_is_authoritative_without_rank", result.stdout)
+
+    def test_sync_party_authority_rejects_members_and_outsiders(self) -> None:
+        result = run_lua_case("sync_party_authority_rejects_members_and_outsiders")
+
+        self.assertIn("PASS sync_party_authority_rejects_members_and_outsiders", result.stdout)
 
     def test_sync_v1_revision_zero_imports_through_real_store_without_regression(self) -> None:
         result = run_lua_case("sync_v1_revision_zero_imports_through_real_store_without_regression")

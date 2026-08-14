@@ -1400,6 +1400,52 @@ do
 		return true, raid
 	end
 
+	function module:CommitAuthoritativeRaidHistoryImport(raid, stagedRaid, revision)
+		local targetRevision = tonumber(revision)
+		if not isPositiveInteger(targetRevision) then
+			return false, "INVALID_REVISION"
+		end
+		local base = stagedMutationBase[stagedRaid]
+		if not base or base.raid ~= raid or self:GetRaidSyncRevision(raid) ~= base.revision then
+			return false, "CONFLICT"
+		end
+		local valid, validationError = validateRaidHistory(stagedRaid)
+		if not valid then
+			return false, validationError
+		end
+		local canonicalFound = false
+		local raids = ensureRaidsTable()
+		for i = 1, #raids do
+			if raids[i] == raid then
+				canonicalFound = true
+				break
+			end
+		end
+		if not canonicalFound then
+			return false, "CONFLICT"
+		end
+		local snapshot = copyRaidHistoryValue(raid)
+		local function replaceRaid(source)
+			for key in pairs(raid) do raid[key] = nil end
+			for key, value in pairs(copyRaidHistoryValue(source)) do raid[key] = value end
+		end
+		local committed = pcall(function()
+			replaceRaid(stagedRaid)
+			if self:SetRaidSyncRevision(raid, targetRevision, "sync_bootstrap") ~= targetRevision then
+				error("REVISION_FAILED")
+			end
+			if type(self:EnsureRaidRuntime(raid)) ~= "table" then
+				error("INDEX_REBUILD_FAILED")
+			end
+		end)
+		if not committed then
+			replaceRaid(snapshot)
+			return false, "COMMIT_FAILED"
+		end
+		stagedMutationBase[stagedRaid] = nil
+		return true, raid
+	end
+
 	function module:CommitNewRaidHistoryImport(raid, revision, allowRevisionZero)
 		local targetRevision = tonumber(revision)
 		local legacyZero = allowRevisionZero == true and targetRevision == 0

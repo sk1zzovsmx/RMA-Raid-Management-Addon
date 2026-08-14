@@ -1,5 +1,6 @@
 from pathlib import Path
 import unittest
+import xml.etree.ElementTree as ET
 
 from tests.lua_test_runner import run_lua_case
 
@@ -7,9 +8,23 @@ from tests.lua_test_runner import run_lua_case
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_LUA = ROOT / "Raid Management Addon" / "Services" / "Spammer" / "Runtime.lua"
 CONTROLLER_LUA = ROOT / "Raid Management Addon" / "Controllers" / "Spammer.lua"
+SPAMMER_XML = ROOT / "Raid Management Addon" / "UI" / "Spammer.xml"
 
 
 class SpammerWarningsBehaviorTests(unittest.TestCase):
+    def test_spammer_channel_selector_has_readable_label_width(self) -> None:
+        root = ET.parse(SPAMMER_XML).getroot()
+        label = None
+        for node in root.iter():
+            if node.tag.endswith("FontString") and node.attrib.get("name") == "$parentChannelsStr":
+                label = next(
+                    (child for child in node.iter() if child.tag.endswith("AbsDimension")),
+                    None,
+                )
+                break
+        self.assertIsNotNone(label)
+        self.assertGreaterEqual(int(label.attrib["x"]), 70)
+
     def test_strings_utf8_safe_prefix(self) -> None:
         result = run_lua_case("strings_utf8_safe_prefix")
         self.assertIn("PASS strings_utf8_safe_prefix", result.stdout)
@@ -55,6 +70,10 @@ class SpammerWarningsBehaviorTests(unittest.TestCase):
     def test_spammer_frame_binding_applies_uncached_clear_state(self) -> None:
         result = run_lua_case("spammer_frame_binding_applies_uncached_clear_state")
         self.assertIn("PASS spammer_frame_binding_applies_uncached_clear_state", result.stdout)
+
+    def test_spammer_channel_menu_normalizes_unavailable_saved_choices(self) -> None:
+        result = run_lua_case("spammer_channel_menu_normalizes_unavailable_saved_choices")
+        self.assertIn("PASS spammer_channel_menu_normalizes_unavailable_saved_choices", result.stdout)
 
     def test_chat_delivery_uses_live_destinations_and_reports_failures(self) -> None:
         result = run_lua_case("chat_delivery_uses_live_destinations_and_reports_failures")

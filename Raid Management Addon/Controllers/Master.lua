@@ -2126,34 +2126,44 @@ do
 		module:RequestRefresh()
 	end
 
-	local manualTradeCloseSettleHandle
+	local manualTradeCloseState = {
+		settleHandle = nil,
+		bagRetryAvailable = false,
+	}
+
+	manualTradeCloseState.hasPendingSettlement = function()
+		return MasterService.Trade.HasClosePending() or tradeExecutionController:HasPendingAcceptedTrade()
+	end
 
 	local function cancelManualTradeCloseSettle()
-		if manualTradeCloseSettleHandle then
-			module:CancelTimer(manualTradeCloseSettleHandle)
-			manualTradeCloseSettleHandle = nil
+		if manualTradeCloseState.settleHandle then
+			module:CancelTimer(manualTradeCloseState.settleHandle)
+			manualTradeCloseState.settleHandle = nil
 		end
 	end
 
 	local function completeManualTradeCloseSettle()
-		manualTradeCloseSettleHandle = nil
+		manualTradeCloseState.settleHandle = nil
 		MasterService.Trade.SettleClose()
 		tradeExecutionController:SettleAcceptedTrade(Widgets.TradeMenu.ResolveTradePartnerName())
+		if not manualTradeCloseState.hasPendingSettlement() then
+			manualTradeCloseState.bagRetryAvailable = false
+		end
 		Widgets.TradeMenu.HideDropdowns()
 		module:RequestRefresh()
 	end
 
 	local function scheduleManualTradeCloseSettle()
 		cancelManualTradeCloseSettle()
-		if not MasterService.Trade.HasClosePending() and not tradeExecutionController:HasPendingAcceptedTrade() then
+		if not manualTradeCloseState.hasPendingSettlement() then
 			MasterService.Trade.Reset(true, true)
 			Widgets.TradeMenu.HideDropdowns()
 			return false
 		end
 
 		Widgets.TradeMenu.HideDropdowns()
-		manualTradeCloseSettleHandle = module:ScheduleTimer(completeManualTradeCloseSettle, 0)
-		if not manualTradeCloseSettleHandle then
+		manualTradeCloseState.settleHandle = module:ScheduleTimer(completeManualTradeCloseSettle, 0)
+		if not manualTradeCloseState.settleHandle then
 			completeManualTradeCloseSettle()
 		end
 		return true
@@ -2162,6 +2172,7 @@ do
 	local function failManualTrade(message)
 		local failed = MasterService.Trade.CancelClose(message)
 		if failed then
+			manualTradeCloseState.bagRetryAvailable = false
 			cancelManualTradeCloseSettle()
 			Widgets.TradeMenu.HideDropdowns()
 			return true
@@ -3496,6 +3507,7 @@ do
 			failed = tradeExecutionController:FailAcceptedTrade(message) or failed
 		end
 		if failed then
+			manualTradeCloseState.bagRetryAvailable = false
 			module:RequestRefresh()
 		end
 	end
@@ -3507,6 +3519,7 @@ do
 			failed = tradeExecutionController:FailAcceptedTrade(message) or failed
 		end
 		if failed then
+			manualTradeCloseState.bagRetryAvailable = false
 			module:RequestRefresh()
 		end
 	end
@@ -3517,10 +3530,19 @@ do
 		end
 	end
 
+	manualTradeCloseState.refreshManualCandidate = function(source)
+		if tradeExecutionController:HasInFlightAward() then
+			Widgets.TradeMenu.HideDropdowns()
+			return false
+		end
+		Widgets.TradeMenu.RefreshCandidate(source)
+		return true
+	end
+
 	function module:TRADE_ACCEPT_UPDATE(playerAccepted, targetAccepted)
 		local tradeWinner = getCurrentTradeWinner()
 		local RMATradeHandled = false
-		local isAddonDrivenTrade = lootState.trader ~= nil and tradeWinner ~= nil
+		local isAddonDrivenTrade = tradeExecutionController:HasInFlightAward()
 		if isTraceEnabled() then
 			addon:trace(
 				Diag.D.LogTradeAcceptUpdate:format(
@@ -3541,20 +3563,21 @@ do
 	end
 
 	function module:TRADE_SHOW()
+		manualTradeCloseState.bagRetryAvailable = false
 		cancelManualTradeCloseSettle()
 		local handled = tradeExecutionController:HandleTradeShow(Widgets.TradeMenu.ResolveTradePartnerName())
 		if not handled and not tradeExecutionController:HasInFlightAward() then
 			MasterService.Trade.Reset(true, false)
-			Widgets.TradeMenu.RefreshCandidate("TRADE_SHOW")
 		end
+		manualTradeCloseState.refreshManualCandidate("TRADE_SHOW")
 	end
 
 	function module:TRADE_PLAYER_ITEM_CHANGED()
-		Widgets.TradeMenu.RefreshCandidate("TRADE_PLAYER_ITEM_CHANGED")
+		manualTradeCloseState.refreshManualCandidate("TRADE_PLAYER_ITEM_CHANGED")
 	end
 
 	function module:TRADE_TARGET_ITEM_CHANGED()
-		Widgets.TradeMenu.RefreshCandidate("TRADE_TARGET_ITEM_CHANGED")
+		manualTradeCloseState.refreshManualCandidate("TRADE_TARGET_ITEM_CHANGED")
 	end
 
 	-- TRADE_CLOSED: trade window closed (completed or canceled)
@@ -3562,12 +3585,26 @@ do
 		if tradeExecutionController:HasInFlightAward() and not tradeExecutionController:HasPendingAcceptedTrade() then
 			tradeExecutionController:FailAcceptedTrade("TRADE_CLOSED")
 		end
+		manualTradeCloseState.bagRetryAvailable = manualTradeCloseState.hasPendingSettlement()
 		scheduleManualTradeCloseSettle()
 		handleTradeClosedOrCancelled()
 	end
 
+	function module:BAG_UPDATE()
+		if not manualTradeCloseState.bagRetryAvailable then
+			return
+		end
+		if not manualTradeCloseState.hasPendingSettlement() then
+			manualTradeCloseState.bagRetryAvailable = false
+			return
+		end
+		manualTradeCloseState.bagRetryAvailable = false
+		scheduleManualTradeCloseSettle()
+	end
+
 	-- TRADE_REQUEST_CANCEL: trade request canceled before opening
 	function module:TRADE_REQUEST_CANCEL()
+		manualTradeCloseState.bagRetryAvailable = false
 		cancelManualTradeCloseSettle()
 		tradeExecutionController:FailAcceptedTrade("TRADE_REQUEST_CANCEL")
 		MasterService.Trade.Reset(true, false)
@@ -3754,6 +3791,7 @@ do
 		Private.RegisterWowForwarded("TRADE_REQUEST_CANCEL")
 		Private.RegisterWowForwarded("TRADE_TARGET_ITEM_CHANGED")
 		Private.RegisterWowForwarded("TRADE_CLOSED")
+		Private.RegisterWowForwarded("BAG_UPDATE")
 
 		RegisterCallback(MasterEvents.GroupLootRestoreNeeded, function()
 			ShowConfirmPopup(

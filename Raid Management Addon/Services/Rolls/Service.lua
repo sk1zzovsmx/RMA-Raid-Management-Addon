@@ -685,13 +685,15 @@ do
 
 	function module:FreezeRollIntake(reason)
 		local session = getRollSession()
-		if not session or session.active ~= true then
+		if not session then
 			return nil, "no_active_roll_session"
 		end
 
-		finishRollIntake()
-		Countdown.Stop(state)
-		freezeRollSession()
+		if session.active == true then
+			finishRollIntake()
+			Countdown.Stop(state)
+			freezeRollSession()
+		end
 		local model = Display.BuildModel(getDisplayContext())
 		return model, reason or "frozen"
 	end

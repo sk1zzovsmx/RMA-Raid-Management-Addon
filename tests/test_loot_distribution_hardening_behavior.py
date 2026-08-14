@@ -119,11 +119,23 @@ class LootDistributionHardeningTests(unittest.TestCase):
     def test_award_trade_event_order_is_evidence_gated(self) -> None:
         self.assert_case("loot_award_trade_event_order_is_evidence_gated")
 
+    def test_trader_keep_uses_award_callback_contract(self) -> None:
+        self.assert_case("loot_trader_keep_uses_award_callback_contract")
+
     def test_trade_rejects_second_in_flight(self) -> None:
         self.assert_case("loot_trade_rejects_second_in_flight")
 
+    def test_out_of_range_trade_can_retry(self) -> None:
+        self.assert_case("loot_out_of_range_trade_can_retry")
+
     def test_trade_required_count_tracks_placed_stack(self) -> None:
         self.assert_case("loot_trade_required_count_tracks_placed_stack")
+
+    def test_trade_close_retries_once_after_bag_update(self) -> None:
+        self.assert_case("loot_trade_close_retries_once_after_bag_update")
+
+    def test_trade_menu_is_manual_only(self) -> None:
+        self.assert_case("loot_trade_menu_is_manual_only")
 
     def test_recovery_of_recovery_state_is_absent(self) -> None:
         owner_paths = (

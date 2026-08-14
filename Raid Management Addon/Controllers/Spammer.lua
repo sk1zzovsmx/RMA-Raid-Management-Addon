@@ -21,8 +21,8 @@ local Services = addon.Services
 local SpammerSvc = assert(Services.Spammer, "Spammer controller service namespace is not initialized")
 
 local _G = _G
-local pairs, ipairs, type, select = pairs, ipairs, type, select
-local find, strlen = string.find, string.len
+local pairs, ipairs, type = pairs, ipairs, type
+local lower, strlen = string.lower, string.len
 local gsub = string.gsub
 local tostring, tonumber = tostring, tonumber
 
@@ -136,6 +136,7 @@ do
 	local updateControls
 	local updateTickDisplay
 	local setInputsLocked
+	local requestRefresh
 	local saveSpammer
 	local startSpam
 	local stopSpam
@@ -146,6 +147,7 @@ do
 	-- ----- Private helpers ----- --
 	function uiState.AcquireRefs(frame)
 		local refs = {
+			channelMenu = Frames.GetRef(frame, "ChannelMenu"),
 			clearBtn = Frames.GetRef(frame, "ClearBtn"),
 			startBtn = Frames.GetRef(frame, "StartBtn"),
 			duration = Frames.GetRef(frame, "Duration"),
@@ -159,13 +161,7 @@ do
 			rangedClass = Frames.GetRef(frame, "RangedClass"),
 			tank = Frames.GetRef(frame, "Tank"),
 			tankClass = Frames.GetRef(frame, "TankClass"),
-			chatGuild = Frames.GetRef(frame, "ChatGuild"),
-			chatYell = Frames.GetRef(frame, "ChatYell"),
-			channels = {},
 		}
-		for i = 1, 8 do
-			refs.channels[i] = Frames.GetRef(frame, "Chat" .. i)
-		end
 		return refs
 	end
 
@@ -192,19 +188,110 @@ do
 		return _G[frameName .. suffix]
 	end
 
-	local function setCheckbox(suffix, checked)
-		local chk = getNamedPart(suffix)
-		if chk and chk.SetChecked then
-			chk:SetChecked(checked and true or false)
+	local function buildChannelChoices()
+		local store = Draft.GetStore()
+		local saved = Draft.GetChannels(store)
+		local savedByName = {}
+		local choices = {}
+		local added = {}
+		local unavailableSaved = {}
+
+		for i = 1, #saved do
+			savedByName[lower(saved[i])] = true
 		end
+
+		local function addChoice(value, checked, disabled)
+			local key = lower(value)
+			if added[key] then
+				return
+			end
+			added[key] = true
+			choices[#choices + 1] = {
+				value = value,
+				text = disabled and L.StrSpammerChannelUnavailable:format(value) or value,
+				checked = checked,
+				disabled = disabled,
+			}
+		end
+
+		local rows = {}
+		local channelDiscoverySucceeded = false
+		if type(_G.GetChannelList) == "function" then
+			local ok, values = pcall(function()
+				return { _G.GetChannelList() }
+			end)
+			if ok then
+				rows = values
+				channelDiscoverySucceeded = true
+			end
+		end
+		for i = 1, #rows, 2 do
+			local id, name = tonumber(rows[i]), rows[i + 1]
+			if id and id > 0 and type(name) == "string" and name ~= "" then
+				addChoice(name, savedByName[lower(name)] == true, false)
+			end
+		end
+
+		addChoice("YELL", savedByName.yell == true, false)
+		local inGuild = type(_G.IsInGuild) == "function" and _G.IsInGuild()
+		local guildSaved = savedByName.guild == true
+		addChoice("GUILD", guildSaved and inGuild, not inGuild)
+		if guildSaved and not inGuild then
+			unavailableSaved[#unavailableSaved + 1] = "GUILD"
+		end
+
+		for i = 1, #saved do
+			local channel = saved[i]
+			if not added[lower(channel)] then
+				addChoice(channel, false, true)
+				if channelDiscoverySucceeded then
+					unavailableSaved[#unavailableSaved + 1] = channel
+				end
+			end
+		end
+		for i = 1, #unavailableSaved do
+			Draft.SetChannelChecked(store, unavailableSaved[i], false)
+		end
+
+		return choices
 	end
 
-	local function resetAllChannelCheckboxes()
-		for i = 1, 8 do
-			setCheckbox("Chat" .. i, false)
+	local function initializeChannelMenu(menu)
+		if not (menu and type(_G.UIDropDownMenu_Initialize) == "function") then
+			return
 		end
-		setCheckbox("ChatGuild", false)
-		setCheckbox("ChatYell", false)
+		if type(_G.UIDropDownMenu_SetWidth) == "function" then
+			_G.UIDropDownMenu_SetWidth(menu, 180, 25)
+		end
+		if type(_G.UIDropDownMenu_SetText) == "function" then
+			_G.UIDropDownMenu_SetText(menu, L.StrChannels)
+		end
+		_G.UIDropDownMenu_Initialize(menu, function(frameOrLevel, level)
+			local menuLevel = tonumber(level) or tonumber(frameOrLevel) or 1
+			if menuLevel ~= 1 then
+				return
+			end
+			local choices = buildChannelChoices()
+			for i = 1, #choices do
+				local choice = choices[i]
+				local info = _G.UIDropDownMenu_CreateInfo()
+				info.arg1 = choice.value
+				info.text = choice.text
+				info.checked = choice.checked
+				info.disabled = choice.disabled
+				info.isNotRadio = true
+				info.keepShownOnClick = true
+				info.func = function(_, channel, _, checked)
+					if inputsLocked or choice.disabled then
+						return
+					end
+					Draft.SetChannelChecked(Draft.GetStore(), channel, checked)
+					previewDirty = true
+					requestRefresh()
+				end
+				_G.UIDropDownMenu_AddButton(info, menuLevel)
+			end
+		end)
 	end
 
 	-- Deterministic: sync Duration immediately from UI/SV (no waiting for preview tick)
@@ -277,7 +364,7 @@ do
 		end
 	end
 
-	local function requestRefresh()
+	requestRefresh = function()
 		if module.RequestRefresh then
 			module:RequestRefresh()
 		end
@@ -302,6 +389,7 @@ do
 	end
 
 	local function BindHandlers(_, _, refs)
+		initializeChannelMenu(refs.channelMenu)
 		Frames.SetScriptSafely(refs.clearBtn, "OnClick", function()
 			clearSpammer()
 		end)
@@ -343,18 +431,6 @@ do
 			focusTab("Healer", "Tank")
 		end)
 
-		for i = 1, #refs.channels do
-			local channelBox = refs.channels[i]
-			Frames.SetScriptSafely(channelBox, "OnClick", function(self, button)
-				saveSpammer(self, button)
-			end)
-		end
-		Frames.SetScriptSafely(refs.chatGuild, "OnClick", function(self, button)
-			saveSpammer(self, button)
-		end)
-		Frames.SetScriptSafely(refs.chatYell, "OnClick", function(self, button)
-			saveSpammer(self, button)
-		end)
 	end
 
 	local function OnLoadFrame(frame)
@@ -379,7 +455,7 @@ do
 		end,
 	})
 
-	-- Save (EditBox / Checkbox)
+	-- Save EditBox
 	saveSpammer = function(box)
 		if not box then
 			return
@@ -394,24 +470,9 @@ do
 		local target = gsub(boxName, frameName, "")
 		local store = Draft.GetStore()
 
-		if find(target, "Chat") then
-			local channel = gsub(target, "Chat", "")
-			if channel == "Guild" or channel == "Yell" then
-				channel = string.upper(channel)
-			else
-				local _, channelName = GetChannelName(tonumber(channel))
-				channel = channelName
-			end
-
-			-- FIX: GetChecked can be true/false or 1/0
-			local checked = box:GetChecked()
-			checked = (checked == true or checked == 1)
-			Draft.SetChannelChecked(store, channel, checked)
-		else
-			local value = Strings.TrimText(box:GetText())
-			Draft.SetField(store, target, value)
-			box:ClearFocus()
-		end
+		local value = Strings.TrimText(box:GetText())
+		Draft.SetField(store, target, value)
+		box:ClearFocus()
 
 		loaded = false
 		previewDirty = true
@@ -573,14 +634,6 @@ do
 		getNamedPart("RangedStr"):SetText(L.StrRanged)
 		getNamedPart("MessageStr"):SetText(L.StrSpammerMessageStr)
 		getNamedPart("ChannelsStr"):SetText(L.StrChannels)
-		for i = 1, 8 do
-			local label = getNamedPart("Channel" .. i .. "Str")
-			if label then
-				label:SetText(tostring(i))
-			end
-		end
-		getNamedPart("ChannelGuildStr"):SetText(L.StrGuild)
-		getNamedPart("ChannelYellStr"):SetText(L.StrYell)
 		getNamedPart("PreviewStr"):SetText(L.StrSpammerPreviewStr)
 		getNamedPart("ClearBtn"):SetText(L.BtnClear)
 		getNamedPart("StartBtn"):SetText(L.BtnStart)
@@ -690,11 +743,14 @@ do
 			end
 		end
 
-		for i = 1, 8 do
-			Primitives.SetEnabled(getNamedPart("Chat" .. i), not locked)
+		local channelMenu = getNamedPart("ChannelMenu")
+		if locked and type(_G.UIDropDownMenu_DisableDropDown) == "function" then
+			_G.UIDropDownMenu_DisableDropDown(channelMenu)
+		elseif not locked and type(_G.UIDropDownMenu_EnableDropDown) == "function" then
+			_G.UIDropDownMenu_EnableDropDown(channelMenu)
+		else
+			Primitives.SetEnabled(channelMenu, not locked)
 		end
-		Primitives.SetEnabled(getNamedPart("ChatGuild"), not locked)
-		Primitives.SetEnabled(getNamedPart("ChatYell"), not locked)
 		Primitives.SetEnabled(getNamedPart("ClearBtn"), not locked)
 		inputsAppliedFrame = frame
 	end
@@ -821,23 +877,8 @@ do
 			local store = Draft.GetStore()
 			store.Duration = store.Duration or DEFAULT_DURATION_STR
 
-			resetAllChannelCheckboxes()
-
 			for k, v in pairs(store) do
-				if k == "Channels" then
-					for _, channel in ipairs(v) do
-						if channel == "GUILD" then
-							setCheckbox("ChatGuild", true)
-						elseif channel == "YELL" then
-							setCheckbox("ChatYell", true)
-						else
-							local id = select(1, GetChannelName(channel))
-							if id and id > 0 then
-								setCheckbox("Chat" .. id, true)
-							end
-						end
-					end
-				elseif getNamedPart(k) then
+				if k ~= "Channels" and getNamedPart(k) then
 					getNamedPart(k):SetText(v)
 				end
 			end

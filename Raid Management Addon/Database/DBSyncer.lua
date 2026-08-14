@@ -2,7 +2,7 @@
 -- deps: local addon = select(2, ...)
 -- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
--- events: handles RMALogSync addon-message traffic; listens OptionsLoaded, ConfigpersistentSync, RaidCreate
+-- events: handles RMALogSync; listens OptionsLoaded, ConfigpersistentSync, RaidCreate, LootDistributionSessionChanged
 local addon = select(2, ...)
 local L = addon.L
 local Diag = addon.Diag
@@ -44,6 +44,8 @@ local OptionsLoadedEvent = assert(InternalEvents.OptionsLoaded, "DBSyncer option
 local LoggerSelectRaidEvent =
 	assert(InternalEvents.LoggerSelectRaid, "DBSyncer logger-select-raid event is not initialized")
 local RaidCreateEvent = assert(InternalEvents.RaidCreate, "DBSyncer raid-create event is not initialized")
+local LootDistributionSessionChangedEvent =
+	assert(InternalEvents.LootDistributionSessionChanged, "DBSyncer loot-distribution event is not initialized")
 local BindTimerMixin = assert(Timer.BindMixin, "DBSyncer timer mixin is not initialized")
 
 -- Logger synchronization module.
@@ -86,6 +88,7 @@ do
 	local OUTGOING_RATE_PRUNE_SECONDS = OUTGOING_RATE_WINDOW_SECONDS * 2
 	local PASSIVE_CLEANUP_INTERVAL_SECONDS = 5
 	local PERSISTENT_SYNC_INTERVAL_SECONDS = 120
+	local COMPLETED_LOOT_SYNC_DELAY_SECONDS = 2
 	local MAX_PUSH_CONSENTS = 128
 	local MAX_TERMINAL_REQUESTS = 128
 
@@ -105,9 +108,11 @@ do
 	module._outgoingRate = module._outgoingRate or {}
 	module._pushConsents = module._pushConsents or {}
 	module._outboundPushes = module._outboundPushes or {}
+	module._syncLineage = module._syncLineage or {}
 	module._nextRequestId = tonumber(module._nextRequestId) or 0
 	module._nextPassiveCleanupAt = tonumber(module._nextPassiveCleanupAt) or 0
 	module._persistentSyncHandle = module._persistentSyncHandle or nil
+	module._persistentSyncAccelerated = module._persistentSyncAccelerated == true
 	module._persistentSyncCallbacksBound = module._persistentSyncCallbacksBound or false
 	local chunkMessageBuffer = {}
 	BindTimerMixin(module, "Database/DBSyncer")
@@ -726,11 +731,39 @@ do
 	end
 
 	local function isAuthorizedSyncResponder(rawSender)
+		local raid = Services.Raid
+		if raid:GetLootMethodName() == "master" then
+			return raid:IsLootAuthority(rawSender) == true
+		end
 		if not addon.IsInRaid() then
-			return true
+			local unit = raid:GetUnitID(rawSender)
+			return unit ~= nil and unit ~= "none" and (tonumber(Database.GetUnitRank(unit, 0)) or 0) == 2
 		end
 		local _, rank = findRaidRosterMember(rawSender)
-		return rank ~= nil and rank > 0
+		return rank == 2
+	end
+
+	local function isLocalSyncResponder()
+		local raid = Services.Raid
+		if raid:GetLootMethodName() == "master" then
+			return raid:IsMasterLooter() == true
+		end
+		if not addon.IsInRaid() then
+			return (tonumber(Database.GetUnitRank("player", 0)) or 0) == 2
+		end
+		local _, rank = findRaidRosterMember(Database.GetPlayerName())
+		return rank == 2
+	end
+
+	local function getMatchingSyncLineage(raid, rawSender, sourceRaidNid)
+		if type(raid) ~= "table" then return nil end
+		local localRaidNid = tonumber(raid.raidNid)
+		local lineage = localRaidNid and module._syncLineage[localRaidNid] or nil
+		if type(lineage) ~= "table" then return nil end
+		if getSenderKey(rawSender) ~= lineage.authorityName then return nil end
+		if tonumber(sourceRaidNid) ~= tonumber(lineage.sourceRaidNid) then return nil end
+		if Database.GetRaidStore():GetRaidSyncRevision(raid) ~= tonumber(lineage.sourceRevision) then return nil end
+		return lineage
 	end
 
 	local function identitiesMatchRosterMember(left, right)
@@ -857,6 +890,9 @@ do
 		if not canAnswerRequests(rawSender, channel) then
 			return
 		end
+		if mode == MODE_SYNC and channel ~= "WHISPER" and not isLocalSyncResponder() then
+			return
+		end
 
 		local allowed, sender = allowIncomingRequest(rawSender)
 		if not allowed then
@@ -906,12 +942,28 @@ do
 				completeRequest(requestId)
 				return
 			end
-			if not SnapshotImport.RaidMatchesSnapshotHeader(currentRaid, snapshot.header) then
-				rejectSyncSender(pending, sender, requestId, "raid_mismatch")
+			if
+				type(pending) ~= "table"
+				or tonumber(currentRaid.raidNid) ~= tonumber(pending.raidNid)
+				or not SnapshotImport.RaidMatchesSignature(currentRaid, pending.signature)
+				or not SnapshotImport.RaidMatchesSnapshotHeader(currentRaid, snapshot.header)
+			then
+				rejectSyncSender(pending, sender, requestId, "raid_changed")
+				return
+			end
+			if not isAuthorizedSyncResponder(sender) then
+				rejectSyncSender(pending, sender, requestId, "authority_changed")
+				return
+			end
+			local sourceRaidNid = tonumber(snapshot.header and snapshot.header.raidNid)
+			local requestedRevision = tonumber(pending and pending.signature and pending.signature.sinceRevision) or 0
+			if requestedRevision > 0 and not getMatchingSyncLineage(currentRaid, sender, sourceRaidNid) then
+				rejectSyncSender(pending, sender, requestId, "lineage_mismatch")
 				return
 			end
 
-			local ok, raid, importReason = pcall(SnapshotImport.ApplySnapshotToRaid, currentRaid, snapshot, false)
+			local ok, raid, importReason =
+				pcall(SnapshotImport.ReplaceRaidFromAuthority, currentRaid, snapshot)
 			if not ok then
 				addon:error(
 					(Diag.E.LogSyncMergeFailed):format(
@@ -936,6 +988,11 @@ do
 				rejectSyncSender(pending, sender, requestId, "merge_failed")
 				return
 			end
+			module._syncLineage[currentRaid.raidNid] = {
+				authorityName = getSenderKey(sender),
+				sourceRaidNid = sourceRaidNid,
+				sourceRevision = tonumber(snapshot.header.revision),
+			}
 
 			addon:info(L.MsgLoggerSyncApplied:format(tonumber(currentId) or 0, tostring(sender)))
 			if isDebugEnabled() then
@@ -1021,12 +1078,19 @@ do
 			completeRequest(requestId)
 			return
 		end
-		if tonumber(currentRaid.raidNid) ~= tonumber(delta.header and delta.header.raidNid) then
-			rejectSyncSender(pending, sender, requestId, "raid_mismatch")
+		if not isAuthorizedSyncResponder(sender) then
+			rejectSyncSender(pending, sender, requestId, "authority_changed")
+			return
+		end
+		local sourceRaidNid = tonumber(delta.header and delta.header.raidNid)
+		local lineage = getMatchingSyncLineage(currentRaid, sender, sourceRaidNid)
+		if not lineage then
+			rejectSyncSender(pending, sender, requestId, "lineage_mismatch")
 			return
 		end
 
-		local ok, raid, importReason = pcall(SnapshotImport.ApplyDeltaToRaid, currentRaid, delta)
+		local ok, raid, importReason =
+			pcall(SnapshotImport.ApplyDeltaFromAuthority, currentRaid, delta, sourceRaidNid)
 		if not ok then
 			addon:error(
 				(Diag.E.LogSyncMergeFailed):format(
@@ -1051,6 +1115,7 @@ do
 			rejectSyncSender(pending, sender, requestId, "merge_failed")
 			return
 		end
+		lineage.sourceRevision = tonumber(delta.header.revision)
 
 		addon:info(L.MsgLoggerSyncApplied:format(tonumber(currentId) or 0, tostring(sender)))
 		cleanupIncomingByRequest(requestId, MODE_SYNC)
@@ -1081,7 +1146,12 @@ do
 			return true
 		end
 
-		local expectedRaidNid = tonumber(pending.raidNid or pending.raidRef)
+		local expectedRaidNid
+		if isSync then
+			expectedRaidNid = tonumber(pending.sourceRaidNid)
+		else
+			expectedRaidNid = tonumber(pending.raidNid or pending.raidRef)
+		end
 		if expectedRaidNid and expectedRaidNid ~= tonumber(raidNid) then
 			return true
 		end
@@ -1278,7 +1348,8 @@ do
 			return
 		end
 		local localRevision = 0
-		if isSync then
+		local requestedRevision = tonumber(pending and pending.signature and pending.signature.sinceRevision) or 0
+		if isSync and requestedRevision > 0 then
 			local currentRaid = select(1, SnapshotImport.GetCurrentRaidRecord())
 			if currentRaid then localRevision = Database.GetRaidStore():GetRaidSyncRevision(currentRaid) end
 		end
@@ -1323,6 +1394,11 @@ do
 		if
 			mode ~= MODE_SYNC or shouldIgnoreSnapshotSender(sender, requestId, mode, raidNid, pending, false, isSync)
 		then
+			return
+		end
+		local currentRaid = select(1, SnapshotImport.GetCurrentRaidRecord())
+		if not getMatchingSyncLineage(currentRaid, sender, raidNid) then
+			rejectSyncSender(pending, sender, requestId, "lineage_mismatch")
 			return
 		end
 
@@ -1410,7 +1486,7 @@ do
 			finalizeSnapshotFailure(isSync, pending, sender, requestId, "version_mismatch", mode)
 			return
 		end
-		local currentRaid = select(1, SnapshotImport.GetCurrentRaidRecord())
+		currentRaid = select(1, SnapshotImport.GetCurrentRaidRecord())
 		local localRevision = currentRaid and Database.GetRaidStore():GetRaidSyncRevision(currentRaid) or 0
 		local validDelta, validationReason = SnapshotPayload.ValidateDelta(delta, localRevision, raidNid)
 		if not validDelta then
@@ -1540,7 +1616,21 @@ do
 		end
 
 		local signature = SnapshotImport.BuildSignatureFromRaid(currentRaid)
-		signature.sinceRevision = Database.GetRaidStore():GetRaidSyncRevision(currentRaid)
+		local localRevision = Database.GetRaidStore():GetRaidSyncRevision(currentRaid)
+		local lineage = module._syncLineage[tonumber(currentRaid.raidNid)]
+		local sourceRaidNid
+		if
+			type(lineage) == "table"
+			and tonumber(lineage.sourceRaidNid)
+			and tonumber(lineage.sourceRaidNid) > 0
+			and tonumber(lineage.sourceRevision) == localRevision
+			and isAuthorizedSyncResponder(lineage.authorityName)
+		then
+			signature.sinceRevision = localRevision
+			sourceRaidNid = tonumber(lineage.sourceRaidNid)
+		else
+			signature.sinceRevision = 0
+		end
 		signature.supportsCompression = false
 		local requestId, requestIdReason = allocateRequestId(syncer)
 		if not requestId then return false, requestIdReason end
@@ -1549,6 +1639,7 @@ do
 			createdAt = nowSec(),
 			mode = MODE_SYNC,
 			raidNid = tonumber(currentRaid.raidNid) or 0,
+			sourceRaidNid = sourceRaidNid,
 			signature = signature,
 			sender = nil,
 			failedSenders = {},
@@ -1589,21 +1680,28 @@ do
 			CancelTimer(module, module._persistentSyncHandle)
 		end
 		module._persistentSyncHandle = nil
+		module._persistentSyncAccelerated = false
 	end
 
-	local function schedulePersistentSync(delay)
+	local function schedulePersistentSync(delay, accelerated)
 		if not isPersistentSyncEnabled() then
 			stopPersistentSync()
 			return false
 		end
 		if module._persistentSyncHandle then
-			return module._persistentSyncHandle ~= nil
+			if accelerated == true and module._persistentSyncAccelerated ~= true then
+				stopPersistentSync()
+			else
+				return true
+			end
 		end
 
+		module._persistentSyncAccelerated = accelerated == true
 		module._persistentSyncHandle = ScheduleTimer(module, function()
 			module._persistentSyncHandle = nil
-			module:RequestLoggerPersistentSync()
+			module._persistentSyncAccelerated = false
 			module:RefreshPersistentSync(PERSISTENT_SYNC_INTERVAL_SECONDS)
+			module:RequestLoggerPersistentSync()
 		end, tonumber(delay) or PERSISTENT_SYNC_INTERVAL_SECONDS)
 		return module._persistentSyncHandle ~= nil
 	end
@@ -1634,6 +1732,11 @@ do
 		end)
 		RegisterCallback(RaidCreateEvent, function()
 			module:RefreshPersistentSync(5)
+		end)
+		RegisterCallback(LootDistributionSessionChangedEvent, function(_, reason, row, _, mutationSender)
+			if reason == "item_done" and type(row) == "table" and mutationSender ~= nil then
+				schedulePersistentSync(COMPLETED_LOOT_SYNC_DELAY_SECONDS, true)
+			end
 		end)
 
 		module._persistentSyncCallbacksBound = true

@@ -95,6 +95,7 @@ local function seedBootstrapEvents()
 	Wow.TradeClosed = Wow.TradeClosed or "wow.TRADE_CLOSED"
 	Wow.TradePlayerItemChanged = Wow.TradePlayerItemChanged or "wow.TRADE_PLAYER_ITEM_CHANGED"
 	Wow.TradeTargetItemChanged = Wow.TradeTargetItemChanged or "wow.TRADE_TARGET_ITEM_CHANGED"
+	Wow.BagUpdate = Wow.BagUpdate or "wow.BAG_UPDATE"
 
 	return addon.Events
 end
@@ -578,6 +579,7 @@ do
 		TRADE_REQUEST_CANCEL = "TRADE_REQUEST_CANCEL",
 		TRADE_CLOSED = "TRADE_CLOSED",
 		TRADE_TARGET_ITEM_CHANGED = "TRADE_TARGET_ITEM_CHANGED",
+		BAG_UPDATE = "BAG_UPDATE",
 		READY_CHECK = "READY_CHECK",
 		INSPECT_TALENT_READY = "INSPECT_TALENT_READY",
 		GET_ITEM_INFO_RECEIVED = "GET_ITEM_INFO_RECEIVED",
@@ -606,6 +608,7 @@ do
 			TRADE_REQUEST_CANCEL = WowEvents.TradeRequestCancel,
 			TRADE_CLOSED = WowEvents.TradeClosed,
 			TRADE_TARGET_ITEM_CHANGED = WowEvents.TradeTargetItemChanged,
+			BAG_UPDATE = WowEvents.BagUpdate,
 			READY_CHECK = WowEvents.ReadyCheck,
 			INSPECT_TALENT_READY = WowEvents.InspectTalentReady,
 			GET_ITEM_INFO_RECEIVED = WowEvents.GetItemInfoReceived,

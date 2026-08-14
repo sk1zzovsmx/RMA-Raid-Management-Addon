@@ -95,7 +95,7 @@ do
 		elseif raidMaster ~= nil then
 			masterUnit = raidMaster == 0 and "player" or "raid" .. tostring(raidMaster)
 		end
-		return masterUnit ~= nil and UnitIsUnit(unit, masterUnit) == true
+		return masterUnit ~= nil and not not UnitIsUnit(unit, masterUnit)
 	end
 
 	function module:IsReservesAuthority(name)

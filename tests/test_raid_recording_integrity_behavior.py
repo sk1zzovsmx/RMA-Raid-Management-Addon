@@ -175,6 +175,12 @@ class RaidRecordingIntegrityBehaviorTests(unittest.TestCase):
         result = run_lua_case("logger_bulk_raid_delete_publishes_once")
         self.assertIn("PASS logger_bulk_raid_delete_publishes_once", result.stdout)
 
+    def test_logger_raid_list_invalidates_when_logger_data_changes(self) -> None:
+        source = Path("Raid Management Addon/Controllers/Logger.lua").read_text(encoding="utf-8")
+        raids_block = source.split("module.Raids = module.Raids or {}", 1)[1].split("-- Loot list.", 1)[0]
+        self.assertIn("RegisterCallback(LoggerEvents.LoggerDataChanged", raids_block)
+        self.assertIn("controller:Dirty()", raids_block)
+
     def test_logger_source_rebuild_is_atomic_and_revisioned(self) -> None:
         result = run_lua_case("logger_source_rebuild_is_atomic_and_revisioned")
         self.assertIn("PASS logger_source_rebuild_is_atomic_and_revisioned", result.stdout)

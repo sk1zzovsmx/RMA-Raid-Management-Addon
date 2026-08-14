@@ -595,6 +595,7 @@ L.StrHealer = "Healer"
 L.StrMelee = "Melee"
 L.StrRanged = "Ranged"
 L.StrChannels = "Channels"
+L.StrSpammerChannelUnavailable = "%s (unavailable)"
 L.StrGuild = "Guild"
 L.StrYell = "Yell"
 

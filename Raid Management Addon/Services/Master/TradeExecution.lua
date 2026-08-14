@@ -555,7 +555,7 @@ function TradeExecution.CreateController(opts)
 			end
 		end
 
-		return createAwardAttempt(itemLink, winnerName, function(attemptState)
+		return createAwardAttempt(itemLink, winnerName, function(_, attemptState)
 			finalizeTradeNotifications(self, itemLink, winnerName, rollType, rollValue, output, whisper)
 			completeInventoryAwardProgress(
 				self,
@@ -746,7 +746,7 @@ function TradeExecution.CreateController(opts)
 			local effect
 			local pendingContext
 			if isAwardRoll and winnerName and winnerName ~= "" then
-				effect = createAwardAttempt(itemLink, winnerName, function(attemptState)
+				effect = createAwardAttempt(itemLink, winnerName, function(_, attemptState)
 					if pendingContext then
 						local checkpoints = pendingContext.effectCheckpoints
 						local contextReady, contextResult = runCheckpoint(checkpoints, "lootContext", function()
@@ -819,20 +819,6 @@ function TradeExecution.CreateController(opts)
 									pendingContext.rollValue
 								)
 							)
-						end
-						local rollEndRan, rollEndPublished = runCheckpoint(checkpoints, "publishRollEnd", function()
-							return self.distribution.PublishRollEnd(
-								pendingContext.itemLink,
-								pendingContext.winner,
-								pendingContext.rollValue,
-								"inventory_trade"
-							)
-						end)
-						if not rollEndRan or rollEndPublished ~= true then
-							if rollEndRan then
-								checkpoints.publishRollEnd = nil
-							end
-							return false
 						end
 						local _, progressComplete = completeInventoryAwardProgress(
 							self,

@@ -368,13 +368,122 @@ function SnapshotImport.ApplySnapshotToRaid(raid, snapshot, updateMeta, allowExt
 	return committedRaid
 end
 
-function SnapshotImport.ApplyDeltaToRaid(raid, delta)
+function SnapshotImport.ReplaceRaidFromAuthority(raid, snapshot)
+	if not (raid and snapshot and snapshot.header) then
+		return nil, "invalid_snapshot"
+	end
+	local localRaidNid = raid.raidNid
+	if type(localRaidNid) ~= "number" or localRaidNid <= 0 then
+		return nil, "invalid_destination_raid"
+	end
+
+	local header = snapshot.header
+	local raidStore = getSnapshotImportRaidStore()
+	local valid, reason = SnapshotPayload.ValidateSnapshot(snapshot, 0, header.raidNid)
+	if not valid then return nil, reason end
+
+	local staged = raidStore:StageRaidHistoryMutation(raid)
+	if not staged then return nil, "STAGE_FAILED" end
+	staged.raidNid = localRaidNid
+	staged.schemaVersion = header.schemaVersion
+	staged.realm = header.realm
+	staged.zone = header.zone
+	staged.size = header.size
+	staged.difficulty = header.difficulty
+	staged.startTime = header.startTime
+	staged.endTime = header.endTime > 0 and header.endTime or nil
+	staged.players = {}
+	staged.attendance = {}
+	staged.bossKills = {}
+	staged.loot = {}
+	staged.inspect = nil
+
+	for i = 1, #snapshot.players do
+		local src = snapshot.players[i]
+		local leave = tonumber(src.leave) or 0
+		staged.players[i] = {
+			playerNid = src.playerNid,
+			name = NormalizeName(src.name, true) or src.name,
+			rank = src.rank,
+			subgroup = src.subgroup,
+			class = src.class,
+			join = src.join,
+			leave = leave > 0 and leave or nil,
+			countMS = src.count,
+		}
+	end
+
+	local _, playerNidByName, validPlayerNids = SnapshotPayload.BuildPlayerNameMaps(staged.players)
+	local attendanceByNid = {}
+	for i = 1, #snapshot.attendance do
+		local src = snapshot.attendance[i]
+		local playerNid = src.playerNid
+		local entry = attendanceByNid[playerNid]
+		if not entry then
+			entry = { playerNid = playerNid, segments = {} }
+			attendanceByNid[playerNid] = entry
+			staged.attendance[#staged.attendance + 1] = entry
+		end
+		local segment = { startTime = src.startTime }
+		if src.endTime > src.startTime then segment.endTime = src.endTime end
+		if src.subgroup > 1 then segment.subgroup = src.subgroup end
+		if src.online == false then segment.online = false end
+		entry.segments[#entry.segments + 1] = segment
+	end
+
+	for i = 1, #snapshot.bosses do
+		local src = snapshot.bosses[i]
+		staged.bossKills[i] = {
+			bossNid = src.bossNid,
+			name = src.name,
+			mode = src.mode == "h" and "h" or "n",
+			difficulty = src.difficulty,
+			time = src.time,
+			hash = src.hash and src.hash ~= "" and src.hash or nil,
+			players = copyUniquePlayerNids(src.players, playerNidByName, validPlayerNids),
+		}
+	end
+
+	for i = 1, #snapshot.loot do
+		local src = snapshot.loot[i]
+		local looterNid = src.looterNid
+		if not looterNid and type(src.looterName) == "string" then
+			looterNid = playerNidByName[NormalizeLower(src.looterName, true)]
+		end
+		staged.loot[i] = {
+			lootNid = src.lootNid,
+			itemId = src.itemId,
+			itemName = src.itemName,
+			itemString = src.itemString,
+			itemLink = src.itemLink,
+			itemRarity = src.itemRarity,
+			itemTexture = src.itemTexture ~= "" and src.itemTexture or nil,
+			itemCount = src.itemCount,
+			looterNid = looterNid,
+			rollType = src.rollType,
+			rollValue = src.rollValue,
+			bossNid = src.bossNid,
+			time = src.time,
+		}
+	end
+
+	staged.nextPlayerNid = header.nextPlayerNid
+	staged.nextBossNid = header.nextBossNid
+	staged.nextLootNid = header.nextLootNid
+	finalizeSnapshotRaid(staged)
+	local committed, committedRaid =
+		raidStore:CommitAuthoritativeRaidHistoryImport(raid, staged, tonumber(header.revision))
+	if not committed then return nil, committedRaid end
+	return committedRaid
+end
+
+local function applyDeltaToRaid(raid, delta, expectedRaidNid)
 	if not (raid and delta and delta.header) then
 		return nil
 	end
 
 	local raidStore = Database.GetRaidStore()
-	local valid, reason = SnapshotPayload.ValidateDelta(delta, raidStore:GetRaidSyncRevision(raid), raid.raidNid)
+	local valid, reason = SnapshotPayload.ValidateDelta(delta, raidStore:GetRaidSyncRevision(raid), expectedRaidNid)
 	if not valid then return nil, reason end
 	local canonicalRaid = raid
 	raid = raidStore:StageRaidHistoryMutation(canonicalRaid)
@@ -429,6 +538,18 @@ function SnapshotImport.ApplyDeltaToRaid(raid, delta)
 	)
 	if not committed then return nil, committedRaid end
 	return committedRaid
+end
+
+function SnapshotImport.ApplyDeltaToRaid(raid, delta)
+	return applyDeltaToRaid(raid, delta, raid and raid.raidNid)
+end
+
+function SnapshotImport.ApplyDeltaFromAuthority(raid, delta, sourceRaidNid)
+	local sourceId = tonumber(sourceRaidNid)
+	if not sourceId or sourceId <= 0 or sourceId ~= math.floor(sourceId) then
+		return nil, "invalid_source_raid"
+	end
+	return applyDeltaToRaid(raid, delta, sourceId)
 end
 
 function SnapshotImport.ImportSnapshotAsNewRaid(snapshot)
