@@ -143,6 +143,7 @@ Services\Attendance\View.lua
 Services\Attendance\Actions.lua
 Services\Attendance\Export.lua
 Services\Spammer\Draft.lua
+Services\Spammer\Runtime.lua
 Services\Warnings\Store.lua
 UI\Logger.xml
 UI\LootHistory.xml

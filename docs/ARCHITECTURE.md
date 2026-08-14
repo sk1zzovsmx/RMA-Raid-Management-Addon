@@ -110,10 +110,16 @@ runtime placement; the feature boundaries describe workflow and data ownership.
   `Import.lua`, `Sync.lua`, and `Chat.lua` own bounded parsing, verified wire
   transfer, and opt-in whisper admission respectively. Runtime sync and rate
   state never becomes SavedVariables data without successful validation.
-- Raid warnings: `Controllers/Warnings.lua`, `Services/Warnings/Store.lua`,
-  and warnings XML.
-- LFM spammer: `Controllers/Spammer.lua`, `Services/Spammer/Draft.lua`, and
-  spammer XML.
+- Raid warnings: `Services/Warnings/Store.lua` owns normalized records, stable
+  edit identity, duplicate policy, and atomic persistence. `Controllers/Warnings.lua`
+  owns the frame and renders terminal delivery outcomes returned through
+  `Services/Chat`; warnings XML remains layout-only.
+- LFM spammer: `Services/Spammer/Draft.lua` owns canonical `RMA_Spammer` data;
+  `Services/Spammer/Runtime.lua` owns the immutable active snapshot, timer
+  generation, counters, and terminal state; `Controllers/Spammer.lua` owns the
+  window and the shared clear action used by Config. Clearing invalidates the
+  loaded draft UI but does not stop or mutate an active run. Spammer XML remains
+  layout-only.
 - Configuration: `Controllers/Config.lua`, `Database/DBOptions.lua`, and config XML.
 
 ## Event Flow

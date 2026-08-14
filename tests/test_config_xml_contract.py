@@ -67,6 +67,13 @@ class ConfigLayoutOwnershipTest(unittest.TestCase):
         callback = callback[: callback.index("end, options)")]
         self.assertIn("if complete ~= true", callback)
         self.assertIn("return", callback)
+
+    def test_spammer_clear_delegates_to_controller_owner(self) -> None:
+        lua = CONTROLLER_LUA.read_text(encoding="utf-8")
+        clear_branch = lua[lua.index('elseif actionName == "clear" then') :]
+        clear_branch = clear_branch[: clear_branch.index("\n\t\telse")]
+        self.assertIn("SpammerController:RequestClearDraft()", clear_branch)
+        self.assertNotIn("SpammerDraft.ClearDraft", clear_branch)
     def test_layout_supports_explicit_justification(self) -> None:
         lua = LAYOUT_LUA.read_text(encoding="utf-8")
         self.assertIn('justifyH or "LEFT"', lua)

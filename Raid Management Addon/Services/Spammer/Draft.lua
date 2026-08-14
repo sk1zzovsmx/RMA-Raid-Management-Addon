@@ -11,7 +11,10 @@ local Services = addon.Services
 local Strings = addon.Strings
 
 local tconcat, tonumber, tostring, type = table.concat, tonumber, tostring, type
-local strlen = string.len
+local floor = math.floor
+local byte = string.byte
+local lower, strlen, strsub = string.lower, string.len, string.sub
+local sort = table.sort
 
 -- ----- Internal state ----- --
 addon.Services.EnsureNamespace("Spammer", "Draft")
@@ -22,8 +25,157 @@ local Draft = Spammer.Draft
 
 local DEFAULT_DURATION_STR = "60"
 local DEFAULT_OUTPUT = "LFM"
+local MAX_COUNT = 9
+local MAX_DURATION = 999
+local MAX_TEXT_BYTES = 255
+local MAX_NAME_BYTES = 64
+
+local fieldRules = {
+	Name = { kind = "text", maxBytes = MAX_NAME_BYTES },
+	Tank = { kind = "count" },
+	TankClass = { kind = "text", maxBytes = MAX_NAME_BYTES },
+	Healer = { kind = "count" },
+	HealerClass = { kind = "text", maxBytes = MAX_NAME_BYTES },
+	Melee = { kind = "count" },
+	MeleeClass = { kind = "text", maxBytes = MAX_NAME_BYTES },
+	Ranged = { kind = "count" },
+	RangedClass = { kind = "text", maxBytes = MAX_NAME_BYTES },
+	Message = { kind = "text", maxBytes = MAX_TEXT_BYTES },
+	Duration = { kind = "duration" },
+	Channels = { kind = "channels" },
+}
 
 -- ----- Private helpers ----- --
+local function utf8SequenceLength(firstByte)
+	if firstByte <= 0x7f then return 1 end
+	if firstByte >= 0xc2 and firstByte <= 0xdf then return 2 end
+	if firstByte >= 0xe0 and firstByte <= 0xef then return 3 end
+	if firstByte >= 0xf0 and firstByte <= 0xf4 then return 4 end
+	return nil
+end
+
+local function isValidUtf8Sequence(text, index, sequenceLength)
+	local firstByte = byte(text, index)
+	for offset = 1, sequenceLength - 1 do
+		local continuation = byte(text, index + offset)
+		if not continuation or continuation < 0x80 or continuation > 0xbf then return false end
+		if offset == 1 then
+			if firstByte == 0xe0 and continuation < 0xa0 then return false end
+			if firstByte == 0xed and continuation > 0x9f then return false end
+			if firstByte == 0xf0 and continuation < 0x90 then return false end
+			if firstByte == 0xf4 and continuation > 0x8f then return false end
+		end
+	end
+	return true
+end
+
+local function utf8SafePrefix(text, maxBytes)
+	local index, lastValid, textLength = 1, 0, strlen(text)
+	while index <= textLength do
+		local sequenceLength = utf8SequenceLength(byte(text, index))
+		if not sequenceLength or index + sequenceLength - 1 > maxBytes then break end
+		if not isValidUtf8Sequence(text, index, sequenceLength) then break end
+		lastValid = index + sequenceLength - 1
+		index = lastValid + 1
+	end
+	return strsub(text, 1, lastValid)
+end
+
+local function normalizeText(value, maxBytes)
+	if type(value) ~= "string" then
+		return ""
+	end
+	local text = Strings.TrimText(value)
+	return utf8SafePrefix(text, maxBytes)
+end
+
+local function normalizeCount(value)
+	local count = tonumber(value)
+	if not count or count < 0 then
+		return 0
+	end
+	return math.min(MAX_COUNT, floor(count))
+end
+
+local function normalizeDuration(value)
+	local duration = tonumber(value)
+	if not duration or duration <= 0 then
+		return DEFAULT_DURATION_STR
+	end
+	return tostring(math.min(MAX_DURATION, floor(duration)))
+end
+
+local function normalizeChannel(value)
+	if type(value) ~= "string" then
+		return nil
+	end
+	local channel = normalizeText(value, MAX_NAME_BYTES)
+	if channel == "" or channel:find("[%c|]") then
+		return nil
+	end
+	return channel
+end
+
+local function orderedValues(source)
+	local numericKeys, otherKeys = {}, {}
+	for key in pairs(source) do
+		if type(key) == "number" and key > 0 and floor(key) == key then
+			numericKeys[#numericKeys + 1] = key
+		else
+			otherKeys[#otherKeys + 1] = key
+		end
+	end
+	sort(numericKeys)
+	sort(otherKeys, function(left, right)
+		return tostring(left) < tostring(right)
+	end)
+	local values = {}
+	for i = 1, #numericKeys do
+		values[#values + 1] = source[numericKeys[i]]
+	end
+	for i = 1, #otherKeys do
+		values[#values + 1] = source[otherKeys[i]]
+	end
+	return values
+end
+
+local function normalizeChannels(source)
+	local channels, seen = {}, {}
+	if type(source) ~= "table" then
+		return channels
+	end
+	local values = orderedValues(source)
+	for i = 1, #values do
+		local channel = normalizeChannel(values[i])
+		local key = channel and lower(channel) or nil
+		if key and not seen[key] then
+			seen[key] = true
+			channels[#channels + 1] = channel
+		end
+	end
+	return channels
+end
+
+local function normalizeStore(store)
+	for key in pairs(store) do
+		if fieldRules[key] == nil then
+			store[key] = nil
+		end
+	end
+	for key, rule in pairs(fieldRules) do
+		if rule.kind == "text" then
+			store[key] = normalizeText(store[key], rule.maxBytes)
+		elseif rule.kind == "count" then
+			store[key] = tostring(normalizeCount(store[key]))
+		elseif rule.kind == "duration" then
+			store[key] = normalizeDuration(store[key])
+		elseif rule.kind == "channels" then
+			store[key] = normalizeChannels(store[key])
+		end
+	end
+	return store
+end
+
 local function getOutputNeeds(state)
 	local needParts = {}
 	local function addNeed(count, label, class)
@@ -57,33 +209,50 @@ function Draft.GetDefaultOutput()
 end
 
 function Draft.GetStore()
-	return SavedVariables.GetSpammer()
+	return normalizeStore(SavedVariables.GetSpammer())
 end
 
 function Draft.GetChannels(store)
-	store = store or Draft.GetStore()
-	if type(store.Channels) ~= "table" then
-		store.Channels = {}
-	end
+	store = normalizeStore(store or SavedVariables.GetSpammer())
 	return store.Channels
 end
 
 function Draft.SetField(store, key, value)
 	store = store or Draft.GetStore()
-	if type(key) ~= "string" or key == "" then
-		return false
+	local rule = type(key) == "string" and fieldRules[key] or nil
+	if not rule or rule.kind == "channels" then
+		return false, "invalid_field"
 	end
-	store[key] = value
+	if rule.kind == "duration" and (not tonumber(value) or tonumber(value) <= 0) then
+		return false, "invalid_duration"
+	end
+	if rule.kind == "count" and (not tonumber(value) or tonumber(value) < 0) then
+		return false, "invalid_count"
+	end
+	if rule.kind == "text" and type(value) ~= "string" then
+		return false, "invalid_text"
+	end
+	if rule.kind == "text" then
+		store[key] = normalizeText(value, rule.maxBytes)
+	elseif rule.kind == "count" then
+		store[key] = tostring(normalizeCount(value))
+	elseif rule.kind == "duration" then
+		store[key] = normalizeDuration(value)
+	end
 	return true
 end
 
 function Draft.SetChannelChecked(store, channel, checked)
 	store = store or Draft.GetStore()
 	local channels = Draft.GetChannels(store)
+	channel = normalizeChannel(channel)
+	if not channel then
+		return false, "invalid_channel"
+	end
 	local existsAt = nil
 
 	for i = 1, #channels do
-		if channels[i] == channel then
+		if lower(channels[i]) == lower(channel) then
 			existsAt = i
 			break
 		end
@@ -100,7 +269,7 @@ function Draft.SetChannelChecked(store, channel, checked)
 		table.remove(channels, existsAt)
 		existsAt = nil
 		for i = 1, #channels do
-			if channels[i] == channel then
+			if lower(channels[i]) == lower(channel) then
 				existsAt = i
 				break
 			end
@@ -110,7 +279,7 @@ function Draft.SetChannelChecked(store, channel, checked)
 end
 
 function Draft.BuildState(store)
-	store = store or Draft.GetStore()
+	store = normalizeStore(store or SavedVariables.GetSpammer())
 	return {
 		name = store.Name or "",
 		tank = tonumber(store.Tank) or 0,
@@ -187,5 +356,5 @@ function Draft.ClearDraft(store)
 		end
 	end
 	store.Duration = DEFAULT_DURATION_STR
-	return store
+	return normalizeStore(store)
 end

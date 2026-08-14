@@ -1455,8 +1455,7 @@ do
 		elseif actionName == "stop" then
 			SpammerController:RequestStop()
 		elseif actionName == "clear" then
-			SpammerDraft.ClearDraft(SpammerDraft.GetStore())
-			result = SpammerDraft.BuildPreview(SpammerDraft.GetStore(), SpammerDraft.GetDefaultOutput())
+			result = SpammerController:RequestClearDraft()
 		else
 			result = SpammerDraft.BuildPreview(SpammerDraft.GetStore(), SpammerDraft.GetDefaultOutput())
 		end
@@ -1496,11 +1495,15 @@ do
 	end
 
 	function module:RequestRaidWarningPanelAction(actionName, includeStock)
-		local result
+		local result, reason
 		if actionName == "open" then
 			WarningsController:Toggle()
 		elseif actionName == "clearSaved" then
-			result = WarningStore.ClearSavedWarnings(includeStock == true)
+			result, reason = WarningStore.ClearSavedWarnings(includeStock == true)
+			if result == nil then
+				addon:error(L.ErrWarningClear, reason or "clear_failed")
+				return nil, reason or "clear_failed"
+			end
 			addon:info(L.MsgRaidWarningsCleared:format(tonumber(result and result.removed) or 0))
 			local preview = WarningStore.BuildTemplatePreview(L.StrConfigRaidWarningPreviewEmpty or "")
 			if preview and preview.text then

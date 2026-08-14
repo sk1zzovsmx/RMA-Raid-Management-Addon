@@ -49,6 +49,17 @@ build faults preserve exact active root/generation/attribution identity, and a
 cross-owner activation failure restores the prior loot-source and ignored-mob
 state.
 
+For spammer and raid-warning hardening, the behavior suite proves persisted
+drafts/templates normalize to bounded UTF-8-safe shapes, active LFM runs use an
+immutable snapshot with terminal-once callbacks and hard caps, chat destinations
+are validated at the effect boundary; selected warning IDs and unchanged-row
+identities are preserved, while the edited row alone is atomically replaced.
+Config clear invalidates loaded UI without stopping the active run. It also
+covers clear before and after frame creation, enabled Stop/Resume actions after
+clear, pending callbacks, direct Runtime ownership, contained callback failures,
+concrete transport reasons, exactly-once controller feedback, and a later headless
+start from canonical SavedVariables.
+
 For docs-only edits, also run:
 
 ```powershell

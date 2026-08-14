@@ -2,7 +2,8 @@
 -- deps: local addon = select(2, ...)
 -- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
--- events: owns spammer UI scripts; delegates ticker state to Services/Chat
+-- events: owns spammer UI scripts; Services.Spammer.Runtime owns lifecycle state
+-- notes: Services.Chat owns spam transport and announcement policy
 local addon = select(2, ...)
 local L = addon.L
 local Controllers = addon.Controllers
@@ -27,12 +28,13 @@ local tostring, tonumber = tostring, tonumber
 
 local requireServiceMethod = Database.RequireServiceMethod
 
-local Chat = assert(Services.Chat, "Spammer controller chat service is not initialized")
+assert(Services.Chat, "Spammer controller chat service is not initialized")
 local DraftSvc = assert(SpammerSvc.Draft, "Spammer controller draft service is not initialized")
-local GetSpamRuntimeState = requireServiceMethod("Chat", Chat, "GetSpamRuntimeState")
-local StartSpamCycle = requireServiceMethod("Chat", Chat, "StartSpamCycle")
-local StopSpamCycle = requireServiceMethod("Chat", Chat, "StopSpamCycle")
-local PauseSpamCycle = requireServiceMethod("Chat", Chat, "PauseSpamCycle")
+local RuntimeSvc = assert(SpammerSvc.Runtime, "Spammer controller runtime service is not initialized")
+local GetRuntimeState = requireServiceMethod("Spammer.Runtime", RuntimeSvc, "GetState")
+local StartRuntime = requireServiceMethod("Spammer.Runtime", RuntimeSvc, "Start")
+local StopRuntime = requireServiceMethod("Spammer.Runtime", RuntimeSvc, "Stop")
+local PauseRuntime = requireServiceMethod("Spammer.Runtime", RuntimeSvc, "Pause")
 local Draft = {
 	GetDefaultDuration = requireServiceMethod("Spammer.Draft", DraftSvc, "GetDefaultDuration"),
 	GetDefaultOutput = requireServiceMethod("Spammer.Draft", DraftSvc, "GetDefaultOutput"),
@@ -66,6 +68,7 @@ do
 	local finalOutput = DEFAULT_OUTPUT
 
 	local inputsLocked = false
+	local inputsAppliedFrame = nil
 	local previewDirty = true
 
 	local inputFields = {
@@ -242,6 +245,10 @@ do
 				renderPreview()
 				previewDirty = false
 			end
+		else
+			local preview = Draft.BuildPreview(Draft.GetStore(), DEFAULT_OUTPUT)
+			finalOutput = preview.output
+			duration = preview.duration
 		end
 	end
 
@@ -389,8 +396,12 @@ do
 
 		if find(target, "Chat") then
 			local channel = gsub(target, "Chat", "")
-			local id = tonumber(channel) or select(1, GetChannelName(channel))
-			channel = (id and id > 0) and id or channel
+			if channel == "Guild" or channel == "Yell" then
+				channel = string.upper(channel)
+			else
+				local _, channelName = GetChannelName(tonumber(channel))
+				channel = channelName
+			end
 
 			-- FIX: GetChecked can be true/false or 1/0
 			local checked = box:GetChecked()
@@ -417,47 +428,60 @@ do
 		requestRefresh()
 	end
 
-	startSpam = function()
-		ensureReadyForStart()
-		local store = Draft.GetStore()
-
-		if not addon.WithinRange(strlen(finalOutput), 4, 255) then
-			return
+	local function reportRuntimeTerminal(reason, terminalState)
+		if reason == "duration_limit" then
+			addon:warn(L.MsgSpammerAutoStopDuration:format(tonumber(terminalState and terminalState.runElapsedSeconds) or 0))
+		elseif reason == "message_limit" then
+			addon:warn(L.MsgSpammerAutoStopMessages:format(tonumber(terminalState and terminalState.attempts) or 0))
+		else
+			addon:error(L.ErrSpammerRuntime, reason or "runtime_failed")
 		end
+	end
 
-		local runtime = GetSpamRuntimeState(Chat)
+	local function handleRuntimeTerminal(reason, terminalState)
+		unlockSpamInputsAndRefresh()
+		reportRuntimeTerminal(reason, terminalState)
+	end
+
+	startSpam = function()
+		local runtime = GetRuntimeState(RuntimeSvc)
 		if runtime.ticking and runtime.paused then
-			setInputsLocked(true)
-			StartSpamCycle(Chat, {
-				duration = duration,
-				output = finalOutput,
-				channels = Draft.GetChannels(store),
+			local started, reason = StartRuntime(RuntimeSvc, {
+				duration = runtime.durationSeconds,
+				output = runtime.output,
+				channels = runtime.channels,
 				resetCountdown = false,
 				resetRun = false,
 				onTick = refreshSpamUi,
-				onAutoStop = unlockSpamInputsAndRefresh,
+				onTerminal = handleRuntimeTerminal,
 			})
+			setInputsLocked(started == true)
+			if started ~= true then reportRuntimeTerminal(reason) end
 		elseif runtime.ticking then
-			StopSpamCycle(Chat, true, true)
+			StopRuntime(RuntimeSvc, true, true)
 			setInputsLocked(false)
 		else
-			setInputsLocked(true)
-			StartSpamCycle(Chat, {
+			ensureReadyForStart()
+			if not addon.WithinRange(strlen(finalOutput), 4, 255) then return end
+			local store = Draft.GetStore()
+			local started, reason = StartRuntime(RuntimeSvc, {
 				duration = duration,
 				output = finalOutput,
 				channels = Draft.GetChannels(store),
 				resetCountdown = true,
 				resetRun = true,
 				onTick = refreshSpamUi,
-				onAutoStop = unlockSpamInputsAndRefresh,
+				onTerminal = handleRuntimeTerminal,
 			})
+			setInputsLocked(started == true)
+			if started ~= true then reportRuntimeTerminal(reason) end
 		end
 
 		requestRefresh()
 	end
 
 	stopSpam = function()
-		StopSpamCycle(Chat, true, true)
+		StopRuntime(RuntimeSvc, true, true)
 		setInputsLocked(false)
 		requestRefresh()
 	end
@@ -470,8 +494,12 @@ do
 		return stopSpam()
 	end
 
+	function module:RequestClearDraft()
+		return clearSpammer()
+	end
+
 	pauseSpam = function()
-		local pausedOk = PauseSpamCycle(Chat)
+		local pausedOk = PauseRuntime(RuntimeSvc)
 		if not pausedOk then
 			return
 		end
@@ -501,8 +529,6 @@ do
 		finalOutput = DEFAULT_OUTPUT
 		resetLastState()
 
-		stopSpam()
-
 		for _, field in ipairs(resetFields) do
 			EditBoxes.Reset(getNamedPart(field))
 		end
@@ -522,6 +548,7 @@ do
 		-- FIX: reset UI immediately (len/255 included)
 		resetLengthUI()
 		updateControls()
+		return Draft.BuildPreview(store, DEFAULT_OUTPUT)
 	end
 
 	-- Localize UI
@@ -579,7 +606,7 @@ do
 			end
 
 			Frames.SetScriptSafely(box, "OnEditFocusGained", function()
-				local runtime = GetSpamRuntimeState(Chat)
+				local runtime = GetRuntimeState(RuntimeSvc)
 				if runtime.ticking and not runtime.paused then
 					pauseSpam()
 				end
@@ -616,7 +643,7 @@ do
 
 	-- Tick display
 	updateTickDisplay = function()
-		local runtime = GetSpamRuntimeState(Chat)
+		local runtime = GetRuntimeState(RuntimeSvc)
 		local countdownRemaining = tonumber(runtime.countdownRemaining) or 0
 		local tickText = getNamedPart("Tick")
 		if not tickText then
@@ -631,7 +658,8 @@ do
 
 	-- Lock/unlock inputs
 	function setInputsLocked(locked)
-		if inputsLocked == locked then
+		local frame = getFrame()
+		if inputsLocked == locked and inputsAppliedFrame == frame then
 			return
 		end
 		inputsLocked = locked
@@ -668,13 +696,14 @@ do
 		Primitives.SetEnabled(getNamedPart("ChatGuild"), not locked)
 		Primitives.SetEnabled(getNamedPart("ChatYell"), not locked)
 		Primitives.SetEnabled(getNamedPart("ClearBtn"), not locked)
+		inputsAppliedFrame = frame
 	end
 
 	-- Controls update
 	function updateControls()
-		local runtime = GetSpamRuntimeState(Chat)
+		local runtime = GetRuntimeState(RuntimeSvc)
 		local locked = runtime.ticking and not runtime.paused
-		local canStart = (strlen(finalOutput) > 3 and strlen(finalOutput) <= 255)
+		local canStart = runtime.ticking or (strlen(finalOutput) > 3 and strlen(finalOutput) <= 255)
 		local btnLabel = runtime.paused and L.BtnResume or L.BtnStop
 		local isStop = runtime.ticking == true
 
@@ -696,12 +725,12 @@ do
 			if Primitives.SetEnabled then
 				Primitives.SetEnabled(getNamedPart("StartBtn"), canStart)
 			end
-		end
 
-		lastControls.locked = locked
-		lastControls.canStart = canStart
-		lastControls.btnLabel = btnLabel
-		lastControls.isStop = isStop
+			lastControls.locked = locked
+			lastControls.canStart = canStart
+			lastControls.btnLabel = btnLabel
+			lastControls.isStop = isStop
+		end
 	end
 
 	-- Preview render
@@ -796,11 +825,17 @@ do
 
 			for k, v in pairs(store) do
 				if k == "Channels" then
-					for i, c in ipairs(v) do
-						local id = tonumber(c) or select(1, GetChannelName(c))
-						id = (id and id > 0) and id or c
-						v[i] = id
-						setCheckbox("Chat" .. id, true)
+					for _, channel in ipairs(v) do
+						if channel == "GUILD" then
+							setCheckbox("ChatGuild", true)
+						elseif channel == "YELL" then
+							setCheckbox("ChatYell", true)
+						else
+							local id = select(1, GetChannelName(channel))
+							if id and id > 0 then
+								setCheckbox("Chat" .. id, true)
+							end
+						end
 					end
 				elseif getNamedPart(k) then
 					getNamedPart(k):SetText(v)
@@ -811,7 +846,7 @@ do
 			previewDirty = true
 		end
 
-		local runtime = GetSpamRuntimeState(Chat)
+		local runtime = GetRuntimeState(RuntimeSvc)
 		if runtime.ticking and not runtime.paused then
 			updateControls()
 			updateTickDisplay()

@@ -94,6 +94,30 @@ stored identities share `Reserves:NormalizeWhisperPlayerIdentity`; realm spaces,
 apostrophes, and hyphens normalize identically without losing the selected
 stored display name.
 
+## Spammer And Raid Warnings
+
+`Services.Spammer.Draft` owns canonical `RMA_Spammer` normalization, preview
+construction, and clear semantics. `Services.Spammer.Runtime` owns one immutable
+run snapshot, its timer generation, delivery counters, terminal outcomes, and
+hard limits. `Controllers.Spammer:RequestClearDraft()` is the single clear
+action used by both the Spammer window and Config: it clears and invalidates the
+loaded draft UI without stopping or mutating an active run. A later start reads
+the cleared canonical draft.
+
+`Services.Warnings.Store` owns normalized `RMA_Warnings` records, duplicate-name
+policy, stock templates, previews, and atomic save/delete/clear publication.
+Selected warning IDs remain stable across edits; every unchanged row preserves
+its table identity, while the edited row alone is atomically replaced.
+`Controllers.Warnings` owns frame state and reports only the terminal result
+returned by `Services.Chat`; it does not infer delivery success from the
+attempted channel.
+
+`Services.Chat` composes chat policy and exposes delivery results.
+`Modules.Comms.SendChat` validates the live destination immediately before the
+WoW API effect and returns success or a terminal reason. These are internal
+owner contracts; they do not add a supported `_G.RMA` API or change addon-message
+wire formats.
+
 ## Database Synchronization
 
 `Database/DBSyncer.lua` owns generic raid-history synchronization: authorization,

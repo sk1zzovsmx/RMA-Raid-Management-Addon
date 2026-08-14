@@ -21,6 +21,10 @@ local UnitName = assert(_G.UnitName, "Comms unit name API is not initialized")
 local IsInInstance = assert(_G.IsInInstance, "Comms instance state API is not initialized")
 local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "Comms raid member count API is not initialized")
 local GetNumPartyMembers = assert(_G.GetNumPartyMembers, "Comms party member count API is not initialized")
+local GetChannelList = _G.GetChannelList
+local IsInGuild = _G.IsInGuild
+local GetGuildInfo = _G.GetGuildInfo
+local GuildControlGetRankFlags = _G.GuildControlGetRankFlags
 
 local Comms = addon.Comms or {}
 addon.Comms = Comms
@@ -382,18 +386,101 @@ function Comms.Sync(prefix, msg)
 	return sendGroupMessage(prefix, msg)
 end
 
-function Comms.SendChat(msg, channel, language, target, bypass)
-	if not msg then
-		return
+local function resolveChannelId(channelName)
+	if type(channelName) ~= "string" or channelName == "" or type(GetChannelList) ~= "function" then
+		return nil, "channel_unavailable"
 	end
-	SendChatMessage(tostring(msg), channel, language, target)
+	local wanted = string.lower(channelName)
+	local callOk, rows = pcall(function() return { GetChannelList() } end)
+	if not callOk then
+		return nil, "channel_unavailable"
+	end
+	local resolved
+	for i = 1, #rows, 3 do
+		local id, name = tonumber(rows[i]), rows[i + 1]
+		if id and id > 0 and type(name) == "string" and string.lower(name) == wanted then
+			if resolved and resolved ~= id then
+				return nil, "ambiguous_channel"
+			end
+			resolved = id
+		end
+	end
+	if not resolved then
+		return nil, "channel_unavailable"
+	end
+	return resolved
+end
+
+local function canSpeakOfficer()
+	if type(IsInGuild) ~= "function" or not IsInGuild() then
+		return false
+	end
+	if type(GetGuildInfo) ~= "function" or type(GuildControlGetRankFlags) ~= "function" then
+		return false
+	end
+	local _, _, rankIndex = GetGuildInfo("player")
+	if type(rankIndex) ~= "number" then
+		return false
+	end
+	local ok, _, _, _, officerSpeak = pcall(GuildControlGetRankFlags, rankIndex + 1)
+	return ok and officerSpeak == true
+end
+
+local function validateChatDestination(channel, target)
+	if type(channel) ~= "string" or channel == "" then
+		return nil, "invalid_channel"
+	end
+	local destination = string.upper(channel)
+	if destination == "RAID" then
+		if (tonumber(GetNumRaidMembers()) or 0) <= 0 then return nil, "not_in_raid" end
+	elseif destination == "RAID_WARNING" then
+		if (tonumber(GetNumRaidMembers()) or 0) <= 0 then return nil, "not_in_raid" end
+		if type(Database.GetUnitRank) ~= "function" or (tonumber(Database.GetUnitRank("player", 0)) or 0) <= 0 then
+			return nil, "insufficient_rank"
+		end
+	elseif destination == "PARTY" then
+		if (tonumber(GetNumRaidMembers()) or 0) <= 0 and (tonumber(GetNumPartyMembers()) or 0) <= 0 then
+			return nil, "not_in_party"
+		end
+	elseif destination == "GUILD" then
+		if type(IsInGuild) ~= "function" or not IsInGuild() then return nil, "not_in_guild" end
+	elseif destination == "OFFICER" then
+		if not canSpeakOfficer() then return nil, "insufficient_rank" end
+	elseif destination == "WHISPER" then
+		if type(target) ~= "string" or target == "" then return nil, "invalid_target" end
+	elseif destination == "CHANNEL" then
+		if type(target) ~= "string" then return nil, "invalid_channel" end
+		local channelId, reason = resolveChannelId(target)
+		if not channelId then return nil, reason end
+		return destination, channelId
+	elseif destination ~= "SAY" and destination ~= "YELL" and destination ~= "EMOTE" then
+		local channelId, reason = resolveChannelId(channel)
+		if not channelId then return nil, reason end
+		return "CHANNEL", channelId
+	end
+	return destination, target
+end
+
+function Comms.SendChat(msg, channel, language, target, bypass)
+	if msg == nil then
+		return nil, "invalid_message"
+	end
+	local destination, resolvedTarget = validateChatDestination(channel, target)
+	if not destination then
+		return nil, resolvedTarget
+	end
+	local callOk, result = pcall(SendChatMessage, tostring(msg), destination, language, resolvedTarget)
+	if not callOk or result == false then
+		return nil, "send_failed"
+	end
+	return true
 end
 
 function Comms.SendWhisper(target, msg)
 	if type(target) == "string" and msg then
-		SendChatMessage(msg, "WHISPER", nil, target)
-		return true
+		return Comms.SendChat(msg, "WHISPER", nil, target)
 	end
+	return nil, "invalid_target"
 end
 
 function Comms.SendAddonWhisper(prefix, target, msg)

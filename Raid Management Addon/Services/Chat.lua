@@ -2,7 +2,7 @@
 -- deps: local addon = select(2, ...)
 -- shared: direct addon namespace bindings
 -- exports: publish module APIs on addon.*
--- events: owns chat output helpers and LFM spam Timer ticker
+-- events: owns chat output helpers and LFM spam transport
 local addon = select(2, ...)
 local L = addon.L
 
@@ -13,13 +13,11 @@ local Deformat = addon.Deformat
 local Options = addon.Options
 local Services = addon.Services
 local Strings = addon.Strings
-local Timer = addon.Timer
 
 local GetGroupTypeAndCount = assert(addon.GetGroupTypeAndCount, "Chat group policy helper is not initialized")
 
 local find = string.find
 local len = string.len
-local upper = string.upper
 local tostring = tostring
 local tonumber = tonumber
 local type = type
@@ -30,33 +28,11 @@ do
 	addon.Services.EnsureNamespace("Chat")
 	local module = Services.Chat
 
-	-- Timer ownership: ticker for controlled LFM spammer output.
-	Timer.BindMixin(module, "Chat")
-
 	-- ----- Internal state ----- --
 	local chatOutputFormat = C.CHAT_OUTPUT_FORMAT
 	local chatPrefixShort = C.CHAT_PREFIX_SHORT
 	local chatPrefixHex = C.CHAT_PREFIX_HEX
-	local DEFAULT_SPAM_DURATION_SECONDS = 60
-	local DEFAULT_SPAM_OUTPUT = "LFM"
-	local MAX_SPAM_RUNTIME_SECONDS = 1800
-	local MAX_SPAM_MESSAGES_PER_RUN = 30
 	local GetOption = Options.GetValue
-
-	local spamRuntime = {
-		ticking = false,
-		paused = false,
-		countdownRemaining = 0,
-		runElapsedSeconds = 0,
-		messagesSent = 0,
-		durationSeconds = DEFAULT_SPAM_DURATION_SECONDS,
-		output = DEFAULT_SPAM_OUTPUT,
-		channels = {},
-		ticker = nil,
-		onTick = nil,
-		onAutoStop = nil,
-		sendFn = nil,
-	}
 
 	-- ----- Private helpers ----- --
 	local function isCountdownMessage(text)
@@ -114,37 +90,6 @@ do
 		return copy
 	end
 
-	local function cancelSpamTicker()
-		if spamRuntime.ticker then
-			module:CancelTimer(spamRuntime.ticker)
-			spamRuntime.ticker = nil
-		end
-	end
-
-	local function getSpamRuntimeSnapshot()
-		return {
-			ticking = spamRuntime.ticking,
-			paused = spamRuntime.paused,
-			countdownRemaining = spamRuntime.countdownRemaining,
-			runElapsedSeconds = spamRuntime.runElapsedSeconds,
-			messagesSent = spamRuntime.messagesSent,
-			durationSeconds = spamRuntime.durationSeconds,
-			output = spamRuntime.output,
-			channels = cloneChannels(spamRuntime.channels),
-		}
-	end
-
-	local function normalizeSpamDuration(durationValue, fallbackValue)
-		local durationSeconds = tonumber(durationValue)
-		if not durationSeconds or durationSeconds <= 0 then
-			durationSeconds = tonumber(fallbackValue)
-		end
-		if not durationSeconds or durationSeconds <= 0 then
-			durationSeconds = DEFAULT_SPAM_DURATION_SECONDS
-		end
-		return math.floor(durationSeconds)
-	end
-
 	local function normalizeWarningMessage(content)
 		if type(content) ~= "string" then
 			return nil
@@ -167,94 +112,56 @@ do
 		if #channelList <= 0 then
 			local groupType = GetGroupTypeAndCount()
 			if groupType == "raid" then
-				Comms.SendChat(text, "RAID", nil, nil, true)
+				return Comms.SendChat(text, "RAID", nil, nil, true)
 			elseif groupType == "party" then
-				Comms.SendChat(text, "PARTY", nil, nil, true)
+				return Comms.SendChat(text, "PARTY", nil, nil, true)
 			else
 				module:Print(text)
+				return true
 			end
-			return true
 		end
 
+		local firstFailure = nil
 		for _, channel in ipairs(channelList) do
-			if type(channel) == "number" then
-				Comms.SendChat(text, "CHANNEL", nil, channel, true)
-			else
-				Comms.SendChat(text, upper(channel), nil, nil, true)
+			local sent, reason
+			if type(channel) == "string" then
+				sent, reason = Comms.SendChat(text, channel, nil, nil, true)
 			end
+			if sent ~= true and not firstFailure then firstFailure = reason or "send_failed" end
 		end
 
+		if firstFailure then return nil, firstFailure end
 		return true
 	end
 
-	local function fireSpamTick()
-		local onTick = spamRuntime.onTick
-		if type(onTick) == "function" then
-			onTick(getSpamRuntimeSnapshot())
-		end
-	end
-
-	local function finalizeAutoStop(reason)
-		local onAutoStop = spamRuntime.onAutoStop
-		module:StopSpamCycle(true, true)
-		if type(onAutoStop) == "function" then
-			onAutoStop(reason, getSpamRuntimeSnapshot())
-		end
-	end
-
-	local function runSpamTick()
-		if not spamRuntime.ticking or spamRuntime.paused then
-			return
-		end
-
-		spamRuntime.runElapsedSeconds = spamRuntime.runElapsedSeconds + 1
-		if spamRuntime.runElapsedSeconds >= MAX_SPAM_RUNTIME_SECONDS then
-			addon:warn(L.MsgSpammerAutoStopDuration:format(MAX_SPAM_RUNTIME_SECONDS))
-			finalizeAutoStop("duration_limit")
-			return
-		end
-
-		spamRuntime.countdownRemaining = spamRuntime.countdownRemaining - 1
-		if spamRuntime.countdownRemaining <= 0 then
-			local sendFn = spamRuntime.sendFn
-			local ok
-			if type(sendFn) == "function" then
-				ok = sendFn(spamRuntime.output, spamRuntime.channels)
-			else
-				ok = sendSpamOutput(spamRuntime.output, spamRuntime.channels)
-			end
-
-			if ok == false then
-				finalizeAutoStop("send_failed")
-				return
-			end
-
-			spamRuntime.messagesSent = spamRuntime.messagesSent + 1
-			if spamRuntime.messagesSent >= MAX_SPAM_MESSAGES_PER_RUN then
-				addon:warn(L.MsgSpammerAutoStopMessages:format(MAX_SPAM_MESSAGES_PER_RUN))
-				finalizeAutoStop("message_limit")
-				return
-			end
-
-			spamRuntime.countdownRemaining = normalizeSpamDuration(spamRuntime.durationSeconds)
-		end
-
-		fireSpamTick()
-	end
 
 	-- ----- Public methods ----- --
 	function module:Print(text, prefix)
 		local msg = Strings.FormatChatMessage(text, prefix or chatPrefixShort, chatOutputFormat, chatPrefixHex)
 		addon:info("%s", msg)
+		return true
 	end
 
 	function module:Announce(text, channel)
 		local msg = tostring(text)
+		if len(msg) > 255 then
+			return nil, "too_long", { sent = false, channel = channel, fallback = false, reason = "too_long" }
+		end
 		local selectedChannel = resolveAnnounceChannel(msg, channel)
 		if not selectedChannel or selectedChannel == "" then
-			return module:Print(msg)
+			module:Print(msg)
+			return true, nil, { sent = false, channel = "LOCAL", fallback = true }
 		end
-		Comms.SendChat(msg, selectedChannel)
+		local sent, reason = Comms.SendChat(msg, selectedChannel)
+		if sent ~= true then
+			return nil, reason or "send_failed", {
+				sent = false,
+				channel = selectedChannel,
+				fallback = false,
+				reason = reason or "send_failed",
+			}
+		end
+		return true, nil, { sent = true, channel = selectedChannel, fallback = false }
 	end
 
 	function module:AnnounceWarningMessage(content)
@@ -274,78 +181,10 @@ do
 			end
 		end
 
-		module:Announce(message)
-		return true
+		return module:Announce(message)
 	end
 
-	function module:GetSpamRuntimeState()
-		return getSpamRuntimeSnapshot()
-	end
-
-	function module:StartSpamCycle(config)
-		config = (type(config) == "table") and config or {}
-
-		cancelSpamTicker()
-
-		spamRuntime.durationSeconds = normalizeSpamDuration(config.duration, spamRuntime.durationSeconds)
-		if config.resetRun then
-			spamRuntime.runElapsedSeconds = 0
-			spamRuntime.messagesSent = 0
-		end
-
-		if config.output ~= nil then
-			spamRuntime.output = tostring(config.output)
-		end
-		if config.channels ~= nil then
-			spamRuntime.channels = cloneChannels(config.channels)
-		end
-
-		spamRuntime.sendFn = (type(config.sendFn) == "function") and config.sendFn or nil
-		spamRuntime.onTick = (type(config.onTick) == "function") and config.onTick or nil
-		spamRuntime.onAutoStop = (type(config.onAutoStop) == "function") and config.onAutoStop or nil
-
-		if config.resetCountdown or spamRuntime.countdownRemaining <= 0 then
-			spamRuntime.countdownRemaining = spamRuntime.durationSeconds
-		end
-
-		spamRuntime.ticking = true
-		spamRuntime.paused = false
-
-		spamRuntime.ticker = module:ScheduleRepeatingTimer(runSpamTick, 1)
-		fireSpamTick()
-
-		return true, getSpamRuntimeSnapshot()
-	end
-
-	function module:StopSpamCycle(resetCountdown, resetRun)
-		cancelSpamTicker()
-
-		spamRuntime.ticking = false
-		spamRuntime.paused = false
-
-		if resetCountdown then
-			spamRuntime.countdownRemaining = 0
-		end
-		if resetRun then
-			spamRuntime.runElapsedSeconds = 0
-			spamRuntime.messagesSent = 0
-		end
-
-		spamRuntime.sendFn = nil
-		spamRuntime.onTick = nil
-		spamRuntime.onAutoStop = nil
-
-		return getSpamRuntimeSnapshot()
-	end
-
-	function module:PauseSpamCycle()
-		if not spamRuntime.ticking or spamRuntime.paused then
-			return false, getSpamRuntimeSnapshot()
-		end
-
-		spamRuntime.paused = true
-		cancelSpamTicker()
-		fireSpamTick()
-		return true, getSpamRuntimeSnapshot()
+	function module:SendSpamOutput(output, channels)
+		return sendSpamOutput(output, channels)
 	end
 end

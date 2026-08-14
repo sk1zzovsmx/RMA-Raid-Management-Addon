@@ -296,7 +296,11 @@ do
 		if btn == nil or selectedID == nil then
 			return
 		end
-		local deleteResult = DeleteWarning(selectedID)
+		local deleteResult, reason = DeleteWarning(selectedID)
+		if deleteResult == nil then
+			addon:error(L.ErrWarningSave, reason or "delete_failed")
+			return
+		end
 		if deleteResult and deleteResult.deleted ~= true then
 			selectedID = nil
 			warningsDirty = true
@@ -316,6 +320,16 @@ do
 	end
 
 	-- Announce Warning:
+	local function reportAnnouncementResult(sent, reason, detail)
+		if sent == true and detail and detail.fallback == true then
+			addon:warn(L.MsgWarningLocalFallback)
+		elseif sent == true and detail and detail.sent == true then
+			addon:info(L.MsgWarningAnnounced, detail.channel or "")
+		elseif sent ~= true then
+			addon:error(L.ErrWarningAnnouncement, reason or "send_failed")
+		end
+	end
+
 	function announceWarning(wID)
 		if wID == nil then
 			wID = (selectedID ~= nil) and selectedID or tempSelectedID
@@ -324,12 +338,15 @@ do
 		wID = tonumber(wID)
 		local warning = GetWarning(wID)
 		if warning == nil then
-			return
+			addon:error(L.ErrWarningAnnouncement, "invalid_warning")
+			return nil, "invalid_warning"
 		end
 
 		tempSelectedID = nil -- Always clear temporary selected id:
 
-		return AnnounceWarningMessage(Chat, warning.content)
+		local sent, reason, detail = AnnounceWarningMessage(Chat, warning.content)
+		reportAnnouncementResult(sent, reason, detail)
+		return sent, reason, detail
 	end
 
 	function module:RequestAnnounce(wID)
@@ -421,6 +438,7 @@ do
 			return
 		end
 		if savedID == nil then
+			addon:error(L.ErrWarningSave, reason or "save_failed")
 			return
 		end
 
