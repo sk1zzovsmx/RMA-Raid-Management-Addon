@@ -38,6 +38,15 @@ still own the schema and meaning of their stores:
 
 - Persist only canonical restore-critical data.
 - Keep derived indexes, caches, and runtime-only fields out of SavedVariables.
+- Raid inspect persistence keeps only the last successful gear/spec snapshot.
+  Queued, pending, skipped, timeout, and failed attempt states are runtime-only;
+  UI reads overlay the latest attempt status on a copy of the canonical ready
+  snapshot. New `inspectedAt` values use `Time.GetCurrentTime()` epoch time;
+  legacy uptime-shaped or otherwise implausible epoch values are dropped during
+  explicit save preparation because they cannot be converted safely. Inspect
+  attempt/session timestamps, mode, reasons, and failure rows stay runtime-only.
+  A changed ready snapshot advances the raid revision once and requires full
+  sync because inspect data is not represented by the loot delta protocol.
 - Strip runtime raid caches before logout.
 - Use stable identifiers instead of volatile array indexes for cross-session
   references.

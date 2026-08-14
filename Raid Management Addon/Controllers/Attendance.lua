@@ -874,9 +874,10 @@ local function updateRaidAttendanceFromRoster()
 		return
 	end
 
-	Raid:UpdateRaidRoster()
+	local delta = Raid:RefreshAndPublish()
 	module.attendanceSelectedPlayer = nil
 	markAttendanceListsDirty()
+	return delta
 end
 
 local function deleteSelectedRaidAttendancePlayer()
@@ -886,11 +887,42 @@ local function deleteSelectedRaidAttendancePlayer()
 		return
 	end
 
-	local removed = AttendanceActions:DeleteRaidAttendees(selectedRaid, { playerNid })
+	local raid = AttendanceStore:GetRaid(selectedRaid)
+	local raidNid = tonumber(raid and raid.raidNid)
+	if not raidNid then
+		addon:warn(L.MsgAttendanceRemoveFailed)
+		return
+	end
+
+	local removed = AttendanceActions:DeleteRaidAttendance(raidNid, { playerNid })
 	if removed and removed > 0 then
 		module.attendanceSelectedPlayer = nil
 		TriggerEvent(AttendanceEvents.LoggerClearPlayerSelections)
 		markAttendanceListsDirty()
+		addon:info(L.MsgAttendanceRemoved:format(removed))
+	else
+		addon:warn(L.MsgAttendanceRemoveFailed)
+	end
+end
+
+local function showForceInspectFeedback(ok, status)
+	if status == "queued" then
+		addon:info(L.StrInspectQueued)
+		return
+	end
+	if status == "pending" then
+		addon:info(L.StrInspectPending)
+		return
+	end
+	if not ok then
+		local warnings = {
+			missing_unit = L.MsgForceInspectMissingUnit,
+			offline = L.MsgForceInspectOffline,
+			out_of_range = L.MsgForceInspectOutOfRange,
+			cannot_inspect = L.MsgForceInspectCannotInspect,
+			notify_failed = L.MsgForceInspectNotifyFailed,
+		}
+		addon:warn(warnings[status] or L.StrInspectNotInspected)
 	end
 end
 
@@ -1007,7 +1039,8 @@ attendancePlayersController = makeAttendanceList({
 				if not (currentRaid and tonumber(currentRaid) == tonumber(selectedRaid)) then
 					return
 				end
-				ForceInspectPlayer(EquipInspect, selectedRaid, selectedPlayer)
+				local ok, status = ForceInspectPlayer(EquipInspect, selectedRaid, selectedPlayer)
+				showForceInspectFeedback(ok, status)
 				if attendancePlayersController then
 					attendancePlayersController:Dirty()
 				end
@@ -1203,7 +1236,8 @@ RegisterCallback(AttendanceEvents.RaidCreate, function(_, raidId)
 	markAttendanceListsDirty()
 end)
 
-RegisterCallback(AttendanceEvents.EquipInspectUpdated, function(_, raidId)
+RegisterCallback(AttendanceEvents.EquipInspectUpdated, function(_, raidNid)
+	local raidId = raidNid and Database.GetRaidIndexByNid(raidNid) or nil
 	if not (module.attendanceSelectedRaid and tonumber(module.attendanceSelectedRaid) == tonumber(raidId)) then
 		return
 	end
@@ -1212,7 +1246,8 @@ RegisterCallback(AttendanceEvents.EquipInspectUpdated, function(_, raidId)
 	end
 end)
 
-RegisterCallback(AttendanceEvents.EquipInspectCompleted, function(_, raidId)
+RegisterCallback(AttendanceEvents.EquipInspectCompleted, function(_, raidNid)
+	local raidId = raidNid and Database.GetRaidIndexByNid(raidNid) or nil
 	if not (module.attendanceSelectedRaid and tonumber(module.attendanceSelectedRaid) == tonumber(raidId)) then
 		return
 	end
@@ -1221,7 +1256,8 @@ RegisterCallback(AttendanceEvents.EquipInspectCompleted, function(_, raidId)
 	end
 end)
 
-RegisterCallback(AttendanceEvents.RaidAttendanceChanged, function(_, raidId)
+RegisterCallback(AttendanceEvents.RaidAttendanceChanged, function(_, raidNid)
+	local raidId = raidNid and Database.GetRaidIndexByNid(raidNid) or nil
 	if not (module.attendanceSelectedRaid and tonumber(module.attendanceSelectedRaid) == tonumber(raidId)) then
 		return
 	end

@@ -67,7 +67,7 @@ do
 	end
 
 	local function compactInspectSnapshotForPersistence(snapshot)
-		if type(snapshot) ~= "table" then
+		if type(snapshot) ~= "table" or snapshot.status ~= "ready" then
 			return nil
 		end
 
@@ -77,8 +77,10 @@ do
 		compact.guid = copyStringOrNil(snapshot.guid)
 		compact.class = copyStringOrNil(snapshot.class)
 		compact.status = copyStringOrNil(snapshot.status)
-		compact.reason = copyStringOrNil(snapshot.reason)
-		compact.inspectedAt = tonumber(snapshot.inspectedAt) or nil
+		local inspectedAt = tonumber(snapshot.inspectedAt)
+		if inspectedAt and inspectedAt >= 1000000000 then
+			compact.inspectedAt = inspectedAt
+		end
 		compact.avgIlvl = tonumber(snapshot.avgIlvl) or nil
 		compact.specName = copyStringOrNil(snapshot.specName)
 		compact.specIcon = copyStringOrNil(snapshot.specIcon)
@@ -108,9 +110,6 @@ do
 		end
 
 		local compact = {}
-		compact.startedAt = tonumber(inspect.startedAt) or nil
-		compact.completedAt = tonumber(inspect.completedAt) or nil
-		compact.mode = copyStringOrNil(inspect.mode)
 
 		local playersIn = inspect.players
 		if type(playersIn) == "table" then

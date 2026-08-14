@@ -10,6 +10,7 @@ local Services = addon.Services
 local Events = addon.Events
 local Bus = addon.Bus
 local Timer = addon.Timer
+local Time = addon.Time
 local Strings = addon.Strings
 
 local InternalEvents = assert(Events.Internal, "EquipInspect internal events are not initialized")
@@ -49,6 +50,7 @@ local tremove = table.remove
 local THROTTLE_SECONDS = 1.75
 local TIMEOUT_SECONDS = 8
 local RAID_CREATE_DELAY_SECONDS = 3.0
+local MAX_COMBAT_ATTEMPTS = 3
 local SLOT_ORDER = { 1, 2, 3, 15, 5, 9, 10, 6, 7, 8, 11, 12, 13, 14, 16, 17, 18 }
 
 -- ----- Internal state ----- --
@@ -62,11 +64,19 @@ local queuedByPlayer = {}
 local runtimeStatusByRaid = {}
 local activeRequestByRaid = {}
 local sessionBusyByRaid = {}
+local globalInspectRequest
+local queuedRaidOrder = {}
+local queuedRaidSet = {}
+local globalNextHandle
 
 -- ----- Private helpers ----- --
 
 local function now()
 	return tonumber(GetTime()) or 0
+end
+
+local function epochNow()
+	return tonumber(Time.GetCurrentTime()) or 0
 end
 
 local function normalizeRaidIndex(raidOrId)
@@ -113,57 +123,63 @@ local function ensureInspectRoot(raid)
 	return raid.inspect
 end
 
-local function ensureRuntime(raidId)
-	if not queueByRaid[raidId] then
-		queueByRaid[raidId] = {}
+local function ensureRuntime(raidNid)
+	if not queueByRaid[raidNid] then
+		queueByRaid[raidNid] = {}
 	end
-	if not queuedByPlayer[raidId] then
-		queuedByPlayer[raidId] = {}
+	if not queuedByPlayer[raidNid] then
+		queuedByPlayer[raidNid] = {}
 	end
-	if not runtimeStatusByRaid[raidId] then
-		runtimeStatusByRaid[raidId] = {}
+	if not runtimeStatusByRaid[raidNid] then
+		runtimeStatusByRaid[raidNid] = {}
 	end
-	return queueByRaid[raidId], queuedByPlayer[raidId], runtimeStatusByRaid[raidId]
+	return queueByRaid[raidNid], queuedByPlayer[raidNid], runtimeStatusByRaid[raidNid]
 end
 
-local function getRaid(raidOrId)
+local function resolveRaidNid(raidOrId)
 	if type(raidOrId) == "table" then
-		return raidOrId
+		local raidNid = tonumber(raidOrId.raidNid)
+		if raidNid and raidNid > 0 then
+			return raidNid
+		end
 	end
-
 	local rid = normalizeRaidIndex(raidOrId)
 	if not rid then
 		return nil
 	end
-	return Database.EnsureRaidByIndex(rid)
+	local raid = Database.EnsureRaidByIndex(rid)
+	local raidNid = tonumber(raid and raid.raidNid)
+	return raidNid and raidNid > 0 and raidNid or nil
 end
 
-local function isCurrentRaid(raidId)
-	local rid = normalizeRaidIndex(raidId)
-	local current = normalizeRaidIndex(Database.GetCurrentRaid())
-	return rid and current and rid == current
+local function getRaid(raidNid)
+	local nid = tonumber(raidNid)
+	if not nid or nid <= 0 or type(Database.EnsureRaidByNid) ~= "function" then
+		return nil
+	end
+	return Database.EnsureRaidByNid(nid)
 end
 
-local function emitStarted(raidId, reason)
-	if sessionBusyByRaid[raidId] then
+local function isCurrentRaid(raidNid)
+	local currentRaid = Database.EnsureRaidByIndex(normalizeRaidIndex(Database.GetCurrentRaid()))
+	return tonumber(currentRaid and currentRaid.raidNid) == tonumber(raidNid)
+end
+
+local function emitStarted(raidNid, reason)
+	if sessionBusyByRaid[raidNid] then
 		return
 	end
-	sessionBusyByRaid[raidId] = true
-	TriggerEvent(EquipInspectStartedEvent, raidId, reason or "start")
+	sessionBusyByRaid[raidNid] = true
+	TriggerEvent(EquipInspectStartedEvent, raidNid, reason or "start")
 end
 
-local function emitCompleted(raidId)
-	sessionBusyByRaid[raidId] = false
-	local raid = getRaid(raidId)
-	local inspect = ensureInspectRoot(raid)
-	if inspect then
-		inspect.completedAt = now()
-	end
-	TriggerEvent(EquipInspectCompletedEvent, raidId)
+local function emitCompleted(raidNid)
+	sessionBusyByRaid[raidNid] = false
+	TriggerEvent(EquipInspectCompletedEvent, raidNid)
 end
 
-local function emitUpdated(raidId, playerNid, snapshot)
-	TriggerEvent(EquipInspectUpdatedEvent, raidId, playerNid, snapshot)
+local function emitUpdated(raidNid, playerNid, snapshot)
+	TriggerEvent(EquipInspectUpdatedEvent, raidNid, playerNid, snapshot)
 end
 
 local function setRuntimeStatus(raidId, playerNid, status, reason)
@@ -173,17 +189,14 @@ local function setRuntimeStatus(raidId, playerNid, status, reason)
 		return
 	end
 
+	runtime[key] = {
+		status = status,
+		reason = normalizeReason(reason),
+		updatedAt = now(),
+	}
 	if status == "queued" or status == "pending" then
-		runtime[key] = {
-			status = status,
-			reason = normalizeReason(reason),
-			updatedAt = now(),
-		}
 		emitUpdated(raidId, key, runtime[key])
-		return
 	end
-
-	runtime[key] = nil
 end
 
 local function clearRuntime(raidId, playerNid)
@@ -352,11 +365,15 @@ local function buildReadyDetails(unit, player)
 end
 
 local function persistReadySnapshot(raid, playerNid, snapshot)
-	local inspect = ensureInspectRoot(raid)
-	if not inspect then
-		return
+	local compact = compactPersistedInspectSnapshot(snapshot)
+	if not compact then
+		return nil
 	end
-	inspect.players[playerNid] = compactPersistedInspectSnapshot(snapshot)
+	local store = type(Database.GetRaidStore) == "function" and Database.GetRaidStore() or nil
+	if not store or type(store.CommitRaidInspectSnapshot) ~= "function" then
+		return nil
+	end
+	return store:CommitRaidInspectSnapshot(raid, playerNid, compact)
 end
 
 local function getPlayerByNid(raid, playerNid)
@@ -373,14 +390,15 @@ local function getPlayerByNid(raid, playerNid)
 	return nil
 end
 
-local function resolveUnit(raidId, player)
+local function resolveUnit(raidNid, player)
 	local roster = Services["Raid/Roster"] or Services.Raid
 	if type(roster) ~= "table" then
 		return nil
 	end
 
 	if type(roster.GetUnitByPlayerNid) == "function" then
-		local unit = roster:GetUnitByPlayerNid(raidId, player.playerNid)
+		local raidIndex = Database.GetRaidIndexByNid(raidNid)
+		local unit = raidIndex and roster:GetUnitByPlayerNid(raidIndex, player.playerNid) or nil
 		if type(unit) == "string" and unit ~= "" then
 			return unit
 		end
@@ -400,37 +418,132 @@ local function resolveUnit(raidId, player)
 	return nil
 end
 
-local function finalizeRequest(raidId, playerNid, status, reason, unit, request)
-	local currentRequest = activeRequestByRaid[raidId]
+local function untrackQueuedRaid(raidNid)
+	if not queuedRaidSet[raidNid] then
+		return
+	end
+	queuedRaidSet[raidNid] = nil
+	for i = 1, #queuedRaidOrder do
+		if queuedRaidOrder[i] == raidNid then
+			tremove(queuedRaidOrder, i)
+			return
+		end
+	end
+end
+
+local function trackQueuedRaid(raidNid)
+	if queuedRaidSet[raidNid] then
+		return
+	end
+	queuedRaidSet[raidNid] = true
+	queuedRaidOrder[#queuedRaidOrder + 1] = raidNid
+end
+
+local function nextQueuedRaid()
+	while #queuedRaidOrder > 0 do
+		local raidNid = queuedRaidOrder[1]
+		local queue = queueByRaid[raidNid]
+		if getRaid(raidNid) and queue and #queue > 0 then
+			return raidNid
+		end
+		untrackQueuedRaid(raidNid)
+	end
+	return nil
+end
+
+local function scheduleNextGlobalRequest(delay)
+	if globalInspectRequest or globalNextHandle then
+		return
+	end
+	local raidNid = nextQueuedRaid()
+	if not raidNid then
+		return
+	end
+	local queue = queueByRaid[raidNid]
+	if queue and queue[1] and queue[1].retryHandle then
+		return
+	end
+	globalNextHandle = module:ScheduleTimer(function()
+		globalNextHandle = nil
+		if not globalInspectRequest then
+			local nextRaidNid = nextQueuedRaid()
+			if nextRaidNid then
+				module:ProcessQueue(nextRaidNid)
+			end
+		end
+	end, delay or THROTTLE_SECONDS)
+end
+
+local function cancelOrphanedRaidWork(raidNid)
+	local request = activeRequestByRaid[raidNid]
+	if request and request.timeoutHandle then
+		module:CancelTimer(request.timeoutHandle)
+	end
+	if request and request.retryHandle then
+		module:CancelTimer(request.retryHandle)
+		request.retryHandle = nil
+	end
+	local queue = queueByRaid[raidNid]
+	for i = 1, #(queue or {}) do
+		local queuedRequest = queue[i]
+		if queuedRequest and queuedRequest.retryHandle then
+			module:CancelTimer(queuedRequest.retryHandle)
+			queuedRequest.retryHandle = nil
+		end
+	end
+	queueByRaid[raidNid] = nil
+	untrackQueuedRaid(raidNid)
+	queuedByPlayer[raidNid] = nil
+	runtimeStatusByRaid[raidNid] = nil
+	activeRequestByRaid[raidNid] = nil
+	sessionBusyByRaid[raidNid] = nil
+	if request and globalInspectRequest == request then
+		globalInspectRequest = nil
+		pcall(ClearInspectPlayer)
+	end
+	scheduleNextGlobalRequest(THROTTLE_SECONDS)
+end
+
+local function finalizeRequest(raidNid, playerNid, status, reason, unit, request)
+	local raid = getRaid(raidNid)
+	if not raid then
+		cancelOrphanedRaidWork(raidNid)
+		return nil
+	end
+	local currentRequest = activeRequestByRaid[raidNid]
 	if currentRequest and currentRequest.timeoutHandle then
 		module:CancelTimer(currentRequest.timeoutHandle)
+		currentRequest.timeoutHandle = nil
+	end
+	if currentRequest and currentRequest.retryHandle then
+		module:CancelTimer(currentRequest.retryHandle)
+		currentRequest.retryHandle = nil
 	end
 
-	local active = activeRequestByRaid[raidId]
+	local active = activeRequestByRaid[raidNid]
 	if active then
-		activeRequestByRaid[raidId] = nil
+		activeRequestByRaid[raidNid] = nil
 	end
 
-	local queue = queueByRaid[raidId]
+	local queue = queueByRaid[raidNid]
 	if not queue then
 		queue = {}
-		queueByRaid[raidId] = queue
+		queueByRaid[raidNid] = queue
 	end
-	if queuedByPlayer[raidId] then
-		queuedByPlayer[raidId][playerNid] = nil
+	if queuedByPlayer[raidNid] then
+		queuedByPlayer[raidNid][playerNid] = nil
 	end
 
 	local snapshot
 	local snapshotStatus = status
 	if status == "ready" and unit then
-		local raid = getRaid(raidId)
 		local player = getPlayerByNid(raid or {}, playerNid)
 		local details = buildReadyDetails(unit, player)
 		local resolvedGuid = UnitGUID(unit)
 		snapshot = {
 			status = status,
 			reason = normalizeReason(reason),
-			inspectedAt = now(),
+			inspectedAt = epochNow(),
 			playerNid = playerNid,
 			avgIlvl = details.avgIlvl,
 			guid = resolvedGuid,
@@ -442,7 +555,6 @@ local function finalizeRequest(raidId, playerNid, status, reason, unit, request)
 			snapshot.class = player.class
 		end
 
-		persistReadySnapshot(raid, playerNid, snapshot)
 	else
 		snapshot = {
 			status = status,
@@ -453,11 +565,9 @@ local function finalizeRequest(raidId, playerNid, status, reason, unit, request)
 		if unit then
 			snapshot.guid = UnitGUID(unit)
 		end
-		persistReadySnapshot(getRaid(raidId), playerNid, snapshot)
 	end
 
 	if not snapshot.guid then
-		local raid = getRaid(raidId)
 		local player = getPlayerByNid(raid or {}, playerNid)
 		if player then
 			snapshot.name = player.name
@@ -474,10 +584,18 @@ local function finalizeRequest(raidId, playerNid, status, reason, unit, request)
 	end
 
 	if snapshotStatus == "ready" then
-		local _, _, runtimeTable = ensureRuntime(raidId)
-		runtimeTable[playerNid] = snapshot
+		local persisted = persistReadySnapshot(raid, playerNid, snapshot)
+		if persisted ~= nil then
+			local _, _, runtimeTable = ensureRuntime(raidNid)
+			runtimeTable[playerNid] = snapshot
+		else
+			clearRuntime(raidNid, playerNid)
+		end
+		if persisted ~= true then
+			snapshotStatus = "ready_noop"
+		end
 	else
-		setRuntimeStatus(raidId, playerNid, snapshotStatus, reason)
+		setRuntimeStatus(raidNid, playerNid, snapshotStatus, reason)
 	end
 	if
 		snapshotStatus == "ready"
@@ -485,24 +603,25 @@ local function finalizeRequest(raidId, playerNid, status, reason, unit, request)
 		or snapshotStatus == "timeout"
 		or snapshotStatus == "failed"
 	then
-		emitUpdated(raidId, playerNid, snapshot)
+		emitUpdated(raidNid, playerNid, snapshot)
 	end
 
 	if #queue == 0 then
-		emitCompleted(raidId)
-	else
-		module:ScheduleTimer(function()
-			module:ProcessQueue(raidId)
-		end, THROTTLE_SECONDS)
+		untrackQueuedRaid(raidNid)
+		emitCompleted(raidNid)
 	end
 
-	pcall(ClearInspectPlayer)
+	if globalInspectRequest == request then
+		globalInspectRequest = nil
+		pcall(ClearInspectPlayer)
+	end
+	scheduleNextGlobalRequest(THROTTLE_SECONDS)
 
 	return snapshot
 end
 
-local function scheduleRetryCurrentRequest(raidId, request, delay)
-	local resolved = normalizeRaidIndex(raidId)
+local function scheduleRetryCurrentRequest(raidNid, request, delay)
+	local resolved = tonumber(raidNid)
 	if not resolved or type(request) ~= "table" then
 		return
 	end
@@ -516,52 +635,74 @@ local function scheduleRetryCurrentRequest(raidId, request, delay)
 	if activeRequestByRaid[resolved] == request then
 		activeRequestByRaid[resolved] = nil
 		tinsert(queue, 1, request)
+		trackQueuedRaid(resolved)
+		setRuntimeStatus(resolved, request.playerNid, "queued", request.reason)
+		if request.retryHandle then
+			module:CancelTimer(request.retryHandle)
+		end
 		request.retryHandle = module:ScheduleTimer(function()
+			request.retryHandle = nil
 			module:ProcessQueue(resolved)
 		end, delay or THROTTLE_SECONDS)
 	end
 end
 
-local function queuePlayer(raidId, playerNid, reason, force)
-	local queue, byPlayer, runtime = ensureRuntime(raidId)
+local function queuePlayer(raidNid, playerNid, reason, force)
+	local queue, byPlayer, runtime = ensureRuntime(raidNid)
 	local key = normalizePlayerNid(playerNid)
 	if key <= 0 then
-		return false
+		return false, "missing_player"
 	end
 
 	local current = runtime[key]
 	if not force and current and current.status == "ready" then
-		return false
+		return false, "ready"
 	end
 	if current and (current.status == "queued" or current.status == "pending") then
-		return false
+		return false, current.status
 	end
 	if not force and not current then
-		local raid = getRaid(raidId)
+		local raid = getRaid(raidNid)
 		local persisted = module:GetPersistedSnapshot(raid, key)
 		if persisted and persisted.status == "ready" then
-			return false
+			return false, "ready"
 		end
 	end
 	if byPlayer[key] then
-		return false
+		return false, "queued"
 	end
 
 	queue[#queue + 1] = { playerNid = key, reason = normalizeReason(reason), force = force == true }
+	trackQueuedRaid(raidNid)
 	byPlayer[key] = true
-	setRuntimeStatus(raidId, key, "queued", reason)
-	return true
+	setRuntimeStatus(raidNid, key, "queued", reason)
+	return true, "queued"
 end
 
 -- ----- Public methods ----- --
 
-function module:ProcessQueue(raidId)
-	local resolved = normalizeRaidIndex(raidId)
+function module:ProcessQueue(raidNid)
+	local resolved = tonumber(raidNid)
 	if not resolved then
+		return
+	end
+	if not getRaid(resolved) then
+		cancelOrphanedRaidWork(resolved)
 		return
 	end
 	if activeRequestByRaid[resolved] then
 		return
+	end
+	if globalInspectRequest then
+		return true, "queued"
+	end
+	if globalNextHandle then
+		return true, "queued"
+	end
+	local nextRaidNid = nextQueuedRaid()
+	if nextRaidNid and nextRaidNid ~= resolved then
+		scheduleNextGlobalRequest(THROTTLE_SECONDS)
+		return true, "queued"
 	end
 
 	local queue, byPlayer = ensureRuntime(resolved)
@@ -575,6 +716,10 @@ function module:ProcessQueue(raidId)
 	emitStarted(resolved, "queue")
 	local request = queue[1]
 	tremove(queue, 1)
+	untrackQueuedRaid(resolved)
+	if #queue > 0 then
+		trackQueuedRaid(resolved)
+	end
 	if type(request) ~= "table" then
 		if #queue > 0 then
 			module:ProcessQueue(resolved)
@@ -607,24 +752,29 @@ function module:ProcessQueue(raidId)
 	local unit = resolveUnit(resolved, player)
 	if not unit or not UnitExists(unit) then
 		finalizeRequest(resolved, playerNid, "skipped", "missing_unit", nil, request)
-		return
+		return false, "missing_unit"
 	end
 	if not UnitIsConnected(unit) then
 		finalizeRequest(resolved, playerNid, "skipped", "offline", nil, request)
-		return
+		return false, "offline"
 	end
 	if not CheckInteractDistance(unit, 1) then
 		finalizeRequest(resolved, playerNid, "skipped", "out_of_range", nil, request)
-		return
+		return false, "out_of_range"
 	end
 	if not CanInspect(unit) then
 		finalizeRequest(resolved, playerNid, "skipped", "cannot_inspect", nil, request)
-		return
+		return false, "cannot_inspect"
 	end
 	if UnitAffectingCombat("player") then
+		request.combatAttempts = (tonumber(request.combatAttempts) or 0) + 1
+		if request.combatAttempts > MAX_COMBAT_ATTEMPTS then
+			finalizeRequest(resolved, playerNid, "failed", "cannot_inspect", nil, request)
+			return false, "cannot_inspect"
+		end
 		request.reason = "retry"
 		scheduleRetryCurrentRequest(resolved, request, THROTTLE_SECONDS)
-		return
+		return true, "queued"
 	end
 	request.unit = unit
 	request.unitGUID = UnitGUID(unit)
@@ -633,9 +783,10 @@ function module:ProcessQueue(raidId)
 		NotifyInspect(unit)
 	end)
 	if not ok then
-		finalizeRequest(resolved, playerNid, "failed", "notify_failed")
-		return
+		finalizeRequest(resolved, playerNid, "failed", "notify_failed", nil, request)
+		return false, "notify_failed"
 	end
+	globalInspectRequest = request
 
 	request.timeoutHandle = module:ScheduleTimer(function()
 		local active = activeRequestByRaid[resolved]
@@ -643,10 +794,11 @@ function module:ProcessQueue(raidId)
 			finalizeRequest(resolved, playerNid, "timeout", "inspect_timeout", nil, request)
 		end
 	end, TIMEOUT_SECONDS)
+	return true, "pending"
 end
 
 function module:StartRaidSnapshot(raidId, opts)
-	local resolved = normalizeRaidIndex(raidId)
+	local resolved = resolveRaidNid(raidId)
 	if not resolved then
 		return false, "missing_raid"
 	end
@@ -663,12 +815,6 @@ function module:StartRaidSnapshot(raidId, opts)
 	local options = opts or {}
 	local force = options.force == true
 	local reason = normalizeReason(options.reason) or "raid_snapshot"
-	local inspect = ensureInspectRoot(raid)
-	if inspect then
-		inspect.startedAt = now()
-		inspect.mode = reason
-	end
-
 	for i = 1, #players do
 		local player = players[i]
 		queuePlayer(resolved, player and player.playerNid, reason, force)
@@ -683,7 +829,7 @@ function module:StartRaidSnapshot(raidId, opts)
 end
 
 function module:ForcePlayer(raidId, playerNid)
-	local resolved = normalizeRaidIndex(raidId)
+	local resolved = resolveRaidNid(raidId)
 	if not resolved or not isCurrentRaid(resolved) then
 		return false, "not_current_raid"
 	end
@@ -697,13 +843,21 @@ function module:ForcePlayer(raidId, playerNid)
 		return false, "missing_player"
 	end
 
-	queuePlayer(resolved, playerNid, "manual_force_player", true)
-	module:ProcessQueue(resolved)
-	return true
+	local queued, queueStatus = queuePlayer(resolved, playerNid, "manual_force_player", true)
+	if not queued then
+		return false, queueStatus
+	end
+	local processed, processStatus = module:ProcessQueue(resolved)
+	if processed == false then
+		return false, processStatus
+	end
+	local runtime = runtimeStatusByRaid[resolved]
+	local current = runtime and runtime[normalizePlayerNid(playerNid)] or nil
+	return true, processStatus or (current and current.status) or queueStatus
 end
 
 function module:GetSnapshot(raidOrId, playerNid)
-	local rid = normalizeRaidIndex(raidOrId)
+	local rid = resolveRaidNid(raidOrId)
 	local nid = normalizePlayerNid(playerNid)
 	if nid <= 0 then
 		return nil
@@ -711,14 +865,25 @@ function module:GetSnapshot(raidOrId, playerNid)
 
 	local runtime = rid and runtimeStatusByRaid[rid] or nil
 	if runtime and runtime[nid] then
-		return runtime[nid]
+		local attempt = runtime[nid]
+		if attempt.status ~= "ready" then
+			local persisted = module:GetPersistedSnapshot(raidOrId, nid)
+			if persisted then
+				persisted.status = attempt.status
+				persisted.reason = attempt.reason
+				persisted.updatedAt = attempt.updatedAt
+				return persisted
+			end
+		end
+		return attempt
 	end
 
 	return module:GetPersistedSnapshot(raidOrId, nid)
 end
 
 function module:GetPersistedSnapshot(raidOrId, playerNid)
-	local raid = getRaid(raidOrId)
+	local raidNid = resolveRaidNid(raidOrId)
+	local raid = getRaid(raidNid)
 	local nid = normalizePlayerNid(playerNid)
 	if not raid or nid <= 0 then
 		return nil
@@ -731,8 +896,8 @@ function module:GetPersistedSnapshot(raidOrId, playerNid)
 	return compactPersistedInspectSnapshot(persisted)
 end
 
-local function clearEquipInspectQueue(raidId)
-	local rid = normalizeRaidIndex(raidId)
+local function clearEquipInspectQueue(raidNid)
+	local rid = tonumber(raidNid)
 	if rid then
 		if queueByRaid[rid] then
 			while #queueByRaid[rid] > 0 do
@@ -767,9 +932,13 @@ local function handleInspectReady(guid)
 end
 
 local function handlePlayerRegenEnabled()
-	local rid = Database.GetCurrentRaid()
-	rid = normalizeRaidIndex(rid)
+	local rid = resolveRaidNid(Database.GetCurrentRaid())
 	if rid and #(queueByRaid[rid] or {}) > 0 then
+		local request = queueByRaid[rid][1]
+		if request and request.retryHandle then
+			module:CancelTimer(request.retryHandle)
+			request.retryHandle = nil
+		end
 		module:ProcessQueue(rid)
 	end
 end
@@ -787,7 +956,18 @@ RegisterCallback(playerRegenEnabledEvent, function()
 end)
 
 RegisterCallback(RaidCreateEvent, function(_, raidId)
+	local raidNid = resolveRaidNid(raidId)
+	if not raidNid then
+		return
+	end
 	module:ScheduleTimer(function()
-		module:StartRaidSnapshot(raidId, { reason = "raid_start" })
+		if not getRaid(raidNid) then
+			cancelOrphanedRaidWork(raidNid)
+			return
+		end
+		local raidIndex = Database.GetRaidIndexByNid(raidNid)
+		if raidIndex then
+			module:StartRaidSnapshot(raidIndex, { reason = "raid_start" })
+		end
 	end, RAID_CREATE_DELAY_SECONDS)
 end)

@@ -1174,7 +1174,17 @@ do
 			result = actions:PurgeRaidHistory()
 			addon:info(L.MsgLoggerHistoryPurged:format(tonumber(result and result.removed) or 0))
 		elseif actionName == "rebuildSources" and actions.StartLootSourceRebuild then
-			return actions:StartLootSourceRebuild(function(rebuildResult)
+			return actions:StartLootSourceRebuild(function(rebuildResult, complete)
+				if complete ~= true then
+					if rebuildResult and rebuildResult.partial then
+						addon:warn(L.MsgLoggerMaintenancePartial:format(
+							tonumber(rebuildResult.bossesCreated) or 0,
+							tonumber(rebuildResult.repaired) or 0
+						))
+						refreshLootHistoryReport()
+					end
+					return
+				end
 				addon:info(
 					L.MsgLoggerLootSourcesRebuilt:format(
 						tonumber(rebuildResult and rebuildResult.repaired) or 0,
@@ -1199,7 +1209,17 @@ do
 				addon:warn(L.MsgLoggerCleanupNoSelection)
 				return nil
 			end
-			return actions:StartRaidHistoryCleanup(function(cleanupResult)
+			return actions:StartRaidHistoryCleanup(function(cleanupResult, complete)
+				if complete ~= true then
+					if cleanupResult and cleanupResult.partial then
+						addon:warn(L.MsgLoggerMaintenancePartial:format(
+							tonumber(cleanupResult.raidsRemoved) or 0,
+							tonumber(cleanupResult.lootRemoved) or 0
+						))
+						refreshLootHistoryReport()
+					end
+					return
+				end
 				addon:info(
 					L.MsgLoggerCleanupDone:format(
 						tonumber(cleanupResult and cleanupResult.raidsRemoved) or 0,

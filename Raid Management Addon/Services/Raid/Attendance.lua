@@ -41,8 +41,19 @@ do
 	-- ----- Internal state ----- --
 
 	-- ----- Private helpers ----- --
-	local function notifyRaidAttendanceChanged(raidId, reason)
-		TriggerEvent(RaidAttendanceChangedEvent, raidId, reason)
+	local function commitAttendanceMutation(raid, stagedRaid, reason, deferPublication)
+		local raidNid = tonumber(raid and raid.raidNid)
+		if not raidNid then
+			return false
+		end
+		local committed = Database.GetRaidStore():CommitAttendanceMutation(raid, stagedRaid, reason or "attendance")
+		if committed ~= true then
+			return false
+		end
+		if not deferPublication then
+			TriggerEvent(RaidAttendanceChangedEvent, raidNid, reason)
+		end
+		return true, raidNid
 	end
 
 	local function ensureAttendanceTable(raid)
@@ -52,6 +63,22 @@ do
 		return raid.attendance
 	end
 
+	local function findAttendanceEntry(raid, playerNid)
+		local resolvedPlayerNid = tonumber(playerNid) or 0
+		local attendance = raid and raid.attendance or nil
+		if resolvedPlayerNid <= 0 or type(attendance) ~= "table" then
+			return nil
+		end
+
+		for i = 1, #attendance do
+			local entry = attendance[i]
+			if type(entry) == "table" and tonumber(entry.playerNid) == resolvedPlayerNid then
+				return entry
+			end
+		end
+		return nil
+	end
+
 	local function ensureAttendanceEntry(raid, playerNid)
 		local resolvedPlayerNid = tonumber(playerNid) or 0
 		if resolvedPlayerNid <= 0 then
@@ -59,15 +86,13 @@ do
 		end
 
 		local attendance = ensureAttendanceTable(raid)
-		for i = 1, #attendance do
-			local entry = attendance[i]
-			if type(entry) == "table" and tonumber(entry.playerNid) == resolvedPlayerNid then
-				if type(entry.segments) ~= "table" then
-					entry.segments = {}
-				end
-				entry.playerNid = resolvedPlayerNid
-				return entry
+		local existing = findAttendanceEntry(raid, resolvedPlayerNid)
+		if existing then
+			if type(existing.segments) ~= "table" then
+				existing.segments = {}
 			end
+			existing.playerNid = resolvedPlayerNid
+			return existing
 		end
 
 		local entry = {
@@ -157,9 +182,10 @@ do
 			local segmentSubgroup = tonumber(segment.subgroup) or 1
 			local segmentOnline = segment.online
 			if segmentSubgroup == resolvedSubgroup and segmentOnline == resolvedOnline then
-				return segment
+				return segment, false
 			end
 			closeOpenSegment(entry, resolvedTimestamp)
+			resolvedTimestamp = tonumber(segment.endTime) or resolvedTimestamp
 		end
 
 		local newSegment = {
@@ -170,7 +196,7 @@ do
 			newSegment.online = false
 		end
 		tinsert(entry.segments, newSegment)
-		return newSegment
+		return newSegment, true
 	end
 
 	local function applyRosterPresence(raid, event, timestamp, isLeaving)
@@ -179,17 +205,25 @@ do
 			return false
 		end
 
-		local entry = ensureAttendanceEntry(raid, playerNid)
+		local entry
+		if isLeaving then
+			entry = findAttendanceEntry(raid, playerNid)
+		else
+			entry = ensureAttendanceEntry(raid, playerNid)
+		end
 		if not entry then
 			return false
 		end
 
 		if isLeaving then
+			if type(entry.segments) ~= "table" then
+				return false
+			end
 			return closeOpenSegment(entry, timestamp)
 		end
 
-		openSegment(entry, timestamp, event.subgroup, event.online)
-		return true
+		local _, changed = openSegment(entry, timestamp, event.subgroup, event.online)
+		return changed
 	end
 
 	local function applyRosterList(raid, list, timestamp, isLeaving)
@@ -205,6 +239,11 @@ do
 	end
 
 	local function seedFromCurrentRoster(raid, reason)
+		local canonicalRaid = raid
+		raid = Database.GetRaidStore():StageRaidHistoryMutation(canonicalRaid)
+		if not raid then
+			return false
+		end
 		local now = Time.GetCurrentTime()
 		local playerCount = tonumber(GetNumRaidMembers()) or 0
 		if playerCount <= 0 then
@@ -219,16 +258,15 @@ do
 				if player then
 					local entry = ensureAttendanceEntry(raid, player.playerNid)
 					if type(entry) == "table" then
-						openSegment(entry, tonumber(player.join) or now, subgroup, online)
-						changed = true
+						local _, opened = openSegment(entry, tonumber(player.join) or now, subgroup, online)
+						changed = opened or changed
 					end
 				end
 			end
 		end
 
 		if changed then
-			local raidId = tonumber(raid.raidNid) or tonumber(raid.id) or tonumber(raid.raidNum)
-			notifyRaidAttendanceChanged(raidId, reason or "raid_start")
+			return commitAttendanceMutation(canonicalRaid, raid, reason or "raid_start")
 		end
 		return changed
 	end
@@ -244,6 +282,11 @@ do
 			return
 		end
 		Database.EnsureRaidSchema(raid)
+		local canonicalRaid = raid
+		raid = Database.GetRaidStore():StageRaidHistoryMutation(canonicalRaid)
+		if not raid then
+			return
+		end
 
 		local timestamp = tonumber(delta.timestamp) or Time.GetCurrentTime()
 		local joined = applyRosterList(raid, delta.joined, timestamp, false)
@@ -252,7 +295,7 @@ do
 		local changed = joined or updated or left
 
 		if changed then
-			notifyRaidAttendanceChanged(resolvedRaidNum, delta.reason)
+			commitAttendanceMutation(canonicalRaid, raid, delta.reason or "attendance_roster")
 		end
 	end
 
@@ -275,12 +318,17 @@ do
 		return seedFromCurrentRoster(raid, reason or "raid_start")
 	end
 
-	function module:CloseAttendanceForRaid(raidOrId, timestamp, reason)
+	function module:CloseAttendanceForRaid(raidOrId, timestamp, reason, deferPublication)
 		local raid = raidOrId
 		if type(raidOrId) ~= "table" then
 			raid = Database.EnsureRaidByIndex(tonumber(raidOrId) or 0)
 		end
 		if type(raid) ~= "table" then
+			return false
+		end
+		local canonicalRaid = raid
+		raid = Database.GetRaidStore():StageRaidHistoryMutation(canonicalRaid)
+		if not raid then
 			return false
 		end
 
@@ -296,8 +344,7 @@ do
 		end
 
 		if changed then
-			local raidId = tonumber(raid.raidNid) or tonumber(raid.id) or tonumber(raid.raidNum)
-			notifyRaidAttendanceChanged(raidId, reason or "attendance_end")
+			return commitAttendanceMutation(canonicalRaid, raid, reason or "attendance_end", deferPublication)
 		end
 		return changed
 	end

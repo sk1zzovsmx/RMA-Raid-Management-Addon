@@ -1676,9 +1676,7 @@ do
 
 			local prevFocus = module.selectedRaid
 			local prevFocusNid = prevFocus and Database.GetRaidNidByIndex(prevFocus) or nil
-			for i = 1, #raidNids do
-				module.Actions:DeleteRaidByNid(raidNids[i])
-			end
+			module.Actions:DeleteRaidsByNid(raidNids)
 
 			UI.Selection.EnsureState(ctx)
 
@@ -1701,7 +1699,6 @@ do
 
 			module._SetSelectedRaid(newFocus)
 			module._resetSelections()
-			controller:Dirty()
 			triggerSelectionEvent(module, "selectedRaid", "ui")
 		end
 

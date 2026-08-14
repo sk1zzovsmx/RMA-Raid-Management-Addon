@@ -22,6 +22,8 @@ local LootSourceCandidates = addon.LootSourceCandidates
 local InternalEvents = assert(Events.Internal, "Raid state internal events are not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Raid state event publisher is not initialized")
 local RaidCreateEvent = assert(InternalEvents.RaidCreate, "Raid state raid-create event is not initialized")
+local RaidAttendanceChangedEvent =
+	assert(InternalEvents.RaidAttendanceChanged, "Raid state attendance event is not initialized")
 
 local coreState = addon.State
 local raidState = addon.State.raid
@@ -86,6 +88,22 @@ do
 
 	local function notifyRaidCreate(raidId)
 		TriggerEvent(RaidCreateEvent, raidId)
+	end
+
+	local function copyStateValue(value, seen)
+		if type(value) ~= "table" then return value end
+		seen = seen or {}
+		if seen[value] then return seen[value] end
+		local copied = {}
+		seen[value] = copied
+		for key, item in pairs(value) do copied[copyStateValue(key, seen)] = copyStateValue(item, seen) end
+		return copied
+	end
+
+	local function restoreStateTable(target, snapshot)
+		if type(target) ~= "table" or type(snapshot) ~= "table" then return end
+		for key in pairs(target) do target[key] = nil end
+		for key, value in pairs(copyStateValue(snapshot)) do target[key] = value end
 	end
 
 	local function isTraceEnabled()
@@ -1445,6 +1463,37 @@ do
 		clearActiveLootWindowItemSnapshot()
 	end
 
+	local function finalizeRaidRecord(raidNum, currentTime, deferAttendancePublication)
+		local raid = Database.EnsureRaidByIndex(raidNum)
+		if not raid then
+			return
+		end
+		local duration = currentTime - (raid.startTime or currentTime)
+		addon:info(
+			Diag.I.LogRaidEnded:format(
+				raidNum or -1,
+				tostring(raid.zone),
+				tonumber(raid.size) or -1,
+				raid.bossKills and #raid.bossKills or 0,
+				raid.loot and #raid.loot or 0,
+				duration
+			)
+		)
+		for _, player in ipairs(raid.players) do
+			if not player.leave then
+				player.leave = currentTime
+			end
+		end
+		raid.endTime = currentTime
+		local attendanceChanged, attendanceRaidNid
+		if type(module.CloseAttendanceForRaid) == "function" then
+			attendanceChanged, attendanceRaidNid = module:CloseAttendanceForRaid(
+				raid, currentTime, "raid_end", deferAttendancePublication
+			)
+		end
+		return attendanceChanged, attendanceRaidNid
+	end
+
 	-- Creates a new raid log entry.
 	function module:Create(zoneName, raidSize, raidDiff)
 		if not addon.IsInRaid() then
@@ -1456,18 +1505,8 @@ do
 			return false
 		end
 
-		if Database.GetCurrentRaid() then
-			self:End()
-		end
-
-		if type(module._SetNumRaidInternal) == "function" then
-			module._SetNumRaidInternal(num)
-		end
-
 		local realm = Database.GetRealmName()
-		local realmPlayers = (
-			type(module._EnsureRealmPlayerMetaInternal) == "function" and module._EnsureRealmPlayerMetaInternal(realm)
-		) or {}
+		local pendingPlayerMeta = {}
 		local currentTime = Time.GetCurrentTime()
 
 		local instanceDiff = tonumber(raidDiff)
@@ -1476,14 +1515,52 @@ do
 		end
 
 		local raidStore = Database.GetRaidStore()
+		local insertionState = raidStore:CaptureRaidInsertionState()
+		local historyState
+		if type(raidStore.CaptureRaidHistoryState) == "function" then
+			local captured, capturedState = pcall(raidStore.CaptureRaidHistoryState, raidStore)
+			if not captured then
+				return false
+			end
+			historyState = capturedState
+		end
+		local previousRaidId = Database.GetCurrentRaid()
+		local previousLastBoss = Database.GetLastBoss()
+		local rosterRuntime = type(module._CaptureRosterRuntimeInternal) == "function"
+			and module._CaptureRosterRuntimeInternal() or nil
+		local realmPlayers
+		local realmPlayersSnapshot
+		if type(module._EnsureRealmPlayerMetaInternal) == "function" then
+			local metadataOk, metadata = pcall(module._EnsureRealmPlayerMetaInternal, realm)
+			if not metadataOk then return false end
+			realmPlayers = metadata
+			realmPlayersSnapshot = copyStateValue(metadata)
+		end
+		local function rollbackReplacement()
+			coreState.currentRaid = previousRaidId
+			coreState.lastBoss = previousLastBoss
+			if type(historyState) == "table" and type(raidStore.RestoreRaidHistoryState) == "function" then
+				raidStore:RestoreRaidHistoryState(historyState)
+			else
+				raidStore:RestoreRaidInsertionState(insertionState)
+			end
+			restoreStateTable(realmPlayers, realmPlayersSnapshot)
+			if rosterRuntime and type(module._RestoreRosterRuntimeInternal) == "function" then
+				pcall(module._RestoreRosterRuntimeInternal, rosterRuntime)
+			end
+		end
 
-		local raidInfo = raidStore:CreateRaidRecord({
+		local createOk, raidInfo = pcall(raidStore.CreateRaidRecord, raidStore, {
 			realm = realm,
 			zone = zoneName,
 			size = raidSize,
 			difficulty = tonumber(instanceDiff) or nil,
 			startTime = currentTime,
 		})
+		if not createOk or not raidInfo then
+			raidStore:RestoreRaidInsertionState(insertionState)
+			return false
+		end
 
 		for i = 1, num do
 			local name, rank, subgroup, level, classL, class = getRaidRosterInfo(i)
@@ -1505,17 +1582,48 @@ do
 
 				tinsert(raidInfo.players, p)
 
-				if type(module._UpsertPlayerMetaInternal) == "function" then
-					module._UpsertPlayerMetaInternal(realmPlayers, name, unitID, level, race, raceL, class, classL)
-				end
+				pendingPlayerMeta[#pendingPlayerMeta + 1] = { name, unitID, level, race, raceL, class, classL }
 			end
 		end
 
-		local _, raidId = raidStore:InsertRaid(raidInfo)
-		if not raidId then
+		local insertOk, _, raidId = pcall(raidStore.InsertRaid, raidStore, raidInfo)
+		if not insertOk or not raidId then
+			raidStore:RestoreRaidInsertionState(insertionState)
 			return false
 		end
-		Database.SetCurrentRaid(raidId)
+
+		local switchOk, switchedRaidId = pcall(Database.SetCurrentRaid, raidId)
+		if not switchOk or switchedRaidId ~= raidId then
+			rollbackReplacement()
+			return false
+		end
+		local attendanceChanged, attendanceRaidNid
+		local commitOk = pcall(function()
+		if previousRaidId then
+			if type(module.CancelInstanceChecks) == "function" then
+				module:CancelInstanceChecks()
+			end
+			if type(module._ResetRosterTrackingInternal) == "function" then
+				module._ResetRosterTrackingInternal()
+			end
+			if type(module._CancelRosterRefreshInternal) == "function" then
+				module._CancelRosterRefreshInternal()
+			end
+			-- Preserve the historical callback context while the old raid closes.
+			coreState.currentRaid = previousRaidId
+			attendanceChanged, attendanceRaidNid = finalizeRaidRecord(previousRaidId, currentTime, true)
+			coreState.currentRaid = raidId
+			Database.SetLastBoss(nil)
+		end
+		realmPlayers = realmPlayers or {}
+		if type(module._UpsertPlayerMetaInternal) == "function" then
+			for i = 1, #pendingPlayerMeta do
+				module._UpsertPlayerMetaInternal(realmPlayers, unpack(pendingPlayerMeta[i]))
+			end
+		end
+		if type(module._SetNumRaidInternal) == "function" then
+			module._SetNumRaidInternal(num)
+		end
 		resetLootContextState()
 		-- New session context: force version-gated roster consumers (e.g. Master dropdowns) to rebuild.
 		if type(module._BumpRosterVersionInternal) == "function" then
@@ -1524,21 +1632,35 @@ do
 		if type(module._ResetRosterTrackingInternal) == "function" then
 			module._ResetRosterTrackingInternal()
 		end
+		end)
+		if not commitOk then
+			rollbackReplacement()
+			return false
+		end
 
-		addon:info(
-			Diag.I.LogRaidCreated:format(
-				Database.GetCurrentRaid() or -1,
-				tostring(zoneName),
-				tonumber(raidSize) or -1,
-				#raidInfo.players
-			)
-		)
-
+		if attendanceChanged and attendanceRaidNid then
+			TriggerEvent(RaidAttendanceChangedEvent, attendanceRaidNid, "raid_end")
+		end
 		notifyRaidCreate(Database.GetCurrentRaid())
+
+		-- Publication is the commit point. Diagnostics and scheduling are
+		-- failure-isolated because they cannot roll back listener side effects.
+		local logged, logError = pcall(addon.info, addon, Diag.I.LogRaidCreated:format(
+			Database.GetCurrentRaid() or -1,
+			tostring(zoneName),
+			tonumber(raidSize) or -1,
+			#raidInfo.players
+		))
+		if not logged and type(addon.error) == "function" then
+			pcall(addon.error, addon, tostring(logError))
+		end
 
 		-- Schedule one delayed roster refresh.
 		if type(module._ScheduleRosterRefreshInternal) == "function" then
-			module._ScheduleRosterRefreshInternal()
+			local scheduled, scheduleError = pcall(module._ScheduleRosterRefreshInternal)
+			if not scheduled and type(addon.error) == "function" then
+				pcall(addon.error, addon, tostring(scheduleError))
+			end
 		end
 		return true
 	end
@@ -1559,30 +1681,7 @@ do
 			module._CancelRosterRefreshInternal()
 		end
 		local currentTime = Time.GetCurrentTime()
-		local raid = Database.EnsureRaidByIndex(Database.GetCurrentRaid())
-		if raid then
-			local duration = currentTime - (raid.startTime or currentTime)
-			addon:info(
-				Diag.I.LogRaidEnded:format(
-					Database.GetCurrentRaid() or -1,
-					tostring(raid.zone),
-					tonumber(raid.size) or -1,
-					raid.bossKills and #raid.bossKills or 0,
-					raid.loot and #raid.loot or 0,
-					duration
-				)
-			)
-
-			for _, v in ipairs(raid.players) do
-				if not v.leave then
-					v.leave = currentTime
-				end
-			end
-			raid.endTime = currentTime
-			if type(module.CloseAttendanceForRaid) == "function" then
-				module:CloseAttendanceForRaid(raid, currentTime, "raid_end")
-			end
-		end
+		finalizeRaidRecord(Database.GetCurrentRaid(), currentTime)
 		Database.SetCurrentRaid(nil)
 		Database.SetLastBoss(nil)
 		resetLootContextState()

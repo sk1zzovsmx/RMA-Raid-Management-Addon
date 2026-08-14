@@ -81,7 +81,7 @@ do
 		cancelScheduledRosterRefresh()
 		module.updateRosterHandle = module:ScheduleTimer(function()
 			module.updateRosterHandle = nil
-			module:UpdateRaidRoster()
+			module:RefreshAndPublish()
 		end, ROSTER_REFRESH_DELAY_SECONDS)
 	end
 
@@ -216,6 +216,20 @@ do
 		resetLiveUnitCaches()
 	end
 
+	local function captureRosterRuntimeInternal()
+		return { numRaid = numRaid, rosterVersion = rosterVersion }
+	end
+
+	local function restoreRosterRuntimeInternal(snapshot)
+		if type(snapshot) ~= "table" then
+			return false
+		end
+		numRaid = tonumber(snapshot.numRaid) or 0
+		rosterVersion = tonumber(snapshot.rosterVersion) or 0
+		resetRosterTrackingInternal()
+		return true
+	end
+
 	local function publishRosterDeltaInternal(delta, raidNum)
 		local payload
 
@@ -246,6 +260,8 @@ do
 	module._SetNumRaidInternal = setNumRaidInternal
 	module._BumpRosterVersionInternal = bumpRosterVersionInternal
 	module._ResetRosterTrackingInternal = resetRosterTrackingInternal
+	module._CaptureRosterRuntimeInternal = captureRosterRuntimeInternal
+	module._RestoreRosterRuntimeInternal = restoreRosterRuntimeInternal
 	module._CancelRosterRefreshInternal = cancelScheduledRosterRefresh
 	module._ScheduleRosterRefreshInternal = scheduleRosterRefresh
 	module._EnsureRealmPlayerMetaInternal = ensureRealmPlayerMeta
@@ -285,6 +301,27 @@ do
 	end
 
 	local function endRosterSession(resetRaidSize, debugMessage)
+		local raidNum = Database.GetCurrentRaid()
+		local raid = raidNum and Database.EnsureRaidByIndex(raidNum) or nil
+		local timestamp = Time.GetCurrentTime()
+		local delta = buildRosterDelta()
+		delta.raidNum = raidNum
+		delta.timestamp = timestamp
+		delta.sessionEnded = true
+		if raid and type(raid.players) == "table" then
+			for _, player in ipairs(raid.players) do
+				if player and not player.leave then
+					tinsert(delta.left, {
+						name = player.name,
+						playerNid = tonumber(player.playerNid) or nil,
+						rank = player.rank or 0,
+						subgroup = player.subgroup or 1,
+						class = player.class or "UNKNOWN",
+						online = false,
+					})
+				end
+			end
+		end
 		if resetRaidSize then
 			numRaid = 0
 		end
@@ -295,7 +332,7 @@ do
 		resetLiveUnitCaches()
 		module:End()
 		rosterVersion = rosterVersion + 1
-		return true
+		return true, finalizeRosterDelta(delta) or delta, raidNum
 	end
 
 	local function applyUnknownRosterUnit(ctx, unitID)
@@ -547,6 +584,18 @@ do
 			end
 		end
 		return rosterChanged, delta
+	end
+
+	-- Refreshes the canonical roster and publishes its mutation exactly once.
+	-- Returns the published delta, or nil when the refresh did not mutate roster state.
+	function module:RefreshAndPublish()
+		local changed, delta, raidNum = module:UpdateRaidRoster()
+		if not changed then
+			return nil
+		end
+
+		TriggerEvent(RaidRosterDeltaEvent, delta, rosterVersion, raidNum or Database.GetCurrentRaid())
+		return delta
 	end
 
 	function module:CheckPlayer(name, raidNum)

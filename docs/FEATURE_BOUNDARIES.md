@@ -64,6 +64,12 @@ Master controller does not publish periodic ticks.
 
 Logger owns raid-history mutations and loot-history presentation. Attendance owns
 attendance presentation and export. Shared raid projections remain owned by Raid.
+Raid attendance capture is an idempotent transaction: duplicate presence and
+rank-only roster updates do not mutate data, publish notifications, or advance the
+raid sync revision. A seed, subgroup/online transition, leave, or close that changes
+presence advances the revision exactly once and publishes one
+`RaidAttendanceChanged` notification carrying the stable `raidNid`. Attendance UI
+controllers resolve that stable identity to the current raid index at the UI edge.
 
 ## Reserves
 

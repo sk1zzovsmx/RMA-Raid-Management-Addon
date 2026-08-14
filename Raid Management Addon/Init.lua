@@ -728,18 +728,7 @@ do
 			return
 		end
 
-		local changed, delta = raidService:UpdateRaidRoster()
-		if not changed then
-			return
-		end
-
-		-- Single source of truth for roster change notifications (join/update/leave delta).
-		Bus.TriggerEvent(
-			InternalEvents.RaidRosterDelta,
-			delta,
-			raidService:GetRosterVersion(),
-			Database.GetCurrentRaid()
-		)
+		raidService:RefreshAndPublish()
 	end
 
 	-- RAID_ROSTER_UPDATE: Updates the raid roster when it changes.

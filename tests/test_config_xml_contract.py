@@ -60,6 +60,13 @@ class ConfigXmlContractTest(unittest.TestCase):
 
 
 class ConfigLayoutOwnershipTest(unittest.TestCase):
+
+    def test_cleanup_success_ui_is_gated_by_completed_callback(self) -> None:
+        source = CONTROLLER_LUA.read_text(encoding="utf-8")
+        callback = source[source.index("return actions:StartRaidHistoryCleanup(function(cleanupResult") :]
+        callback = callback[: callback.index("end, options)")]
+        self.assertIn("if complete ~= true", callback)
+        self.assertIn("return", callback)
     def test_layout_supports_explicit_justification(self) -> None:
         lua = LAYOUT_LUA.read_text(encoding="utf-8")
         self.assertIn('justifyH or "LEFT"', lua)
