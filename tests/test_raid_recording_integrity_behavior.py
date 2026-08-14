@@ -7,6 +7,24 @@ from tests.lua_test_runner import run_lua_case
 
 
 class RaidRecordingIntegrityBehaviorTests(unittest.TestCase):
+    def test_raid_session_check_defers_persisted_active_raid_to_reentry(self) -> None:
+        result = run_lua_case("raid_session_check_defers_persisted_active_raid_to_reentry")
+        self.assertIn(
+            "PASS raid_session_check_defers_persisted_active_raid_to_reentry",
+            result.stdout,
+        )
+
+    def test_raid_session_check_creates_when_archive_has_no_active_raid(self) -> None:
+        result = run_lua_case("raid_session_check_creates_when_archive_has_no_active_raid")
+        self.assertIn(
+            "PASS raid_session_check_creates_when_archive_has_no_active_raid",
+            result.stdout,
+        )
+
+    def test_raid_session_check_propagates_create_rejection(self) -> None:
+        result = run_lua_case("raid_session_check_propagates_create_rejection")
+        self.assertIn("PASS raid_session_check_propagates_create_rejection", result.stdout)
+
     def test_raid_create_rejects_malformed_roster_metadata(self) -> None:
         result = run_lua_case("raid_create_rejects_malformed_roster_metadata")
         self.assertIn("PASS raid_create_rejects_malformed_roster_metadata", result.stdout)

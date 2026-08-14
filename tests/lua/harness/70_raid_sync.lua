@@ -5367,6 +5367,9 @@ function cases.raid_live_sync_group_loot_leader_authority()
 			GetCurrentRaid = function()
 				return client.store:GetActiveRecord() and 1 or nil
 			end,
+			GetRaidStore = function()
+				return client.store
+			end,
 			EnsureRaidByIndex = function()
 				return client.store:GetActiveRecord() and client.store.record.state or nil
 			end,

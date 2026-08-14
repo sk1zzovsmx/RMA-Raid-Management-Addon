@@ -119,12 +119,16 @@ do
 				)
 			)
 		end
-		if not Database.GetCurrentRaid() then
-			module:Create(context.zone, newSize, instanceDiff)
-			return
+		local currentRaid = Database.GetCurrentRaid()
+		if not currentRaid then
+			local raidStore = Database.GetRaidStore()
+			if raidStore:GetActiveRecord() then
+				return false, "RAID_REENTRY_REQUIRED"
+			end
+			return module:Create(context.zone, newSize, instanceDiff)
 		end
 
-		local current = Database.EnsureRaidByIndex(Database.GetCurrentRaid())
+		local current = Database.EnsureRaidByIndex(currentRaid)
 		if not current then
 			createRaidSessionWithReason(context.zone, newSize, instanceDiff, true)
 			return

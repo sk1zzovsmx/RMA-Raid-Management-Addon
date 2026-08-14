@@ -3,6 +3,88 @@ function cases.lua_51_smoke()
 	print("PASS lua_51_smoke")
 end
 
+local function installRaidSessionCheckFixture(addon)
+	local fixture, raid = installRaidCreationFixture(addon, nil)
+	_G.SetRaidTarget = function() end
+	addon.Diag.A = setmetatable({}, {
+		__index = function(_, key)
+			return key
+		end,
+	})
+	addon.Diag.D = {
+		LogRaidCheck = "%s %s %s",
+		LogRaidSessionCreate = "%s %d %d",
+		LogRaidSessionChange = "%s %d %d",
+	}
+	addon.L.RaidZones.Ulduar = true
+	addon.L.StrNewRaidSessionChange = "Raid session changed"
+	loadAddonFile(addon, "Raid Management Addon/Services/Raid/Session.lua")
+	return fixture, raid
+end
+
+function cases.raid_session_check_defers_persisted_active_raid_to_reentry(addon)
+	local fixture, raid = installRaidSessionCheckFixture(addon)
+	fixture.store.GetActiveRecord = function()
+		return { status = "active", state = fixture.raids[1] }
+	end
+	addon.Database.SetCurrentRaid(nil)
+	local createCalls = 0
+	raid.Create = function()
+		createCalls = createCalls + 1
+		return true
+	end
+
+	local checked, reason = raid:Check("Ulduar", 2)
+
+	assertEqual(false, checked, "persisted active raid was reported as created")
+	assertEqual("RAID_REENTRY_REQUIRED", reason, "persisted active raid did not defer to reentry")
+	assertEqual(0, createCalls, "persisted active raid attempted duplicate creation")
+	print("PASS raid_session_check_defers_persisted_active_raid_to_reentry")
+end
+
+function cases.raid_session_check_creates_when_archive_has_no_active_raid(addon)
+	local fixture, raid = installRaidSessionCheckFixture(addon)
+	fixture.store.GetActiveRecord = function()
+		return nil
+	end
+	addon.Database.SetCurrentRaid(nil)
+	local createCalls = 0
+	raid.Create = function(_, zone, size, difficulty)
+		createCalls = createCalls + 1
+		assertEqual("Ulduar", zone)
+		assertEqual(25, size)
+		assertEqual(2, difficulty)
+		return true
+	end
+
+	local checked, reason = raid:Check("Ulduar", 2)
+
+	assertEqual(true, checked, "fresh raid creation was not reported")
+	assertEqual(nil, reason, "fresh raid creation did not preserve the Create result")
+	assertEqual(1, createCalls, "fresh raid was not created exactly once")
+	print("PASS raid_session_check_creates_when_archive_has_no_active_raid")
+end
+
+function cases.raid_session_check_propagates_create_rejection(addon)
+	local fixture, raid = installRaidSessionCheckFixture(addon)
+	fixture.store.GetActiveRecord = function()
+		return nil
+	end
+	addon.Database.SetCurrentRaid(nil)
+	local createCalls = 0
+	raid.Create = function()
+		createCalls = createCalls + 1
+		return false, "INJECTED_CREATE_REJECTION"
+	end
+
+	local checked, reason = raid:Check("Ulduar", 2)
+
+	assertEqual(false, checked, "rejected creation was reported as successful")
+	assertEqual("INJECTED_CREATE_REJECTION", reason, "creation rejection reason was hidden")
+	assertEqual(1, createCalls, "rejected creation was attempted more than once")
+	print("PASS raid_session_check_propagates_create_rejection")
+end
+
 function cases.raid_session_create_failure_is_atomic(addon)
 	for _, failure in ipairs({ "create_nil", "create_throw", "conclude_nil", "conclude_throw" }) do
 		local fixture, raid = installRaidCreationFixture(addon, failure)
