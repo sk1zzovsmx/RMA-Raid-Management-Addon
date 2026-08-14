@@ -22,7 +22,6 @@ RESERVES_IMPORT = ADDON / "Services" / "Reserves" / "Import.lua"
 WIRE_CONTRACT_DOCS = (
     ROOT / "docs" / "ARCHITECTURE.md",
     ROOT / "docs" / "API_SURFACE.md",
-    ROOT / "docs" / "FEATURE_API_MAP.md",
     ROOT / "docs" / "VALIDATION.md",
 )
 APPROVED_AWARD_SERVICE_FILES = {
