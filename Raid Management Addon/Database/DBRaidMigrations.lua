@@ -524,7 +524,14 @@ do
 
 	function module:MigrateRaidToCurrentSchema(raid, fromVersion, toVersion)
 		local currentVersion = tonumber(toVersion) or self:GetCurrentVersion()
-		local storedVersion = tonumber(fromVersion) or 1
+		local recordVersion = tonumber(raid and raid.schemaVersion)
+		if recordVersion and recordVersion > currentVersion then
+			return nil, "unsupported raid schema"
+		end
+		local storedVersion = tonumber(fromVersion) or tonumber(raid and raid.schemaVersion) or 1
+		if storedVersion > currentVersion then
+			return nil, "unsupported raid schema"
+		end
 		if isCurrentSchema(raid, fromVersion, currentVersion) then
 			return raid
 		end

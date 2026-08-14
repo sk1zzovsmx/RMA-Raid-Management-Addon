@@ -427,6 +427,8 @@ do
 	do
 		-- listeners[event] = { obj1, obj2, ... }
 		local listeners = {}
+		local listenerSnapshots = {}
+		local dispatchDepth = 0
 
 		local function handleEvent(_, eventName, ...)
 			local list = listeners[eventName]
@@ -434,15 +436,44 @@ do
 				return
 			end
 
-			for i = 1, #list do
-				local obj = list[i]
+			dispatchDepth = dispatchDepth + 1
+			local listenerSnapshot = listenerSnapshots[dispatchDepth]
+			if not listenerSnapshot then
+				listenerSnapshot = {}
+				listenerSnapshots[dispatchDepth] = listenerSnapshot
+			end
+
+			local listenerCount = #list
+			local dispatchError
+			for i = 1, listenerCount do
+				listenerSnapshot[i] = list[i]
+			end
+
+			for i = 1, listenerCount do
+				local obj = listenerSnapshot[i]
 				local fn = obj and obj[eventName]
 				if type(fn) == "function" then
 					local ok, err = pcall(fn, obj, ...)
 					if not ok then
-						addon:error(Diag.E.LogDatabaseEventHandlerFailed:format(tostring(eventName), tostring(err)))
+						local reported, reportErr = pcall(
+							addon.error,
+							addon,
+							Diag.E.LogDatabaseEventHandlerFailed:format(tostring(eventName), tostring(err))
+						)
+						if not reported then
+							dispatchError = reportErr
+							break
+						end
 					end
 				end
+			end
+
+			for i = 1, listenerCount do
+				listenerSnapshot[i] = nil
+			end
+			dispatchDepth = dispatchDepth - 1
+			if dispatchError then
+				error(dispatchError, 0)
 			end
 		end
 
@@ -453,9 +484,9 @@ do
 
 			local list = listeners[eventName]
 			if not list then
+				mainFrame:RegisterEvent(eventName)
 				list = {}
 				listeners[eventName] = list
-				mainFrame:RegisterEvent(eventName)
 			else
 				for i = 1, #list do
 					if list[i] == obj then
@@ -588,47 +619,69 @@ do
 
 	-- ADDON_LOADED: Initializes the addon after loading.
 	function addon:ADDON_LOADED(name)
-		if name ~= addonName then
+		if name ~= addonName or self.State.initialized or self.State.initializing then
 			return
 		end
-		self:UnregisterEvent("ADDON_LOADED")
-		local SavedVariables = Database.SavedVariables
-		SavedVariables.EnsureAll()
-		local lvl = addon.GetLogLevel and addon:GetLogLevel()
-		addon:info(
-			Diag.I.LogDatabaseLoaded:format(
-				tostring(GetAddOnMetadata(addonName, "Version")),
-				tostring(lvl),
-				tostring(true)
+
+		self.State.initializing = true
+		local registeredEvents = {}
+		local addonLoadedRemoved = false
+		local ok, err = pcall(function()
+			local SavedVariables = Database.SavedVariables
+			SavedVariables.EnsureAll()
+			local lvl = addon.GetLogLevel and addon:GetLogLevel()
+			addon:info(
+				Diag.I.LogDatabaseLoaded:format(
+					tostring(GetAddOnMetadata(addonName, "Version")),
+					tostring(lvl),
+					tostring(true)
+				)
 			)
-		)
-		if addon.Options and addon.Options.EnsureLoaded then
-			addon.Options.EnsureLoaded()
-			addon.Options.SetDebugEnabled(false)
+			if addon.Options and addon.Options.EnsureLoaded then
+				addon.Options.EnsureLoaded()
+				addon.Options.SetDebugEnabled(false)
+			end
+			-- Bind the Timer mixin after its module has loaded so Init-owned timers use the canonical API.
+			if addon.Timer and addon.Timer.BindMixin then
+				addon.Timer.BindMixin(addon, "Database")
+			end
+			local minimap = addon.Minimap
+			if minimap and minimap.EnsureUI then
+				minimap:EnsureUI()
+			end
+			local reservesService = getService("Reserves")
+			if reservesService and reservesService.Load then
+				reservesService:Load()
+			end
+			if addon.Comms and addon.Comms.EnsureVersionPrefix then
+				addon.Comms:EnsureVersionPrefix()
+			end
+			SavedVariables.NormalizeAfterLoad()
+
+			for event in pairs(addonEvents) do
+				self:RegisterEvent(event)
+				registeredEvents[#registeredEvents + 1] = event
+			end
+			self:UnregisterEvent("ADDON_LOADED")
+			addonLoadedRemoved = true
+			if isDebugEnabled() then
+				addon:debug(Diag.D.LogDatabaseEventsRegistered:format(ADDON_EVENTS_COUNT))
+			end
+			self:RAID_ROSTER_UPDATE(true)
+			self.State.initialized = true
+		end)
+		if not ok then
+			for i = 1, #registeredEvents do
+				pcall(self.UnregisterEvent, self, registeredEvents[i])
+			end
+			if addonLoadedRemoved then
+				pcall(self.RegisterEvent, self, "ADDON_LOADED")
+			end
+			self.State.initializing = nil
+			error(err, 0)
 		end
-		-- Bind the Timer mixin after its module has loaded so Init-owned timers use the canonical API.
-		if addon.Timer and addon.Timer.BindMixin then
-			addon.Timer.BindMixin(addon, "Database")
-		end
-		local minimap = addon.Minimap
-		if minimap and minimap.EnsureUI then
-			minimap:EnsureUI()
-		end
-		local reservesService = getService("Reserves")
-		if reservesService and reservesService.Load then
-			reservesService:Load()
-		end
-		if addon.Comms and addon.Comms.EnsureVersionPrefix then
-			addon.Comms:EnsureVersionPrefix()
-		end
-		SavedVariables.NormalizeAfterLoad()
-		for event in pairs(addonEvents) do
-			self:RegisterEvent(event)
-		end
-		if isDebugEnabled() then
-			addon:debug(Diag.D.LogDatabaseEventsRegistered:format(ADDON_EVENTS_COUNT))
-		end
-		self:RAID_ROSTER_UPDATE(true)
+
+		self.State.initializing = nil
 	end
 
 	local rosterUpdateDebounceSeconds = 0.2

@@ -10,20 +10,30 @@ Run the local WotLK validator scripts available in the ignored agent skill
 folder:
 
 ```powershell
+py -3 -m unittest discover -s tests -p "test_*.py" -v
 py -3 .agents\skills\wow-addon-dev-wotlk-v335a\scripts\validate_toc.py "Raid Management Addon\Raid Management Addon.toc"
 py -3 .agents\skills\wow-addon-dev-wotlk-v335a\scripts\lint_lua51.py "Raid Management Addon"
 py -3 .agents\skills\wow-addon-dev-wotlk-v335a\scripts\scan_xpcall.py "Raid Management Addon"
 rg -n "<Scripts>|<On[A-Za-z]+>" "Raid Management Addon\UI" -g "*.xml"
+luacheck "Raid Management Addon" --exclude-files "Raid Management Addon/Libs/**"
 git diff --check
 ```
+
+The ignored `.agents` directory may be absent from an isolated Git worktree.
+When that happens, invoke the same validator scripts from the parent checkout
+and keep the addon paths pointed at the worktree under test. This repository
+does not currently contain `tools/check-rma.ps1`, so that command is not part
+of the available static gate and must not be reported as run.
 
 These static gates cover:
 
 - TOC file existence, references, Interface `30300`, and unsupported TOC
   directives.
+- Python behavior and contract tests discovered under `tests/`.
 - Lua 5.1 parse compatibility across the addon folder.
 - Lua 5.1 `xpcall` extra-argument traps.
 - XML script blocks or XML event handlers under `UI/`.
+- Whole-addon Lua lint outside vendored `Libs/`.
 - Git whitespace errors.
 
 For docs-only edits, also run:

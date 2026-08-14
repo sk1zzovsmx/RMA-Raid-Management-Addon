@@ -53,7 +53,7 @@ local function formatValidateRaidDetail(entry)
 	if code == "SCHEMA_MISSING" then
 		return L.MsgValidateDetailSchemaMissing:format(index, raidNid)
 	end
-	if code == "SCHEMA_NEWER" then
+	if code == "SCHEMA_VERSION_FUTURE" or code == "SCHEMA_NEWER" then
 		return L.MsgValidateDetailSchemaNewer:format(
 			index,
 			raidNid,

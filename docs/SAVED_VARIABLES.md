@@ -44,6 +44,13 @@ still own the schema and meaning of their stores:
 - Any schema change must be deliberate, documented in the change, and validated
   with a reload smoke test.
 - Do not write options through ad hoc globals; use the option namespace helpers.
+- Option admission is strict: `Database/DBOptions.lua` retains a persisted value
+  only when its Lua type matches the registered default. Invalid types are reset
+  to independent copies of their defaults, while valid `false` values remain
+  unchanged. Unknown option names and non-string keys are removed after all
+  namespaces are registered.
+- Option admission reads and normalizes only `RMA_Options`; it does not inspect,
+  import, or migrate data from any non-RMA SavedVariables.
 
 ## Schema Evolution
 
@@ -51,6 +58,9 @@ still own the schema and meaning of their stores:
   schema shape.
 - Migrations only transform existing `RMA_*` data from an older RMA schema
   version to the current RMA schema.
+- An older RMA build rejects raid records written by a newer raid schema before
+  normalization, migration, query cache construction, or save preparation. The
+  newer record and any fields unknown to the older build remain untouched.
 - Migrations must not read or convert non-RMA keys. If a legacy import is ever
   required, implement it as a separate, explicit importer outside normal startup.
 - Schema versions are persistence contracts and do not need to match the addon

@@ -593,6 +593,9 @@ do
 
 		local schemaVersion = getSchemaVersion()
 		local storedSchemaVersion = tonumber(raid.schemaVersion)
+		if storedSchemaVersion and storedSchemaVersion > schemaVersion then
+			return nil, "unsupported raid schema"
+		end
 
 		raid.players = (type(raid.players) == "table") and raid.players or {}
 		raid.bossKills = (type(raid.bossKills) == "table") and raid.bossKills or {}
@@ -602,7 +605,11 @@ do
 
 		local migrations = getMigrations()
 		if migrations and migrations.MigrateRaidToCurrentSchema then
-			migrations:MigrateRaidToCurrentSchema(raid, storedSchemaVersion, schemaVersion)
+			local migrated, migrationError =
+				migrations:MigrateRaidToCurrentSchema(raid, storedSchemaVersion, schemaVersion)
+			if not migrated then
+				return nil, migrationError
+			end
 		end
 
 		if not storedSchemaVersion or storedSchemaVersion < schemaVersion then
@@ -682,7 +689,7 @@ do
 							end
 						end
 					end
-					if #attendees == 0 then
+					if rawPlayers == nil then
 						local killTime = tonumber(boss.time) or 0
 						for j = 1, #players do
 							local player = players[j]
@@ -753,6 +760,84 @@ do
 			return runtime
 		end
 		return buildRuntimeIndexesForNormalizedRaid(raid)
+	end
+
+	function module:GetRaidRuntimeForRead(raid)
+		if type(raid) ~= "table" then
+			return nil
+		end
+
+		-- Observation never reuses admission caches: their row aliases are mutable and
+		-- their compact signature cannot detect same-length content changes.
+		local transient = {
+			playerNidByName = {},
+			playerIdxByNid = {},
+			bossIdxByNid = {},
+			bossPlayerSetByBossNid = {},
+			lootIdxByNid = {},
+			lootIdxByBossNid = {},
+			lootIdxByLooterNid = {},
+			attendanceIdxByPlayerNid = {},
+		}
+		local players = type(raid.players) == "table" and raid.players or {}
+		local bosses = type(raid.bossKills) == "table" and raid.bossKills or {}
+		local lootRows = type(raid.loot) == "table" and raid.loot or {}
+		local attendance = type(raid.attendance) == "table" and raid.attendance or {}
+		for i = 1, #players do
+			local player = players[i]
+			if type(player) == "table" then
+				local playerNid = tonumber(player.playerNid)
+				if playerNid then
+					transient.playerIdxByNid[playerNid] = i
+					if player.name then
+						transient.playerNidByName[player.name] = playerNid
+					end
+				end
+			end
+		end
+		for i = 1, #attendance do
+			local entry = attendance[i]
+			local playerNid = type(entry) == "table" and tonumber(entry.playerNid) or nil
+			if playerNid then
+				transient.attendanceIdxByPlayerNid[playerNid] = i
+			end
+		end
+		for i = 1, #bosses do
+			local boss = bosses[i]
+			local bossNid = type(boss) == "table" and tonumber(boss.bossNid) or nil
+			if bossNid then
+				transient.bossIdxByNid[bossNid] = i
+				local attendeeSet = {}
+				local attendees = boss.players
+				if type(attendees) == "table" then
+					for j = 1, #attendees do
+						local playerNid = tonumber(attendees[j])
+						if playerNid and playerNid > 0 then
+							attendeeSet[playerNid] = true
+						end
+					end
+				end
+				transient.bossPlayerSetByBossNid[bossNid] = attendeeSet
+			end
+		end
+		for i = 1, #lootRows do
+			local loot = lootRows[i]
+			if type(loot) == "table" then
+				local lootNid = tonumber(loot.lootNid)
+				if lootNid then
+					transient.lootIdxByNid[lootNid] = i
+				end
+				local bossNid = tonumber(loot.bossNid)
+				if bossNid and bossNid > 0 then
+					appendRuntimeIndexList(transient.lootIdxByBossNid, bossNid, i, false)
+				end
+				local looterNid = tonumber(loot.looterNid)
+				if looterNid and looterNid > 0 then
+					appendRuntimeIndexList(transient.lootIdxByLooterNid, looterNid, i, false)
+				end
+			end
+		end
+		return transient
 	end
 
 	function module:GetRaidSyncRevision(raid)
@@ -893,9 +978,10 @@ do
 	end
 
 	function module:PrepareRaidForSave(raid, raidIndex)
-		raid = self:NormalizeRaidRecord(raid, "save", raidIndex)
+		local normalizeError
+		raid, normalizeError = self:NormalizeRaidRecord(raid, "save", raidIndex)
 		if not raid then
-			return nil
+			return nil, normalizeError
 		end
 
 		self:StripRuntime(raid)
@@ -911,8 +997,12 @@ do
 	function module:PrepareAllRaidsForSave()
 		local raids = ensureRaidsTable()
 		for i = 1, #raids do
-			self:PrepareRaidForSave(raids[i], i)
+			local prepared, prepareError = self:PrepareRaidForSave(raids[i], i)
+			if not prepared then
+				return nil, prepareError, i
+			end
 		end
+		return raids
 	end
 
 	function module:CreateRaidRecord(args)

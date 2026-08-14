@@ -85,10 +85,14 @@ end
 
 function SavedVariables.PrepareForSave(contextTag)
 	local raidStore = GetRaidStore()
-	raidStore:PrepareAllRaidsForSave()
+	local prepared, prepareError, raidIndex = raidStore:PrepareAllRaidsForSave()
+	if not prepared then
+		return nil, prepareError, raidIndex
+	end
 
 	local saveReserves, reservesService = getReservesSave()
 	saveReserves(reservesService, contextTag or "save")
+	return prepared
 end
 
 SavedVariables.EnsureAll()

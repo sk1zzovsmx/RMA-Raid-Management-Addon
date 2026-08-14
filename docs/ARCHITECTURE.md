@@ -45,6 +45,21 @@ runtime placement; the feature boundaries describe workflow and data ownership.
   lookup. `addon.Database` is the internal facade used by runtime callers;
   concrete owners live under `addon.DB` and are resolved directly without a
   replaceable manager layer.
+  Raid admission is the only path allowed to migrate, repair, assign canonical
+  IDs, or advance counters. `DBRaidQueries.lua` observes admitted records without
+  mutation, using a bounded transient index owned by `DBRaidStore.lua`. Read
+  indexes contain positions and scalar identifiers only, never mutable aliases
+  to canonical SavedVariables rows, and are rebuilt for each observation so
+  same-length content changes cannot reuse stale lookups. Reusable query output
+  buffers are accepted only when caller-owned; canonical collections and rows
+  are replaced before output writes so row clearing cannot mutate persisted
+  data. `DBRaidValidator.lua`
+  traverses raw records in deterministic key order before repair so diagnostics
+  retain sparse/map entries, malformed keys and rows, duplicate IDs, invalid
+  references, malformed nested collections, and low counters. An explicit empty
+  boss attendance table is canonical; roster
+  inference is reserved for admission of legacy bosses whose `players` field is
+  absent.
 - `Modules/*` owns shared helpers, constants, event names, communication,
   item/string/time utilities, static datasets, module registry, and shared UI
   helpers. `Modules/UI/Frames.lua` owns shared frame getters, module-frame

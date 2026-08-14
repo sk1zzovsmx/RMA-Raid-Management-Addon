@@ -37,24 +37,77 @@ local keyToNamespace = {}
 local loaded = false
 
 -- ----- Private helpers ----- --
-local function shallowCopy(src)
-	local dst = {}
-	if type(src) == "table" then
-		for k, v in pairs(src) do
-			dst[k] = v
+local function copyOptionValue(value, seen)
+	if type(value) ~= "table" then
+		return value
+	end
+
+	seen = seen or {}
+	if seen[value] then
+		return seen[value]
+	end
+
+	local copied = {}
+	seen[value] = copied
+	for key, nestedValue in pairs(value) do
+		copied[copyOptionValue(key, seen)] = copyOptionValue(nestedValue, seen)
+	end
+	return copied
+end
+
+local function optionValuesEquivalent(left, right, leftSeen, rightSeen)
+	if type(left) ~= type(right) then
+		return false
+	end
+	if type(left) ~= "table" then
+		return left == right
+	end
+
+	leftSeen = leftSeen or {}
+	rightSeen = rightSeen or {}
+	if leftSeen[left] or rightSeen[right] then
+		return leftSeen[left] == right and rightSeen[right] == left
+	end
+
+	leftSeen[left] = right
+	rightSeen[right] = left
+	local rightCount = 0
+	for _ in pairs(right) do
+		rightCount = rightCount + 1
+	end
+	for key, value in pairs(left) do
+		rightCount = rightCount - 1
+		if rightCount < 0 or not optionValuesEquivalent(value, right[key], leftSeen, rightSeen) then
+			return false
 		end
 	end
-	return dst
+	return rightCount == 0
+end
+
+local function validateDefaultKeys(defaults)
+	for key in pairs(defaults) do
+		if type(key) ~= "string" or key == "" then
+			error("Options.RegisterNamespace: option keys must be non-empty strings", 3)
+		end
+	end
 end
 
 local function ensureSavedTable()
 	return SavedVariables.GetOptions()
 end
 
-local function applyMissingDefaults(store, defaults)
+local function normalizeOptionStore(store, defaults, removeUnknown)
+	if removeUnknown then
+		for key in pairs(store) do
+			if type(key) ~= "string" or defaults[key] == nil then
+				store[key] = nil
+			end
+		end
+	end
+
 	for key, defaultValue in pairs(defaults) do
-		if store[key] == nil then
-			store[key] = defaultValue
+		if type(store[key]) ~= type(defaultValue) then
+			store[key] = copyOptionValue(defaultValue)
 		end
 	end
 end
@@ -72,7 +125,7 @@ local function applyDefaultsToStorage(name, defaults)
 		saved[name] = store
 	end
 
-	applyMissingDefaults(store, defaults)
+	normalizeOptionStore(store, defaults, loaded)
 
 	return store
 end
@@ -81,9 +134,7 @@ local function prepareStrictStorage()
 	local saved = ensureSavedTable()
 
 	for key in pairs(saved) do
-		if key == "debug" then
-			saved[key] = nil
-		elseif type(key) == "string" and key ~= "_schema" and namespaces[key] == nil then
+		if type(key) ~= "string" or (key ~= "_schema" and namespaces[key] == nil) then
 			saved[key] = nil
 		end
 	end
@@ -141,7 +192,7 @@ end
 
 function namespaceMt:ResetDefaults()
 	local saved = ensureSavedTable()
-	local fresh = shallowCopy(self._defaults)
+	local fresh = copyOptionValue(self._defaults)
 	saved[self._name] = fresh
 	self._store = fresh
 	emit(Events.OptionsReset, self._name)
@@ -149,8 +200,9 @@ function namespaceMt:ResetDefaults()
 end
 
 function namespaceMt:All()
-	local out = shallowCopy(self._defaults)
-	for k, v in pairs(self._store) do
+	local out = copyOptionValue(self._defaults)
+	local stored = copyOptionValue(self._store)
+	for k, v in pairs(stored) do
 		out[k] = v
 	end
 	return out
@@ -168,15 +220,33 @@ function Options.RegisterNamespace(name, defaults)
 	if type(defaults) ~= "table" then
 		error("Options.RegisterNamespace: defaults must be a table", 2)
 	end
+	validateDefaultKeys(defaults)
 
 	local existing = namespaces[name]
 	if existing then
 		-- Allow modular re-registration: each owner contributes its own keys.
 		for key, defaultValue in pairs(defaults) do
+			local registeredDefault = existing._defaults[key]
+			if registeredDefault ~= nil and not optionValuesEquivalent(registeredDefault, defaultValue) then
+				error(
+					format(
+						"Options.RegisterNamespace: key %q has an incompatible declaration in namespace %q",
+						key,
+						name
+					),
+					2
+				)
+			end
+			local owner = keyToNamespace[key]
+			if owner and owner ~= existing then
+				error(format("Options.RegisterNamespace: key %q is already owned by namespace %q", key, owner._name), 2)
+			end
+		end
+		for key, defaultValue in pairs(defaults) do
 			if existing._defaults[key] == nil then
-				existing._defaults[key] = defaultValue
-				if existing._store[key] == nil then
-					existing._store[key] = defaultValue
+				existing._defaults[key] = copyOptionValue(defaultValue)
+				if type(existing._store[key]) ~= type(defaultValue) then
+					existing._store[key] = copyOptionValue(defaultValue)
 				end
 				keyToNamespace[key] = existing
 			end
@@ -184,16 +254,24 @@ function Options.RegisterNamespace(name, defaults)
 		return existing
 	end
 
-	local store = applyDefaultsToStorage(name, defaults)
+	for key in pairs(defaults) do
+		local owner = keyToNamespace[key]
+		if owner then
+			error(format("Options.RegisterNamespace: key %q is already owned by namespace %q", key, owner._name), 2)
+		end
+	end
+
+	local copiedDefaults = copyOptionValue(defaults)
+	local store = applyDefaultsToStorage(name, copiedDefaults)
 	local ns = setmetatable({
 		_name = name,
-		_defaults = shallowCopy(defaults),
+		_defaults = copiedDefaults,
 		_store = store,
 	}, namespaceMt)
 
 	namespaces[name] = ns
 	-- Reverse key-to-namespace index for the read-only `addon.options` proxy.
-	-- If the same key is registered in two namespaces, the last registration wins.
+	-- Ownership is unique so the read-only option proxy remains unambiguous.
 	for key in pairs(defaults) do
 		keyToNamespace[key] = ns
 	end
@@ -247,7 +325,7 @@ function Options.EnsureLoaded()
 			store = {}
 			saved[name] = store
 		end
-		applyMissingDefaults(store, ns._defaults)
+		normalizeOptionStore(store, ns._defaults, true)
 		ns._store = store
 	end
 
@@ -275,7 +353,28 @@ addon.options = setmetatable({}, {
 
 -- Iterate via this getter to avoid exposing the internal table directly.
 function Options.GetNamespaces()
-	return namespaces
+	local snapshot = {}
+	for name, ns in pairs(namespaces) do
+		local registeredNamespace = ns
+		snapshot[copyOptionValue(name)] = {
+			All = function()
+				return registeredNamespace:All()
+			end,
+			Get = function(_, key)
+				return registeredNamespace:Get(key)
+			end,
+			Name = function()
+				return registeredNamespace:Name()
+			end,
+			ResetDefaults = function()
+				return registeredNamespace:ResetDefaults()
+			end,
+			Set = function(_, key, value)
+				return registeredNamespace:Set(key, value)
+			end,
+		}
+	end
+	return snapshot
 end
 
 -- Convenience write when the caller does not know the namespace (for example Config UI).

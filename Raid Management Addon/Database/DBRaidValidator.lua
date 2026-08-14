@@ -10,6 +10,7 @@ local Database = addon.Database
 local IgnoredMobs = addon.IgnoredMobs
 
 local pairs, type, tonumber = pairs, type, tonumber
+local sort = table.sort
 local strsub = string.sub
 local tostring = tostring
 local IsTrashMobName = IgnoredMobs.IsTrashMobName
@@ -22,46 +23,6 @@ do
 	-- ----- Internal state ----- --
 
 	-- ----- Private helpers ----- --
-	local function deepCopy(value, seen)
-		if type(value) ~= "table" then
-			return value
-		end
-
-		seen = seen or {}
-		if seen[value] then
-			return seen[value]
-		end
-
-		local out = {}
-		seen[value] = out
-		for key, item in pairs(value) do
-			if key ~= "_runtime" then
-				out[deepCopy(key, seen)] = deepCopy(item, seen)
-			end
-		end
-		return out
-	end
-
-	local function ensureNormalizedClone(raid)
-		local clone = deepCopy(raid)
-		if type(clone) ~= "table" then
-			return nil
-		end
-
-		clone = Database.GetRaidStore():NormalizeRaidRecord(clone)
-
-		if type(clone) ~= "table" then
-			return nil
-		end
-
-		clone.players = (type(clone.players) == "table") and clone.players or {}
-		clone.bossKills = (type(clone.bossKills) == "table") and clone.bossKills or {}
-		clone.loot = (type(clone.loot) == "table") and clone.loot or {}
-		clone.changes = (type(clone.changes) == "table") and clone.changes or {}
-
-		return clone
-	end
-
 	local function pushDetail(result, level, code, data)
 		local details = result.details
 		details[#details + 1] = {
@@ -79,6 +40,36 @@ do
 		end
 	end
 
+	local function orderedKeys(collection)
+		local keys = {}
+		if type(collection) ~= "table" then
+			return keys
+		end
+		for key in pairs(collection) do
+			keys[#keys + 1] = key
+		end
+		sort(keys, function(left, right)
+			local leftType = type(left)
+			local rightType = type(right)
+			if leftType == rightType then
+				if leftType == "number" or leftType == "string" then
+					return left < right
+				end
+				return tostring(left) < tostring(right)
+			end
+			return leftType < rightType
+		end)
+		return keys
+	end
+
+	local function validateSequenceKey(result, key, code, dataField)
+		if type(key) ~= "number" or key < 1 or key ~= math.floor(key) then
+			local data = {}
+			data[dataField] = key
+			pushDetail(result, "E", code, data)
+		end
+	end
+
 	local function validateRaidSourceKeys(result, raid)
 		for key in pairs(raid) do
 			if type(key) == "string" and strsub(key, 1, 1) == "_" and key ~= "_runtime" then
@@ -92,7 +83,7 @@ do
 		if not schemaVersion then
 			pushDetail(result, "E", "SCHEMA_MISSING")
 		elseif schemaVersion > currentSchemaVersion then
-			pushDetail(result, "E", "SCHEMA_NEWER", {
+			pushDetail(result, "E", "SCHEMA_VERSION_FUTURE", {
 				schemaVersion = schemaVersion,
 				currentVersion = currentSchemaVersion,
 			})
@@ -104,15 +95,24 @@ do
 	local function validatePlayers(result, players)
 		local maxPlayerNid = 0
 		local playerByNid = {}
+		if type(players) ~= "table" then
+			pushDetail(result, "E", "PLAYERS_INVALID")
+			return maxPlayerNid, playerByNid
+		end
 
-		for i = 1, #players do
+		local keys = orderedKeys(players)
+		for keyIndex = 1, #keys do
+			local i = keys[keyIndex]
+			validateSequenceKey(result, i, "PLAYER_KEY_INVALID", "playerIndex")
 			local player = players[i]
 			if type(player) == "table" then
 				local playerNid = tonumber(player.playerNid) or 0
 				if playerNid > maxPlayerNid then
 					maxPlayerNid = playerNid
 				end
-				if playerNid > 0 then
+				if playerNid > 0 and playerByNid[playerNid] then
+					pushDetail(result, "E", "PLAYER_NID_DUPLICATE", { playerIndex = i, playerNid = playerNid })
+				elseif playerNid > 0 then
 					playerByNid[playerNid] = true
 				end
 
@@ -127,6 +127,8 @@ do
 				else
 					result.ok = result.ok + 1
 				end
+			else
+				pushDetail(result, "E", "PLAYER_ROW_INVALID", { playerIndex = i })
 			end
 		end
 
@@ -138,14 +140,23 @@ do
 		local bossByNid = {}
 		local hasTrashBoss = false
 
-		for i = 1, #bosses do
+		if type(bosses) ~= "table" then
+			pushDetail(result, "E", "BOSSES_INVALID")
+			return 0, {}, false
+		end
+		local keys = orderedKeys(bosses)
+		for keyIndex = 1, #keys do
+			local i = keys[keyIndex]
+			validateSequenceKey(result, i, "BOSS_KEY_INVALID", "bossIndex")
 			local boss = bosses[i]
 			if type(boss) == "table" then
 				local bossNid = tonumber(boss.bossNid) or 0
 				if bossNid > maxBossNid then
 					maxBossNid = bossNid
 				end
-				if bossNid > 0 then
+				if bossNid > 0 and bossByNid[bossNid] then
+					pushDetail(result, "E", "BOSS_NID_DUPLICATE", { bossIndex = i, bossNid = bossNid })
+				elseif bossNid > 0 then
 					bossByNid[bossNid] = true
 				end
 				if IsTrashMobName(boss.name) then
@@ -154,7 +165,10 @@ do
 
 				local attendees = boss.players
 				if type(attendees) == "table" then
-					for j = 1, #attendees do
+					local attendeeKeys = orderedKeys(attendees)
+					for attendeeKeyIndex = 1, #attendeeKeys do
+						local j = attendeeKeys[attendeeKeyIndex]
+						validateSequenceKey(result, j, "BOSS_ATTENDEE_KEY_INVALID", "attendeeIndex")
 						local attendeeNid = tonumber(attendees[j]) or 0
 						if attendeeNid <= 0 then
 							pushDetail(result, "E", "BOSS_ATTENDEE_INVALID", {
@@ -171,7 +185,11 @@ do
 							result.ok = result.ok + 1
 						end
 					end
+				elseif attendees ~= nil then
+					pushDetail(result, "E", "BOSS_PLAYERS_INVALID", { bossIndex = i })
 				end
+			else
+				pushDetail(result, "E", "BOSS_ROW_INVALID", { bossIndex = i })
 			end
 		end
 
@@ -180,10 +198,14 @@ do
 
 	local function validateAttendance(result, attendance, playerByNid)
 		if type(attendance) ~= "table" then
+			pushDetail(result, "E", "ATTENDANCE_INVALID")
 			return
 		end
 
-		for i = 1, #attendance do
+		local keys = orderedKeys(attendance)
+		for keyIndex = 1, #keys do
+			local i = keys[keyIndex]
+			validateSequenceKey(result, i, "ATTENDANCE_KEY_INVALID", "attendanceIndex")
 			local entry = attendance[i]
 			if type(entry) == "table" then
 				local playerNid = tonumber(entry.playerNid) or 0
@@ -200,7 +222,10 @@ do
 
 				local segments = entry.segments
 				if type(segments) == "table" then
-					for j = 1, #segments do
+					local segmentKeys = orderedKeys(segments)
+					for segmentKeyIndex = 1, #segmentKeys do
+						local j = segmentKeys[segmentKeyIndex]
+						validateSequenceKey(result, j, "ATTENDANCE_SEGMENT_KEY_INVALID", "segmentIndex")
 						local segment = segments[j]
 						if type(segment) == "table" then
 							local startTime = tonumber(segment.startTime) or 0
@@ -218,22 +243,44 @@ do
 							else
 								result.ok = result.ok + 1
 							end
+						else
+							pushDetail(result, "E", "ATTENDANCE_SEGMENT_ROW_INVALID", {
+								attendanceIndex = i,
+								segmentIndex = j,
+							})
 						end
 					end
+				elseif segments ~= nil then
+					pushDetail(result, "E", "ATTENDANCE_SEGMENTS_INVALID", { attendanceIndex = i })
 				end
+			else
+				pushDetail(result, "E", "ATTENDANCE_ROW_INVALID", { attendanceIndex = i })
 			end
 		end
 	end
 
 	local function validateLootRows(result, lootRows, bossByNid, playerByNid, hasTrashBoss)
 		local maxLootNid = 0
+		local seenLootNids = {}
+		if type(lootRows) ~= "table" then
+			pushDetail(result, "E", "LOOT_INVALID")
+			return 0
+		end
 
-		for i = 1, #lootRows do
+		local keys = orderedKeys(lootRows)
+		for keyIndex = 1, #keys do
+			local i = keys[keyIndex]
+			validateSequenceKey(result, i, "LOOT_KEY_INVALID", "lootIndex")
 			local loot = lootRows[i]
 			if type(loot) == "table" then
 				local lootNid = tonumber(loot.lootNid) or 0
 				if lootNid > maxLootNid then
 					maxLootNid = lootNid
+				end
+				if lootNid > 0 and seenLootNids[lootNid] then
+					pushDetail(result, "E", "LOOT_NID_DUPLICATE", { lootIndex = i, lootNid = lootNid })
+				elseif lootNid > 0 then
+					seenLootNids[lootNid] = true
 				end
 
 				local lootBossNid = tonumber(loot.bossNid) or 0
@@ -263,6 +310,8 @@ do
 				else
 					result.ok = result.ok + 1
 				end
+			else
+				pushDetail(result, "E", "LOOT_ROW_INVALID", { lootIndex = i })
 			end
 		end
 
@@ -292,7 +341,7 @@ do
 	function module:GetRaidRecordValidation(raid, index, currentSchemaVersion)
 		local raidNid = type(raid) == "table" and tonumber(raid.raidNid) or nil
 		local result = {
-			index = tonumber(index) or 0,
+			index = index == nil and 0 or index,
 			raidNid = raidNid,
 			ok = 0,
 			warn = 0,
@@ -307,25 +356,25 @@ do
 
 		-- Validate source keys directly (without normalization side effects).
 		validateRaidSourceKeys(result, raid)
-
-		local normalized = ensureNormalizedClone(raid)
-		if type(normalized) ~= "table" then
-			pushDetail(result, "E", "NORMALIZE_FAILED")
+		currentSchemaVersion = tonumber(currentSchemaVersion) or tonumber(Database.GetRaidSchemaVersion()) or 1
+		local sourceSchemaVersion = tonumber(raid.schemaVersion)
+		if sourceSchemaVersion and sourceSchemaVersion > currentSchemaVersion then
+			validateSchemaVersion(result, raid, currentSchemaVersion)
 			return result
 		end
 
-		validateSchemaVersion(result, normalized, currentSchemaVersion)
+		validateSchemaVersion(result, raid, currentSchemaVersion)
 
-		local players = normalized.players
-		local bosses = normalized.bossKills
-		local lootRows = normalized.loot
-		local attendance = normalized.attendance
+		local players = raid.players
+		local bosses = raid.bossKills
+		local lootRows = raid.loot
+		local attendance = raid.attendance
 
 		local maxPlayerNid, playerByNid = validatePlayers(result, players)
 		validateAttendance(result, attendance, playerByNid)
 		local maxBossNid, bossByNid, hasTrashBoss = validateBosses(result, bosses, playerByNid)
 		local maxLootNid = validateLootRows(result, lootRows, bossByNid, playerByNid, hasTrashBoss)
-		validateNidCounters(result, normalized, maxPlayerNid, maxBossNid, maxLootNid)
+		validateNidCounters(result, raid, maxPlayerNid, maxBossNid, maxLootNid)
 
 		return result
 	end
@@ -345,9 +394,8 @@ do
 		end
 
 		local raids = Database.GetRaidStore():GetRawRaids()
-		raids = (type(raids) == "table") and raids or {}
 		local report = {
-			raids = #raids,
+			raids = 0,
 			ok = 0,
 			warn = 0,
 			err = 0,
@@ -355,9 +403,18 @@ do
 			details = {},
 			truncatedCount = 0,
 		}
+		if type(raids) ~= "table" then
+			report.err = 1
+			report.details[1] = { level = "E", code = "RAIDS_INVALID", data = {}, index = 0 }
+			return report
+		end
 
-		for i = 1, #raids do
+		local raidKeys = orderedKeys(raids)
+		report.raids = #raidKeys
+		for keyIndex = 1, #raidKeys do
+			local i = raidKeys[keyIndex]
 			local raidResult = self:GetRaidRecordValidation(raids[i], i, currentSchemaVersion)
+			validateSequenceKey(raidResult, i, "RAID_KEY_INVALID", "index")
 			report.ok = report.ok + (raidResult.ok or 0)
 			report.warn = report.warn + (raidResult.warn or 0)
 			report.err = report.err + (raidResult.err or 0)
