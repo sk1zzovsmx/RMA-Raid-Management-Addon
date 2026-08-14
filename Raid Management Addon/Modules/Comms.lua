@@ -6,16 +6,17 @@
 
 local addonName = ...
 local addon = select(2, ...)
+local Diag = addon.Diag
 local type, tostring, tonumber = type, tostring, tonumber
 local pcall = pcall
 local select = select
 local strmatch = string.match
 local _G = _G
-local GetAddOnMetadata = assert(_G.GetAddOnMetadata, "Comms addon metadata API is not initialized")
-local UnitName = assert(_G.UnitName, "Comms unit name API is not initialized")
-local IsInInstance = assert(_G.IsInInstance, "Comms instance state API is not initialized")
-local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "Comms raid member count API is not initialized")
-local GetNumPartyMembers = assert(_G.GetNumPartyMembers, "Comms party member count API is not initialized")
+local GetAddOnMetadata = assert(_G.GetAddOnMetadata, Diag.A.CommsAddonMetadataApiNotInitialized)
+local UnitName = assert(_G.UnitName, Diag.A.CommsUnitNameApiNotInitialized)
+local IsInInstance = assert(_G.IsInInstance, Diag.A.CommsInstanceStateApiNotInitialized)
+local GetNumRaidMembers = assert(_G.GetNumRaidMembers, Diag.A.CommsRaidMemberCountApiNotInitialized)
+local GetNumPartyMembers = assert(_G.GetNumPartyMembers, Diag.A.CommsPartyMemberCountApiNotInitialized)
 local GetChannelList = _G.GetChannelList
 local IsInGuild = _G.IsInGuild
 local GetGuildInfo = _G.GetGuildInfo
@@ -28,10 +29,10 @@ local Payload = Comms.Payload
 local L = addon.L
 local Database = addon.Database
 local Strings = addon.Strings
-local NormalizeName = assert(Strings.NormalizeName, "Comms sender name normalizer is not initialized")
-local LibSerialize = assert(LibStub("LibSerialize"), "LibSerialize is not initialized")
-local LibDeflate = assert(LibStub("LibDeflate"), "LibDeflate is not initialized")
-local ChatThrottleLib = assert(_G.ChatThrottleLib, "ChatThrottleLib is not initialized")
+local NormalizeName = assert(Strings.NormalizeName, Diag.A.CommsSenderNameNormalizerNotInitialized)
+local LibSerialize = assert(LibStub("LibSerialize"), Diag.A.LibSerializeNotInitialized)
+local LibDeflate = assert(LibStub("LibDeflate"), Diag.A.LibDeflateNotInitialized)
+local ChatThrottleLib = assert(_G.ChatThrottleLib, Diag.A.ChatThrottleLibNotInitialized)
 local WIRE_VERSION = 5
 local VALID_PRIORITIES = { ALERT = true, NORMAL = true, BULK = true }
 local VALID_ADDON_DESTINATIONS = {
@@ -52,7 +53,7 @@ local MSG_VERSION_ACK = "ACK"
 -- ----- Private helpers ----- --
 
 local function getUnknownText()
-	return tostring((L and L.StrUnknown) or "unknown")
+	return tostring(L.StrUnknown)
 end
 
 function Payload.Serialize(value)

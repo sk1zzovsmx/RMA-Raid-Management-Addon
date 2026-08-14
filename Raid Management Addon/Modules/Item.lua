@@ -6,6 +6,7 @@
 -- notes: consolidated item helpers + tooltip-based item metadata probing
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Timer = addon.Timer
 local Deformat = addon.Deformat
 local Strings = addon.Strings
@@ -20,8 +21,8 @@ local _G = _G
 local type, tostring = type, tostring
 local tonumber = tonumber
 local pcall = pcall
-local GetTime = assert(_G.GetTime, "Item cache time API is not initialized")
-local GetItemInfo = assert(_G.GetItemInfo, "Item cache item info API is not initialized")
+local GetTime = assert(_G.GetTime, Diag.A.ItemCacheTimeApiNotInitialized)
+local GetItemInfo = assert(_G.GetItemInfo, Diag.A.ItemCacheItemInfoApiNotInitialized)
 
 local ITEM_LINK_FORMAT = "|c%s|Hitem:%d:%s|h[%s]|h|r"
 local TOOLTIP_NAME = "RMA_ItemTooltip"

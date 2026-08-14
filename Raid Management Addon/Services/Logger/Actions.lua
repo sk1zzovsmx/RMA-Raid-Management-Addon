@@ -15,13 +15,13 @@ local Timer = addon.Timer
 local Time = addon.Time
 local Bus = addon.Bus
 local Events = addon.Events
-local GetCurrentTime = assert(Time and Time.GetCurrentTime, "Logger actions time provider is not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "Logger actions event publisher is not initialized")
-local InternalEvents = assert(Events.Internal, "Logger actions internal events are not initialized")
+local GetCurrentTime = assert(Time and Time.GetCurrentTime, Diag.A.LoggerActionsTimeProviderNotInitialized)
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.LoggerActionsEventPublisherNotInitialized)
+local InternalEvents = assert(Events.Internal, Diag.A.LoggerActionsInternalEventsNotInitialized)
 local LoggerLootChangedEvent =
-	assert(InternalEvents.LoggerLootChanged, "Logger actions loot-changed event is not initialized")
+	assert(InternalEvents.LoggerLootChanged, Diag.A.LoggerActionsLootChangedEventNotInitialized)
 local LoggerDataChangedEvent =
-	assert(InternalEvents.LoggerDataChanged, "Logger actions data-changed event is not initialized")
+	assert(InternalEvents.LoggerDataChanged, Diag.A.LoggerActionsDataChangedEventNotInitialized)
 
 local function notifyLoggerDataChanged(reason, result)
 	TriggerEvent(LoggerDataChangedEvent, {

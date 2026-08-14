@@ -245,94 +245,94 @@ end
 function TradeExecution.CreateController(opts)
 	opts = opts or {}
 
-	local wow = assert(opts.wow, "Master trade execution WoW API table is not initialized")
+	local wow = assert(opts.wow, Diag.A.MasterTradeExecutionWoWApiTableNotInitialized)
 	local controller = {
-		lootBans = assert(opts.lootBans, "Master trade execution Loot Bans owner is not initialized"),
-		trade = assert(opts.trade, "Master trade execution trade owner is not initialized"),
-		inventory = assert(opts.inventory, "Master trade execution inventory owner is not initialized"),
-		awardPlanner = assert(opts.awardPlanner, "Master trade execution award planner is not initialized"),
-		rollSelection = assert(opts.rollSelection, "Master trade execution roll selection owner is not initialized"),
-		raid = assert(opts.raid, "Master trade execution raid service is not initialized"),
-		loot = assert(opts.loot, "Master trade execution loot service is not initialized"),
-		distribution = assert(opts.distribution, "Master trade execution distribution owner is not initialized"),
-		rolls = assert(opts.rolls, "Master trade execution rolls service is not initialized"),
-		comms = assert(opts.comms, "Master trade execution comms service is not initialized"),
-		database = assert(opts.database, "Master trade execution database helpers are not initialized"),
-		item = assert(opts.item, "Master trade execution item helpers are not initialized"),
-		lootState = assert(opts.lootState, "Master trade execution loot state is not initialized"),
-		itemInfo = assert(opts.itemInfo, "Master trade execution item state is not initialized"),
+		lootBans = assert(opts.lootBans, Diag.A.MasterTradeExecutionLootBansOwnerNotInitialized),
+		trade = assert(opts.trade, Diag.A.MasterTradeExecutionTradeOwnerNotInitialized),
+		inventory = assert(opts.inventory, Diag.A.MasterTradeExecutionInventoryOwnerNotInitialized),
+		awardPlanner = assert(opts.awardPlanner, Diag.A.MasterTradeExecutionAwardPlannerNotInitialized),
+		rollSelection = assert(opts.rollSelection, Diag.A.MasterTradeExecutionRollSelectionOwnerNotInitialized),
+		raid = assert(opts.raid, Diag.A.MasterTradeExecutionRaidServiceNotInitialized),
+		loot = assert(opts.loot, Diag.A.MasterTradeExecutionLootServiceNotInitialized),
+		distribution = assert(opts.distribution, Diag.A.MasterTradeExecutionDistributionOwnerNotInitialized),
+		rolls = assert(opts.rolls, Diag.A.MasterTradeExecutionRollsServiceNotInitialized),
+		comms = assert(opts.comms, Diag.A.MasterTradeExecutionCommsServiceNotInitialized),
+		database = assert(opts.database, Diag.A.MasterTradeExecutionDatabaseHelpersNotInitialized),
+		item = assert(opts.item, Diag.A.MasterTradeExecutionItemHelpersNotInitialized),
+		lootState = assert(opts.lootState, Diag.A.MasterTradeExecutionLootStateNotInitialized),
+		itemInfo = assert(opts.itemInfo, Diag.A.MasterTradeExecutionItemStateNotInitialized),
 		wow = {
-			ClearCursor = assert(wow.ClearCursor, "Master trade execution clear-cursor API is not initialized"),
-			CursorHasItem = assert(wow.CursorHasItem, "Master trade execution cursor-item API is not initialized"),
+			ClearCursor = assert(wow.ClearCursor, Diag.A.MasterTradeExecutionClearCursorApiNotInitialized),
+			CursorHasItem = assert(wow.CursorHasItem, Diag.A.MasterTradeExecutionCursorItemApiNotInitialized),
 			GetContainerItemInfo = assert(
 				wow.GetContainerItemInfo,
-				"Master trade execution container-item-info API is not initialized"
+				Diag.A.MasterTradeExecutionContainerItemInfoApiNotInitialized
 			),
 			GetContainerItemLink = assert(
 				wow.GetContainerItemLink,
-				"Master trade execution container-item-link API is not initialized"
+				Diag.A.MasterTradeExecutionContainerItemLinkApiNotInitialized
 			),
-			InitiateTrade = assert(wow.InitiateTrade, "Master trade execution initiate-trade API is not initialized"),
+			InitiateTrade = assert(wow.InitiateTrade, Diag.A.MasterTradeExecutionInitiateTradeApiNotInitialized),
 			PickupContainerItem = assert(
 				wow.PickupContainerItem,
-				"Master trade execution pickup-container-item API is not initialized"
+				Diag.A.MasterTradeExecutionPickupContainerItemApiNotInitialized
 			),
-			SetRaidTarget = assert(wow.SetRaidTarget, "Master trade execution raid-target API is not initialized"),
+			SetRaidTarget = assert(wow.SetRaidTarget, Diag.A.MasterTradeExecutionRaidTargetApiNotInitialized),
 			CheckInteractDistance = assert(
 				wow.CheckInteractDistance,
-				"Master trade execution interact-distance API is not initialized"
+				Diag.A.MasterTradeExecutionInteractDistanceApiNotInitialized
 			),
 		},
-		getOption = assert(opts.getOption, "Master trade execution option getter is not initialized"),
+		getOption = assert(opts.getOption, Diag.A.MasterTradeExecutionOptionGetterNotInitialized),
 		buildRollSelectionModel = assert(
 			opts.buildRollSelectionModel,
-			"Master trade execution roll-model builder is not initialized"
+			Diag.A.MasterTradeExecutionRollModelBuilderNotInitialized
 		),
 		buildLootRollSessionOptions = assert(
 			opts.buildLootRollSessionOptions,
-			"Master trade execution roll-session options builder is not initialized"
+			Diag.A.MasterTradeExecutionRollSessionOptionsBuilderNotInitialized
 		),
-		resetTradeState = assert(opts.resetTradeState, "Master trade execution trade-state reset is not initialized"),
+		resetTradeState = assert(opts.resetTradeState, Diag.A.MasterTradeExecutionTradeStateResetNotInitialized),
 		hideTradeDropdowns = assert(
 			opts.hideTradeDropdowns,
-			"Master trade execution trade-menu hider is not initialized"
+			Diag.A.MasterTradeExecutionTradeMenuHiderNotInitialized
 		),
 		clearLootAndResetRecordedRolls = assert(
 			opts.clearLootAndResetRecordedRolls,
-			"Master trade execution loot-reset helper is not initialized"
+			Diag.A.MasterTradeExecutionLootResetHelperNotInitialized
 		),
 		ensureTradeLootContext = assert(
 			opts.ensureTradeLootContext,
-			"Master trade execution loot-context resolver is not initialized"
+			Diag.A.MasterTradeExecutionLootContextResolverNotInitialized
 		),
 		requestLoggerLootLog = assert(
 			opts.requestLoggerLootLog,
-			"Master trade execution logger request helper is not initialized"
+			Diag.A.MasterTradeExecutionLoggerRequestHelperNotInitialized
 		),
 		registerAwardedItem = assert(
 			opts.registerAwardedItem,
-			"Master trade execution awarded-item recorder is not initialized"
+			Diag.A.MasterTradeExecutionAwardedItemRecorderNotInitialized
 		),
-		requestRefresh = assert(opts.requestRefresh, "Master trade execution refresh hook is not initialized"),
-		announce = assert(opts.announce, "Master trade execution announcer is not initialized"),
-		isAnnounced = assert(opts.isAnnounced, "Master trade execution announce-state getter is not initialized"),
-		setAnnounced = assert(opts.setAnnounced, "Master trade execution announce-state setter is not initialized"),
+		requestRefresh = assert(opts.requestRefresh, Diag.A.MasterTradeExecutionRefreshHookNotInitialized),
+		announce = assert(opts.announce, Diag.A.MasterTradeExecutionAnnouncerNotInitialized),
+		isAnnounced = assert(opts.isAnnounced, Diag.A.MasterTradeExecutionAnnounceStateGetterNotInitialized),
+		setAnnounced = assert(opts.setAnnounced, Diag.A.MasterTradeExecutionAnnounceStateSetterNotInitialized),
 		isScreenshotWarn = assert(
 			opts.isScreenshotWarn,
-			"Master trade execution screenshot-warning getter is not initialized"
+			Diag.A.MasterTradeExecutionScreenshotWarningGetterNotInitialized
 		),
 		setScreenshotWarn = assert(
 			opts.setScreenshotWarn,
-			"Master trade execution screenshot-warning setter is not initialized"
+			Diag.A.MasterTradeExecutionScreenshotWarningSetterNotInitialized
 		),
 		debug = opts.debug,
 		warn = opts.warn,
-		error = assert(opts.error, "Master trade execution error reporter is not initialized"),
-		createAttempt = assert(opts.createAttempt, "Master trade award-attempt factory is not initialized"),
-		getItemKey = assert(opts.getItemKey, "Master trade item-key resolver is not initialized"),
+		error = assert(opts.error, Diag.A.MasterTradeExecutionErrorReporterNotInitialized),
+		createAttempt = assert(opts.createAttempt, Diag.A.MasterTradeAwardAttemptFactoryNotInitialized),
+		getItemKey = assert(opts.getItemKey, Diag.A.MasterTradeItemKeyResolverNotInitialized),
 		canCommitRaidHistory = assert(
 			opts.canCommitRaidHistory,
-			"Master trade raid-history authority resolver is not initialized"
+			Diag.A.MasterTradeRaidHistoryAuthorityResolverNotInitialized
 		),
 	}
 	local pendingAcceptedTrade

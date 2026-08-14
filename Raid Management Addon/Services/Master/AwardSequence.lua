@@ -5,17 +5,17 @@
 -- events: none
 -- notes: owns Master loot award orchestration, including single and multi-copy awards
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Master = addon.Services.EnsureNamespace("Master")
 local Services = addon.Services
 
 local AwardSequence = Master.AwardSequence or {}
 Master.AwardSequence = AwardSequence
 
-local Loot = assert(Services.Loot, "Master award loot service is not initialized")
-local Raid = assert(Services.Raid, "Master award raid service is not initialized")
-local LootBans = assert(Raid.LootBans, "Master award loot bans owner is not initialized")
+local Loot = assert(Services.Loot, Diag.A.MasterAwardLootServiceNotInitialized)
+local Raid = assert(Services.Raid, Diag.A.MasterAwardRaidServiceNotInitialized)
+local LootBans = assert(Raid.LootBans, Diag.A.MasterAwardLootBansOwnerNotInitialized)
 local L = addon.L
-local Diag = addon.Diag
 
 local tonumber = tonumber
 local tostring = tostring
@@ -190,29 +190,29 @@ end
 function AwardSequence.CreateController(opts)
 	opts = opts or {}
 	local controller = {
-		awardPlanner = assert(opts.awardPlanner, "Master award planner is not initialized"),
-		inventory = assert(opts.inventory, "Master award inventory owner is not initialized"),
-		lootState = assert(opts.lootState, "Master award loot state is not initialized"),
-		rollSelection = assert(opts.rollSelection, "Master award roll selection owner is not initialized"),
-		scheduleTimer = assert(opts.scheduleTimer, "Master award timer scheduler is not initialized"),
-		cancelTimer = assert(opts.cancelTimer, "Master award timer canceller is not initialized"),
+		awardPlanner = assert(opts.awardPlanner, Diag.A.MasterAwardPlannerNotInitialized),
+		inventory = assert(opts.inventory, Diag.A.MasterAwardInventoryOwnerNotInitialized),
+		lootState = assert(opts.lootState, Diag.A.MasterAwardLootStateNotInitialized),
+		rollSelection = assert(opts.rollSelection, Diag.A.MasterAwardRollSelectionOwnerNotInitialized),
+		scheduleTimer = assert(opts.scheduleTimer, Diag.A.MasterAwardTimerSchedulerNotInitialized),
+		cancelTimer = assert(opts.cancelTimer, Diag.A.MasterAwardTimerCancellerNotInitialized),
 		announce = opts.announce,
 		debug = opts.debug,
 		warn = opts.warn,
-		registerAwardedItem = assert(opts.registerAwardedItem, "Master award awarded-item recorder is not initialized"),
+		registerAwardedItem = assert(opts.registerAwardedItem, Diag.A.MasterAwardAwardedItemRecorderNotInitialized),
 		beginAwardSequence = opts.beginAwardSequence or function() return true end,
 		refresh = opts.refresh,
-		awardExecutor = assert(opts.awardExecutor, "Master award executor is not initialized"),
-		itemCount = assert(opts.itemCount, "Master award item-count owner is not initialized"),
+		awardExecutor = assert(opts.awardExecutor, Diag.A.MasterAwardExecutorNotInitialized),
+		itemCount = assert(opts.itemCount, Diag.A.MasterAwardItemCountOwnerNotInitialized),
 		getAnnounceOnWin = opts.getAnnounceOnWin,
 		multiAwardTimeoutSeconds = opts.multiAwardTimeoutSeconds,
 		multiAwardDelaySeconds = opts.multiAwardDelaySeconds,
-		createAttempt = assert(opts.createAttempt, "Master award attempt factory is not initialized"),
+		createAttempt = assert(opts.createAttempt, Diag.A.MasterAwardAttemptFactoryNotInitialized),
 		admitAward = opts.admitAward or function() return true end,
 		hasInFlight = opts.hasInFlight or function() return false end,
-		getRollSessionId = assert(opts.getRollSessionId, "Master award roll-session resolver is not initialized"),
-		getItemKey = assert(opts.getItemKey, "Master award item-key resolver is not initialized"),
-		getRaidNid = assert(opts.getRaidNid, "Master award raid resolver is not initialized"),
+		getRollSessionId = assert(opts.getRollSessionId, Diag.A.MasterAwardRollSessionResolverNotInitialized),
+		getItemKey = assert(opts.getItemKey, Diag.A.MasterAwardItemKeyResolverNotInitialized),
+		getRaidNid = assert(opts.getRaidNid, Diag.A.MasterAwardRaidResolverNotInitialized),
 		lootBans = LootBans,
 	}
 

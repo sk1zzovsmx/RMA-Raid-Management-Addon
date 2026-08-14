@@ -6,18 +6,19 @@
 -- notes: Inventory and awarded-count helpers for loot trade flows
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Services = addon.Services
 -- ----- Internal state ----- --
 
 local _G = _G
-local GetNumLootItems = assert(_G.GetNumLootItems, "Loot inventory loot count API is not initialized")
-local GetLootSlotLink = assert(_G.GetLootSlotLink, "Loot inventory loot slot link API is not initialized")
+local GetNumLootItems = assert(_G.GetNumLootItems, Diag.A.LootInventoryLootCountApiNotInitialized)
+local GetLootSlotLink = assert(_G.GetLootSlotLink, Diag.A.LootInventoryLootSlotLinkApiNotInitialized)
 local GetContainerNumSlots =
-	assert(_G.GetContainerNumSlots, "Loot inventory container slot count API is not initialized")
+	assert(_G.GetContainerNumSlots, Diag.A.LootInventoryContainerSlotCountApiNotInitialized)
 local GetContainerItemLink =
-	assert(_G.GetContainerItemLink, "Loot inventory container item link API is not initialized")
+	assert(_G.GetContainerItemLink, Diag.A.LootInventoryContainerItemLinkApiNotInitialized)
 local GetContainerItemInfo =
-	assert(_G.GetContainerItemInfo, "Loot inventory container item info API is not initialized")
+	assert(_G.GetContainerItemInfo, Diag.A.LootInventoryContainerItemInfoApiNotInitialized)
 
 local Item = addon.Item
 

@@ -4,6 +4,7 @@
 -- exports: addon.Services.Logger.Export
 -- events: none
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Database = addon.Database
 local Services = addon.Services
 local Strings = addon.Strings
@@ -15,13 +16,13 @@ local concat = table.concat
 addon.Services.EnsureNamespace("Logger", "Export")
 local Logger = Services.Logger
 local Export = Logger.Export
-local RaidProjections = assert(Services.Raid.Projections, "Logger export raid projections are not initialized")
+local RaidProjections = assert(Services.Raid.Projections, Diag.A.LoggerExportRaidProjectionsNotInitialized)
 local FormatTimestamp = RaidProjections.FormatTimestamp
-local Store = assert(Logger.Store, "Logger export store is not initialized")
-local Helpers = assert(Logger.Helpers, "Logger export helpers are not initialized")
+local Store = assert(Logger.Store, Diag.A.LoggerExportStoreNotInitialized)
+local Helpers = assert(Logger.Helpers, Diag.A.LoggerExportHelpersNotInitialized)
 local formatRollTypeForExport = Helpers.FormatRollTypeForExport
 local formatRollValueForExport = Helpers.FormatRollValueForExport
-local AppendCSVRow = assert(Strings.AppendCSVRow, "Logger CSV row encoder is not initialized")
+local AppendCSVRow = assert(Strings.AppendCSVRow, Diag.A.LoggerCsvRowEncoderNotInitialized)
 
 local HEADER_LOOT = {
 	"raidNid",

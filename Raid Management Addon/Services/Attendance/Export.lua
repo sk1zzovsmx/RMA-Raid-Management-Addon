@@ -4,6 +4,7 @@
 -- exports: addon.Services.Attendance.Export
 -- events: none
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Database = addon.Database
 local Services = addon.Services
 local Strings = addon.Strings
@@ -14,9 +15,9 @@ local tostring, tonumber, type = tostring, tonumber, type
 addon.Services.EnsureNamespace("Attendance", "Export")
 local Attendance = Services.Attendance
 local Export = Attendance.Export
-local RaidProjections = assert(Services.Raid.Projections, "Attendance export raid projections are not initialized")
+local RaidProjections = assert(Services.Raid.Projections, Diag.A.AttendanceExportRaidProjectionsNotInitialized)
 local FormatTimestamp = RaidProjections.FormatTimestamp
-local AppendCSVRow = assert(Strings.AppendCSVRow, "Attendance CSV row encoder is not initialized")
+local AppendCSVRow = assert(Strings.AppendCSVRow, Diag.A.AttendanceCsvRowEncoderNotInitialized)
 
 local HEADER_RAID_ATTENDANCE = {
 	"raidNid",

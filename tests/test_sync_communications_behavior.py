@@ -186,7 +186,10 @@ class SyncCommunicationsBehaviorTests(unittest.TestCase):
         self.assertLess(store_at, capability_at)
         self.assertLess(capability_at, syncer_at)
         source = DB_SYNCER.read_text(encoding="utf-8")
-        self.assertIn('local Raid = assert(Services.Raid, "Raid service dependency is not initialized")', source)
+        self.assertIn(
+            "local Raid = assert(Services.Raid, Diag.A.RaidServiceDependencyNotInitialized)",
+            source,
+        )
         self.assertIn("Raid:GetRaidLeaderName()", source)
         self.assertIn("RaidStore:SetAuthorityGuard", source)
         self.assertIn("Raid:IsRaidLeader() == true", source)

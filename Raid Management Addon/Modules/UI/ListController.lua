@@ -18,7 +18,7 @@ local type, pairs, tostring = type, pairs, tostring
 local floor = math.floor
 local twipe = table.wipe
 
-local CreateFrame = assert(_G.CreateFrame, "List controller frame creation API is not initialized")
+local CreateFrame = assert(_G.CreateFrame, Diag.A.ListControllerFrameCreationApiNotInitialized)
 
 local Lists = UI.Lists or {}
 UI.Lists = Lists

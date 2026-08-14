@@ -4,30 +4,31 @@
 -- exports: publish module APIs on addon.*
 -- events: owns minimap frame scripts; drag uses allowed OnUpdate exception
 local addon = select(2, ...)
+local Diag = addon.Diag
 local L = addon.L
 
 local Options = addon.Options
 local UI = addon.UI
 local Frames = UI.Frames
 local Tooltips = UI.Tooltips
-local ShowTooltipLines = assert(Tooltips.ShowLines, "Minimap tooltip presenter is not initialized")
-local HideTooltip = assert(Tooltips.Hide, "Minimap tooltip hider is not initialized")
+local ShowTooltipLines = assert(Tooltips.ShowLines, Diag.A.MinimapTooltipPresenterNotInitialized)
+local HideTooltip = assert(Tooltips.Hide, Diag.A.MinimapTooltipHiderNotInitialized)
 local Colors = addon.Colors
 local Services = addon.Services
 local Controllers = addon.Controllers
 local Widgets = addon.Widgets
-local LootCounterWidget = assert(Widgets.LootCounter, "Minimap loot counter widget is not initialized")
-local ReservesWidget = assert(Widgets.ReservesUI, "Minimap reserves widget is not initialized")
-local MasterController = assert(Controllers.Master, "Minimap master controller is not initialized")
-local LoggerController = assert(Controllers.Logger, "Minimap logger controller is not initialized")
-local AttendanceController = assert(Controllers.Attendance, "Minimap attendance controller is not initialized")
-local WarningsController = assert(Controllers.Warnings, "Minimap warnings controller is not initialized")
-local SpammerController = assert(Controllers.Spammer, "Minimap spammer controller is not initialized")
-local Raid = assert(Services.Raid, "Minimap raid service is not initialized")
-local IsPlayerInRaid = assert(Raid.IsPlayerInRaid, "Minimap raid membership resolver is not initialized")
-local CanUseCapability = assert(Raid.CanUseCapability, "Minimap raid capability resolver is not initialized")
-local CanObservePassiveLoot = assert(Raid.CanObservePassiveLoot, "Minimap passive-loot observer is not initialized")
-local ClearRaidIcons = assert(Raid.ClearRaidIcons, "Minimap raid-icon cleaner is not initialized")
+local LootCounterWidget = assert(Widgets.LootCounter, Diag.A.MinimapLootCounterWidgetNotInitialized)
+local ReservesWidget = assert(Widgets.ReservesUI, Diag.A.MinimapReservesWidgetNotInitialized)
+local MasterController = assert(Controllers.Master, Diag.A.MinimapMasterControllerNotInitialized)
+local LoggerController = assert(Controllers.Logger, Diag.A.MinimapLoggerControllerNotInitialized)
+local AttendanceController = assert(Controllers.Attendance, Diag.A.MinimapAttendanceControllerNotInitialized)
+local WarningsController = assert(Controllers.Warnings, Diag.A.MinimapWarningsControllerNotInitialized)
+local SpammerController = assert(Controllers.Spammer, Diag.A.MinimapSpammerControllerNotInitialized)
+local Raid = assert(Services.Raid, Diag.A.MinimapRaidServiceNotInitialized)
+local IsPlayerInRaid = assert(Raid.IsPlayerInRaid, Diag.A.MinimapRaidMembershipResolverNotInitialized)
+local CanUseCapability = assert(Raid.CanUseCapability, Diag.A.MinimapRaidCapabilityResolverNotInitialized)
+local CanObservePassiveLoot = assert(Raid.CanObservePassiveLoot, Diag.A.MinimapPassiveLootObserverNotInitialized)
+local ClearRaidIcons = assert(Raid.ClearRaidIcons, Diag.A.MinimapRaidIconCleanerNotInitialized)
 local R_COLOR = addon.C.R_COLOR
 
 -- =========== Minimap Button Module  =========== --
@@ -64,11 +65,11 @@ function uiState.AcquireRefs(frame)
 end
 
 local function buildMenu()
-	local quickBarController = Controllers.QuickBar
-	local hasQuickBar = quickBarController
-		and quickBarController.IsShown
-		and quickBarController.SetShown
-	local quickBarVisible = hasQuickBar and quickBarController:IsShown() or false
+	local quickBarWidget = Widgets.QuickBar
+	local hasQuickBar = quickBarWidget
+		and quickBarWidget.IsShown
+		and quickBarWidget.SetShown
+	local quickBarVisible = hasQuickBar and quickBarWidget:IsShown() or false
 	local hasRaidGroup = IsPlayerInRaid(Raid)
 	local hasLootAccess = CanUseCapability(Raid, "loot")
 	local hasRaidIconsAccess = CanUseCapability(Raid, "raid_icons")
@@ -162,9 +163,9 @@ local function buildMenu()
 			checked = quickBarVisible,
 			disabled = not hasQuickBar and 1 or nil,
 			func = function()
-				local controller = Controllers.QuickBar
-				if controller and controller.IsShown and controller.SetShown then
-					controller:SetShown(not controller:IsShown())
+				local widget = Widgets.QuickBar
+				if widget and widget.IsShown and widget.SetShown then
+					widget:SetShown(not widget:IsShown())
 				end
 			end,
 		},

@@ -5,16 +5,17 @@
 -- events: emits WarningsDataChanged after saved warning mutations
 -- notes: pure warnings saved-variable and template helpers
 local addon = select(2, ...)
+local Diag = addon.Diag
 local L = addon.L
 local SavedVariables = addon.Database.SavedVariables
 local Services = addon.Services
 local Strings = addon.Strings
 local Bus = addon.Bus
 local Events = addon.Events
-local TriggerEvent = assert(Bus.TriggerEvent, "Warnings store event publisher is not initialized")
-local InternalEvents = assert(Events.Internal, "Warnings store internal events are not initialized")
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.WarningsStoreEventPublisherNotInitialized)
+local InternalEvents = assert(Events.Internal, Diag.A.WarningsStoreInternalEventsNotInitialized)
 local WarningsDataChangedEvent =
-	assert(InternalEvents.WarningsDataChanged, "Warnings store data-changed event is not initialized")
+	assert(InternalEvents.WarningsDataChanged, Diag.A.WarningsStoreDataChangedEventNotInitialized)
 
 local function notifyWarningsDataChanged(reason)
 	local ok, err = pcall(TriggerEvent, WarningsDataChangedEvent, reason)

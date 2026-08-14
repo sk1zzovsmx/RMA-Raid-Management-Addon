@@ -6,6 +6,7 @@
 -- notes: raid-only encounter helpers/adds from LibBossIDs that should not own loot context
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local tonumber = tonumber
 local tostring = tostring
 local type = type
@@ -243,7 +244,7 @@ function IgnoredMobs.CaptureActivationState()
 end
 
 function IgnoredMobs.RestoreActivationState(snapshot)
-	assert(type(snapshot) == "table", "IgnoredMobs activation snapshot is required")
+	assert(type(snapshot) == "table", Diag.A.IgnoredMobsActivationSnapshotRequired)
 	IgnoredMobs.Ids = snapshot.ids
 	activeInstanceKey = snapshot.activeInstanceKey
 	generation = snapshot.generation

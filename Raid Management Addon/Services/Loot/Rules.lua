@@ -6,20 +6,21 @@
 -- notes: suggestion-only auto-loot classification; never awards or trades items
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local C = addon.C
-local IgnoredItems = assert(addon.IgnoredItems, "Loot rules ignored-items namespace is not initialized")
+local IgnoredItems = assert(addon.IgnoredItems, Diag.A.LootRulesIgnoredItemsNamespaceNotInitialized)
 local Item = addon.Item
 local Services = addon.Services
 
 local tonumber, tostring, type = tonumber, tostring, type
 local _G = _G
-local GetItemInfo = assert(_G.GetItemInfo, "Loot rules item info API is not initialized")
-local GetItemIdFromLink = assert(Item.GetItemIdFromLink, "Loot rules item-id resolver is not initialized")
+local GetItemInfo = assert(_G.GetItemInfo, Diag.A.LootRulesItemInfoApiNotInitialized)
+local GetItemIdFromLink = assert(Item.GetItemIdFromLink, Diag.A.LootRulesItemIdResolverNotInitialized)
 local GetItemBindFromTooltip =
-	assert(Item.GetItemBindFromTooltip, "Loot rules tooltip bind resolver is not initialized")
-local ContainsIgnoredItem = assert(IgnoredItems.Contains, "Loot rules ignored-item dataset is not initialized")
+	assert(Item.GetItemBindFromTooltip, Diag.A.LootRulesTooltipBindResolverNotInitialized)
+local ContainsIgnoredItem = assert(IgnoredItems.Contains, Diag.A.LootRulesIgnoredItemDatasetNotInitialized)
 local IsEnchantingMaterial =
-	assert(IgnoredItems.IsEnchantingMaterial, "Loot rules enchanting-material dataset is not initialized")
+	assert(IgnoredItems.IsEnchantingMaterial, Diag.A.LootRulesEnchantingMaterialDatasetNotInitialized)
 
 -- ----- Internal state ----- --
 addon.Services.EnsureNamespace("Loot")

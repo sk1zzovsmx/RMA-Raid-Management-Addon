@@ -4,12 +4,13 @@
 -- exports: group type/count and stable unit iteration
 -- events: none
 local addon = select(2, ...)
+local Diag = addon.Diag
 local _G = _G
 
 local format = string.format
-local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "RMA Group: raid count API is not initialized")
-local GetNumPartyMembers = assert(_G.GetNumPartyMembers, "RMA Group: party count API is not initialized")
-local UnitExists = assert(_G.UnitExists, "RMA Group: UnitExists API is not initialized")
+local GetNumRaidMembers = assert(_G.GetNumRaidMembers, Diag.A.RmaGroupRaidCountApiNotInitialized)
+local GetNumPartyMembers = assert(_G.GetNumPartyMembers, Diag.A.RmaGroupPartyCountApiNotInitialized)
+local UnitExists = assert(_G.UnitExists, Diag.A.RmaGroupUnitExistsApiNotInitialized)
 
 local Group = addon.Group or {}
 addon.Group = Group

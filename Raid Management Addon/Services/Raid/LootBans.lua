@@ -1,4 +1,5 @@
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Database = addon.Database
 local Services = addon.Services
 local Strings = addon.Strings
@@ -8,7 +9,7 @@ local type = type
 local byte = string.byte
 local strlen = string.len
 
-local Raid = assert(Services.Raid, "Raid service namespace is not initialized")
+local Raid = assert(Services.Raid, Diag.A.RaidServiceNamespaceNotInitialized)
 Raid.LootBans = Raid.LootBans or {}
 local LootBans = Raid.LootBans
 local NOTE_MAX_LENGTH = 240

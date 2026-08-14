@@ -11,9 +11,9 @@ local Events = addon.Events
 local Bus = addon.Bus
 local Options = addon.Options
 local Services = addon.Services
-local InternalEvents = assert(Events.Internal, "Roll history internal events are not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "Roll history event publisher is not initialized")
-local AddRollEvent = assert(InternalEvents.AddRoll, "Roll history add-roll event is not initialized")
+local InternalEvents = assert(Events.Internal, Diag.A.RollHistoryInternalEventsNotInitialized)
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.RollHistoryEventPublisherNotInitialized)
+local AddRollEvent = assert(InternalEvents.AddRoll, Diag.A.RollHistoryAddRollEventNotInitialized)
 
 local rollTypes = addon.C.rollTypes
 local twipe = table.wipe
@@ -31,9 +31,9 @@ local History = module._History
 local isDebugEnabled = Options.IsDebugEnabled
 
 local function assertContext(ctx)
-	assert(type(ctx) == "table", "Rolls history context is required")
-	assert(type(ctx.state) == "table", "Rolls history state is required")
-	assert(type(ctx.lootState) == "table", "Rolls history loot state is required")
+	assert(type(ctx) == "table", Diag.A.RollsHistoryContextRequired)
+	assert(type(ctx.state) == "table", Diag.A.RollsHistoryStateRequired)
+	assert(type(ctx.lootState) == "table", Diag.A.RollsHistoryLootStateRequired)
 	return ctx, ctx.state, ctx.lootState
 end
 

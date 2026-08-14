@@ -22,14 +22,14 @@ local module = Rolls
 module._Resolution = module._Resolution or {}
 
 local Resolution = module._Resolution
-local Strategies = assert(module._Strategies, "Rolls strategy helpers are not initialized")
+local Strategies = assert(module._Strategies, Diag.A.RollsStrategyHelpersNotInitialized)
 
 -- ----- Private helpers ----- --
 local isDebugEnabled = Options.IsDebugEnabled
 
 local function assertContext(ctx)
-	assert(type(ctx) == "table", "Rolls resolution context is required")
-	assert(type(ctx.state) == "table", "Rolls resolution state is required")
+	assert(type(ctx) == "table", Diag.A.RollsResolutionContextRequired)
+	assert(type(ctx.state) == "table", Diag.A.RollsResolutionStateRequired)
 	return ctx, ctx.state
 end
 

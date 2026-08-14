@@ -5,6 +5,7 @@
 -- events: none
 -- notes: owns Master item-selection child frame creation and inventory cursor acceptance
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Widgets = addon.Widgets
 
 local ItemSelection = Widgets.ItemSelection or {}
@@ -101,57 +102,57 @@ end
 function ItemSelection.CreateController(opts)
 	opts = opts or {}
 
-	local wow = assert(opts.wow, "Master item selection WoW API table is not initialized")
+	local wow = assert(opts.wow, Diag.A.MasterItemSelectionWoWApiTableNotInitialized)
 	local controller = {
-		state = assert(opts.state, "Master item selection state is not initialized"),
-		createFrame = assert(opts.createFrame, "Master item selection frame factory is not initialized"),
-		getFrame = assert(opts.getFrame, "Master item selection frame resolver is not initialized"),
-		getFrameName = assert(opts.getFrameName, "Master item selection frame-name resolver is not initialized"),
-		getNamedParts = assert(opts.getNamedParts, "Master item selection named-parts resolver is not initialized"),
-		setScriptSafely = assert(opts.setScriptSafely, "Master item selection script binder is not initialized"),
+		state = assert(opts.state, Diag.A.MasterItemSelectionStateNotInitialized),
+		createFrame = assert(opts.createFrame, Diag.A.MasterItemSelectionFrameFactoryNotInitialized),
+		getFrame = assert(opts.getFrame, Diag.A.MasterItemSelectionFrameResolverNotInitialized),
+		getFrameName = assert(opts.getFrameName, Diag.A.MasterItemSelectionFrameNameResolverNotInitialized),
+		getNamedParts = assert(opts.getNamedParts, Diag.A.MasterItemSelectionNamedPartsResolverNotInitialized),
+		setScriptSafely = assert(opts.setScriptSafely, Diag.A.MasterItemSelectionScriptBinderNotInitialized),
 		getSelectItemButton = assert(
 			opts.getSelectItemButton,
-			"Master item selection anchor-button resolver is not initialized"
+			Diag.A.MasterItemSelectionAnchorButtonResolverNotInitialized
 		),
 		clearItemCountInput = assert(
 			opts.clearItemCountInput,
-			"Master item selection item-count resetter is not initialized"
+			Diag.A.MasterItemSelectionItemCountResetterNotInitialized
 		),
-		getLootItem = assert(opts.getLootItem, "Master item selection loot-item resolver is not initialized"),
+		getLootItem = assert(opts.getLootItem, Diag.A.MasterItemSelectionLootItemResolverNotInitialized),
 		getLootItemName = assert(
 			opts.getLootItemName,
-			"Master item selection loot-item-name resolver is not initialized"
+			Diag.A.MasterItemSelectionLootItemNameResolverNotInitialized
 		),
 		getLootItemTexture = assert(
 			opts.getLootItemTexture,
-			"Master item selection loot-item-texture resolver is not initialized"
+			Diag.A.MasterItemSelectionLootItemTextureResolverNotInitialized
 		),
-		addLootItem = assert(opts.addLootItem, "Master item selection loot-item adder is not initialized"),
-		prepareLootItem = assert(opts.prepareLootItem, "Master item selection loot-item preparer is not initialized"),
-		inventory = assert(opts.inventory, "Master item selection inventory owner is not initialized"),
-		lootState = assert(opts.lootState, "Master item selection loot state is not initialized"),
-		itemInfo = assert(opts.itemInfo, "Master item selection item state is not initialized"),
+		addLootItem = assert(opts.addLootItem, Diag.A.MasterItemSelectionLootItemAdderNotInitialized),
+		prepareLootItem = assert(opts.prepareLootItem, Diag.A.MasterItemSelectionLootItemPreparerNotInitialized),
+		inventory = assert(opts.inventory, Diag.A.MasterItemSelectionInventoryOwnerNotInitialized),
+		lootState = assert(opts.lootState, Diag.A.MasterItemSelectionLootStateNotInitialized),
+		itemInfo = assert(opts.itemInfo, Diag.A.MasterItemSelectionItemStateNotInitialized),
 		isCountdownRunning = assert(
 			opts.isCountdownRunning,
-			"Master item selection countdown-state resolver is not initialized"
+			Diag.A.MasterItemSelectionCountdownStateResolverNotInitialized
 		),
 		onSelectLootItem = assert(
 			opts.onSelectLootItem,
-			"Master item selection row-selection callback is not initialized"
+			Diag.A.MasterItemSelectionRowSelectionCallbackNotInitialized
 		),
 		onInventoryItemApplied = assert(
 			opts.onInventoryItemApplied,
-			"Master item selection post-apply callback is not initialized"
+			Diag.A.MasterItemSelectionPostApplyCallbackNotInitialized
 		),
-		setAnnounced = assert(opts.setAnnounced, "Master item selection announce-state setter is not initialized"),
-		L = assert(opts.L, "Master item selection localized strings are not initialized"),
+		setAnnounced = assert(opts.setAnnounced, Diag.A.MasterItemSelectionAnnounceStateSetterNotInitialized),
+		L = assert(opts.L, Diag.A.MasterItemSelectionLocalizedStringsNotInitialized),
 		wow = {
-			ClearCursor = assert(wow.ClearCursor, "Master item selection clear-cursor API is not initialized"),
-			CursorHasItem = assert(wow.CursorHasItem, "Master item selection cursor-item API is not initialized"),
-			GetCursorInfo = assert(wow.GetCursorInfo, "Master item selection cursor-info API is not initialized"),
+			ClearCursor = assert(wow.ClearCursor, Diag.A.MasterItemSelectionClearCursorApiNotInitialized),
+			CursorHasItem = assert(wow.CursorHasItem, Diag.A.MasterItemSelectionCursorItemApiNotInitialized),
+			GetCursorInfo = assert(wow.GetCursorInfo, Diag.A.MasterItemSelectionCursorInfoApiNotInitialized),
 			GetContainerItemLink = assert(
 				wow.GetContainerItemLink,
-				"Master item selection container-item-link API is not initialized"
+				Diag.A.MasterItemSelectionContainerItemLinkApiNotInitialized
 			),
 		},
 		debug = opts.debug,

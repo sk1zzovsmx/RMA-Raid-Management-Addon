@@ -24,13 +24,13 @@ local Services = addon.Services
 
 local itemColors = addon.C.itemColors
 
-local InternalEvents = assert(Events.Internal, "Loot service internal events are not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "Loot service event publisher is not initialized")
+local InternalEvents = assert(Events.Internal, Diag.A.LootServiceInternalEventsNotInitialized)
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.LootServiceEventPublisherNotInitialized)
 local RaidLootUpdateEvent =
-	assert(InternalEvents.RaidLootUpdate, "Loot service raid-loot update event is not initialized")
-local SetItemEvent = assert(InternalEvents.SetItem, "Loot service selected-item event is not initialized")
+	assert(InternalEvents.RaidLootUpdate, Diag.A.LootServiceRaidLootUpdateEventNotInitialized)
+local SetItemEvent = assert(InternalEvents.SetItem, Diag.A.LootServiceSelectedItemEventNotInitialized)
 local DistributionChangedEvent =
-	assert(InternalEvents.LootDistributionSessionChanged, "Loot service distribution event is not initialized")
+	assert(InternalEvents.LootDistributionSessionChanged, Diag.A.LootServiceDistributionEventNotInitialized)
 
 local _, lootState, itemInfo, raidState = Database.EnsureLootRuntimeState()
 local rollTypes = addon.C.rollTypes
@@ -57,7 +57,7 @@ local strmatch, strlower = string.match, string.lower
 
 local tostring, tonumber = tostring, tonumber
 local _G = _G
-local GetLootThreshold = assert(_G.GetLootThreshold, "Loot service loot-threshold API is not initialized")
+local GetLootThreshold = assert(_G.GetLootThreshold, Diag.A.LootServiceLootThresholdApiNotInitialized)
 local PENDING_AWARD_TTL_SECONDS = tonumber(C.PENDING_AWARD_TTL_SECONDS) or 8
 local GROUP_LOOT_PENDING_AWARD_TTL_SECONDS = tonumber(C.GROUP_LOOT_PENDING_AWARD_TTL_SECONDS) or 60
 local BOSS_EVENT_CONTEXT_TTL_SECONDS = tonumber(C.BOSS_EVENT_CONTEXT_TTL_SECONDS) or 30
@@ -75,23 +75,23 @@ do
 	-- Timer ownership: cache-warm scheduling for loot items.
 	Timer.BindMixin(module, "Loot")
 
-	local LootAttribution = assert(module.LootAttribution, "Loot attribution owner is not initialized")
-	local PassiveGroupLoot = assert(module._PassiveGroupLoot, "Loot passive group-loot helpers are not initialized")
-	local Tracking = assert(module._Tracking, "Loot tracking helpers are not initialized")
-	local Workflow = assert(module._Workflow, "Loot workflow helpers are not initialized")
-	local Recording = assert(module._Recording, "Loot recording helpers are not initialized")
-	local Rules = assert(module._Rules, "Loot rules helpers are not initialized")
-	local AwardPlanner = assert(module.AwardPlanner, "Loot award planner owner is not initialized")
-	local Inventory = assert(module.Inventory, "Loot inventory owner is not initialized")
-	local DistributionSession = assert(module.DistributionSession, "Loot distribution session owner is not initialized")
-	local ContextHelpers = assert(module._Context, "Loot context helpers are not initialized")
-	local resolveRaidRecord = assert(ContextHelpers.ResolveRaidRecord, "Missing LootContext.ResolveRaidRecord")
+	local LootAttribution = assert(module.LootAttribution, Diag.A.LootAttributionOwnerNotInitialized)
+	local PassiveGroupLoot = assert(module._PassiveGroupLoot, Diag.A.LootPassiveGroupLootHelpersNotInitialized)
+	local Tracking = assert(module._Tracking, Diag.A.LootTrackingHelpersNotInitialized)
+	local Workflow = assert(module._Workflow, Diag.A.LootWorkflowHelpersNotInitialized)
+	local Recording = assert(module._Recording, Diag.A.LootRecordingHelpersNotInitialized)
+	local Rules = assert(module._Rules, Diag.A.LootRulesHelpersNotInitialized)
+	local AwardPlanner = assert(module.AwardPlanner, Diag.A.LootAwardPlannerOwnerNotInitialized)
+	local Inventory = assert(module.Inventory, Diag.A.LootInventoryOwnerNotInitialized)
+	local DistributionSession = assert(module.DistributionSession, Diag.A.LootDistributionSessionOwnerNotInitialized)
+	local ContextHelpers = assert(module._Context, Diag.A.LootContextHelpersNotInitialized)
+	local resolveRaidRecord = assert(ContextHelpers.ResolveRaidRecord, Diag.A.MissingLootContextResolveRaidRecord)
 
 	local function resolveStoredLootLooterName(raid, loot)
 		local queries = Database.GetRaidQueries()
 		return queries:ResolveLootLooterName(raid, loot)
 	end
-	local isIgnoredItem = assert(Rules._IsIgnoredItem, "Missing LootRules._IsIgnoredItem")
+	local isIgnoredItem = assert(Rules._IsIgnoredItem, Diag.A.MissingLootRulesIsIgnoredItem)
 
 	-- ----- Internal state ----- --
 	local lootTable = {}
@@ -679,7 +679,7 @@ do
 
 	local normalizeLoggerLootQualityThreshold = assert(
 		Options.NormalizeLoggerLootQualityThreshold,
-		"Loot logger quality threshold normalizer is not initialized"
+		Diag.A.LootLoggerQualityThresholdNormalizerNotInitialized
 	)
 
 	local function getRaidLootThreshold()

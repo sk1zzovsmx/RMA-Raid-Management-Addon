@@ -11,29 +11,29 @@ local Controllers = addon.Controllers
 local coreState = addon.State
 local UI = addon.UI
 local Rows = UI.Rows
-local Popups = assert(UI.Popups, "Logger popup namespace is not initialized")
-local DefinePopup = assert(Popups.Define, "Logger popup definer is not initialized")
-local IsPopupDefined = assert(Popups.IsDefined, "Logger popup defined-state checker is not initialized")
-local ShowPopup = assert(Popups.Show, "Logger popup shower is not initialized")
-local HidePopup = assert(Popups.Hide, "Logger popup hider is not initialized")
-local ResizePopup = assert(Popups.Resize, "Logger popup resizer is not initialized")
-local ShowConfirmPopup = assert(Popups.ShowConfirm, "Logger confirm popup shower is not initialized")
-local ShowEditBoxPopup = assert(Popups.ShowEditBox, "Logger edit-box popup shower is not initialized")
+local Popups = assert(UI.Popups, Diag.A.LoggerPopupNamespaceNotInitialized)
+local DefinePopup = assert(Popups.Define, Diag.A.LoggerPopupDefinerNotInitialized)
+local IsPopupDefined = assert(Popups.IsDefined, Diag.A.LoggerPopupDefinedStateCheckerNotInitialized)
+local ShowPopup = assert(Popups.Show, Diag.A.LoggerPopupShowerNotInitialized)
+local HidePopup = assert(Popups.Hide, Diag.A.LoggerPopupHiderNotInitialized)
+local ResizePopup = assert(Popups.Resize, Diag.A.LoggerPopupResizerNotInitialized)
+local ShowConfirmPopup = assert(Popups.ShowConfirm, Diag.A.LoggerConfirmPopupShowerNotInitialized)
+local ShowEditBoxPopup = assert(Popups.ShowEditBox, Diag.A.LoggerEditBoxPopupShowerNotInitialized)
 local Tooltips = UI.Tooltips
-local ShowItemTooltip = assert(Tooltips.ShowItem, "Logger item tooltip renderer is not initialized")
-local ShowTooltipLines = assert(Tooltips.ShowLines, "Logger tooltip line renderer is not initialized")
-local HideTooltip = assert(Tooltips.Hide, "Logger tooltip hide service is not initialized")
-local BindTooltip = assert(Tooltips.Bind, "Logger tooltip binder is not initialized")
-local BindTooltipModel = assert(Tooltips.BindModel, "Logger source tooltip model binder is not initialized")
+local ShowItemTooltip = assert(Tooltips.ShowItem, Diag.A.LoggerItemTooltipRendererNotInitialized)
+local ShowTooltipLines = assert(Tooltips.ShowLines, Diag.A.LoggerTooltipLineRendererNotInitialized)
+local HideTooltip = assert(Tooltips.Hide, Diag.A.LoggerTooltipHideServiceNotInitialized)
+local BindTooltip = assert(Tooltips.Bind, Diag.A.LoggerTooltipBinderNotInitialized)
+local BindTooltipModel = assert(Tooltips.BindModel, Diag.A.LoggerSourceTooltipModelBinderNotInitialized)
 local Events = addon.Events
 local Frames = UI.Frames
-local GetFrameRef = assert(Frames.GetRef, "Logger frame ref resolver is not initialized")
-local SetScriptSafely = assert(Frames.SetScriptSafely, "Logger frame script binder is not initialized")
-local SetFrameTitle = assert(Frames.SetFrameTitle, "Logger frame title binder is not initialized")
-local BindModuleFrame = assert(Frames.BindModuleFrame, "Logger module frame binder is not initialized")
+local GetFrameRef = assert(Frames.GetRef, Diag.A.LoggerFrameRefResolverNotInitialized)
+local SetScriptSafely = assert(Frames.SetScriptSafely, Diag.A.LoggerFrameScriptBinderNotInitialized)
+local SetFrameTitle = assert(Frames.SetFrameTitle, Diag.A.LoggerFrameTitleBinderNotInitialized)
+local BindModuleFrame = assert(Frames.BindModuleFrame, Diag.A.LoggerModuleFrameBinderNotInitialized)
 local MakeModuleFrameGetter =
-	assert(Frames.MakeModuleFrameGetter, "Logger module frame getter factory is not initialized")
-local MakeFrameGetter = assert(Frames.MakeFrameGetter, "Logger frame getter factory is not initialized")
+	assert(Frames.MakeModuleFrameGetter, Diag.A.LoggerModuleFrameGetterFactoryNotInitialized)
+local MakeFrameGetter = assert(Frames.MakeFrameGetter, Diag.A.LoggerFrameGetterFactoryNotInitialized)
 local C = addon.C
 local Database = addon.Database
 local Options = addon.Options
@@ -45,16 +45,16 @@ local Timer = addon.Timer
 local Sort = addon.Sort
 local IgnoredMobs = addon.IgnoredMobs
 local Services = addon.Services
-local LoggerSvc = assert(Services.Logger, "Logger service namespace is not initialized")
-local LoggerStore = assert(LoggerSvc.Store, "Logger store service is not initialized")
-local LoggerView = assert(LoggerSvc.View, "Logger view service is not initialized")
-local LoggerExport = assert(LoggerSvc.Export, "Logger export service is not initialized")
-local LoggerActions = assert(LoggerSvc.Actions, "Logger actions service is not initialized")
-local LoggerHelpers = assert(LoggerSvc.Helpers, "Logger helper service is not initialized")
-local CalculateColumnWidths = assert(UI.Lists.CalculateColumnWidths, "Logger column layout owner is not initialized")
-local ExportDialog = assert(UI.ExportDialog, "Logger export dialog owner is not initialized")
-local Raid = assert(Services.Raid, "Logger raid service is not initialized")
-local RaidProjections = assert(Raid.Projections, "Logger raid projections service is not initialized")
+local LoggerSvc = assert(Services.Logger, Diag.A.LoggerServiceNamespaceNotInitialized)
+local LoggerStore = assert(LoggerSvc.Store, Diag.A.LoggerStoreServiceNotInitialized)
+local LoggerView = assert(LoggerSvc.View, Diag.A.LoggerViewServiceNotInitialized)
+local LoggerExport = assert(LoggerSvc.Export, Diag.A.LoggerExportServiceNotInitialized)
+local LoggerActions = assert(LoggerSvc.Actions, Diag.A.LoggerActionsServiceNotInitialized)
+local LoggerHelpers = assert(LoggerSvc.Helpers, Diag.A.LoggerHelperServiceNotInitialized)
+local CalculateColumnWidths = assert(UI.Lists.CalculateColumnWidths, Diag.A.LoggerColumnLayoutOwnerNotInitialized)
+local ExportDialog = assert(UI.ExportDialog, Diag.A.LoggerExportDialogOwnerNotInitialized)
+local Raid = assert(Services.Raid, Diag.A.LoggerRaidServiceNotInitialized)
+local RaidProjections = assert(Raid.Projections, Diag.A.LoggerRaidProjectionsServiceNotInitialized)
 
 local NormalizeName = Strings.NormalizeName
 local NormalizeLower = Strings.NormalizeLower
@@ -83,62 +83,62 @@ local function compareLootTie(a, b, asc)
 	return CompareNumbers(a and a.id, b and b.id, asc, 0)
 end
 
-local InternalEvents = assert(Events.Internal, "Logger controller internal events are not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "Logger controller event publisher is not initialized")
-local RegisterCallback = assert(Bus.RegisterCallback, "Logger controller event listener is not initialized")
+local InternalEvents = assert(Events.Internal, Diag.A.LoggerControllerInternalEventsNotInitialized)
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.LoggerControllerEventPublisherNotInitialized)
+local RegisterCallback = assert(Bus.RegisterCallback, Diag.A.LoggerControllerEventListenerNotInitialized)
 local LoggerEvents = {
-	RaidCreate = assert(InternalEvents.RaidCreate, "Logger controller raid-create event is not initialized"),
+	RaidCreate = assert(InternalEvents.RaidCreate, Diag.A.LoggerControllerRaidCreateEventNotInitialized),
 	LoggerSelectRaid = assert(
 		InternalEvents.LoggerSelectRaid,
-		"Logger controller raid selection event is not initialized"
+		Diag.A.LoggerControllerRaidSelectionEventNotInitialized
 	),
 	LoggerSelectBoss = assert(
 		InternalEvents.LoggerSelectBoss,
-		"Logger controller boss selection event is not initialized"
+		Diag.A.LoggerControllerBossSelectionEventNotInitialized
 	),
 	LoggerSelectPlayer = assert(
 		InternalEvents.LoggerSelectPlayer,
-		"Logger controller player selection event is not initialized"
+		Diag.A.LoggerControllerPlayerSelectionEventNotInitialized
 	),
 	LoggerSelectBossPlayer = assert(
 		InternalEvents.LoggerSelectBossPlayer,
-		"Logger controller boss-player selection event is not initialized"
+		Diag.A.LoggerControllerBossPlayerSelectionEventNotInitialized
 	),
 	LoggerClearPlayerSelections = assert(
 		InternalEvents.LoggerClearPlayerSelections,
-		"Logger controller player selection-clear event is not initialized"
+		Diag.A.LoggerControllerPlayerSelectionClearEventNotInitialized
 	),
 	LoggerSelectItem = assert(
 		InternalEvents.LoggerSelectItem,
-		"Logger controller item selection event is not initialized"
+		Diag.A.LoggerControllerItemSelectionEventNotInitialized
 	),
 	LoggerLootChanged = assert(
 		InternalEvents.LoggerLootChanged,
-		"Logger controller loot-changed event is not initialized"
+		Diag.A.LoggerControllerLootChangedEventNotInitialized
 	),
 	LoggerDataChanged = assert(
 		InternalEvents.LoggerDataChanged,
-		"Logger controller data-changed event is not initialized"
+		Diag.A.LoggerControllerDataChangedEventNotInitialized
 	),
 	RaidLootUpdate = assert(
 		InternalEvents.RaidLootUpdate,
-		"Logger controller raid loot update event is not initialized"
+		Diag.A.LoggerControllerRaidLootUpdateEventNotInitialized
 	),
 	LoggerRaidOfferReceived = assert(
 		InternalEvents.LoggerRaidOfferReceived,
-		"Logger controller raid-offer event is not initialized"
+		Diag.A.LoggerControllerRaidOfferEventNotInitialized
 	),
 	RaidRosterDelta = assert(
 		InternalEvents.RaidRosterDelta,
-		"Logger controller roster-delta event is not initialized"
+		Diag.A.LoggerControllerRosterDeltaEventNotInitialized
 	),
 	RaidReentryDecisionRequired = assert(
 		InternalEvents.RaidReentryDecisionRequired,
-		"Logger controller raid re-entry decision-required event is not initialized"
+		Diag.A.LoggerControllerRaidReEntryDecisionRequiredEventNotInitialized
 	),
 	RaidReentryDecisionResolved = assert(
 		InternalEvents.RaidReentryDecisionResolved,
-		"Logger controller raid re-entry decision-resolved event is not initialized"
+		Diag.A.LoggerControllerRaidReEntryDecisionResolvedEventNotInitialized
 	),
 }
 
@@ -430,23 +430,23 @@ local function applyLootRowColumnWidths(ui, frameName)
 	applyLoggerRowColumnWidths(ui, getLootColumnWidths(frameName), LOOT_LAYOUT_COLUMNS)
 end
 
-local GetItemIcon = assert(_G.GetItemIcon, "Logger item icon API is not initialized")
-local CreateFrame = assert(_G.CreateFrame, "Logger frame creation API is not initialized")
-local UIParent = assert(_G.UIParent, "Logger root UI parent is not initialized")
-local UnitName = assert(_G.UnitName, "Logger unit-name API is not initialized")
-local UnitIsUnit = assert(_G.UnitIsUnit, "Logger unit-identity API is not initialized")
-local Group = assert(addon.Group, "Logger group helper owner is not initialized")
+local GetItemIcon = assert(_G.GetItemIcon, Diag.A.LoggerItemIconApiNotInitialized)
+local CreateFrame = assert(_G.CreateFrame, Diag.A.LoggerFrameCreationApiNotInitialized)
+local UIParent = assert(_G.UIParent, Diag.A.LoggerRootUiParentNotInitialized)
+local UnitName = assert(_G.UnitName, Diag.A.LoggerUnitNameApiNotInitialized)
+local UnitIsUnit = assert(_G.UnitIsUnit, Diag.A.LoggerUnitIdentityApiNotInitialized)
+local Group = assert(addon.Group, Diag.A.LoggerGroupHelperOwnerNotInitialized)
 local UIDropDownMenu_Initialize =
-	assert(_G.UIDropDownMenu_Initialize, "Logger dropdown init API is not initialized")
+	assert(_G.UIDropDownMenu_Initialize, Diag.A.LoggerDropdownInitApiNotInitialized)
 local UIDropDownMenu_CreateInfo =
-	assert(_G.UIDropDownMenu_CreateInfo, "Logger dropdown info API is not initialized")
+	assert(_G.UIDropDownMenu_CreateInfo, Diag.A.LoggerDropdownInfoApiNotInitialized)
 local UIDropDownMenu_AddButton =
-	assert(_G.UIDropDownMenu_AddButton, "Logger dropdown add-button API is not initialized")
+	assert(_G.UIDropDownMenu_AddButton, Diag.A.LoggerDropdownAddButtonApiNotInitialized)
 local UIDropDownMenu_SetWidth =
-	assert(_G.UIDropDownMenu_SetWidth, "Logger dropdown width API is not initialized")
+	assert(_G.UIDropDownMenu_SetWidth, Diag.A.LoggerDropdownWidthApiNotInitialized)
 local UIDropDownMenu_SetButtonWidth =
-	assert(_G.UIDropDownMenu_SetButtonWidth, "Logger dropdown button-width API is not initialized")
-local UIDropDownMenu_SetText = assert(_G.UIDropDownMenu_SetText, "Logger dropdown text API is not initialized")
+	assert(_G.UIDropDownMenu_SetButtonWidth, Diag.A.LoggerDropdownButtonWidthApiNotInitialized)
+local UIDropDownMenu_SetText = assert(_G.UIDropDownMenu_SetText, Diag.A.LoggerDropdownTextApiNotInitialized)
 
 local function bindLoggerSortHeaders(frameName, columns, listRef, boundFlag)
 	local frame = frameName and _G[frameName] or nil
@@ -2342,9 +2342,9 @@ do
 		end
 
 		return {
-			title = L.StrLoggerSharedSource or "Shared",
+			title = L.StrLoggerSharedSource,
 			titleColor = { 1, 0.82, 0 },
-			heading = L.StrLoggerSharedSourceTooltipSources or "Possible sources:",
+			heading = L.StrLoggerSharedSourceTooltipSources,
 			headingColor = { 0.86, 0.82, 0.72 },
 			lineColor = { 1, 1, 1 },
 			lines = lines,

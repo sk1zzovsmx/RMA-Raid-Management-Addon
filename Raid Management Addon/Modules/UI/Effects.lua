@@ -5,6 +5,7 @@
 -- events: none; owns UI effect OnUpdate drivers
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local floor = math.floor
 local max = math.max
 local min = math.min
@@ -14,7 +15,7 @@ local tonumber, type = tonumber, type
 
 local UI = addon.UI or {}
 local Frames = UI.Frames
-local SetScriptSafely = assert(Frames.SetScriptSafely, "Effects frame script binder is not initialized")
+local SetScriptSafely = assert(Frames.SetScriptSafely, Diag.A.EffectsFrameScriptBinderNotInitialized)
 local Effects = UI.Effects or {}
 UI.Effects = Effects
 

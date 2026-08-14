@@ -1,322 +1,200 @@
 # Raid Management Addon
 
-Raid Management Addon (RMA) is a raid-leader toolkit for World of Warcraft
-Wrath of the Lich King 3.3.5a. It helps a raid leader manage loot rolls,
-SoftRes data, loot history, raid attendance, raid warnings, LFM messages, and
-basic raid diagnostics from one addon.
+Raid Management Addon (RMA) is an operational toolkit for World of Warcraft:
+Wrath of the Lich King 3.3.5a. It combines Master Loot, roll tracking, SoftRes,
+raid recording, attendance, warnings, LFM messages, and support tools in one
+addon. RMA assists raid staff; it never bypasses Blizzard loot permissions,
+protected actions, or chat restrictions.
 
-RMA is designed for the 3.3.5a client, uses `/rma` as its main command, and
-stores only `RMA_*` SavedVariables.
+## Compatibility and installation
 
-## Compatibility
-
-- Client target: Wrath of the Lich King 3.3.5a
-- TOC Interface: `30300`
-- Lua runtime: Lua 5.1
-- Main slash command: `/rma`
+- Client: Wrath of the Lich King 3.3.5a (build 12340)
+- TOC interface: `30300`
+- Runtime: Lua 5.1
 - Addon folder: `Raid Management Addon`
-- TOC file: `Raid Management Addon.toc`
-- Current version: `0.1.0-alpha.1`
+- Main command: `/rma`
+- Version: `0.1.0-alpha.1`
 
-RMA does not require Ace2 or Ace3. Vendored libraries are included under
-`Libs/`.
+RMA does not require Ace2 or Ace3. Copy the `Raid Management Addon` folder
+into `World of Warcraft\Interface\AddOns\`; it must contain `Raid Management
+Addon.toc` directly. Enable the addon, log in, and enter `/rma` for command
+help.
 
-## Installation
+The addon is an alpha baseline. Test it in a real 3.3.5a raid before relying on
+it for a live run. Grouped sync and sharing require compatible RMA builds; data
+stays local unless RMA deliberately sends it through addon messages, raid chat,
+or whispers.
 
-1. Copy the `Raid Management Addon` folder into your WoW `Interface\AddOns\`
-   directory.
-2. Make sure the addon folder contains `Raid Management Addon.toc` directly
-   inside it.
-3. Enable `Raid Management Addon` from the in-game AddOns list.
-4. Log in and run `/rma` to see the available commands.
+## Master Loot
 
-## Core Features
+Open Master Loot with `/rma ml`. It reads the open loot window and also supports
+an inventory-trade workflow for items already in bags. Choose an eligible item,
+start an MS, OS, SoftRes, or Free roll, collect system roll messages, resolve
+ties, then award the selected winner or winners. One award sequence can handle
+multiple copies; an item can also be held, banked, or marked for disenchant.
 
-### Master Loot
+The roll screen can announce starts, countdowns, winners, holds, bank, and DE
+outcomes. It may block late rolls after the configured countdown and show
+class/spec, reserve, and Loot Counter context when those data are available.
+Manual trade classification records MS, OS, SoftRes, or Free after the normal
+Blizzard trade interaction; it never automates or forces a trade.
 
-The Master Loot window is the main loot-distribution workflow.
+Loot assignment and loot-method changes require Blizzard group permissions. In
+a raid where RMA can only observe passive loot, the window can show observed
+information but cannot make an authorized award. Options can request Master
+Loot after targeting a recognized boss, ask to restore Group Loot after clearing
+boss loot, announce opened loot, and add a SoftRes summary. These convenience
+requests remain subject to current group state and permissions.
 
-- Open the loot workflow with `/rma ml`.
-- Select loot from the open loot window or drag an item into the addon.
-- Select among all eligible loot-window items from the item picker.
-- Distribute multiple identical copies in one award sequence, including
-  multi-winner selection when the copies go to different players.
-- Start MS, OS, SoftRes, or Free rolls.
-- Run configurable countdowns for roll windows.
-- Block late rolls after the countdown when that option is enabled.
-- Announce roll starts, countdowns, winners, holds, bank assignments, and
-  disenchant assignments.
-- Resolve ties with a reroll flow.
-- Select award targets from the roll list or from a class-colored raid grid.
-- Award loot to selected winners when you are allowed to assign loot.
-- Keep loot for later, send it to bank, or mark it for disenchant.
-- Handle inventory-trade mode for items already in bags.
-- Start a ready check from the inventory-trade workflow.
-- Classify manually traded items as MS, OS, SoftRes, or Free from the trade
-  window menu so accepted trades are recorded with the intended reason.
-- Show trade reminders and optional screenshot reminders before trading.
-- Optionally switch to Master Loot when a recognized raid boss is targeted by
-  the raid leader.
-- Optionally ask to restore Group Loot after boss loot is cleared.
-- Optionally announce opened loot automatically when you are Master Looter.
-- Announce the current loot list manually, with an optional SoftRes summary for
-  each reserved item.
+Commands and aliases: `/rma ml`.
 
-RMA assists the raid leader. It does not bypass Blizzard loot permissions or
-protected action rules.
+## Rolls and Loot Counter
 
-### Roll Tracking
+Roll tracking is tied to an active loot session. It records system roll results,
+marks duplicate, blocked, timed-out, pass, cancelled, and reroll-only states,
+and supports tie rerolls. Roll ordering can be ascending or descending. A
+countdown is optional; without it RMA has no automatic intake close time.
 
-RMA records and displays roll responses during active loot sessions.
+Open Loot Counter with `/rma counter`, `/rma counters`, or `/rma counts`. It
+displays MS, OS, and Free counts for the current raid and offers manual
+plus/minus correction and resets in its UI. It can open automatically for MS
+rolls. Counter broadcasts and related raid output still need the current chat or
+raid capability; viewing and local adjustment remain local.
 
-- Tracks player rolls from system roll messages.
-- Supports MS, OS, SoftRes, and Free roll contexts.
-- Marks duplicate, blocked, timed-out, pass, cancelled, and reroll-only states.
-- Keeps per-player roll state for the current item.
-- Displays player class/spec information, loot counters, and reserve context
-  alongside roll responses when those data are available.
-- Supports tie detection and tie reroll handling.
-- Can sort rolls ascending or descending from configuration.
+## SoftRes and reserves
 
-### Loot Counter
+Open reserves with `/rma res`, `/rma reserves`, `/rma reserve`, `/rma sr`, or
+`/rma softres`. Open the importer with `/rma res import`. It accepts CSV and
+JSON reserve data, including Multi-reserve and Plus System modes, and validates
+and normalizes data before applying it. Item details can remain incomplete until
+the client has item information.
 
-The Loot Counter tracks distribution counts for raid members.
+RMA groups reserves by item and can display quantities, Plus values, known drop
+sources, tooltip hints, and Master Loot context. `/rma res check` reports
+current-item coverage, current-raid presence, unmapped names, and suggested
+matches. Name reconciliation is explicit: use `/rma res alias <softres-name>
+<raid-name>`, `/rma res unalias <softres-name>`, or `/rma res aliases` instead
+of assuming different spellings identify the same player.
 
-- Open with `/rma counter`.
-- Tracks MS, OS, and Free counts per player.
-- Provides plus/minus controls for manual corrections.
-- Can announce grouped counters to raid when you have permission.
-- Can reset one player or all counters.
-- Can be shown automatically during MS rolls when enabled.
+`/rma res sync` requests reserve metadata from grouped compatible clients;
+`/rma res meta` prints local metadata, and `/rma res clearcache` removes only
+the synced runtime cache. These do not replace the saved local import. Optional
+whisper handling can reply to `+sr`; accepting `+sr [itemLink]` as a reserve
+addition needs the corresponding option and appropriate raid or loot authority.
+Whisper and sync traffic are best-effort and depend on the group, remote support,
+and normal WoW messaging limits.
 
-### SoftRes And Loot Reserves
+## Raid recording, Loot History, attendance, and inspection
 
-The Reserves window manages imported SoftRes data and reserve visibility during
-loot distribution.
+RMA creates and updates raid records from live raid and instance context. It
+records roster changes, boss and trash entries, loot, winners, roll type/value,
+and available source information. Master Loot awards, inventory trades, and
+passive Group Loot observations can feed a record; duplicate and ambiguous
+passive messages are guarded by the recording workflow. Source lookup is
+limited to RMA's static data, so unknown or incomplete sources can remain.
 
-- Open the reserve list with `/rma res`.
-- Open the import window with `/rma res import`.
-- Import SoftRes data as CSV or JSON.
-- Supports Multi-reserve and Plus System import modes.
-- Handles encoded SoftRes payloads when the required decode/decompress path is
-  available.
-- Groups reserves by item and shows reserved players.
-- Shows item IDs, item names, quantities, Plus values, and possible drop source
-  information.
-- Adds reserve details and source hints to the Master Loot workflow and item
-  tooltips when tooltips are enabled.
-- Checks the current item against imported SoftRes data with `/rma res check`.
-- Reports reserve players in raid, outside raid, unmatched reserve names, and
-  suggested name matches.
-- Allows name aliases between imported SoftRes names and current raid names.
-- Can sync SoftRes metadata and runtime reserve data with grouped RMA clients.
-- Can clear synced runtime reserve cache.
-- Supports optional SoftRes whisper replies:
-  - `+sr` replies with a player's current reserves.
-  - `+sr [itemLink]` can add a reserve when accepting whispers is enabled.
+Open Loot History with `/rma logger`. The window supports reviewing and editing
+loot, CSV export, data scans, cleanup, source rebuilding, and selected completed
+raid sharing. `/rma logger share` opens the share dialog. Sharing is opt-in: a
+recipient must accept, both players need the relevant group context, and only
+compatible protocol/schema data is applied. Current-raid synchronization can
+perform its own protocol-driven recovery with compatible peers; it is not a
+selected-history recovery action or a Loot History command. There is no
+`/rma history` command.
 
-### Loot History
+Open Raid Attendance with `/rma attendance`, `/rma attendees`, or `/rma att`.
+It projects recorded roster and boss-attendee information, including join/leave
+data. Refresh specialization data with `/rma specinspect` or force a new sweep
+with `/rma specinspect force`; inspect results are asynchronous and can be
+cached, skipped, unavailable, or delayed by normal inspect constraints.
+Equipment inspection uses the same throttled, failure-safe model.
+The specialization-inspection alias is `/rma inspectspec`.
 
-RMA stores raid logs locally and provides a history view for review and cleanup.
+## Warnings and LFM
 
-- Open with `/rma history`.
-- Use **Share** in Loot History to offer the selected raid to one current group
-  member. The recipient must accept before RMA requests and imports that raid.
-- Use **Recover current raid** from the same dialog to request the active raid
-  from the current Master Looter.
-- Creates raid sessions from raid and instance state.
-- Records raid zone, size, difficulty, roster snapshots, boss kills, trash
-  entries, and loot entries.
-- Records loot winners, roll type, roll value, source, and item information.
-- Reconciles Master Loot assignments, inventory trades, passive Group Loot
-  messages, and manually classified trades into the stored raid history.
-- Can ignore Group Loot messages or override the raid loot threshold from
-  configuration.
-- Uses a static loot-source database to resolve item sources where possible.
-- Allows editing logged winners, roll types, and roll values.
-- Exports loot and raid-attendance data as CSV.
-- Scans stored history for empty raids, missing sources, invalid sources,
-  orphan data, duplicate candidates, and player-name conflicts.
-- Can purge all history, rebuild missing loot sources, or selectively delete
-  empty raids, sub-epic loot, and raids without a recorded boss encounter.
+Open Raid Warnings with `/rma warning`, `/rma warnings`, `/rma warn`, or
+`/rma rw`. The window stores reusable templates and can create, edit, preview,
+delete, and announce them. `/rma rw <ID>` requests the saved warning with that
+numeric ID. Raid Warning output needs the relevant raid capability; when it
+cannot use that channel, the chat service can use its defined fallback and RMA
+reports the result rather than silently claiming a raid warning was sent.
 
-### Raid Attendance
+Open LFM Spam with `/rma pug`, `/rma lfm`, `/rma group`, or `/rma grouper`.
+Build a draft from raid name, needed roles, text, duration, channels, and
+achievement placeholders, then preview it. The LFM roots all use the same
+handler: an empty command, `/rma lfm toggle`, or `/rma lfm show` toggles the
+window; `/rma lfm start` starts the cycle and `/rma lfm stop` stops it. The
+runtime validates output length and applies duration, attempt, and message
+limits; it pauses or stops if scheduling or chat transport cannot continue.
+Extract a linked achievement ID with `/rma ach`, `/rma achi`, `/rma achiev`, or
+`/rma achievement`. RMA uses normal chat channels and cannot guarantee delivery.
 
-The Raid Attendance view helps inspect who was present during raid activity.
+## Minimap and Quick Bar
 
-- Open with `/rma attendance`.
-- Shows raid roster snapshots over time.
-- Shows boss attendees and raid attendees.
-- Shows join and leave information.
-- Displays class, specialization, inspected item level, and inspect status when
-  available.
-- Can force spec inspection with `/rma specinspect force`.
+Configure the minimap button with `/rma minimap` or `/rma mm`: `/rma minimap
+on`, `/rma minimap off`, and `/rma minimap pos <deg>` show, hide, or place it.
+`/rma minimap pos` without an angle reports the current saved position.
+Left-click opens RMA's menu; right-click opens configuration. The menu offers
+Master Loot, reserves, Loot Counter, Loot History, attendance, warnings, LFM,
+raid-icon cleanup when permitted, and a Quick Bar toggle. Hold Shift to drag on
+the minimap ring or Alt to free-drag it.
 
-### Logger Sync
+Quick Bar is a movable optional action strip. Use `/rma quickbar show` or
+`/rma quickbar hide`. Its ML and GL buttons ask for confirmation before
+requesting that loot method and highlight the active one; HIS opens Loot
+History, SR opens reserves, and RW opens warnings. Each button can be hidden,
+and the strip can be horizontal or vertical in configuration. Loot-method
+actions remain constrained by Blizzard permissions and do nothing when already
+active.
 
-RMA can exchange raid-history snapshots with other grouped RMA users.
+## Configuration
 
-- `/rma history sync` syncs matching current-raid data.
-- `/rma history req <raidId|raidNid> <player>` requests a specific raid snapshot
-  from one player.
-- `/rma history push <raidId|raidNid> <player>` sends a specific raid snapshot to
-  one player.
-- Persistent sync can be enabled from configuration so compatible current-raid
-  history is exchanged automatically instead of only on demand.
+Open configuration with `/rma config`, `/rma conf`, `/rma options`, or
+`/rma opt`; `/rma config reset` restores registered defaults. The panel owns
+Master Loot presets and roll behavior, announcements, tooltip/trade reminders,
+reserve whispers, counter display, minimap and Quick Bar settings, warning
+maintenance, LFM controls, Loot History maintenance, and help.
 
-Sync is compatibility-sensitive and only applies data that matches the expected
-RMA protocol, schema, and raid context.
+Options change RMA behavior, not WoW authority. Enabling an automatic
+loot-method prompt cannot grant loot access, enabling sync cannot make an
+incompatible peer compatible, and enabling inspect refresh cannot bypass client
+inspect restrictions.
 
-### Raid Warnings
+## Diagnostics, validation, debug, and performance
 
-The Raid Warning tool stores reusable warning templates.
+`/rma help` shows command help. `/rma version`, `/rma ver`, or `/rma about`
+prints version, interface, raid-schema, and sync-protocol information and asks
+compatible grouped clients to answer; append `local` to keep it local. `/rma
+bug` or `/rma report` prints a local support summary. The command forms are
+`/rma bug` and `/rma report`.
 
-- Open with `/rma rw` or `/rma warnings`.
-- Fresh installs include stock templates for Pull, Spread, Stack, Stop DPS,
-  Bloodlust, and Break.
-- Create, edit, delete, preview, and announce saved warnings.
-- Announce one warning directly with `/rma rw <ID>`.
-- Raid Warning output requires raid leader or assistant permissions. When Raid
-  Warning is unavailable, RMA falls back through its chat service.
+`/rma validate raids [verbose]` validates stored raid records and reports its
+bounded details. Use `/rma validate raids verbose` or `/rma validate raids all`
+to include informational detail. It checks saved data only; it cannot prove an
+unobserved event was recorded.
 
-### LFM Spam
+Performance controls are `/rma perf` or `/rma performance`. With no subcommand
+they report status; `/rma perf on` and `/rma perf off` enable or disable local
+collection. Set the threshold with `/rma perf threshold <ms>`, `/rma perf th <ms>`, or `/rma perf ms <ms>`. `/rma perf report`, `/rma perf stats`, and
+`/rma perf top` print the same timing report; `/rma perf audit` and `/rma perf summary` print the aggregate audit; `/rma perf items`, `/rma perf item`, and
+`/rma perf tooltip` print item-information metrics; `/rma perf reset` and
+`/rma perf clear` reset those metrics; and `/rma perf status` prints status.
+They collect local runtime and item-information metrics, not a server profile.
 
-The LFM Spam tool builds and sends recruitment messages with safety limits.
+Debug controls are `/rma debug`, `/rma dbg`, or `/rma debugger`: `toggle`,
+`on`, `off`, `levels`, and `level <name|num>`. Registered development helpers
+include `/rma debug timers [reset]`, `/rma debug raidgrid [1-40]`, and these
+synthetic raid forms: `/rma debug raid seed` or `/rma debug raid add` seeds the
+profiles; `/rma debug raid clear` or `/rma debug raid reset` removes them;
+`/rma debug raid rolls [tie]` or `/rma debug raid all [tie]` submits the batch;
+and `/rma debug raid roll <1-4|name> [1-100]` submits one roll. They are local
+testing tools. Synthetic raid helpers need a current raid record, use only
+synthetic profiles, and refuse invalid operations; do not treat them as a
+live-raid smoke test.
 
-- Open with `/rma lfm`, `/rma pug`, `/rma group`, or `/rma grouper`.
-- Configure raid name, composition, needed roles, custom message text, duration,
-  and channels.
-- Build role-aware recruitment text from the saved raid-composition draft and
-  achievement placeholders.
-- Preview the final message before sending.
-- Use `/rma lfm start` and `/rma lfm stop` to control the spam cycle.
-- Uses message length checks and safety caps for duration and message count.
-- Use `/rma ach [achievement link]` to extract an achievement ID for message
-  placeholders.
+## SavedVariables and boundaries
 
-### Minimap Launcher
-
-RMA includes a minimap button for quick access.
-
-- Left-click opens the Master Loot workflow when available.
-- Right-click opens the RMA menu.
-- The menu can open Master Loot, Reserves, Loot Counter, Loot History, Raid
-  Attendance, Raid Warnings, LFM Spam, and configuration.
-- The menu can clear raid icons when you have raid icon permission.
-- Use `/rma minimap on`, `/rma minimap off`, and `/rma minimap pos <deg>` to
-  control visibility and position.
-
-### Configuration
-
-Open configuration with `/rma config`.
-
-The configuration panel includes:
-
-- Roll ordering, countdown duration, late-roll blocking, announcement channel,
-  winner/hold/bank/disenchant announcements, and loot-holder whispers.
-- Quiet, Standard, Verbose, and Defaults presets.
-- Tooltip display, screenshot reminders, stacked-item trading, Loot Counter
-  auto-display, minimap visibility, and SoftRes whisper replies.
-- Automatic Master Loot on recognized boss targets, configurable notice delay,
-  Group Loot restore prompts, automatic loot announcements, and automatic
-  SoftRes summaries when loot opens.
-- Raid Warning template preview and maintenance.
-- LFM Spam preview and start/stop shortcuts.
-- Loot History synchronization and history sharing, passive Group Loot
-  filtering, quality-threshold override, maintenance, cleanup, and data-health
-  actions.
-- Built-in command, permission, and diagnostic help.
-
-Use `/rma config reset` to restore default options.
-
-### Diagnostics And Maintenance
-
-RMA includes local support and validation commands.
-
-- `/rma version` shows addon, interface, raid schema, and sync protocol details,
-  then requests grouped RMA client versions.
-- `/rma version local` prints only local version data.
-- `/rma bug` prints a local diagnostic summary for bug reports.
-- `/rma validate raids [verbose]` validates stored raid history schema and
-  invariants.
-- `/rma perf on|off|threshold <ms>|report|audit|sync|items|reset` controls
-  runtime performance logging and reports.
-- `/rma debug on|off|level <name|num>` controls local debug output.
-- `/rma debug raid` exposes synthetic raid and roll helpers for local testing.
-- `/rma debug raidgrid [1-40]` opens the raid-grid debug view.
-
-Debug and performance tools are local diagnostics. They are not required for
-normal raid use.
-
-## Command Reference
-
-| Command | Purpose |
-| --- | --- |
-| `/rma` | Show the main command help. |
-| `/rma help [command]` | Show command help or help for one topic. |
-| `/rma config` | Open configuration. |
-| `/rma config reset` | Restore default options. |
-| `/rma ml` | Open or toggle Master Loot. |
-| `/rma counter` | Open or toggle Loot Counter. |
-| `/rma history` | Show Loot History commands or toggle Loot History. |
-| `/rma history sync` | Sync matching current-raid history with grouped RMA users. |
-| `/rma history req <raidId|raidNid> <player>` | Request one raid-history snapshot from a player. |
-| `/rma history push <raidId|raidNid> <player>` | Push one raid-history snapshot to a player. |
-| `/rma attendance` | Open Raid Attendance. |
-| `/rma res` | Show reserve commands or toggle the reserve list. |
-| `/rma res import` | Open the SoftRes import window. |
-| `/rma res check` | Print a SoftRes readiness report for the current item and raid. |
-| `/rma res alias <softres-name> <raid-name>` | Map an imported SoftRes name to a raid name. |
-| `/rma res unalias <softres-name>` | Remove a SoftRes name alias. |
-| `/rma res aliases` | List configured SoftRes aliases. |
-| `/rma res sync` | Request SoftRes metadata from grouped RMA clients. |
-| `/rma res meta` | Show local SoftRes metadata. |
-| `/rma res clearcache` | Clear synced runtime SoftRes cache. |
-| `/rma rw` | Open Raid Warnings or show warning commands. |
-| `/rma rw <ID>` | Announce a saved warning by ID. |
-| `/rma lfm` | Open LFM Spam or show LFM commands. |
-| `/rma lfm start` | Start the LFM spam cycle. |
-| `/rma lfm stop` | Stop the LFM spam cycle. |
-| `/rma ach [achievement link]` | Print the achievement ID for LFM placeholders. |
-| `/rma specinspect` | Refresh cached raid specialization icons. |
-| `/rma specinspect force` | Refresh all inspectable raid members. |
-| `/rma minimap on` | Show the minimap button. |
-| `/rma minimap off` | Hide the minimap button. |
-| `/rma minimap pos <deg>` | Set minimap button angle. |
-| `/rma validate raids [verbose]` | Validate stored raid history. |
-| `/rma perf ...` | Control and inspect performance logging. |
-| `/rma debug ...` | Control local debug and test helpers. |
-| `/rma version [local]` | Print version and compatibility details. |
-| `/rma bug` | Print a local support summary. |
-
-Aliases:
-
-- Warnings: `/rma warning`, `/rma warnings`, `/rma warn`, `/rma rw`
-- Loot History: `/rma history`
-- Attendance: `/rma attendance`, `/rma attendees`, `/rma att`
-- Master Loot: `/rma ml`
-- Loot Counter: `/rma counter`, `/rma counters`, `/rma counts`
-- Reserves: `/rma res`, `/rma reserves`, `/rma reserve`, `/rma sr`,
-  `/rma softres`
-- LFM Spam: `/rma lfm`, `/rma pug`, `/rma group`, `/rma grouper`
-- Minimap: `/rma minimap`, `/rma mm`
-- Version: `/rma version`, `/rma ver`, `/rma about`
-- Bug report: `/rma bug`, `/rma report`
-
-## Permissions
-
-Some actions depend on the current group role and Blizzard permissions.
-
-- Master Looter: item actions, loot assignment, trade reminders, roll-award
-  workflow.
-- Raid leader or assistant: Raid Warning output, grouped Loot Counter broadcast,
-  LFM group announcements, raid icon cleanup.
-- Local only: help, configuration, previews, history review, diagnostics,
-  validation, and most maintenance actions.
-
-## SavedVariables
-
-RMA starts clean and uses only `RMA_*` SavedVariables:
+RMA starts clean and stores only these account SavedVariables:
 
 - `RMA_Raids`
 - `RMA_Players`
@@ -325,12 +203,7 @@ RMA starts clean and uses only `RMA_*` SavedVariables:
 - `RMA_Spammer`
 - `RMA_Options`
 
-The addon does not read or migrate old non-RMA SavedVariables.
-
-## Notes
-
-- RMA is an alpha baseline and should be smoke-tested in a real 3.3.5a client
-  before relying on it in a live raid.
-- Sync features require other grouped players to run compatible RMA builds.
-- Runtime data is local unless explicitly shared through RMA sync or in-game
-  chat/whisper features.
+It does not read, write, or migrate non-RMA SavedVariables. Addon-message
+prefixes use `RMA`; sync wire formats are compatibility-sensitive and are not a
+general import path. Use `/rma` in-game for the runtime command reference,
+because it reflects the registered commands in the loaded addon.

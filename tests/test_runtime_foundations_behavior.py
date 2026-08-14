@@ -131,10 +131,10 @@ class RuntimeFoundationsBehaviorTest(unittest.TestCase):
 
         self.assertIn("PASS options_table_default_redeclaration", result.stdout)
 
-    def test_options_cyclic_defaults_remain_independent(self) -> None:
-        result = run_lua_case("options_cyclic_defaults_remain_independent")
+    def test_options_reject_cyclic_defaults(self) -> None:
+        result = run_lua_case("options_reject_cyclic_defaults")
 
-        self.assertIn("PASS options_cyclic_defaults_remain_independent", result.stdout)
+        self.assertIn("PASS options_reject_cyclic_defaults", result.stdout)
 
     def test_future_raid_schema_is_preserved(self) -> None:
         result = run_lua_case("future_raid_schema_is_preserved")

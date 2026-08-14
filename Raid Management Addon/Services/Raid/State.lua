@@ -18,22 +18,22 @@ local Base64 = addon.Base64
 local IgnoredMobs = addon.IgnoredMobs or {}
 local LootSources = addon.LootSources
 local LootSourceCandidates = addon.LootSourceCandidates
-local Group = assert(addon.Group, "Raid state group helper owner is not initialized")
+local Group = assert(addon.Group, Diag.A.RaidStateGroupHelperOwnerNotInitialized)
 
-local InternalEvents = assert(Events.Internal, "Raid state internal events are not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "Raid state event publisher is not initialized")
-local RegisterCallback = assert(Bus.RegisterCallback, "Raid state event listener is not initialized")
-local RaidCreateEvent = assert(InternalEvents.RaidCreate, "Raid state raid-create event is not initialized")
+local InternalEvents = assert(Events.Internal, Diag.A.RaidStateInternalEventsNotInitialized)
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.RaidStateEventPublisherNotInitialized)
+local RegisterCallback = assert(Bus.RegisterCallback, Diag.A.RaidStateEventListenerNotInitialized)
+local RaidCreateEvent = assert(InternalEvents.RaidCreate, Diag.A.RaidStateRaidCreateEventNotInitialized)
 local RaidAttendanceChangedEvent =
-	assert(InternalEvents.RaidAttendanceChanged, "Raid state attendance event is not initialized")
+	assert(InternalEvents.RaidAttendanceChanged, Diag.A.RaidStateAttendanceEventNotInitialized)
 local RaidAuthorityRecoveryFinishedEvent =
-	assert(InternalEvents.RaidAuthorityRecoveryFinished, "Raid authority recovery event is not initialized")
+	assert(InternalEvents.RaidAuthorityRecoveryFinished, Diag.A.RaidAuthorityRecoveryEventNotInitialized)
 local RaidReentryRecoveryReadyEvent =
-	assert(InternalEvents.RaidReentryRecoveryReady, "Raid re-entry recovery event is not initialized")
+	assert(InternalEvents.RaidReentryRecoveryReady, Diag.A.RaidReEntryRecoveryEventNotInitialized)
 local RaidReentryDecisionRequiredEvent =
-	assert(InternalEvents.RaidReentryDecisionRequired, "Raid re-entry decision-required event is not initialized")
+	assert(InternalEvents.RaidReentryDecisionRequired, Diag.A.RaidReEntryDecisionRequiredEventNotInitialized)
 local RaidReentryDecisionResolvedEvent =
-	assert(InternalEvents.RaidReentryDecisionResolved, "Raid re-entry decision-resolved event is not initialized")
+	assert(InternalEvents.RaidReentryDecisionResolved, Diag.A.RaidReEntryDecisionResolvedEventNotInitialized)
 
 local coreState = addon.State
 local raidState = addon.State.raid
@@ -51,11 +51,11 @@ local _G = _G
 local UnitExists = UnitExists
 local UnitGUID = UnitGUID
 local UnitIsDead = UnitIsDead
-local UnitName = assert(_G.UnitName, "Raid state unit name API is not initialized")
+local UnitName = assert(_G.UnitName, Diag.A.RaidStateUnitNameApiNotInitialized)
 local UnitRace = UnitRace
-local GetInstanceInfo = assert(_G.GetInstanceInfo, "Raid state instance info API is not initialized")
-local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "Raid state roster count API is not initialized")
-local GetGroupTypeAndCount = assert(Group.GetTypeAndCount, "Raid state group policy helper is not initialized")
+local GetInstanceInfo = assert(_G.GetInstanceInfo, Diag.A.RaidStateInstanceInfoApiNotInitialized)
+local GetNumRaidMembers = assert(_G.GetNumRaidMembers, Diag.A.RaidStateRosterCountApiNotInitialized)
+local GetGroupTypeAndCount = assert(Group.GetTypeAndCount, Diag.A.RaidStateGroupPolicyHelperNotInitialized)
 local BossIDs = addon.BossIDs
 
 local function countKeys(values)
@@ -81,12 +81,12 @@ do
 	local module = Raid
 	module.GetCreatureId = getCreatureId
 	local function scheduleRosterRefresh()
-		local schedule = assert(module._ScheduleRosterRefreshInternal, "Raid roster scheduler is not initialized")
+		local schedule = assert(module._ScheduleRosterRefreshInternal, Diag.A.RaidRosterSchedulerNotInitialized)
 		return schedule()
 	end
 
 	local function cancelRosterRefresh()
-		local cancel = assert(module._CancelRosterRefreshInternal, "Raid roster cancellation is not initialized")
+		local cancel = assert(module._CancelRosterRefreshInternal, Diag.A.RaidRosterCancellationNotInitialized)
 		return cancel()
 	end
 
@@ -118,11 +118,11 @@ do
 	local RECENT_TRASH_DEATH_CONTEXT_THROTTLE_SECONDS = tonumber(C.RECENT_TRASH_DEATH_CONTEXT_THROTTLE_SECONDS) or 1
 	local LOOT_WINDOW_BOSS_CONTEXT_TTL_SECONDS =
 		math.max(BOSS_EVENT_CONTEXT_TTL_SECONDS, GROUP_LOOT_PENDING_AWARD_TTL_SECONDS)
-	local LootService = assert(Services.Loot, "Raid state loot namespace is not initialized")
-	local LootContextState = assert(LootService._State, "Loot context state owner is not initialized")
-	local LootSessions = assert(LootService._Sessions, "Loot session owner is not initialized")
-	local LootSnapshots = assert(LootService._Snapshots, "Loot snapshot owner is not initialized")
-	local LootContext = assert(LootService._Context, "Loot context owner is not initialized")
+	local LootService = assert(Services.Loot, Diag.A.RaidStateLootNamespaceNotInitialized)
+	local LootContextState = assert(LootService._State, Diag.A.LootContextStateOwnerNotInitialized)
+	local LootSessions = assert(LootService._Sessions, Diag.A.LootSessionOwnerNotInitialized)
+	local LootSnapshots = assert(LootService._Snapshots, Diag.A.LootSnapshotOwnerNotInitialized)
+	local LootContext = assert(LootService._Context, Diag.A.LootContextOwnerNotInitialized)
 	local recentTrashDeathContextRaidNum = 0
 	local recentTrashDeathContextSeenAt = 0
 	local recentTrashDeathContextActivityAt = 0

@@ -15,19 +15,19 @@ local Services = addon.Services
 local Diag = addon.Diagnose or addon.Diag
 local L = addon.L
 
-local Protocol = assert(DB.SyncProtocol, "Sync protocol dependency is not initialized")
-local SYNC_PROTOCOL_VERSION = assert(Protocol.VERSION == 5 and Protocol.VERSION, "Sync protocol must be version 5")
-local Session = assert(DB.SyncSession, "Sync session dependency is not initialized")
-local RaidStore = assert(DB.RaidStore, "Raid store dependency is not initialized")
-local Raid = assert(Services.Raid, "Raid service dependency is not initialized")
-local Timer = assert(addon.Timer, "Sync timer dependency is not initialized")
-local RegisterCallback = assert(Bus.RegisterCallback, "Sync event bus is not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "Sync event publisher is not initialized")
+local Protocol = assert(DB.SyncProtocol, Diag.A.SyncProtocolDependencyNotInitialized)
+local SYNC_PROTOCOL_VERSION = assert(Protocol.VERSION == 5 and Protocol.VERSION, Diag.A.SyncProtocolMustBeVersion5)
+local Session = assert(DB.SyncSession, Diag.A.SyncSessionDependencyNotInitialized)
+local RaidStore = assert(DB.RaidStore, Diag.A.RaidStoreDependencyNotInitialized)
+local Raid = assert(Services.Raid, Diag.A.RaidServiceDependencyNotInitialized)
+local Timer = assert(addon.Timer, Diag.A.SyncTimerDependencyNotInitialized)
+local RegisterCallback = assert(Bus.RegisterCallback, Diag.A.SyncEventBusNotInitialized)
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.SyncEventPublisherNotInitialized)
 
 local type, tostring, tonumber = type, tostring, tonumber
 local pairs = pairs
-local UnitName = assert(_G.UnitName, "Sync player identity API is not initialized")
-local GetTime = assert(_G.GetTime, "Sync clock API is not initialized")
+local UnitName = assert(_G.UnitName, Diag.A.SyncPlayerIdentityApiNotInitialized)
+local GetTime = assert(_G.GetTime, Diag.A.SyncClockApiNotInitialized)
 
 DB.Syncer = DB.Syncer or {}
 local module = DB.Syncer
@@ -66,26 +66,26 @@ if Options and Options.RegisterNamespace then
 	})
 end
 
-local InternalEvents = assert(Events.Internal, "Sync internal events are not initialized")
-local WowEvents = assert(Events.Wow, "Sync WoW events are not initialized")
-local OptionsLoadedEvent = assert(InternalEvents.OptionsLoaded, "Options-loaded event is not initialized")
-local RaidCreateEvent = assert(InternalEvents.RaidCreate, "Raid-create event is not initialized")
-local RaidRosterDeltaEvent = assert(InternalEvents.RaidRosterDelta, "Raid-roster event is not initialized")
+local InternalEvents = assert(Events.Internal, Diag.A.SyncInternalEventsNotInitialized)
+local WowEvents = assert(Events.Wow, Diag.A.SyncWoWEventsNotInitialized)
+local OptionsLoadedEvent = assert(InternalEvents.OptionsLoaded, Diag.A.OptionsLoadedEventNotInitialized)
+local RaidCreateEvent = assert(InternalEvents.RaidCreate, Diag.A.RaidCreateEventNotInitialized)
+local RaidRosterDeltaEvent = assert(InternalEvents.RaidRosterDelta, Diag.A.RaidRosterEventNotInitialized)
 local RaidInstanceRecognizedEvent =
-	assert(InternalEvents.RaidInstanceRecognized, "Raid instance event is not initialized")
+	assert(InternalEvents.RaidInstanceRecognized, Diag.A.RaidInstanceEventNotInitialized)
 local RaidReplicationCommittedEvent =
-	assert(InternalEvents.RaidReplicationCommitted, "Raid replication commit event is not initialized")
+	assert(InternalEvents.RaidReplicationCommitted, Diag.A.RaidReplicationCommitEventNotInitialized)
 local RaidAuthorityRecoveryFinishedEvent =
-	assert(InternalEvents.RaidAuthorityRecoveryFinished, "Raid authority recovery event is not initialized")
+	assert(InternalEvents.RaidAuthorityRecoveryFinished, Diag.A.RaidAuthorityRecoveryEventNotInitialized)
 local RaidReentryRecoveryReadyEvent = InternalEvents.RaidReentryRecoveryReady or "RaidReentryRecoveryReady"
 local RaidReentryDecisionResolvedEvent = InternalEvents.RaidReentryDecisionResolved or "RaidReentryDecisionResolved"
-local LoggerSelectRaidEvent = assert(InternalEvents.LoggerSelectRaid, "Logger raid selection event is not initialized")
+local LoggerSelectRaidEvent = assert(InternalEvents.LoggerSelectRaid, Diag.A.LoggerRaidSelectionEventNotInitialized)
 local LoggerDataChangedEvent = InternalEvents.LoggerDataChanged or "LoggerDataChanged"
 local LoggerRaidOfferReceivedEvent =
-	assert(InternalEvents.LoggerRaidOfferReceived, "Logger raid-offer event is not initialized")
-local ZoneChangedNewAreaEvent = assert(WowEvents.ZoneChangedNewArea, "Zone-change event is not initialized")
+	assert(InternalEvents.LoggerRaidOfferReceived, Diag.A.LoggerRaidOfferEventNotInitialized)
+local ZoneChangedNewAreaEvent = assert(WowEvents.ZoneChangedNewArea, Diag.A.ZoneChangeEventNotInitialized)
 local PartyLootMethodChangedEvent =
-	assert(WowEvents.PartyLootMethodChanged, "Loot-method-change event is not initialized")
+	assert(WowEvents.PartyLootMethodChanged, Diag.A.LootMethodChangeEventNotInitialized)
 
 module._status = module._status or STATUS_SYNCHRONIZED
 module._statusReason = module._statusReason or "UP_TO_DATE"
@@ -962,7 +962,7 @@ local function promoteHandover(handover)
 		return suspendHandover(handover, promotedOrReason or "HANDOVER_PROMOTION_FAILED")
 	end
 	if recoveredIndex then
-		assert(Database.SetCurrentRaid(recoveredIndex) == recoveredIndex, "Recovered raid selection failed")
+		assert(Database.SetCurrentRaid(recoveredIndex) == recoveredIndex, Diag.A.RecoveredRaidSelectionFailed)
 	end
 	setStatus(STATUS_SYNCHRONIZED, "UP_TO_DATE")
 	module._handover = nil

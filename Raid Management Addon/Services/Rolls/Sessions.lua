@@ -6,10 +6,11 @@
 -- notes: session and context helpers for rolls service
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Item = addon.Item
 local Services = addon.Services
 local Strings = addon.Strings
-local NormalizeLower = assert(Strings.NormalizeLower, "Roll session candidate normalizer is not initialized")
+local NormalizeLower = assert(Strings.NormalizeLower, Diag.A.RollSessionCandidateNormalizerNotInitialized)
 
 local rollTypes = addon.C.rollTypes
 local tostring, tonumber = tostring, tonumber
@@ -25,9 +26,9 @@ local Sessions = module._Sessions
 
 -- ----- Private helpers ----- --
 local function assertContext(ctx)
-	assert(type(ctx) == "table", "Rolls sessions context is required")
-	assert(type(ctx.lootState) == "table", "Rolls loot state is required")
-	assert(type(ctx.state) == "table", "Rolls session state is required")
+	assert(type(ctx) == "table", Diag.A.RollsSessionsContextRequired)
+	assert(type(ctx.lootState) == "table", Diag.A.RollsLootStateRequired)
+	assert(type(ctx.state) == "table", Diag.A.RollsSessionStateRequired)
 	return ctx, ctx.lootState, ctx.state
 end
 

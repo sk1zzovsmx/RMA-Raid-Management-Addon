@@ -5,8 +5,9 @@
 -- events: none
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Strings = addon.Strings
-local NormalizeLower = assert(Strings.NormalizeLower, "Loot source candidate normalizer is not initialized")
+local NormalizeLower = assert(Strings.NormalizeLower, Diag.A.LootSourceCandidateNormalizerNotInitialized)
 
 local type, tostring, tonumber = type, tostring, tonumber
 local strsub = string.sub

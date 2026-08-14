@@ -4,14 +4,15 @@
 -- exports: addon.UI.Layout
 -- events: none
 local addon = select(2, ...)
+local Diag = addon.Diag
 local UI = addon.UI or {}
 local Frames = UI.Frames
 
 local _G = _G
 local UIDropDownMenu_SetWidth =
-	assert(_G.UIDropDownMenu_SetWidth, "Options layout dropdown width API is not initialized")
+	assert(_G.UIDropDownMenu_SetWidth, Diag.A.OptionsLayoutDropdownWidthApiNotInitialized)
 local UIDropDownMenu_SetButtonWidth =
-	assert(_G.UIDropDownMenu_SetButtonWidth, "Options layout dropdown button width API is not initialized")
+	assert(_G.UIDropDownMenu_SetButtonWidth, Diag.A.OptionsLayoutDropdownButtonWidthApiNotInitialized)
 
 local pairs, type, tonumber = pairs, type, tonumber
 local max = math.max

@@ -4,15 +4,16 @@
 -- exports: publish module APIs on addon.*
 -- events: emits PlayerCountChanged
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Events = addon.Events
 local Bus = addon.Bus
 local Database = addon.Database
 local Services = addon.Services
 
-local InternalEvents = assert(Events.Internal, "Raid counts internal events are not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "Raid counts event publisher is not initialized")
+local InternalEvents = assert(Events.Internal, Diag.A.RaidCountsInternalEventsNotInitialized)
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.RaidCountsEventPublisherNotInitialized)
 local PlayerCountChangedEvent =
-	assert(InternalEvents.PlayerCountChanged, "Raid counts player-count event is not initialized")
+	assert(InternalEvents.PlayerCountChanged, Diag.A.RaidCountsPlayerCountEventNotInitialized)
 
 local tostring = tostring
 local tonumber = tonumber

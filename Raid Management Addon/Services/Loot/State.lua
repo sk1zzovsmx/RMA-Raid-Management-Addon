@@ -6,11 +6,12 @@
 -- notes: bootstrap-sensitive internal loot state helpers
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local C = addon.C
 local Database = addon.Database
 local Services = addon.Services
 local Time = addon.Time
-local GetTime = assert(_G.GetTime, "Loot state time API is not initialized")
+local GetTime = assert(_G.GetTime, Diag.A.LootStateTimeApiNotInitialized)
 
 -- ----- Internal state ----- --
 addon.Services.EnsureNamespace("Loot")
@@ -19,26 +20,26 @@ local module = Loot
 module._State = module._State or {}
 
 local ContextState = module._State
-local ContextHelpers = assert(module._Context, "Loot context helpers are not initialized")
+local ContextHelpers = assert(module._Context, Diag.A.LootContextHelpersNotInitialized)
 
 local normalizeBossEventContext =
-	assert(ContextHelpers.NormalizeBossEventContext, "Missing LootContext.NormalizeBossEventContext")
+	assert(ContextHelpers.NormalizeBossEventContext, Diag.A.MissingLootContextNormalizeBossEventContext)
 local normalizeLootSessionState =
-	assert(ContextHelpers.NormalizeLootSessionState, "Missing LootContext.NormalizeLootSessionState")
+	assert(ContextHelpers.NormalizeLootSessionState, Diag.A.MissingLootContextNormalizeLootSessionState)
 local normalizeLootSnapshotState =
-	assert(ContextHelpers.NormalizeLootSnapshotState, "Missing LootContext.NormalizeLootSnapshotState")
+	assert(ContextHelpers.NormalizeLootSnapshotState, Diag.A.MissingLootContextNormalizeLootSnapshotState)
 local normalizeActiveLootContext =
-	assert(ContextHelpers.NormalizeActiveLootContext, "Missing LootContext.NormalizeActiveLootContext")
+	assert(ContextHelpers.NormalizeActiveLootContext, Diag.A.MissingLootContextNormalizeActiveLootContext)
 local buildActiveLootContext =
-	assert(ContextHelpers.BuildActiveLootContext, "Missing LootContext.BuildActiveLootContext")
+	assert(ContextHelpers.BuildActiveLootContext, Diag.A.MissingLootContextBuildActiveLootContext)
 local projectLootWindowBossContext =
-	assert(ContextHelpers.ProjectLootWindowBossContext, "Missing LootContext.ProjectLootWindowBossContext")
+	assert(ContextHelpers.ProjectLootWindowBossContext, Diag.A.MissingLootContextProjectLootWindowBossContext)
 local projectLootSourceState =
-	assert(ContextHelpers.ProjectLootSourceState, "Missing LootContext.ProjectLootSourceState")
+	assert(ContextHelpers.ProjectLootSourceState, Diag.A.MissingLootContextProjectLootSourceState)
 
 -- ----- Private helpers ----- --
 local function ensureRaidState(raidState)
-	return assert(type(raidState) == "table" and raidState or nil, "Loot context state requires raidState table")
+	return assert(type(raidState) == "table" and raidState or nil, Diag.A.LootContextStateRequiresRaidStateTable)
 end
 
 local function syncActiveContext(raidState, lootContext)

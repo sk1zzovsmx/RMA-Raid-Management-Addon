@@ -14,9 +14,9 @@ local Options = addon.Options
 local Services = addon.Services
 local Strings = addon.Strings
 local Chat = Services.Chat
-local Raid = assert(Services.Raid, "Roll response raid service is not initialized")
-local LootBans = assert(Raid.LootBans, "Roll response loot bans owner is not initialized")
-local NormalizeName = assert(Strings.NormalizeName, "Roll response name normalizer is not initialized")
+local Raid = assert(Services.Raid, Diag.A.RollResponseRaidServiceNotInitialized)
+local LootBans = assert(Raid.LootBans, Diag.A.RollResponseLootBansOwnerNotInitialized)
+local NormalizeName = assert(Strings.NormalizeName, Diag.A.RollResponseNameNormalizerNotInitialized)
 
 local twipe = table.wipe
 local pairs, next = pairs, next
@@ -108,8 +108,8 @@ local RESPONSE_TRANSITIONS = {
 
 -- ----- Private helpers ----- --
 local function assertContext(ctx)
-	assert(type(ctx) == "table", "Rolls response context is required")
-	assert(type(ctx.state) == "table", "Rolls response state is required")
+	assert(type(ctx) == "table", Diag.A.RollsResponseContextRequired)
+	assert(type(ctx.state) == "table", Diag.A.RollsResponseStateRequired)
 	return ctx, ctx.state
 end
 

@@ -6,10 +6,11 @@
 -- notes: tracking/snapshot helpers for loot service
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Database = addon.Database
 local Item = addon.Item
 local Services = addon.Services
-local Group = assert(addon.Group, "Loot tracking group helper owner is not initialized")
+local Group = assert(addon.Group, Diag.A.LootTrackingGroupHelperOwnerNotInitialized)
 local _, lootState, _, raidState = Database.EnsureLootRuntimeState()
 
 -- ----- Internal state ----- --
@@ -19,21 +20,21 @@ local module = Loot
 module._Tracking = module._Tracking or {}
 
 local Tracking = module._Tracking
-local ContextHelpers = assert(module._Context, "Loot context helpers are not initialized")
-local resolveRaidRecord = assert(ContextHelpers.ResolveRaidRecord, "Missing LootContext.ResolveRaidRecord")
-local LootAttribution = assert(module.LootAttribution, "Loot attribution owner is not initialized")
-local PassiveGroupLoot = assert(module._PassiveGroupLoot, "Loot passive group-loot helpers are not initialized")
+local ContextHelpers = assert(module._Context, Diag.A.LootContextHelpersNotInitialized)
+local resolveRaidRecord = assert(ContextHelpers.ResolveRaidRecord, Diag.A.MissingLootContextResolveRaidRecord)
+local LootAttribution = assert(module.LootAttribution, Diag.A.LootAttributionOwnerNotInitialized)
+local PassiveGroupLoot = assert(module._PassiveGroupLoot, Diag.A.LootPassiveGroupLootHelpersNotInitialized)
 local normalizePendingAwardItemKey =
-	assert(LootAttribution.NormalizePendingAwardItemKey, "Missing LootAttribution.NormalizePendingAwardItemKey")
+	assert(LootAttribution.NormalizePendingAwardItemKey, Diag.A.MissingLootAttributionNormalizePendingAwardItemKey)
 
 local strmatch = string.match
 local tostring, tonumber = tostring, tonumber
 local type, pairs = type, pairs
 local _G = _G
 local GetMasterLootCandidate =
-	assert(_G.GetMasterLootCandidate, "Loot tracking master-loot candidate API is not initialized")
-local GetLootMethod = assert(_G.GetLootMethod, "Loot tracking loot-method API is not initialized")
-local GetNumGroupMembers = assert(Group.GetNumMembers, "Loot tracking group-count helper is not initialized")
+	assert(_G.GetMasterLootCandidate, Diag.A.LootTrackingMasterLootCandidateApiNotInitialized)
+local GetLootMethod = assert(_G.GetLootMethod, Diag.A.LootTrackingLootMethodApiNotInitialized)
+local GetNumGroupMembers = assert(Group.GetNumMembers, Diag.A.LootTrackingGroupCountHelperNotInitialized)
 
 -- ----- Private helpers ----- --
 local function copyRollSessionSnapshot(session)

@@ -1,6 +1,7 @@
 local addon = select(2, ...)
+local Diag = addon.Diag
 local DB = addon.DB
-local LibDeflate = assert(LibStub("LibDeflate"), "LibDeflate is not initialized")
+local LibDeflate = assert(LibStub("LibDeflate"), Diag.A.LibDeflateNotInitialized)
 
 DB.RaidEvents = DB.RaidEvents or {}
 local Events = DB.RaidEvents

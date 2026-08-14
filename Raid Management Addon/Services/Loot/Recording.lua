@@ -4,17 +4,18 @@
 -- exports: addon.Services.Loot._Recording
 -- events: no bus events; loot receipt, record, and reconciliation helpers
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Item = addon.Item
 local Services = addon.Services
 local Database = addon.Database
 local Strings = addon.Strings
 local Time = addon.Time
 
-local GetCurrentTime = assert(Time and Time.GetCurrentTime, "Loot recording time provider is not initialized")
-local GetItemKey = assert(Item.GetItemKey, "Loot recording item-key resolver is not initialized")
+local GetCurrentTime = assert(Time and Time.GetCurrentTime, Diag.A.LootRecordingTimeProviderNotInitialized)
+local GetItemKey = assert(Item.GetItemKey, Diag.A.LootRecordingItemKeyResolverNotInitialized)
 local GetItemStringFromLink =
-	assert(Item.GetItemStringFromLink, "Loot recording item-string resolver is not initialized")
-local NormalizeName = assert(Strings.NormalizeName, "Loot recording name normalizer is not initialized")
+	assert(Item.GetItemStringFromLink, Diag.A.LootRecordingItemStringResolverNotInitialized)
+local NormalizeName = assert(Strings.NormalizeName, Diag.A.LootRecordingNameNormalizerNotInitialized)
 
 local tonumber = tonumber
 local tostring = tostring
@@ -71,7 +72,7 @@ end
 
 local function resolveRecordTime(value)
 	local timestamp = tonumber(value) or tonumber(GetCurrentTime())
-	assert(timestamp, "Loot record timestamp is not initialized")
+	assert(timestamp, Diag.A.LootRecordTimestampNotInitialized)
 	return timestamp
 end
 

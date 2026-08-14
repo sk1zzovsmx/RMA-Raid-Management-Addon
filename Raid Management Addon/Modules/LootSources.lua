@@ -5,10 +5,11 @@
 -- events: none
 
 local addon = select(2, ...)
-local Strings = assert(addon.Strings, "Loot source string helpers are not initialized")
+local Diag = addon.Diag
+local Strings = assert(addon.Strings, Diag.A.LootSourceStringHelpersNotInitialized)
 local LootSourceCandidates = addon.LootSourceCandidates
-local TrimText = assert(Strings.TrimText, "Loot source text trimmer is not initialized")
-local NormalizeLower = assert(Strings.NormalizeLower, "Loot source text normalizer is not initialized")
+local TrimText = assert(Strings.TrimText, Diag.A.LootSourceTextTrimmerNotInitialized)
+local NormalizeLower = assert(Strings.NormalizeLower, Diag.A.LootSourceTextNormalizerNotInitialized)
 
 local type, tonumber, tostring = type, tonumber, tostring
 local pairs = pairs
@@ -524,7 +525,7 @@ end
 local function setDataForTests(byItemId)
 	assert(
 		type(LootSourcesData._SetActiveIndexForTests) == "function",
-		"Loot source test data lifecycle is not initialized"
+		Diag.A.LootSourceTestDataLifecycleNotInitialized
 	)
 	LootSourcesData._SetActiveIndexForTests(byItemId)
 	clearResolverCaches()

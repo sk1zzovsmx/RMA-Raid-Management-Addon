@@ -4,24 +4,25 @@
 -- exports: publish module APIs on addon.*
 -- events: consumes RaidRosterDelta
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Database = addon.Database
 local Events = addon.Events
 local Bus = addon.Bus
 local Services = addon.Services
 local Time = addon.Time
 
-local InternalEvents = assert(Events.Internal, "Raid attendance internal events are not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "Raid attendance event publisher is not initialized")
-local RegisterCallback = assert(Bus.RegisterCallback, "Raid attendance event bus listener is not initialized")
+local InternalEvents = assert(Events.Internal, Diag.A.RaidAttendanceInternalEventsNotInitialized)
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.RaidAttendanceEventPublisherNotInitialized)
+local RegisterCallback = assert(Bus.RegisterCallback, Diag.A.RaidAttendanceEventBusListenerNotInitialized)
 local RaidAttendanceChangedEvent =
-	assert(InternalEvents.RaidAttendanceChanged, "Raid attendance changed event is not initialized")
+	assert(InternalEvents.RaidAttendanceChanged, Diag.A.RaidAttendanceChangedEventNotInitialized)
 local RaidRosterDeltaEvent =
-	assert(InternalEvents.RaidRosterDelta, "Raid attendance roster-delta event is not initialized")
-local RaidCreateEvent = assert(InternalEvents.RaidCreate, "Raid attendance raid-create event is not initialized")
+	assert(InternalEvents.RaidRosterDelta, Diag.A.RaidAttendanceRosterDeltaEventNotInitialized)
+local RaidCreateEvent = assert(InternalEvents.RaidCreate, Diag.A.RaidAttendanceRaidCreateEventNotInitialized)
 
 local _G = _G
-local GetRaidRosterInfo = assert(_G.GetRaidRosterInfo, "Raid attendance roster info API is not initialized")
-local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "Raid attendance roster count API is not initialized")
+local GetRaidRosterInfo = assert(_G.GetRaidRosterInfo, Diag.A.RaidAttendanceRosterInfoApiNotInitialized)
+local GetNumRaidMembers = assert(_G.GetNumRaidMembers, Diag.A.RaidAttendanceRosterCountApiNotInitialized)
 
 local tinsert = table.insert
 local type, tonumber, strlower = type, tonumber, strlower

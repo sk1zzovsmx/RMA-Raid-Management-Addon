@@ -6,6 +6,7 @@
 -- notes: display-model helpers for rolls service
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local L = addon.L
 local Services = addon.Services
 local rollTypes = addon.C.rollTypes
@@ -22,16 +23,16 @@ local module = Rolls
 module._Display = module._Display or {}
 
 local Display = module._Display
-local Resolution = assert(module._Resolution, "Rolls resolution helpers are not initialized")
-local Responses = assert(module._Responses, "Rolls response helpers are not initialized")
-local Strategies = assert(module._Strategies, "Rolls strategy helpers are not initialized")
+local Resolution = assert(module._Resolution, Diag.A.RollsResolutionHelpersNotInitialized)
+local Responses = assert(module._Responses, Diag.A.RollsResponseHelpersNotInitialized)
+local Strategies = assert(module._Strategies, Diag.A.RollsStrategyHelpersNotInitialized)
 
 -- ----- Private helpers ----- --
 local function assertContext(ctx)
-	assert(type(ctx) == "table", "Rolls display context is required")
-	assert(type(ctx.state) == "table", "Rolls display state is required")
-	assert(type(ctx.lootState) == "table", "Rolls display loot state is required")
-	assert(type(ctx.getCurrentRollContext) == "function", "Rolls display current-roll context is required")
+	assert(type(ctx) == "table", Diag.A.RollsDisplayContextRequired)
+	assert(type(ctx.state) == "table", Diag.A.RollsDisplayStateRequired)
+	assert(type(ctx.lootState) == "table", Diag.A.RollsDisplayLootStateRequired)
+	assert(type(ctx.getCurrentRollContext) == "function", Diag.A.RollsDisplayCurrentRollContextRequired)
 	return ctx, ctx.state, ctx.lootState
 end
 

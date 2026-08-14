@@ -5,10 +5,11 @@
 -- events: none
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local DB = addon.DB
-local Protocol = assert(DB.SyncProtocol, "Sync protocol dependency is not initialized")
-local Comms = assert(addon.Comms, "Comms dependency is not initialized")
-local Timer = assert(addon.Timer, "Timer dependency is not initialized")
+local Protocol = assert(DB.SyncProtocol, Diag.A.SyncProtocolDependencyNotInitialized)
+local Comms = assert(addon.Comms, Diag.A.CommsDependencyNotInitialized)
+local Timer = assert(addon.Timer, Diag.A.TimerDependencyNotInitialized)
 
 DB.SyncSession = DB.SyncSession or {}
 local Session = DB.SyncSession
@@ -19,8 +20,8 @@ local concat = table.concat
 local sub = string.sub
 local byte = string.byte
 local pcall = pcall
-local GetTime = assert(_G.GetTime, "Sync session clock is not initialized")
-local UnitName = assert(_G.UnitName, "Sync session player identity is not initialized")
+local GetTime = assert(_G.GetTime, Diag.A.SyncSessionClockNotInitialized)
+local UnitName = assert(_G.UnitName, Diag.A.SyncSessionPlayerIdentityNotInitialized)
 
 local PREFIX = "RMARaidSync"
 local REQUEST_TTL_SECONDS = 30

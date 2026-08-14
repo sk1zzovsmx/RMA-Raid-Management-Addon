@@ -4,30 +4,31 @@
 -- exports: addon.Services.Raid loot-method automation APIs
 -- events: listens forwarded PLAYER_TARGET_CHANGED through Master; emits GroupLootRestoreNeeded
 local addon = select(2, ...)
+local Diag = addon.Diag
 local L = addon.L
 local Bus = addon.Bus
 local Database = addon.Database
 local Events = addon.Events
 local Options = addon.Options
 local Services = addon.Services
-local Raid = assert(Services.Raid, "Raid loot method service owner is not initialized")
+local Raid = assert(Services.Raid, Diag.A.RaidLootMethodServiceOwnerNotInitialized)
 
 local tostring, tonumber, type = tostring, tonumber, type
 
 local _G = _G
-local GetTime = assert(_G.GetTime, "Raid loot method time API is not initialized")
-local SetLootMethod = assert(_G.SetLootMethod, "Raid loot method setter API is not initialized")
-local UnitExists = assert(_G.UnitExists, "Raid loot method unit existence API is not initialized")
-local UnitGUID = assert(_G.UnitGUID, "Raid loot method unit GUID API is not initialized")
-local UnitInRaid = assert(_G.UnitInRaid, "Raid loot method unit raid-membership API is not initialized")
-local UnitIsDead = assert(_G.UnitIsDead, "Raid loot method unit death-state API is not initialized")
-local UnitName = assert(_G.UnitName, "Raid loot method unit name API is not initialized")
-local GetCreatureId = assert(Raid.GetCreatureId, "Raid loot method creature-id helper is not initialized")
-local InternalEvents = assert(Events.Internal, "Raid loot method event registry is not initialized")
-local ScreenNoticeEvent = assert(InternalEvents.ScreenNotice, "Raid loot method screen notice event is not initialized")
+local GetTime = assert(_G.GetTime, Diag.A.RaidLootMethodTimeApiNotInitialized)
+local SetLootMethod = assert(_G.SetLootMethod, Diag.A.RaidLootMethodSetterApiNotInitialized)
+local UnitExists = assert(_G.UnitExists, Diag.A.RaidLootMethodUnitExistenceApiNotInitialized)
+local UnitGUID = assert(_G.UnitGUID, Diag.A.RaidLootMethodUnitGuidApiNotInitialized)
+local UnitInRaid = assert(_G.UnitInRaid, Diag.A.RaidLootMethodUnitRaidMembershipApiNotInitialized)
+local UnitIsDead = assert(_G.UnitIsDead, Diag.A.RaidLootMethodUnitDeathStateApiNotInitialized)
+local UnitName = assert(_G.UnitName, Diag.A.RaidLootMethodUnitNameApiNotInitialized)
+local GetCreatureId = assert(Raid.GetCreatureId, Diag.A.RaidLootMethodCreatureIdHelperNotInitialized)
+local InternalEvents = assert(Events.Internal, Diag.A.RaidLootMethodEventRegistryNotInitialized)
+local ScreenNoticeEvent = assert(InternalEvents.ScreenNotice, Diag.A.RaidLootMethodScreenNoticeEventNotInitialized)
 local GroupLootRestoreNeededEvent =
-	assert(InternalEvents.GroupLootRestoreNeeded, "Raid loot method restore notification is not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "Raid loot method event bus sender is not initialized")
+	assert(InternalEvents.GroupLootRestoreNeeded, Diag.A.RaidLootMethodRestoreNotificationNotInitialized)
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.RaidLootMethodEventBusSenderNotInitialized)
 
 local AUTO_MASTER_LOOT_COOLDOWN_SECONDS = 3
 local DEFAULT_AUTO_MASTER_LOOT_NOTICE_SECONDS = 1.25
@@ -188,13 +189,13 @@ function module:HandleAutoMasterLootTargetChanged()
 		return false
 	end
 
-	showCenterNotice(L.MsgAutoMasterLootScreen or "Boss targeted, auto switch to Master Loot.")
+	showCenterNotice(L.MsgAutoMasterLootScreen)
 	SetLootMethod("master", playerName)
 	state.lastAutoMasterAt = now
 	state.lastAutoMasterBoss = boss.name
 	addon:info(
-		(L.MsgAutoMasterLootSet or "RMA: Loot method set to Master Loot for %s."):format(
-			tostring(boss.name or "Unknown")
+		L.MsgAutoMasterLootSet:format(
+			tostring(boss.name or L.StrUnknown)
 		)
 	)
 	return true
@@ -243,6 +244,6 @@ function module:RestoreGroupLoot(source)
 
 	SetLootMethod("group")
 	clearLootWindowPromptState()
-	addon:info(L.MsgGroupLootRestored or "RMA: Loot method set to Group Loot.")
+	addon:info(L.MsgGroupLootRestored)
 	return true, source
 end

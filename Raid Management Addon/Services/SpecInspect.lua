@@ -6,28 +6,29 @@
 -- notes: runtime-only spec display cache backed by LibGroupTalents-1.0
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Database = addon.Database
 local Services = addon.Services
 local Events = addon.Events
 local Bus = addon.Bus
 local Strings = addon.Strings
-local NormalizeName = assert(Strings.NormalizeName, "SpecInspect name normalizer is not initialized")
-local InspectCoordinator = assert(Services.InspectCoordinator, "SpecInspect coordinator is not initialized")
+local NormalizeName = assert(Strings.NormalizeName, Diag.A.SpecInspectNameNormalizerNotInitialized)
+local InspectCoordinator = assert(Services.InspectCoordinator, Diag.A.SpecInspectCoordinatorNotInitialized)
 
-local GetTime = assert(_G.GetTime, "SpecInspect time API is not initialized")
-local UnitGUID = assert(_G.UnitGUID, "SpecInspect unit GUID API is not initialized")
+local GetTime = assert(_G.GetTime, Diag.A.SpecInspectTimeApiNotInitialized)
+local UnitGUID = assert(_G.UnitGUID, Diag.A.SpecInspectUnitGuidApiNotInitialized)
 
 local type = type
 local tonumber = tonumber
 local tostring = tostring
 local string_lower = string.lower
 
-local InternalEvents = assert(Events.Internal, "SpecInspect internal events are not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "SpecInspect event publisher is not initialized")
-local RegisterCallback = assert(Bus.RegisterCallback, "SpecInspect event bus listener is not initialized")
-local SpecInspectUpdatedEvent = assert(InternalEvents.SpecInspectUpdated, "SpecInspect update event is not initialized")
+local InternalEvents = assert(Events.Internal, Diag.A.SpecInspectInternalEventsNotInitialized)
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.SpecInspectEventPublisherNotInitialized)
+local RegisterCallback = assert(Bus.RegisterCallback, Diag.A.SpecInspectEventBusListenerNotInitialized)
+local SpecInspectUpdatedEvent = assert(InternalEvents.SpecInspectUpdated, Diag.A.SpecInspectUpdateEventNotInitialized)
 local ReadyCheckEvent =
-	assert(Events.ResolveWowForwardedName("READY_CHECK"), "SpecInspect ready-check event is not initialized")
+	assert(Events.ResolveWowForwardedName("READY_CHECK"), Diag.A.SpecInspectReadyCheckEventNotInitialized)
 local STALE_AFTER_SECONDS = 1800
 
 -- ----- Internal state ----- --

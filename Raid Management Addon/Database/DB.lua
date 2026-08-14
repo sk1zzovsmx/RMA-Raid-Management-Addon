@@ -4,11 +4,13 @@
 -- exports: publish module APIs on addon.*
 -- events: none
 local addon = select(2, ...)
+local Diag = addon.Diag
+local format = string.format
 local Database = addon.Database
 
-assert(type(addon.DB) == "table", "RMA DB bootstrap missing addon.DB")
+assert(type(addon.DB) == "table", Diag.A.DatabaseBootstrapMissingAddonDb)
 local DB = addon.DB
-assert(type(DB) == "table", "RMA DB bootstrap missing addon.DB")
+assert(type(DB) == "table", Diag.A.DatabaseBootstrapMissingAddonDb)
 addon.DB = DB
 local DBSchema = addon.DBSchema or {}
 addon.DBSchema = DBSchema
@@ -40,7 +42,7 @@ end
 
 local function getRequiredOwner(ownerKey)
 	local owner = DB[ownerKey]
-	assert(type(owner) == "table", "RMA " .. tostring(ownerKey) .. " is not initialized")
+	assert(type(owner) == "table", format(Diag.A.DatabaseOwnerNotInitialized, tostring(ownerKey)))
 	return owner
 end
 

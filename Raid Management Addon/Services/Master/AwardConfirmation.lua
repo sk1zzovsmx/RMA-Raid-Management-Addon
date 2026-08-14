@@ -5,6 +5,8 @@
 -- events: none
 -- notes: owns Master-loot award confirmation, timers, and terminal effects
 local addon = select(2, ...)
+local Diag = addon.Diag
+local format = string.format
 local Master = addon.Services.EnsureNamespace("Master")
 
 local AwardConfirmation = Master.AwardConfirmation or {}
@@ -19,7 +21,7 @@ local pcall = pcall
 
 local function requireFunction(deps, name)
 	local value = deps[name]
-	assert(type(value) == "function", "Award confirmation requires " .. name)
+	assert(type(value) == "function", format(Diag.A.MasterAwardConfirmationRequiresFunction, name))
 	return value
 end
 
@@ -111,7 +113,7 @@ function AwardConfirmation.Create(deps)
 			rollValue = opts.rollValue,
 			rollSessionId = opts.sessionId and tostring(opts.sessionId) or nil,
 			transactionId = opts.transactionId and tostring(opts.transactionId) or nil,
-			effect = assert(opts.effect, "Award confirmation requires an effect"),
+			effect = assert(opts.effect, Diag.A.AwardConfirmationRequiresAnEffect),
 		}
 		if timeoutSeconds > 0 then
 			local scheduled, handle = pcall(scheduleTimer, function()

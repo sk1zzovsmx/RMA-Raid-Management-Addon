@@ -14,8 +14,8 @@ Master.Trade = Trade
 local Database = addon.Database
 local L = addon.L
 local Diag = addon.Diag
-local LoggerActions = assert(Services.Logger.Actions, "Master trade logger actions service is not initialized")
-local Inventory = assert(Services.Loot and Services.Loot.Inventory, "Master trade inventory owner is not initialized")
+local LoggerActions = assert(Services.Logger.Actions, Diag.A.MasterTradeLoggerActionsServiceNotInitialized)
+local Inventory = assert(Services.Loot and Services.Loot.Inventory, Diag.A.MasterTradeInventoryOwnerNotInitialized)
 
 local type = type
 local tonumber = tonumber

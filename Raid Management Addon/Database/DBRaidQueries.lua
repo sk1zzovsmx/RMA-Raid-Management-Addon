@@ -4,6 +4,7 @@
 -- exports: publish module APIs on addon.*
 -- events: none
 local addon = select(2, ...)
+local Diag = addon.Diag
 local DB = addon.DB
 local Database = addon.Database
 local Sort = addon.Sort
@@ -11,7 +12,7 @@ local Strings = addon.Strings
 local LootSourceCandidates = addon.LootSourceCandidates
 local Time = addon.Time
 local GetLootSortName = Sort and Sort.GetLootSortName
-local GetCurrentTime = assert(Time and Time.GetCurrentTime, "Raid queries time provider is not initialized")
+local GetCurrentTime = assert(Time and Time.GetCurrentTime, Diag.A.RaidQueriesTimeProviderNotInitialized)
 
 local pairs, type = pairs, type
 local tonumber, tostring = tonumber, tostring

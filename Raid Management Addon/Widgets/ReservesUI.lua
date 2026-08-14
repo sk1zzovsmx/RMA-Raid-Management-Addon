@@ -11,22 +11,22 @@ local Widgets = addon.Widgets
 local UI = addon.UI
 local Frames = UI.Frames
 local Scaffold = UI.Scaffold
-local Popups = assert(UI.Popups, "Reserves UI popup namespace is not initialized")
-local DefinePopup = assert(Popups.Define, "Reserves UI popup definer is not initialized")
-local DefineConfirmPopup = assert(Popups.DefineConfirm, "Reserves UI confirm popup definer is not initialized")
-local IsPopupDefined = assert(Popups.IsDefined, "Reserves UI popup defined-state checker is not initialized")
-local ShowPopup = assert(Popups.Show, "Reserves UI popup shower is not initialized")
-local ShowConfirmPopup = assert(Popups.ShowConfirm, "Reserves UI confirm popup shower is not initialized")
+local Popups = assert(UI.Popups, Diag.A.ReservesUiPopupNamespaceNotInitialized)
+local DefinePopup = assert(Popups.Define, Diag.A.ReservesUiPopupDefinerNotInitialized)
+local DefineConfirmPopup = assert(Popups.DefineConfirm, Diag.A.ReservesUiConfirmPopupDefinerNotInitialized)
+local IsPopupDefined = assert(Popups.IsDefined, Diag.A.ReservesUiPopupDefinedStateCheckerNotInitialized)
+local ShowPopup = assert(Popups.Show, Diag.A.ReservesUiPopupShowerNotInitialized)
+local ShowConfirmPopup = assert(Popups.ShowConfirm, Diag.A.ReservesUiConfirmPopupShowerNotInitialized)
 local Primitives = UI.Primitives
 local EditBoxes = UI.EditBoxes
 local Tooltips = UI.Tooltips
-local HideTooltip = assert(Tooltips.Hide, "Reserves UI tooltip hider is not initialized")
-local ShowItemTooltip = assert(Tooltips.ShowItem, "Reserves UI item tooltip presenter is not initialized")
-local BindTooltip = assert(Tooltips.Bind, "Reserves UI tooltip binder is not initialized")
+local HideTooltip = assert(Tooltips.Hide, Diag.A.ReservesUiTooltipHiderNotInitialized)
+local ShowItemTooltip = assert(Tooltips.ShowItem, Diag.A.ReservesUiItemTooltipPresenterNotInitialized)
+local BindTooltip = assert(Tooltips.Bind, Diag.A.ReservesUiTooltipBinderNotInitialized)
 local Events = addon.Events
 local C = addon.C
 local Colors = addon.Colors
-local GetClassColor = assert(Colors.GetClassColor, "Reserves UI class-color resolver is not initialized")
+local GetClassColor = assert(Colors.GetClassColor, Diag.A.ReservesUiClassColorResolverNotInitialized)
 local Options = addon.Options
 local Bus = addon.Bus
 local Services = addon.Services
@@ -37,30 +37,30 @@ local pairs, type = pairs, type
 local format = string.format
 local tostring, tonumber = tostring, tonumber
 local ChatEdit_InsertLink = ChatEdit_InsertLink
-local GetTime = assert(_G.GetTime, "Reserves UI time API is not initialized")
+local GetTime = assert(_G.GetTime, Diag.A.ReservesUiTimeApiNotInitialized)
 local GetItemIcon = GetItemIcon
-local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "Reserves UI raid member count API is not initialized")
+local GetNumRaidMembers = assert(_G.GetNumRaidMembers, Diag.A.ReservesUiRaidMemberCountApiNotInitialized)
 local IsModifiedClick = IsModifiedClick
-local UnitName = assert(_G.UnitName, "Reserves UI unit name API is not initialized")
+local UnitName = assert(_G.UnitName, Diag.A.ReservesUiUnitNameApiNotInitialized)
 local UnitInRaid = UnitInRaid
-local GetOptionsNamespace = assert(Options.Get, "Reserves UI options namespace resolver is not initialized")
-local Reserves = assert(Services.Reserves, "Reserves UI service is not initialized")
-local HasReserveData = assert(Reserves.HasData, "Reserves UI data-state resolver is not initialized")
-local IsPlusReserveSystem = assert(Reserves.IsPlusSystem, "Reserves UI import-mode resolver is not initialized")
-local HasPendingReserveItem = assert(Reserves.HasPendingItem, "Reserves UI pending-item resolver is not initialized")
+local GetOptionsNamespace = assert(Options.Get, Diag.A.ReservesUiOptionsNamespaceResolverNotInitialized)
+local Reserves = assert(Services.Reserves, Diag.A.ReservesUiServiceNotInitialized)
+local HasReserveData = assert(Reserves.HasData, Diag.A.ReservesUiDataStateResolverNotInitialized)
+local IsPlusReserveSystem = assert(Reserves.IsPlusSystem, Diag.A.ReservesUiImportModeResolverNotInitialized)
+local HasPendingReserveItem = assert(Reserves.HasPendingItem, Diag.A.ReservesUiPendingItemResolverNotInitialized)
 local RemovePlayerReserve =
-	assert(Reserves.RemovePlayerReserve, "Reserves UI remove-reserve handler is not initialized")
-local ClearSavedReserves = assert(Reserves.ClearSavedReserves, "Reserves UI clear-saved handler is not initialized")
-local GetReserveDisplayList = assert(Reserves.GetDisplayList, "Reserves UI display-list resolver is not initialized")
-local GetImportMode = assert(Reserves.GetImportMode, "Reserves UI import-mode getter is not initialized")
-local ParseImport = assert(Reserves.ParseImport, "Reserves UI import parser is not initialized")
-local RequestApplyImport = assert(Reserves.RequestApplyImport, "Reserves UI import-apply handler is not initialized")
-local SetImportMode = assert(Reserves.SetImportMode, "Reserves UI import-mode setter is not initialized")
-local ApplyReserveBatch = assert(Reserves.ApplyBatch, "Reserves UI batch editor is not initialized")
-local Chat = assert(Services.Chat, "Reserves UI chat service is not initialized")
-local AnnounceChat = assert(Chat.Announce, "Reserves UI chat announcer is not initialized")
-local Raid = assert(Services.Raid, "Reserves UI raid service is not initialized")
-local GetPlayerClass = assert(Raid.GetPlayerClass, "Reserves UI raid class resolver is not initialized")
+	assert(Reserves.RemovePlayerReserve, Diag.A.ReservesUiRemoveReserveHandlerNotInitialized)
+local ClearSavedReserves = assert(Reserves.ClearSavedReserves, Diag.A.ReservesUiClearSavedHandlerNotInitialized)
+local GetReserveDisplayList = assert(Reserves.GetDisplayList, Diag.A.ReservesUiDisplayListResolverNotInitialized)
+local GetImportMode = assert(Reserves.GetImportMode, Diag.A.ReservesUiImportModeGetterNotInitialized)
+local ParseImport = assert(Reserves.ParseImport, Diag.A.ReservesUiImportParserNotInitialized)
+local RequestApplyImport = assert(Reserves.RequestApplyImport, Diag.A.ReservesUiImportApplyHandlerNotInitialized)
+local SetImportMode = assert(Reserves.SetImportMode, Diag.A.ReservesUiImportModeSetterNotInitialized)
+local ApplyReserveBatch = assert(Reserves.ApplyBatch, Diag.A.ReservesUiBatchEditorNotInitialized)
+local Chat = assert(Services.Chat, Diag.A.ReservesUiChatServiceNotInitialized)
+local AnnounceChat = assert(Chat.Announce, Diag.A.ReservesUiChatAnnouncerNotInitialized)
+local Raid = assert(Services.Raid, Diag.A.ReservesUiRaidServiceNotInitialized)
+local GetPlayerClass = assert(Raid.GetPlayerClass, Diag.A.ReservesUiRaidClassResolverNotInitialized)
 
 local function getReservesOptions()
 	return GetOptionsNamespace("Reserves")
@@ -74,10 +74,10 @@ local function isWidgetChecked(widget)
 	return checked == true or checked == 1
 end
 
-local InternalEvents = assert(Events.Internal, "Reserves UI internal events are not initialized")
-local RegisterCallback = assert(Bus.RegisterCallback, "Reserves UI event bus listener is not initialized")
+local InternalEvents = assert(Events.Internal, Diag.A.ReservesUiInternalEventsNotInitialized)
+local RegisterCallback = assert(Bus.RegisterCallback, Diag.A.ReservesUiEventBusListenerNotInitialized)
 local ReservesDataChangedEvent =
-	assert(InternalEvents.ReservesDataChanged, "Reserves UI data-changed event is not initialized")
+	assert(InternalEvents.ReservesDataChanged, Diag.A.ReservesUiDataChangedEventNotInitialized)
 
 do
 	Widgets.ReservesUI = Widgets.ReservesUI or {}

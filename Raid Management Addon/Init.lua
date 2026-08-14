@@ -36,9 +36,25 @@ local _G = _G
 local pairs, select, type = pairs, select, type
 local setmetatable = setmetatable
 local tostring, tonumber = tostring, tonumber
+local format = string.format
 local tsort = table.sort
-local GetTime = assert(_G.GetTime, "RMA time API is not initialized")
-local GetRealmName = assert(_G.GetRealmName, "RMA realm name API is not initialized")
+
+local Diagnose = addon.Diagnose
+Diagnose.A = Diagnose.A or {}
+local Diag = addon.Diag
+if Diag == nil or Diag == Diagnose then
+	Diag = {}
+end
+Diag = setmetatable(Diag, {
+	__index = Diagnose,
+	__newindex = function(_, key, value)
+		Diagnose[key] = value
+	end,
+})
+addon.Diag = Diag
+
+local GetTime = assert(_G.GetTime, Diag.A.BootstrapTimeApiNotInitialized)
+local GetRealmName = assert(_G.GetRealmName, Diag.A.BootstrapRealmNameApiNotInitialized)
 local UnitName = _G.UnitName
 local UnitIsGroupLeader = _G.UnitIsGroupLeader
 local UnitIsGroupAssistant = _G.UnitIsGroupAssistant
@@ -46,22 +62,13 @@ local IsInRaid = _G.IsInRaid
 local IsRaidLeader = _G.IsRaidLeader
 local IsRaidOfficer = _G.IsRaidOfficer
 local IsPartyLeader = _G.IsPartyLeader
-local GetPartyLeaderIndex = assert(_G.GetPartyLeaderIndex, "RMA party leader index API is not initialized")
-local GetRaidRosterInfo = assert(_G.GetRaidRosterInfo, "RMA raid roster API is not initialized")
-local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "RMA raid member count API is not initialized")
-local GetNumPartyMembers = assert(_G.GetNumPartyMembers, "RMA party member count API is not initialized")
+local GetPartyLeaderIndex = assert(_G.GetPartyLeaderIndex, Diag.A.BootstrapPartyLeaderIndexApiNotInitialized)
+local GetRaidRosterInfo = assert(_G.GetRaidRosterInfo, Diag.A.BootstrapRaidRosterApiNotInitialized)
+local GetNumRaidMembers = assert(_G.GetNumRaidMembers, Diag.A.BootstrapRaidMemberCountApiNotInitialized)
+local GetNumPartyMembers = assert(_G.GetNumPartyMembers, Diag.A.BootstrapPartyMemberCountApiNotInitialized)
 
 local Database = addon.Database
-local Diagnose = addon.Diagnose
 local DEFAULT_PERF_THRESHOLD_MS = 5
-
-local Diag = setmetatable({}, {
-	__index = Diagnose,
-	__newindex = function(_, key, value)
-		Diagnose[key] = value
-	end,
-})
-addon.Diag = Diag
 
 -- ----- Private helpers ----- --
 local function seedBootstrapEvents()
@@ -88,6 +95,7 @@ local function seedBootstrapEvents()
 	Wow.GetItemInfoReceived = Wow.GetItemInfoReceived or "wow.GET_ITEM_INFO_RECEIVED"
 	Wow.PlayerRegenEnabled = Wow.PlayerRegenEnabled or "wow.PLAYER_REGEN_ENABLED"
 	Wow.PartyLootMethodChanged = Wow.PartyLootMethodChanged or "wow.PARTY_LOOT_METHOD_CHANGED"
+	Wow.RaidRosterUpdate = Wow.RaidRosterUpdate or "wow.RAID_ROSTER_UPDATE"
 	Wow.ZoneChangedNewArea = Wow.ZoneChangedNewArea or "wow.ZONE_CHANGED_NEW_AREA"
 	Wow.PartyLootMethodChanged = Wow.PartyLootMethodChanged or "wow.PARTY_LOOT_METHOD_CHANGED"
 	Wow.PlayerTargetChanged = Wow.PlayerTargetChanged or "wow.PLAYER_TARGET_CHANGED"
@@ -239,12 +247,12 @@ addon._PerfResetStats = function(self)
 end
 
 local function ensureNamespace(root, ...)
-	assert(type(root) == "table", "ensureNamespace requires a root table")
+	assert(type(root) == "table", Diag.A.BootstrapEnsureNamespaceRequiresARootTable)
 
 	local target = root
 	for i = 1, select("#", ...) do
 		local key = select(i, ...)
-		assert(type(key) == "string" and key ~= "", "ensureNamespace requires non-empty string keys")
+		assert(type(key) == "string" and key ~= "", Diag.A.BootstrapEnsureNamespaceRequiresNonEmptyStringKeys)
 
 		local child = target[key]
 		if type(child) ~= "table" then
@@ -266,7 +274,7 @@ function Database.GetPlayerName()
 	state.player = state.player or {}
 	local name = state.player.name
 	if not name then
-		assert(type(UnitName) == "function", "RMA unit name API is not initialized")
+		assert(type(UnitName) == "function", Diag.A.BootstrapUnitNameApiNotInitialized)
 		local playerName, realm = UnitName("player")
 		name = realm and realm ~= "" and playerName .. "-" .. realm or playerName
 	end
@@ -374,7 +382,7 @@ do
 	local Events = addon.Events
 	local C = addon.C
 
-	local InternalEvents = assert(Events.Internal, "RMA internal events are not initialized")
+	local InternalEvents = assert(Events.Internal, Diag.A.BootstrapInternalEventsNotInitialized)
 	local WowEvents = Events.Wow
 
 	local _G = _G
@@ -599,11 +607,11 @@ do
 	end
 
 	function Database.RequireServiceMethod(serviceName, serviceTable, methodName)
-		assert(type(serviceTable) == "table", "RMA missing service: " .. tostring(serviceName))
+		assert(type(serviceTable) == "table", format(Diag.A.BootstrapMissingService, tostring(serviceName)))
 		local method = serviceTable[methodName]
 		assert(
 			type(method) == "function",
-			"RMA missing service method: " .. tostring(serviceName) .. "." .. tostring(methodName)
+			format(Diag.A.BootstrapMissingServiceMethod, tostring(serviceName), tostring(methodName))
 		)
 		return method
 	end
@@ -724,7 +732,7 @@ do
 			if minimap and minimap.EnsureUI then
 				minimap:EnsureUI()
 			end
-			local quickBar = addon.Controllers and addon.Controllers.QuickBar
+			local quickBar = addon.Widgets and addon.Widgets.QuickBar
 			if quickBar and quickBar.EnsureUI then
 				quickBar:EnsureUI()
 			end
@@ -864,11 +872,10 @@ do
 
 	local function processRaidRosterUpdate()
 		local raidService = getService("Raid")
-		if not raidService then
-			return
+		if raidService then
+			raidService:RefreshAndPublish()
 		end
-
-		raidService:RefreshAndPublish()
+		Bus.TriggerEvent(WowEvents.RaidRosterUpdate)
 	end
 
 	-- RAID_ROSTER_UPDATE: Updates the raid roster when it changes.
@@ -964,7 +971,7 @@ do
 			return raidService, nil
 		end
 
-		assert(lootService and lootService.HandleLootChatMessage, "RMA Loot chat handler is not initialized")
+		assert(lootService and lootService.HandleLootChatMessage, Diag.A.BootstrapLootChatHandlerNotInitialized)
 		local observedType, parsedLoot = lootService:HandleLootChatMessage(msg, winnerOnly)
 		return raidService, observedType, parsedLoot
 	end

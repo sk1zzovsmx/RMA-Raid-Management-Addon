@@ -6,30 +6,30 @@
 local addon = select(2, ...)
 local L = addon.L
 local Diag = addon.Diag
-local DebugEntryPoint = assert(addon.EntryPoints.Debug, "Master debug entrypoint is not initialized")
+local DebugEntryPoint = assert(addon.EntryPoints.Debug, Diag.A.MasterDebugEntrypointNotInitialized)
 
 local UI = addon.UI
 local Frames = UI.Frames
 local Tooltips = UI.Tooltips
-local Lists = assert(UI.Lists, "Master list controller namespace is not initialized")
-local CreateListController = assert(Lists.CreateController, "Master roll list controller factory is not initialized")
-local CreateRowRenderer = assert(Lists.CreateRowRenderer, "Master roll row renderer factory is not initialized")
-local MakeIndexedRowName = assert(Lists.MakeIndexedRowName, "Master indexed row-name factory is not initialized")
-local GetFrameRef = assert(Frames.GetRef, "Master frame ref resolver is not initialized")
-local SetScriptSafely = assert(Frames.SetScriptSafely, "Master frame script binder is not initialized")
-local BindModuleFrame = assert(Frames.BindModuleFrame, "Master module frame binder is not initialized")
+local Lists = assert(UI.Lists, Diag.A.MasterListControllerNamespaceNotInitialized)
+local CreateListController = assert(Lists.CreateController, Diag.A.MasterRollListControllerFactoryNotInitialized)
+local CreateRowRenderer = assert(Lists.CreateRowRenderer, Diag.A.MasterRollRowRendererFactoryNotInitialized)
+local MakeIndexedRowName = assert(Lists.MakeIndexedRowName, Diag.A.MasterIndexedRowNameFactoryNotInitialized)
+local GetFrameRef = assert(Frames.GetRef, Diag.A.MasterFrameRefResolverNotInitialized)
+local SetScriptSafely = assert(Frames.SetScriptSafely, Diag.A.MasterFrameScriptBinderNotInitialized)
+local BindModuleFrame = assert(Frames.BindModuleFrame, Diag.A.MasterModuleFrameBinderNotInitialized)
 local MakeModuleFrameGetter =
-	assert(Frames.MakeModuleFrameGetter, "Master module frame getter factory is not initialized")
-local SetFrameTitle = assert(Frames.SetFrameTitle, "Master frame title binder is not initialized")
-local BindTooltip = assert(Tooltips.Bind, "Master tooltip binder is not initialized")
-local HideTooltip = assert(Tooltips.Hide, "Master tooltip hider is not initialized")
+	assert(Frames.MakeModuleFrameGetter, Diag.A.MasterModuleFrameGetterFactoryNotInitialized)
+local SetFrameTitle = assert(Frames.SetFrameTitle, Diag.A.MasterFrameTitleBinderNotInitialized)
+local BindTooltip = assert(Tooltips.Bind, Diag.A.MasterTooltipBinderNotInitialized)
+local HideTooltip = assert(Tooltips.Hide, Diag.A.MasterTooltipHiderNotInitialized)
 local Primitives = UI.Primitives
 local Rows = UI.Rows
-local Popups = assert(UI.Popups, "Master popup namespace is not initialized")
-local DefinePopup = assert(Popups.Define, "Master popup definer is not initialized")
-local IsPopupDefined = assert(Popups.IsDefined, "Master popup defined-state checker is not initialized")
-local ShowPopup = assert(Popups.Show, "Master popup shower is not initialized")
-local ShowConfirmPopup = assert(Popups.ShowConfirm, "Master confirm popup shower is not initialized")
+local Popups = assert(UI.Popups, Diag.A.MasterPopupNamespaceNotInitialized)
+local DefinePopup = assert(Popups.Define, Diag.A.MasterPopupDefinerNotInitialized)
+local IsPopupDefined = assert(Popups.IsDefined, Diag.A.MasterPopupDefinedStateCheckerNotInitialized)
+local ShowPopup = assert(Popups.Show, Diag.A.MasterPopupShowerNotInitialized)
+local ShowConfirmPopup = assert(Popups.ShowConfirm, Diag.A.MasterConfirmPopupShowerNotInitialized)
 local Item = addon.Item
 local Colors = addon.Colors
 local Comms = addon.Comms
@@ -41,59 +41,59 @@ local Bus = addon.Bus
 local Services = addon.Services
 local Controllers = addon.Controllers
 local Widgets = addon.Widgets
-local Loot = assert(Services.Loot, "Master loot service is not initialized")
-local LootDistribution = assert(Loot.DistributionSession, "Master loot distribution owner is not initialized")
-local LootInventory = assert(Loot.Inventory, "Loot inventory owner is not initialized")
-local LootAwardPlanner = assert(Loot.AwardPlanner, "Loot award planner owner is not initialized")
-local LootAttribution = assert(Loot.LootAttribution, "Loot attribution owner is not initialized")
-local Raid = assert(Services.Raid, "Master raid service is not initialized")
-assert(Raid.LootBans, "Master loot bans service is not initialized")
-local Rolls = assert(Services.Rolls, "Master rolls service is not initialized")
-local Chat = assert(Services.Chat, "Master chat service is not initialized")
-local LoggerActions = assert(Services.Logger.Actions, "Master logger actions service is not initialized")
-local MasterService = assert(Services.Master, "Master service namespace is not initialized")
-local RollSelectionService = assert(MasterService.RollSelection, "Master Roll Selection service is not initialized")
-local AwardSequenceService = assert(MasterService.AwardSequence, "Master award sequence service is not initialized")
-local AssignmentService = assert(MasterService.Assignment, "Master assignment service is not initialized")
-local RaidDebug = assert(Services.Raid.Debug, "Raid debug service is not initialized")
-local TradeExecutionService = assert(MasterService.TradeExecution, "Master trade execution service is not initialized")
-local ItemSelectionWidget = assert(addon.Widgets.ItemSelection, "Master item selection widget is not initialized")
+local Loot = assert(Services.Loot, Diag.A.MasterLootServiceNotInitialized)
+local LootDistribution = assert(Loot.DistributionSession, Diag.A.MasterLootDistributionOwnerNotInitialized)
+local LootInventory = assert(Loot.Inventory, Diag.A.LootInventoryOwnerNotInitialized)
+local LootAwardPlanner = assert(Loot.AwardPlanner, Diag.A.LootAwardPlannerOwnerNotInitialized)
+local LootAttribution = assert(Loot.LootAttribution, Diag.A.LootAttributionOwnerNotInitialized)
+local Raid = assert(Services.Raid, Diag.A.MasterRaidServiceNotInitialized)
+assert(Raid.LootBans, Diag.A.MasterLootBansServiceNotInitialized)
+local Rolls = assert(Services.Rolls, Diag.A.MasterRollsServiceNotInitialized)
+local Chat = assert(Services.Chat, Diag.A.MasterChatServiceNotInitialized)
+local LoggerActions = assert(Services.Logger.Actions, Diag.A.MasterLoggerActionsServiceNotInitialized)
+local MasterService = assert(Services.Master, Diag.A.MasterServiceNamespaceNotInitialized)
+local RollSelectionService = assert(MasterService.RollSelection, Diag.A.MasterRollSelectionServiceNotInitialized)
+local AwardSequenceService = assert(MasterService.AwardSequence, Diag.A.MasterAwardSequenceServiceNotInitialized)
+local AssignmentService = assert(MasterService.Assignment, Diag.A.MasterAssignmentServiceNotInitialized)
+local RaidDebug = assert(Services.Raid.Debug, Diag.A.RaidDebugServiceNotInitialized)
+local TradeExecutionService = assert(MasterService.TradeExecution, Diag.A.MasterTradeExecutionServiceNotInitialized)
+local ItemSelectionWidget = assert(addon.Widgets.ItemSelection, Diag.A.MasterItemSelectionWidgetNotInitialized)
 
-local InternalEvents = assert(Events.Internal, "Master controller internal events are not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "Master controller event publisher is not initialized")
-local RegisterCallback = assert(Bus.RegisterCallback, "Master controller event listener is not initialized")
+local InternalEvents = assert(Events.Internal, Diag.A.MasterControllerInternalEventsNotInitialized)
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.MasterControllerEventPublisherNotInitialized)
+local RegisterCallback = assert(Bus.RegisterCallback, Diag.A.MasterControllerEventListenerNotInitialized)
 local ResolveWowForwardedName =
-	assert(Events.ResolveWowForwardedName, "Master controller forwarded-event resolver is not initialized")
+	assert(Events.ResolveWowForwardedName, Diag.A.MasterControllerForwardedEventResolverNotInitialized)
 local MasterEvents = {
 	GroupLootRestoreNeeded = assert(
 		InternalEvents.GroupLootRestoreNeeded,
-		"Master controller group-loot restore prompt event is not initialized"
+		Diag.A.MasterControllerGroupLootRestorePromptEventNotInitialized
 	),
-	SetItem = assert(InternalEvents.SetItem, "Master controller set-item event is not initialized"),
+	SetItem = assert(InternalEvents.SetItem, Diag.A.MasterControllerSetItemEventNotInitialized),
 	RaidRosterDelta = assert(
 		InternalEvents.RaidRosterDelta,
-		"Master controller raid roster delta event is not initialized"
+		Diag.A.MasterControllerRaidRosterDeltaEventNotInitialized
 	),
 	ReservesDataChanged = assert(
 		InternalEvents.ReservesDataChanged,
-		"Master controller reserves data changed event is not initialized"
+		Diag.A.MasterControllerReservesDataChangedEventNotInitialized
 	),
-	AddRoll = assert(InternalEvents.AddRoll, "Master controller add-roll event is not initialized"),
+	AddRoll = assert(InternalEvents.AddRoll, Diag.A.MasterControllerAddRollEventNotInitialized),
 	ConfigSortAscending = assert(
 		InternalEvents.ConfigSortAscending,
-		"Master controller sort setting event is not initialized"
+		Diag.A.MasterControllerSortSettingEventNotInitialized
 	),
 	ConfigShowLootCounterDuringMSRoll = assert(
 		InternalEvents.ConfigShowLootCounterDuringMSRoll,
-		"Master controller loot-counter setting event is not initialized"
+		Diag.A.MasterControllerLootCounterSettingEventNotInitialized
 	),
 	SpecInspectUpdated = assert(
 		InternalEvents.SpecInspectUpdated,
-		"Master controller spec inspect update event is not initialized"
+		Diag.A.MasterControllerSpecInspectUpdateEventNotInitialized
 	),
 	LootBansChanged = assert(
 		InternalEvents.LootBansChanged,
-		"Master controller loot bans changed event is not initialized"
+		Diag.A.MasterControllerLootBansChangedEventNotInitialized
 	),
 }
 local rollTypes = addon.C.rollTypes
@@ -123,49 +123,49 @@ local tinsert, tconcat, twipe = table.insert, table.concat, table.wipe
 local pairs, select, next = pairs, select, next
 
 local tostring, tonumber = tostring, tonumber
-local CreateFrame = assert(_G.CreateFrame, "Master controller frame creation API is not initialized")
-local UnitName = assert(_G.UnitName, "Master controller unit name API is not initialized")
+local CreateFrame = assert(_G.CreateFrame, Diag.A.MasterControllerFrameCreationApiNotInitialized)
+local UnitName = assert(_G.UnitName, Diag.A.MasterControllerUnitNameApiNotInitialized)
 local GetMasterLootCandidate =
-	assert(_G.GetMasterLootCandidate, "Master controller loot candidate API is not initialized")
-local GetRaidRosterInfo = assert(_G.GetRaidRosterInfo, "Master controller raid roster API is not initialized")
-local GetLootSlotInfo = assert(_G.GetLootSlotInfo, "Master controller loot slot info API is not initialized")
-local GiveMasterLoot = assert(_G.GiveMasterLoot, "Master controller loot assignment API is not initialized")
+	assert(_G.GetMasterLootCandidate, Diag.A.MasterControllerLootCandidateApiNotInitialized)
+local GetRaidRosterInfo = assert(_G.GetRaidRosterInfo, Diag.A.MasterControllerRaidRosterApiNotInitialized)
+local GetLootSlotInfo = assert(_G.GetLootSlotInfo, Diag.A.MasterControllerLootSlotInfoApiNotInitialized)
+local GiveMasterLoot = assert(_G.GiveMasterLoot, Diag.A.MasterControllerLootAssignmentApiNotInitialized)
 local UIDropDownMenu_AddButton =
-	assert(_G.UIDropDownMenu_AddButton, "Master controller dropdown button API is not initialized")
+	assert(_G.UIDropDownMenu_AddButton, Diag.A.MasterControllerDropdownButtonApiNotInitialized)
 local UIDropDownMenu_CreateInfo =
-	assert(_G.UIDropDownMenu_CreateInfo, "Master controller dropdown info API is not initialized")
+	assert(_G.UIDropDownMenu_CreateInfo, Diag.A.MasterControllerDropdownInfoApiNotInitialized)
 local UIDropDownMenu_Initialize =
-	assert(_G.UIDropDownMenu_Initialize, "Master controller dropdown init API is not initialized")
+	assert(_G.UIDropDownMenu_Initialize, Diag.A.MasterControllerDropdownInitApiNotInitialized)
 local UIDropDownMenu_JustifyText =
-	assert(_G.UIDropDownMenu_JustifyText, "Master controller dropdown justify API is not initialized")
+	assert(_G.UIDropDownMenu_JustifyText, Diag.A.MasterControllerDropdownJustifyApiNotInitialized)
 local UIDropDownMenu_SetButtonWidth =
-	assert(_G.UIDropDownMenu_SetButtonWidth, "Master controller dropdown button-width API is not initialized")
+	assert(_G.UIDropDownMenu_SetButtonWidth, Diag.A.MasterControllerDropdownButtonWidthApiNotInitialized)
 local UIDropDownMenu_SetSelectedValue =
-	assert(_G.UIDropDownMenu_SetSelectedValue, "Master controller dropdown selected-value API is not initialized")
+	assert(_G.UIDropDownMenu_SetSelectedValue, Diag.A.MasterControllerDropdownSelectedValueApiNotInitialized)
 local UIDropDownMenu_SetText =
-	assert(_G.UIDropDownMenu_SetText, "Master controller dropdown text API is not initialized")
+	assert(_G.UIDropDownMenu_SetText, Diag.A.MasterControllerDropdownTextApiNotInitialized)
 local UIDropDownMenu_SetWidth =
-	assert(_G.UIDropDownMenu_SetWidth, "Master controller dropdown width API is not initialized")
+	assert(_G.UIDropDownMenu_SetWidth, Diag.A.MasterControllerDropdownWidthApiNotInitialized)
 local TradeExecutionWow = {
-	ClearCursor = assert(_G.ClearCursor, "Master trade execution clear-cursor API is not initialized"),
-	CursorHasItem = assert(_G.CursorHasItem, "Master trade execution cursor-item API is not initialized"),
+	ClearCursor = assert(_G.ClearCursor, Diag.A.MasterTradeExecutionClearCursorApiNotInitialized),
+	CursorHasItem = assert(_G.CursorHasItem, Diag.A.MasterTradeExecutionCursorItemApiNotInitialized),
 	GetContainerItemInfo = assert(
 		_G.GetContainerItemInfo,
-		"Master trade execution container-item-info API is not initialized"
+		Diag.A.MasterTradeExecutionContainerItemInfoApiNotInitialized
 	),
 	GetContainerItemLink = assert(
 		_G.GetContainerItemLink,
-		"Master trade execution container-item-link API is not initialized"
+		Diag.A.MasterTradeExecutionContainerItemLinkApiNotInitialized
 	),
-	InitiateTrade = assert(_G.InitiateTrade, "Master trade execution initiate-trade API is not initialized"),
+	InitiateTrade = assert(_G.InitiateTrade, Diag.A.MasterTradeExecutionInitiateTradeApiNotInitialized),
 	PickupContainerItem = assert(
 		_G.PickupContainerItem,
-		"Master trade execution pickup-container-item API is not initialized"
+		Diag.A.MasterTradeExecutionPickupContainerItemApiNotInitialized
 	),
-	SetRaidTarget = assert(_G.SetRaidTarget, "Master trade execution raid-target API is not initialized"),
+	SetRaidTarget = assert(_G.SetRaidTarget, Diag.A.MasterTradeExecutionRaidTargetApiNotInitialized),
 	CheckInteractDistance = assert(
 		_G.CheckInteractDistance,
-		"Master trade execution interact-distance API is not initialized"
+		Diag.A.MasterTradeExecutionInteractDistanceApiNotInitialized
 	),
 }
 
@@ -982,7 +982,7 @@ do
 		end
 
 		return DefinePopup("RMA_MASTER_LOOT_GRID_CONFIRM", {
-			text = L.PopupRaidGridConfirm or "Give %s to %s?",
+			text = L.PopupRaidGridConfirm,
 			button1 = _G.YES or _G.OKAY,
 			button2 = _G.NO or _G.CANCEL,
 			timeout = 0,
@@ -1237,7 +1237,7 @@ do
 			local debugState = addon.State and addon.State.debug or nil
 			local count = RaidDebug.GetRaidGridDebugTargetCount(debugState)
 			entries = RaidDebug.BuildRaidGridDebugRows(count, collectRaidGridRosterRows())
-			title = title .. " (" .. (L.StrRaidGridDebugTitle or "Debug") .. ")"
+			title = title .. " (" .. L.StrRaidGridDebugTitle .. ")"
 			debugFallback = true
 		end
 
@@ -1277,7 +1277,7 @@ do
 		local entries, total = RaidDebug.BuildRaidGridDebugRows(count, collectRaidGridRosterRows())
 		Widgets.RaidGrid.ShowPicker({
 			mode = "debug",
-			title = (L.StrRaidGridDebugTitle or "Raid Grid Debug") .. " (" .. tostring(total) .. ")",
+			title = L.StrRaidGridDebugTitle .. " (" .. tostring(total) .. ")",
 			emptyText = L.StrRaidGridEmpty,
 			entries = entries,
 			anchor = Private.GetRaidGridFrameAnchor(),
@@ -2412,12 +2412,12 @@ do
 		end,
 		L = L,
 		wow = {
-			ClearCursor = assert(_G.ClearCursor, "Master item selection clear-cursor API is not initialized"),
-			CursorHasItem = assert(_G.CursorHasItem, "Master item selection cursor-item API is not initialized"),
-			GetCursorInfo = assert(_G.GetCursorInfo, "Master item selection cursor-info API is not initialized"),
+			ClearCursor = assert(_G.ClearCursor, Diag.A.MasterItemSelectionClearCursorApiNotInitialized),
+			CursorHasItem = assert(_G.CursorHasItem, Diag.A.MasterItemSelectionCursorItemApiNotInitialized),
+			GetCursorInfo = assert(_G.GetCursorInfo, Diag.A.MasterItemSelectionCursorInfoApiNotInitialized),
 			GetContainerItemLink = assert(
 				_G.GetContainerItemLink,
-				"Master item selection container-item-link API is not initialized"
+				Diag.A.MasterItemSelectionContainerItemLinkApiNotInitialized
 			),
 		},
 		debug = addon.hasDebug and function(message)

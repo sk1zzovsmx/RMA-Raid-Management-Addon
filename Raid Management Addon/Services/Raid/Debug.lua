@@ -6,7 +6,7 @@
 local addon = select(2, ...)
 local L = addon.L
 local Diag = addon.Diag
-local DebugEntryPoint = assert(addon.EntryPoints.Debug, "Raid debug entrypoint is not initialized")
+local DebugEntryPoint = assert(addon.EntryPoints.Debug, Diag.A.RaidDebugEntrypointNotInitialized)
 
 local Database = addon.Database
 local Options = addon.Options
@@ -14,8 +14,8 @@ local Services = addon.Services
 local Strings = addon.Strings
 local Time = addon.Time
 local coreState = addon.State
-local NormalizeName = assert(Strings.NormalizeName, "Debug synthetic name normalizer is not initialized")
-local NormalizeLower = assert(Strings.NormalizeLower, "Debug mode normalizer is not initialized")
+local NormalizeName = assert(Strings.NormalizeName, Diag.A.DebugSyntheticNameNormalizerNotInitialized)
+local NormalizeLower = assert(Strings.NormalizeLower, Diag.A.DebugModeNormalizerNotInitialized)
 
 local tinsert, tremove = table.insert, table.remove
 local pairs, type = pairs, type

@@ -6,13 +6,14 @@
 -- notes: serializes RMA use of the client-global inspect target
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Services, Events, Bus, Timer = addon.Services, addon.Events, addon.Bus, addon.Timer
-local GetTime = assert(_G.GetTime, "InspectCoordinator time API is not initialized")
-local UnitAffectingCombat = assert(_G.UnitAffectingCombat, "InspectCoordinator combat API is not initialized")
-local ClearInspectPlayer = assert(_G.ClearInspectPlayer, "InspectCoordinator clear API is not initialized")
-local RegisterCallback = assert(Bus.RegisterCallback, "InspectCoordinator event listener is not initialized")
+local GetTime = assert(_G.GetTime, Diag.A.InspectCoordinatorTimeApiNotInitialized)
+local UnitAffectingCombat = assert(_G.UnitAffectingCombat, Diag.A.InspectCoordinatorCombatApiNotInitialized)
+local ClearInspectPlayer = assert(_G.ClearInspectPlayer, Diag.A.InspectCoordinatorClearApiNotInitialized)
+local RegisterCallback = assert(Bus.RegisterCallback, Diag.A.InspectCoordinatorEventListenerNotInitialized)
 local ResolveWowForwardedName =
-	assert(Events.ResolveWowForwardedName, "InspectCoordinator event resolver is not initialized")
+	assert(Events.ResolveWowForwardedName, Diag.A.InspectCoordinatorEventResolverNotInitialized)
 
 local REQUEST_TIMEOUT_SECONDS = 8
 local MIN_START_INTERVAL_SECONDS = 1.75
@@ -181,7 +182,7 @@ function module:Cancel(owner)
 	return cancelled
 end
 
-local regenEvent = assert(ResolveWowForwardedName("PLAYER_REGEN_ENABLED"), "InspectCoordinator regen event missing")
+local regenEvent = assert(ResolveWowForwardedName("PLAYER_REGEN_ENABLED"), Diag.A.InspectCoordinatorRegenEventMissing)
 RegisterCallback(regenEvent, function()
 	drain()
 end)

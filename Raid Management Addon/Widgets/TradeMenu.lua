@@ -5,17 +5,18 @@
 -- events: none
 -- notes: TradeFrame adapter for manual trade candidate dropdowns
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Widgets = addon.Widgets
 local Item = addon.Item
 local L = addon.L
 local Services = addon.Services
 
-local MasterService = assert(Services.Master, "Master service namespace is not initialized")
+local MasterService = assert(Services.Master, Diag.A.MasterServiceNamespaceNotInitialized)
 local _G = _G
-local CreateFrame = assert(_G.CreateFrame, "Trade menu frame creation API is not initialized")
-local GetTradePlayerItemLink = assert(_G.GetTradePlayerItemLink, "Trade menu item link API is not initialized")
-local UnitName = assert(_G.UnitName, "Trade menu unit name API is not initialized")
-local UIParent = assert(_G.UIParent, "Trade menu root UI parent is not initialized")
+local CreateFrame = assert(_G.CreateFrame, Diag.A.TradeMenuFrameCreationApiNotInitialized)
+local GetTradePlayerItemLink = assert(_G.GetTradePlayerItemLink, Diag.A.TradeMenuItemLinkApiNotInitialized)
+local UnitName = assert(_G.UnitName, Diag.A.TradeMenuUnitNameApiNotInitialized)
+local UIParent = assert(_G.UIParent, Diag.A.TradeMenuRootUiParentNotInitialized)
 local string = string
 local type = type
 local UI = addon.UI

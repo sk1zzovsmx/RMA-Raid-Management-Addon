@@ -4,39 +4,41 @@
 -- exports: publish module APIs on addon.*
 -- events: emits option-specific events; listens OptionsLoaded
 local addon = select(2, ...)
+local Diag = addon.Diag
 local L = addon.L
-local DebugEntryPoint = assert(addon.EntryPoints.Debug, "Config debug entrypoint is not initialized")
+local DebugEntryPoint = assert(addon.EntryPoints.Debug, Diag.A.ConfigDebugEntrypointNotInitialized)
 
 local Database = addon.Database
 local Options = addon.Options
 local UI = addon.UI
 local Frames = UI.Frames
 local Scaffold = UI.Scaffold
-local Layout = assert(UI.Layout, "Config options layout owner is not initialized")
-local ApplyOptionsRows = assert(Layout.ApplyRows, "Config options row layout applier is not initialized")
-local Popups = assert(UI.Popups, "Config popup namespace is not initialized")
-local ShowConfirmPopup = assert(Popups.ShowConfirm, "Config confirm popup shower is not initialized")
+local Layout = assert(UI.Layout, Diag.A.ConfigOptionsLayoutOwnerNotInitialized)
+local ApplyOptionsRows = assert(Layout.ApplyRows, Diag.A.ConfigOptionsRowLayoutApplierNotInitialized)
+local Popups = assert(UI.Popups, Diag.A.ConfigPopupNamespaceNotInitialized)
+local ShowConfirmPopup = assert(Popups.ShowConfirm, Diag.A.ConfigConfirmPopupShowerNotInitialized)
 local Strings = addon.Strings
 local Events = addon.Events
 local Bus = addon.Bus
 local Services = addon.Services
 local Controllers = addon.Controllers
-local SpammerController = assert(Controllers.Spammer, "Config spammer controller is not initialized")
-local WarningsController = assert(Controllers.Warnings, "Config warnings controller is not initialized")
-local SpammerDraft = assert(Services.Spammer.Draft, "Config spammer draft service is not initialized")
-local WarningStore = assert(Services.Warnings.Store, "Config warnings store service is not initialized")
-local InternalEvents = assert(Events.Internal, "Config internal events are not initialized")
-local RegisterCallback = assert(Bus.RegisterCallback, "Config event bus listener is not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "Config event bus sender is not initialized")
+local Widgets = addon.Widgets
+local SpammerController = assert(Controllers.Spammer, Diag.A.ConfigSpammerControllerNotInitialized)
+local WarningsController = assert(Controllers.Warnings, Diag.A.ConfigWarningsControllerNotInitialized)
+local SpammerDraft = assert(Services.Spammer.Draft, Diag.A.ConfigSpammerDraftServiceNotInitialized)
+local WarningStore = assert(Services.Warnings.Store, Diag.A.ConfigWarningsStoreServiceNotInitialized)
+local InternalEvents = assert(Events.Internal, Diag.A.ConfigInternalEventsNotInitialized)
+local RegisterCallback = assert(Bus.RegisterCallback, Diag.A.ConfigEventBusListenerNotInitialized)
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.ConfigEventBusSenderNotInitialized)
 local BuildConfigOptionChangedName =
-	assert(Events.BuildConfigOptionChangedName, "Config option-change event resolver is not initialized")
-local OptionsLoadedEvent = assert(InternalEvents.OptionsLoaded, "Config options-loaded event is not initialized")
-local ResetAllOptionDefaults = assert(Options.ResetAllDefaults, "Config options reset operation is not initialized")
-local SetDebugEnabled = assert(Options.SetDebugEnabled, "Config debug option setter is not initialized")
+	assert(Events.BuildConfigOptionChangedName, Diag.A.ConfigOptionChangeEventResolverNotInitialized)
+local OptionsLoadedEvent = assert(InternalEvents.OptionsLoaded, Diag.A.ConfigOptionsLoadedEventNotInitialized)
+local ResetAllOptionDefaults = assert(Options.ResetAllDefaults, Diag.A.ConfigOptionsResetOperationNotInitialized)
+local SetDebugEnabled = assert(Options.SetDebugEnabled, Diag.A.ConfigDebugOptionSetterNotInitialized)
 
 local _G = _G
 local InterfaceOptions_AddCategory =
-	assert(_G.InterfaceOptions_AddCategory, "Config interface options registration API is not initialized")
+	assert(_G.InterfaceOptions_AddCategory, Diag.A.ConfigInterfaceOptionsRegistrationApiNotInitialized)
 
 local format = string.format
 local gsub = string.gsub
@@ -326,11 +328,11 @@ do
 		return ApplyOptionsRows(frameName, rows, cfg)
 	end
 
-	local function getQuickBarController()
-		local controller = Controllers.QuickBar
-		if controller and controller.GetOrientation and controller.SetOrientation
-			and controller.IsButtonShown and controller.SetButtonShown then
-			return controller
+	local function getQuickBarWidget()
+		local widget = Widgets.QuickBar
+		if widget and widget.GetOrientation and widget.SetOrientation
+			and widget.IsButtonShown and widget.SetButtonShown then
+			return widget
 		end
 		return nil
 	end
@@ -602,25 +604,25 @@ do
 		if not frameName then
 			return
 		end
-		local channel = (GetOptionByKey("useRaidWarning") == true) and (RAID_WARNING or "Raid Warning") or "RAID"
+		local channel = (GetOptionByKey("useRaidWarning") == true) and (RAID_WARNING or L.StrConfigPanelRaidWarning) or "RAID"
 		local countdownMode = (GetOptionByKey("countdownSimpleRaidMsg") == true) and L.StrConfigMasterLootPreviewSimple
 			or L.StrConfigMasterLootPreviewDetailed
 		local countdownDuration = tostring(GetOptionByKey("countdownDuration") or 5)
 		local lines = {
-			format(L.StrConfigMasterLootPreviewWin or "Winner announce: %s", channel),
+			format(L.StrConfigMasterLootPreviewWin, channel),
 			format(
-				L.StrConfigMasterLootPreviewHold or "Hold announce: %s",
+				L.StrConfigMasterLootPreviewHold,
 				GetOptionByKey("announceOnHold") and "on" or "off"
 			),
 			format(
-				L.StrConfigMasterLootPreviewBank or "Bank announce: %s",
+				L.StrConfigMasterLootPreviewBank,
 				GetOptionByKey("announceOnBank") and "on" or "off"
 			),
 			format(
-				L.StrConfigMasterLootPreviewDisenchant or "Disenchant announce: %s",
+				L.StrConfigMasterLootPreviewDisenchant,
 				GetOptionByKey("announceOnDisenchant") and "on" or "off"
 			),
-			format(L.StrConfigMasterLootPreviewCountdown or "Countdown: %s sec, %s", countdownDuration, countdownMode),
+			format(L.StrConfigMasterLootPreviewCountdown, countdownDuration, countdownMode),
 		}
 		setText(frameName, "AnnouncementPreviewBody", table.concat(lines, "\n"))
 	end
@@ -786,10 +788,10 @@ do
 	end
 
 	local function refreshQuickBarPanel()
-		local controller = getQuickBarController()
+		local widget = getQuickBarWidget()
 		local dropDown = Frames.GetRef(quickBarContentFrameName, "OrientationDropDown")
-		if controller then
-			local orientation = controller:GetOrientation()
+		if widget then
+			local orientation = widget:GetOrientation()
 			UIDropDownMenu_SetText(dropDown, orientation == "vertical"
 				and L.StrConfigQuickBarVertical or L.StrConfigQuickBarHorizontal)
 			UIDropDownMenu_SetSelectedValue(dropDown, orientation)
@@ -800,15 +802,15 @@ do
 			UIDropDownMenu_DisableDropDown(dropDown)
 		end
 		for suffix, key in pairs(quickBarButtonSuffixes) do
-			setChecked(quickBarContentFrameName, suffix, controller and controller:IsButtonShown(key) == true)
-			setOptionControlEnabled(quickBarContentFrameName, suffix, controller ~= nil)
+			setChecked(quickBarContentFrameName, suffix, widget and widget:IsButtonShown(key) == true)
+			setOptionControlEnabled(quickBarContentFrameName, suffix, widget ~= nil)
 		end
 	end
 
 	local function onQuickBarOrientationClick(_button, _owner, value)
-		local controller = getQuickBarController()
-		if controller then
-			controller:SetOrientation(value)
+		local widget = getQuickBarWidget()
+		if widget then
+			widget:SetOrientation(value)
 		end
 		if CloseDropDownMenus then
 			CloseDropDownMenus()
@@ -846,10 +848,10 @@ do
 		for suffix, key in pairs(quickBarButtonSuffixes) do
 			local buttonKey = key
 			Frames.SetScriptSafely(Frames.GetRef(content, suffix), "OnClick", function(self)
-				local controller = getQuickBarController()
-				if controller then
+				local widget = getQuickBarWidget()
+				if widget then
 					local checked = self:GetChecked()
-					controller:SetButtonShown(buttonKey, checked == true or checked == 1)
+					widget:SetButtonShown(buttonKey, checked == true or checked == 1)
 				end
 				refreshQuickBarPanel()
 			end)

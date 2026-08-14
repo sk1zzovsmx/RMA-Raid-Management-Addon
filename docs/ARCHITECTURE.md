@@ -60,13 +60,14 @@ runtime placement; the feature boundaries describe workflow and data ownership.
   boss attendance table is canonical; roster
   inference is reserved for admission of legacy bosses whose `players` field is
   absent.
-  Raid-history synchronization is fail-closed and transactional. `DBSyncer.lua`
-  owns authorization, bounded request/chunk state, correlation, and terminal
-  delivery; `DBSyncPayload.lua` parses and validates detached snapshots/deltas;
-  `DBSyncImport.lua` builds candidates; and `DBRaidStore.lua` alone commits or
-  rolls back canonical history and its runtime revision indexes. No inbound
-  packet mutates `RMA_Raids` before trust, limits, protocol, schema, raid
-  identity, references, and revision monotonicity have all passed.
+  Raid-history synchronization is fail-closed and transactional.
+  `DBSyncProtocol.lua` owns the closed R5 envelope and payload validation;
+  `DBSyncSession.lua` owns bounded request correlation, chunk assembly, expiry,
+  and transfer rate policy; `DBSyncer.lua` owns authority, recovery, handover,
+  reentry, and historical-sharing orchestration; and `DBRaidStore.lua` alone
+  commits or rolls back canonical history. No inbound packet mutates
+  `RMA_Raids` before trust, limits, protocol, schema, raid identity, references,
+  sequence, and digest validation have all passed.
 - `Modules/*` owns shared helpers, constants, event names, communication,
   item/string/time utilities, static datasets, module registry, and shared UI
   helpers. `Modules/UI/Frames.lua` owns shared frame getters, module-frame

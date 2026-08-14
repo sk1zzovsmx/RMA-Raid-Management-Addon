@@ -5,6 +5,7 @@
 -- events: none
 -- notes: owns Master roll winner selection state and display model assembly
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Master = addon.Services.EnsureNamespace("Master")
 
 local RollSelection = Master.RollSelection or {}
@@ -264,15 +265,15 @@ function RollSelection.CreateController(opts)
 	local controller = {
 		getDisplayModel = assert(
 			opts.getDisplayModel,
-			"Master RollSelection display model resolver is not initialized"
+			Diag.A.MasterRollSelectionDisplayModelResolverNotInitialized
 		),
 		getSessionKey = opts.getSessionKey,
 		isSelectionBlocked = opts.isSelectionBlocked,
 		isFromInventory = opts.isFromInventory,
 		onSelectionBlocked = opts.onSelectionBlocked,
-		rollRows = assert(opts.rollRows, "Master RollSelection row model owner is not initialized"),
-		selection = assert(opts.selection, "Master RollSelection selection owner is not initialized"),
-		state = assert(opts.state, "Master RollSelection state table is not initialized"),
+		rollRows = assert(opts.rollRows, Diag.A.MasterRollSelectionRowModelOwnerNotInitialized),
+		selection = assert(opts.selection, Diag.A.MasterRollSelectionSelectionOwnerNotInitialized),
+		state = assert(opts.state, Diag.A.MasterRollSelectionStateTableNotInitialized),
 		warnTooMany = opts.warnTooMany,
 	}
 

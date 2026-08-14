@@ -4,6 +4,7 @@
 -- exports: publish module APIs on addon.*
 -- events: none
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Database = addon.Database
 local L = addon.L
 local Services = addon.Services
@@ -15,13 +16,13 @@ local tostring = tostring
 local type = type
 local strmatch = string.match
 
-local GetLootMethod = assert(_G.GetLootMethod, "Raid capability loot-method API is not initialized")
-local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "Raid capability roster count API is not initialized")
-local GetRaidRosterInfo = assert(_G.GetRaidRosterInfo, "Raid capability roster API is not initialized")
-local UnitIsUnit = assert(_G.UnitIsUnit, "Raid capability unit comparison API is not initialized")
-local UnitName = assert(_G.UnitName, "Raid capability unit-name API is not initialized")
-local GetUnitRank = assert(Database.GetUnitRank, "Raid capability group-rank resolver is not initialized")
-local NormalizeLower = assert(Strings.NormalizeLower, "Raid capability name normalizer is not initialized")
+local GetLootMethod = assert(_G.GetLootMethod, Diag.A.RaidCapabilityLootMethodApiNotInitialized)
+local GetNumRaidMembers = assert(_G.GetNumRaidMembers, Diag.A.RaidCapabilityRosterCountApiNotInitialized)
+local GetRaidRosterInfo = assert(_G.GetRaidRosterInfo, Diag.A.RaidCapabilityRosterApiNotInitialized)
+local UnitIsUnit = assert(_G.UnitIsUnit, Diag.A.RaidCapabilityUnitComparisonApiNotInitialized)
+local UnitName = assert(_G.UnitName, Diag.A.RaidCapabilityUnitNameApiNotInitialized)
+local GetUnitRank = assert(Database.GetUnitRank, Diag.A.RaidCapabilityGroupRankResolverNotInitialized)
+local NormalizeLower = assert(Strings.NormalizeLower, Diag.A.RaidCapabilityNameNormalizerNotInitialized)
 
 local function readLootMethodName()
 	local method = select(1, GetLootMethod())
@@ -55,8 +56,8 @@ do
 		addon:warn(L.WarnMLOnlyMode or L.WarnMLNoPermission)
 	end
 
-	local IsPlayerInRaid = assert(module.IsPlayerInRaid, "Raid capability raid-membership resolver is not initialized")
-	local GetUnitID = assert(module.GetUnitID, "Raid capability unit resolver is not initialized")
+	local IsPlayerInRaid = assert(module.IsPlayerInRaid, Diag.A.RaidCapabilityRaidMembershipResolverNotInitialized)
+	local GetUnitID = assert(module.GetUnitID, Diag.A.RaidCapabilityUnitResolverNotInitialized)
 	local function getMasterLooterUnit()
 		local method, partyMaster, raidMaster = GetLootMethod()
 		if method ~= "master" then

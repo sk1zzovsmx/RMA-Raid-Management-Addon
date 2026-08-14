@@ -32,9 +32,9 @@ end
 
 local function resolveRollAnnouncementSuffix(sortAscending)
 	if sortAscending == true then
-		return "Low"
+		return L.StrRollLow
 	end
-	return "High"
+	return L.StrRollHigh
 end
 
 local function getTemplate(key)
@@ -94,7 +94,7 @@ function Messages.BuildLootSpamPlan(opts)
 			lootLines[#lootLines + 1] = (tonumber(item.index) or i) .. ". " .. item.itemLink .. suffix
 			if item.reservedPlayers and item.reservedPlayers ~= "" then
 				reservedCount = reservedCount + 1
-				reservedLines[reservedCount] = (L.ChatSpamLootReservedLine or "%d. %s by %s"):format(
+				reservedLines[reservedCount] = L.ChatSpamLootReservedLine:format(
 					reservedCount,
 					item.itemLink,
 					item.reservedPlayers
@@ -106,7 +106,7 @@ function Messages.BuildLootSpamPlan(opts)
 	return {
 		header = buildLootSpamHeader(opts.sourceName),
 		lootLines = lootLines,
-		reservedHeader = reservedCount > 0 and (L.ChatSpamLootReservedHeader or "Item reserved:") or nil,
+		reservedHeader = reservedCount > 0 and L.ChatSpamLootReservedHeader or nil,
 		reservedLines = reservedLines,
 	}
 end

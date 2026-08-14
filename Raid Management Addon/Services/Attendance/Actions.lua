@@ -4,6 +4,7 @@
 -- exports: publish module APIs on addon.*
 -- events: emits RaidAttendanceChanged after completed mutations
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Database = addon.Database
 local Events = addon.Events
 local Bus = addon.Bus
@@ -11,10 +12,10 @@ local Services = addon.Services
 
 local type, tonumber = type, tonumber
 
-local InternalEvents = assert(Events.Internal, "Attendance actions internal events are not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "Attendance actions event publisher is not initialized")
+local InternalEvents = assert(Events.Internal, Diag.A.AttendanceActionsInternalEventsNotInitialized)
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.AttendanceActionsEventPublisherNotInitialized)
 local RaidAttendanceChangedEvent =
-	assert(InternalEvents.RaidAttendanceChanged, "Attendance actions changed event is not initialized")
+	assert(InternalEvents.RaidAttendanceChanged, Diag.A.AttendanceActionsChangedEventNotInitialized)
 
 addon.Services.EnsureNamespace("Attendance", "Actions")
 local Attendance = Services.Attendance

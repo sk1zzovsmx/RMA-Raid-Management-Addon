@@ -4,8 +4,9 @@
 -- exports: addon.Timer (mixin: ScheduleTimer/CancelTimer; static: RefreshStats/ShowStats)
 -- events: none (purely a timer mixin; does not emit Bus events)
 local addon = select(2, ...)
+local Diag = addon.Diag
 local L = addon.L
-local DebugEntryPoint = assert(addon.EntryPoints.Debug, "Timer debug entrypoint is not initialized")
+local DebugEntryPoint = assert(addon.EntryPoints.Debug, Diag.A.TimerDebugEntrypointNotInitialized)
 
 local type, pairs, select, rawget, rawset, tostring, tonumber = type, pairs, select, rawget, rawset, tostring, tonumber
 local pcall, error = pcall, error
@@ -13,8 +14,8 @@ local format = string.format
 local tsort = table.sort
 local tinsert, tremove = table.insert, table.remove
 local max = math.max
-local GetTime = assert(_G.GetTime, "RMA Timer: GetTime API is not initialized")
-local CreateFrame = assert(_G.CreateFrame, "RMA Timer: CreateFrame API is not initialized")
+local GetTime = assert(_G.GetTime, Diag.A.RmaTimerGetTimeApiNotInitialized)
+local CreateFrame = assert(_G.CreateFrame, Diag.A.RmaTimerCreateFrameApiNotInitialized)
 
 local Timer = addon.Timer or {}
 addon.Timer = Timer

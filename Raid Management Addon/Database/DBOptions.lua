@@ -4,6 +4,7 @@
 -- exports: publish module APIs on addon.Options
 -- events: emits OptionChanged, OptionsReset, OptionsLoaded via addon.Bus
 local addon = select(2, ...)
+local Diag = addon.Diag
 local type, pairs, tostring, tonumber = type, pairs, tostring, tonumber
 local format = string.format
 
@@ -37,25 +38,26 @@ local keyToNamespace = {}
 local loaded = false
 
 -- ----- Private helpers ----- --
-local function copyOptionValue(value, seen)
+local function copyOptionValue(value, active)
 	if type(value) ~= "table" then
 		return value
 	end
 
-	seen = seen or {}
-	if seen[value] then
-		return seen[value]
+	active = active or {}
+	if active[value] then
+		error("Options: cyclic option values are not supported", 3)
 	end
 
+	active[value] = true
 	local copied = {}
-	seen[value] = copied
 	for key, nestedValue in pairs(value) do
-		copied[copyOptionValue(key, seen)] = copyOptionValue(nestedValue, seen)
+		copied[copyOptionValue(key, active)] = copyOptionValue(nestedValue, active)
 	end
+	active[value] = nil
 	return copied
 end
 
-local function optionValuesEquivalent(left, right, leftSeen, rightSeen)
+local function optionValuesEquivalent(left, right)
 	if type(left) ~= type(right) then
 		return false
 	end
@@ -63,21 +65,13 @@ local function optionValuesEquivalent(left, right, leftSeen, rightSeen)
 		return left == right
 	end
 
-	leftSeen = leftSeen or {}
-	rightSeen = rightSeen or {}
-	if leftSeen[left] or rightSeen[right] then
-		return leftSeen[left] == right and rightSeen[right] == left
-	end
-
-	leftSeen[left] = right
-	rightSeen[right] = left
 	local rightCount = 0
 	for _ in pairs(right) do
 		rightCount = rightCount + 1
 	end
 	for key, value in pairs(left) do
 		rightCount = rightCount - 1
-		if rightCount < 0 or not optionValuesEquivalent(value, right[key], leftSeen, rightSeen) then
+		if rightCount < 0 or not optionValuesEquivalent(value, right[key]) then
 			return false
 		end
 	end
@@ -113,7 +107,7 @@ local function normalizeOptionStore(store, defaults, removeUnknown)
 end
 
 local function emit(eventName, ...)
-	local triggerEvent = assert(Bus.TriggerEvent, "Options event bus sender is not initialized")
+	local triggerEvent = assert(Bus.TriggerEvent, Diag.A.OptionsEventBusSenderNotInitialized)
 	triggerEvent(eventName, ...)
 end
 
@@ -221,11 +215,12 @@ function Options.RegisterNamespace(name, defaults)
 		error("Options.RegisterNamespace: defaults must be a table", 2)
 	end
 	validateDefaultKeys(defaults)
+	local copiedDefaults = copyOptionValue(defaults)
 
 	local existing = namespaces[name]
 	if existing then
 		-- Allow modular re-registration: each owner contributes its own keys.
-		for key, defaultValue in pairs(defaults) do
+		for key, defaultValue in pairs(copiedDefaults) do
 			local registeredDefault = existing._defaults[key]
 			if registeredDefault ~= nil and not optionValuesEquivalent(registeredDefault, defaultValue) then
 				error(
@@ -242,9 +237,9 @@ function Options.RegisterNamespace(name, defaults)
 				error(format("Options.RegisterNamespace: key %q is already owned by namespace %q", key, owner._name), 2)
 			end
 		end
-		for key, defaultValue in pairs(defaults) do
+		for key, defaultValue in pairs(copiedDefaults) do
 			if existing._defaults[key] == nil then
-				existing._defaults[key] = copyOptionValue(defaultValue)
+				existing._defaults[key] = defaultValue
 				if type(existing._store[key]) ~= type(defaultValue) then
 					existing._store[key] = copyOptionValue(defaultValue)
 				end
@@ -254,14 +249,13 @@ function Options.RegisterNamespace(name, defaults)
 		return existing
 	end
 
-	for key in pairs(defaults) do
+	for key in pairs(copiedDefaults) do
 		local owner = keyToNamespace[key]
 		if owner then
 			error(format("Options.RegisterNamespace: key %q is already owned by namespace %q", key, owner._name), 2)
 		end
 	end
 
-	local copiedDefaults = copyOptionValue(defaults)
 	local store = applyDefaultsToStorage(name, copiedDefaults)
 	local ns = setmetatable({
 		_name = name,
@@ -272,7 +266,7 @@ function Options.RegisterNamespace(name, defaults)
 	namespaces[name] = ns
 	-- Reverse key-to-namespace index for the read-only `addon.options` proxy.
 	-- Ownership is unique so the read-only option proxy remains unambiguous.
-	for key in pairs(defaults) do
+	for key in pairs(copiedDefaults) do
 		keyToNamespace[key] = ns
 	end
 	return ns

@@ -6,29 +6,30 @@
 -- ui ownership: XML owns fixed picker skeletons; Lua owns dynamic buttons, data, and selection.
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Widgets = addon.Widgets
 local UI = addon.UI
 local Frames = UI.Frames
 local Tooltips = UI.Tooltips
-local SetFrameTitle = assert(Frames.SetFrameTitle, "RaidGrid frame title service is not initialized")
-local ShowTooltipLines = assert(Tooltips.ShowLines, "RaidGrid tooltip display service is not initialized")
-local HideTooltip = assert(Tooltips.Hide, "RaidGrid tooltip hide service is not initialized")
+local SetFrameTitle = assert(Frames.SetFrameTitle, Diag.A.RaidGridFrameTitleServiceNotInitialized)
+local ShowTooltipLines = assert(Tooltips.ShowLines, Diag.A.RaidGridTooltipDisplayServiceNotInitialized)
+local HideTooltip = assert(Tooltips.Hide, Diag.A.RaidGridTooltipHideServiceNotInitialized)
 local Primitives = UI.Primitives
 local Services = addon.Services
-local SpecInspect = assert(Services.SpecInspect, "RaidGrid spec inspect service is not initialized")
+local SpecInspect = assert(Services.SpecInspect, Diag.A.RaidGridSpecInspectServiceNotInitialized)
 local GetPlayerSpecSnapshot =
-	assert(SpecInspect.GetPlayerSpecSnapshot, "RaidGrid spec snapshot resolver is not initialized")
+	assert(SpecInspect.GetPlayerSpecSnapshot, Diag.A.RaidGridSpecSnapshotResolverNotInitialized)
 local Colors = addon.Colors
 local L = addon.L
 local Events = addon.Events
 local Bus = addon.Bus
-local InternalEvents = assert(Events.Internal, "RaidGrid internal events are not initialized")
-local RegisterCallback = assert(Bus.RegisterCallback, "RaidGrid event bus listener is not initialized")
+local InternalEvents = assert(Events.Internal, Diag.A.RaidGridInternalEventsNotInitialized)
+local RegisterCallback = assert(Bus.RegisterCallback, Diag.A.RaidGridEventBusListenerNotInitialized)
 local SpecInspectUpdatedEvent =
-	assert(InternalEvents.SpecInspectUpdated, "RaidGrid spec update event is not initialized")
+	assert(InternalEvents.SpecInspectUpdated, Diag.A.RaidGridSpecUpdateEventNotInitialized)
 
 local _G = _G
-local CreateFrame = assert(_G.CreateFrame, "RaidGrid button creation API is not initialized")
+local CreateFrame = assert(_G.CreateFrame, Diag.A.RaidGridButtonCreationApiNotInitialized)
 local tinsert = table.insert
 local type, tostring, tonumber = type, tostring, tonumber
 local strmatch, strlen, strsub = string.match, string.len, string.sub
@@ -83,7 +84,7 @@ do
 		end
 	end
 
-	local setTextureColor = assert(Primitives.SetTextureColor, "RaidGrid texture-color primitive is not initialized")
+	local setTextureColor = assert(Primitives.SetTextureColor, Diag.A.RaidGridTextureColorPrimitiveNotInitialized)
 
 	local function shortName(name)
 		if not name then
@@ -238,7 +239,7 @@ do
 			end
 			ShowTooltipLines(self, {
 				anchor = "ANCHOR_RIGHT",
-				title = self.fullName or "Unknown",
+				title = self.fullName or L.StrUnknown,
 				lines = lines,
 			})
 		end)
@@ -304,7 +305,7 @@ do
 				module.Hide()
 			end)
 		end
-		SetFrameTitle(frame, L.StrRaidGridSelectorTitle or "Grid Selector")
+		SetFrameTitle(frame, L.StrRaidGridSelectorTitle)
 		setTextureColor(frame.divider, 1, 0.82, 0, 0.35)
 
 		if type(_G.UISpecialFrames) == "table" then

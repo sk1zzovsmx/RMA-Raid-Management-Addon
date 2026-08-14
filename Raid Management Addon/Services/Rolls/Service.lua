@@ -104,12 +104,12 @@ do
 		countdownRollsBlock = true,
 	})
 
-	local Countdown = assert(module._Countdown, "Rolls countdown helpers are not initialized")
-	local Sessions = assert(module._Sessions, "Rolls session helpers are not initialized")
-	local History = assert(module._History, "Rolls history helpers are not initialized")
-	local Responses = assert(module._Responses, "Rolls response helpers are not initialized")
-	local Strategies = assert(module._Strategies, "Rolls strategy helpers are not initialized")
-	local Display = assert(module._Display, "Rolls display helpers are not initialized")
+	local Countdown = assert(module._Countdown, Diag.A.RollsCountdownHelpersNotInitialized)
+	local Sessions = assert(module._Sessions, Diag.A.RollsSessionHelpersNotInitialized)
+	local History = assert(module._History, Diag.A.RollsHistoryHelpersNotInitialized)
+	local Responses = assert(module._Responses, Diag.A.RollsResponseHelpersNotInitialized)
+	local Strategies = assert(module._Strategies, Diag.A.RollsStrategyHelpersNotInitialized)
+	local Display = assert(module._Display, Diag.A.RollsDisplayHelpersNotInitialized)
 	local reasonCodes = Responses.REASONS
 	-- ----- Internal state ----- --
 	local state = {

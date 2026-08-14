@@ -33,7 +33,8 @@ does not change user-facing feature scope or wire formats.
 - Old behavior: persisted values with the wrong Lua type could survive, nested
   table defaults could alias mutable storage, duplicate key ownership was
   ambiguous, and namespace registry state was exposed.
-- New behavior: registered defaults are copied recursively and cycle-safely;
+- New behavior: registered acyclic defaults are copied recursively and cyclic
+  defaults are rejected before registration;
   wrong-type and unknown persisted values are normalized during admission;
   valid `false` values remain valid; conflicting ownership and incompatible
   redeclarations are rejected; registry/query snapshots do not expose internal
@@ -43,7 +44,7 @@ does not change user-facing feature scope or wire formats.
 - Compatibility and migration: registered values of the declared type are
   retained. Invalid or unknown `RMA_Options` entries are intentionally removed
   or reset to defaults on load. No non-RMA data is read.
-- Evidence: option type, aliasing, cycle, ownership, extension, redeclaration,
+- Evidence: option type, aliasing, cycle rejection, ownership, extension, redeclaration,
   namespace snapshot, and facade behavior tests pass.
 
 ### Future raid schemas

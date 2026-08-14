@@ -13,21 +13,21 @@ local Comms = addon.Comms
 local Item = addon.Item
 local Services = addon.Services
 local Strings = addon.Strings
-local Payload = assert(Comms.Payload, "Loot distribution payload codec is not initialized")
-local InternalEvents = assert(Events.Internal, "Loot distribution internal events are not initialized")
+local Payload = assert(Comms.Payload, Diag.A.LootDistributionPayloadCodecNotInitialized)
+local InternalEvents = assert(Events.Internal, Diag.A.LootDistributionInternalEventsNotInitialized)
 
 local _G = _G
-local GetTime = assert(_G.GetTime, "Loot distribution time API is not initialized")
-local GetPlayerName = assert(Database.GetPlayerName, "Loot distribution player-name resolver is not initialized")
-local QueueAddonMessage = assert(Comms.QueueAddonMessage, "Loot distribution direct sender is not initialized")
-local QueueAddonMessages = assert(Comms.QueueAddonMessages, "Loot distribution batch sender is not initialized")
-local SendAddonBatch = assert(Comms.SendAddonBatch, "Loot distribution group sender is not initialized")
+local GetTime = assert(_G.GetTime, Diag.A.LootDistributionTimeApiNotInitialized)
+local GetPlayerName = assert(Database.GetPlayerName, Diag.A.LootDistributionPlayerNameResolverNotInitialized)
+local QueueAddonMessage = assert(Comms.QueueAddonMessage, Diag.A.LootDistributionDirectSenderNotInitialized)
+local QueueAddonMessages = assert(Comms.QueueAddonMessages, Diag.A.LootDistributionBatchSenderNotInitialized)
+local SendAddonBatch = assert(Comms.SendAddonBatch, Diag.A.LootDistributionGroupSenderNotInitialized)
 local DistributionChangedEvent =
-	assert(InternalEvents.LootDistributionSessionChanged, "Loot distribution change event is not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "Loot distribution event bus sender is not initialized")
-local Raid = assert(Services.Raid, "Loot distribution raid service is not initialized")
-local IsGroupMember = assert(Raid.IsGroupMember, "Loot distribution group-membership resolver is not initialized")
-local IsLootAuthority = assert(Raid.IsLootAuthority, "Loot distribution authority resolver is not initialized")
+	assert(InternalEvents.LootDistributionSessionChanged, Diag.A.LootDistributionChangeEventNotInitialized)
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.LootDistributionEventBusSenderNotInitialized)
+local Raid = assert(Services.Raid, Diag.A.LootDistributionRaidServiceNotInitialized)
+local IsGroupMember = assert(Raid.IsGroupMember, Diag.A.LootDistributionGroupMembershipResolverNotInitialized)
+local IsLootAuthority = assert(Raid.IsLootAuthority, Diag.A.LootDistributionAuthorityResolverNotInitialized)
 local type, tostring, tonumber, next = type, tostring, tonumber, next
 local tinsert, tsort, tconcat = table.insert, table.sort, table.concat
 
@@ -110,7 +110,7 @@ local trustedAuthority = type(DistributionSession._trustedAuthority) == "string"
 	or nil
 local sessionEndRequested = false
 local lastWindowNow = tonumber(GetTime())
-assert(lastWindowNow and lastWindowNow == lastWindowNow and lastWindowNow >= 0, "Loot distribution time is invalid")
+assert(lastWindowNow and lastWindowNow == lastWindowNow and lastWindowNow >= 0, Diag.A.LootDistributionTimeInvalid)
 
 -- ----- Private helpers ----- --
 local function getIncomingNow()
@@ -131,16 +131,16 @@ end
 
 local normalizeText = Strings.NormalizeText
 
-local resolveItemKey = assert(Item.GetItemKey, "Loot distribution item-key resolver is not initialized")
+local resolveItemKey = assert(Item.GetItemKey, Diag.A.LootDistributionItemKeyResolverNotInitialized)
 
 local function buildSessionId()
 	local playerName = normalizeText(GetPlayerName(), true)
-	assert(playerName, "Loot distribution player name is not initialized")
+	assert(playerName, Diag.A.LootDistributionPlayerNameNotInitialized)
 	local ordinal = tonumber(state.nextSessionOrdinal) or 1
 	state.nextSessionOrdinal = ordinal + 1
 
 	local now = tonumber(GetTime())
-	assert(now, "Loot distribution time API returned invalid timestamp")
+	assert(now, Diag.A.LootDistributionTimeApiReturnedInvalidTimestamp)
 	return tostring(playerName) .. ":" .. tostring(ordinal) .. ":" .. tostring(now)
 end
 
@@ -162,9 +162,9 @@ local function setSessionId(sessionId)
 end
 
 local function canPublish()
-	local raid = assert(Services.Raid, "Loot distribution raid service is not initialized")
+	local raid = assert(Services.Raid, Diag.A.LootDistributionRaidServiceNotInitialized)
 	local CanUseCapability =
-		assert(raid.CanUseCapability, "Loot distribution raid capability resolver is not initialized")
+		assert(raid.CanUseCapability, Diag.A.LootDistributionRaidCapabilityResolverNotInitialized)
 	return CanUseCapability(raid, "loot") == true
 end
 

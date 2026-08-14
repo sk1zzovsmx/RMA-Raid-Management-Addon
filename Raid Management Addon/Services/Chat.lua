@@ -4,6 +4,7 @@
 -- exports: publish module APIs on addon.*
 -- events: owns chat output helpers and LFM spam transport
 local addon = select(2, ...)
+local Diag = addon.Diag
 local L = addon.L
 
 local C = addon.C
@@ -13,8 +14,8 @@ local Deformat = addon.Deformat
 local Options = addon.Options
 local Services = addon.Services
 local Strings = addon.Strings
-local Group = assert(addon.Group, "Chat group helper owner is not initialized")
-local GetGroupTypeAndCount = assert(Group.GetTypeAndCount, "Chat group policy helper is not initialized")
+local Group = assert(addon.Group, Diag.A.ChatGroupHelperOwnerNotInitialized)
+local GetGroupTypeAndCount = assert(Group.GetTypeAndCount, Diag.A.ChatGroupPolicyHelperNotInitialized)
 
 local find = string.find
 local len = string.len

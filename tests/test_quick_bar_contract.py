@@ -8,16 +8,28 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 ADDON = ROOT / "Raid Management Addon"
 TOC = ADDON / "Raid Management Addon.toc"
-CONTROLLER = ADDON / "Controllers" / "QuickBar.lua"
+WIDGET = ADDON / "Widgets" / "QuickBar.lua"
+RETIRED_CONTROLLER = ADDON / "Controllers" / "QuickBar.lua"
 XML = ADDON / "UI" / "QuickBar.xml"
 MINIMAP = ADDON / "EntryPoints" / "Minimap.lua"
+SLASH = ADDON / "EntryPoints" / "SlashEvents.lua"
+CONFIG = ADDON / "Controllers" / "Config.lua"
+INIT = ADDON / "Init.lua"
 
 
 class QuickBarContractTest(unittest.TestCase):
-    def test_toc_loads_controller_before_minimap_and_xml_layout(self) -> None:
+    def test_toc_loads_widget_before_minimap_and_xml_layout(self) -> None:
         toc = TOC.read_text(encoding="utf-8")
-        self.assertLess(toc.index(r"Controllers\QuickBar.lua"), toc.index(r"EntryPoints\Minimap.lua"))
+        self.assertLess(toc.index(r"Widgets\QuickBar.lua"), toc.index(r"EntryPoints\Minimap.lua"))
+        self.assertNotIn(r"Controllers\QuickBar.lua", toc)
         self.assertIn(r"UI\QuickBar.xml", toc)
+
+    def test_quick_bar_has_widget_ownership_only(self) -> None:
+        self.assertTrue(WIDGET.is_file())
+        self.assertFalse(RETIRED_CONTROLLER.exists())
+        source = WIDGET.read_text(encoding="utf-8")
+        self.assertIn("Widgets.QuickBar", source)
+        self.assertNotIn("Controllers.QuickBar", source)
 
     def test_xml_declares_static_separators_and_loot_glows(self) -> None:
         source = XML.read_text(encoding="utf-8")
@@ -36,8 +48,8 @@ class QuickBarContractTest(unittest.TestCase):
                 r'<Layers>\s*<Layer level="OVERLAY">\s*<Texture name="\$parentGlow"',
             )
 
-    def test_controller_persists_only_approved_quick_bar_values(self) -> None:
-        source = CONTROLLER.read_text(encoding="utf-8")
+    def test_widget_persists_only_approved_quick_bar_values(self) -> None:
+        source = WIDGET.read_text(encoding="utf-8")
         expected = {
             "quickBar": "false",
             "quickBarX": "0",
@@ -56,8 +68,14 @@ class QuickBarContractTest(unittest.TestCase):
 
     def test_minimap_resolves_quick_bar_lazily(self) -> None:
         source = MINIMAP.read_text(encoding="utf-8")
-        self.assertIn("Controllers.QuickBar", source)
-        self.assertNotIn("assert(Controllers.QuickBar", source)
+        self.assertIn("Widgets.QuickBar", source)
+        self.assertNotIn("assert(Widgets.QuickBar", source)
+
+    def test_runtime_consumers_do_not_use_retired_controller_ownership(self) -> None:
+        for path in (MINIMAP, SLASH, CONFIG, INIT):
+            source = path.read_text(encoding="utf-8")
+            self.assertNotIn("Controllers.QuickBar", source, path.name)
+            self.assertIn("Widgets.QuickBar", source, path.name)
 
     def test_quick_bar_is_final_minimap_menu_action(self) -> None:
         source = MINIMAP.read_text(encoding="utf-8")

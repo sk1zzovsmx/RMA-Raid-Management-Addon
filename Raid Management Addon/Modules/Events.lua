@@ -28,6 +28,7 @@ Wow.GetItemInfoReceived = Wow.GetItemInfoReceived or "wow.GET_ITEM_INFO_RECEIVED
 Wow.PlayerRegenEnabled = Wow.PlayerRegenEnabled or "wow.PLAYER_REGEN_ENABLED"
 Wow.ZoneChangedNewArea = Wow.ZoneChangedNewArea or "wow.ZONE_CHANGED_NEW_AREA"
 Wow.PartyLootMethodChanged = Wow.PartyLootMethodChanged or "wow.PARTY_LOOT_METHOD_CHANGED"
+Wow.RaidRosterUpdate = Wow.RaidRosterUpdate or "wow.RAID_ROSTER_UPDATE"
 
 Internal.AddRoll = "AddRoll"
 Internal.SpecInspectUpdated = "SpecInspectUpdated"

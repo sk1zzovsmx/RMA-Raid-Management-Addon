@@ -5,10 +5,11 @@
 -- events: none
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local DB = addon.DB
-local RaidEvents = assert(DB.RaidEvents, "Raid event codec dependency is not initialized")
-local Payload = assert(addon.Comms and addon.Comms.Payload, "Comms payload helpers are not initialized")
-local Item = assert(addon.Item, "Item dependency is not initialized")
+local RaidEvents = assert(DB.RaidEvents, Diag.A.RaidEventCodecDependencyNotInitialized)
+local Payload = assert(addon.Comms and addon.Comms.Payload, Diag.A.CommsPayloadHelpersNotInitialized)
+local Item = assert(addon.Item, Diag.A.ItemDependencyNotInitialized)
 
 DB.SyncProtocol = DB.SyncProtocol or {}
 local Protocol = DB.SyncProtocol

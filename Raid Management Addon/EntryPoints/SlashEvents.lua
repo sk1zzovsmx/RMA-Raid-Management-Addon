@@ -4,26 +4,27 @@
 -- exports: publish module APIs on addon.*
 -- events: owns /rma slash command routing; dispatches Controller, Widget, and sync commands
 local addon = select(2, ...)
+local Diag = addon.Diag
 local L = addon.L
 
 local coreState = addon.State
 local Options = addon.Options
 local UI = addon.UI
 local Widgets = addon.Widgets
-local LootCounterWidget = assert(Widgets.LootCounter, "Slash loot counter widget is not initialized")
-local ReservesWidget = assert(Widgets.ReservesUI, "Slash reserves widget is not initialized")
+local LootCounterWidget = assert(Widgets.LootCounter, Diag.A.SlashLootCounterWidgetNotInitialized)
+local ReservesWidget = assert(Widgets.ReservesUI, Diag.A.SlashReservesWidgetNotInitialized)
 local Colors = addon.Colors
 local Strings = addon.Strings
 local Database = addon.Database
 local Services = addon.Services
-local DebugEntryPoint = assert(addon.EntryPoints.Debug, "Debug entrypoint is not initialized")
+local DebugEntryPoint = assert(addon.EntryPoints.Debug, Diag.A.DebugEntrypointNotInitialized)
 local Controllers = addon.Controllers
-local MasterController = assert(Controllers.Master, "Slash master controller is not initialized")
-local LoggerController = assert(Controllers.Logger, "Slash logger controller is not initialized")
-local AttendanceController = assert(Controllers.Attendance, "Slash attendance controller is not initialized")
-local WarningsController = assert(Controllers.Warnings, "Slash warnings controller is not initialized")
-local SpammerController = assert(Controllers.Spammer, "Slash spammer controller is not initialized")
-local ConfigController = assert(Controllers.Config, "Config controller is not initialized")
+local MasterController = assert(Controllers.Master, Diag.A.SlashMasterControllerNotInitialized)
+local LoggerController = assert(Controllers.Logger, Diag.A.SlashLoggerControllerNotInitialized)
+local AttendanceController = assert(Controllers.Attendance, Diag.A.SlashAttendanceControllerNotInitialized)
+local WarningsController = assert(Controllers.Warnings, Diag.A.SlashWarningsControllerNotInitialized)
+local SpammerController = assert(Controllers.Spammer, Diag.A.SlashSpammerControllerNotInitialized)
+local ConfigController = assert(Controllers.Config, Diag.A.ConfigControllerNotInitialized)
 local Comms = addon.Comms
 local Item = addon.Item
 
@@ -186,15 +187,15 @@ end
 
 local function handleQuickBarCommand(rest)
 	local sub = Strings.SplitArgs(rest)
-	local controller = Controllers.QuickBar
-	if not (controller and controller.SetShown) then
+	local widget = Widgets.QuickBar
+	if not (widget and widget.SetShown) then
 		addon:warn(L.MsgFeatureUnavailable, "QuickBar", sub or "")
 		return
 	end
 	if sub == "show" then
-		controller:SetShown(true)
+		widget:SetShown(true)
 	elseif sub == "hide" then
-		controller:SetShown(false)
+		widget:SetShown(false)
 	else
 		showQuickBarHelp()
 	end
@@ -268,8 +269,8 @@ local function countRaidHistory()
 end
 
 local function countReserves()
-	local reserves = assert(Services.Reserves, "Slash reserves service is not initialized")
-	local getCounts = assert(reserves.GetCounts, "Slash reserves count resolver is not initialized")
+	local reserves = assert(Services.Reserves, Diag.A.SlashReservesServiceNotInitialized)
+	local getCounts = assert(reserves.GetCounts, Diag.A.SlashReservesCountResolverNotInitialized)
 	return getCounts(reserves)
 end
 
@@ -658,9 +659,9 @@ local function formatSoftResHealthSeverity(severity)
 end
 
 local function getCurrentSoftResItem()
-	local loot = assert(Services.Loot, "Slash softres loot service is not initialized")
-	local getItemLink = assert(loot.GetItemLink, "Slash softres loot item resolver is not initialized")
-	local getItemIdFromLink = assert(Item.GetItemIdFromLink, "Slash softres item-id resolver is not initialized")
+	local loot = assert(Services.Loot, Diag.A.SlashSoftresLootServiceNotInitialized)
+	local getItemLink = assert(loot.GetItemLink, Diag.A.SlashSoftresLootItemResolverNotInitialized)
+	local getItemIdFromLink = assert(Item.GetItemIdFromLink, Diag.A.SlashSoftresItemIdResolverNotInitialized)
 	local link
 	local itemId
 
@@ -702,9 +703,9 @@ local function printSoftResHealthReport(health)
 end
 
 local function printSoftResReadinessReport()
-	local reserves = assert(Services.Reserves, "Slash reserves service is not initialized")
+	local reserves = assert(Services.Reserves, Diag.A.SlashReservesServiceNotInitialized)
 	local getReadinessReport =
-		assert(reserves.GetReadinessReport, "Slash reserves readiness reporter is not initialized")
+		assert(reserves.GetReadinessReport, Diag.A.SlashReservesReadinessReporterNotInitialized)
 	local itemId
 	local itemLink
 	local report
@@ -797,14 +798,14 @@ end
 
 local function handleReservesCommand(rest)
 	local sub, arg = Strings.SplitArgs(rest)
-	local reserves = assert(Services.Reserves, "Slash reserves service is not initialized")
-	local setNameAlias = assert(reserves.SetNameAlias, "Slash reserves alias setter is not initialized")
-	local removeNameAlias = assert(reserves.RemoveNameAlias, "Slash reserves alias remover is not initialized")
-	local getNameAliases = assert(reserves.GetNameAliases, "Slash reserves alias lister is not initialized")
-	local requestSyncMetadata = assert(reserves.RequestSyncMetadata, "Slash reserves sync requester is not initialized")
-	local getSyncMetadata = assert(reserves.GetSyncMetadata, "Slash reserves sync metadata reader is not initialized")
+	local reserves = assert(Services.Reserves, Diag.A.SlashReservesServiceNotInitialized)
+	local setNameAlias = assert(reserves.SetNameAlias, Diag.A.SlashReservesAliasSetterNotInitialized)
+	local removeNameAlias = assert(reserves.RemoveNameAlias, Diag.A.SlashReservesAliasRemoverNotInitialized)
+	local getNameAliases = assert(reserves.GetNameAliases, Diag.A.SlashReservesAliasListerNotInitialized)
+	local requestSyncMetadata = assert(reserves.RequestSyncMetadata, Diag.A.SlashReservesSyncRequesterNotInitialized)
+	local getSyncMetadata = assert(reserves.GetSyncMetadata, Diag.A.SlashReservesSyncMetadataReaderNotInitialized)
 	local deleteSyncedReservesCache =
-		assert(reserves.DeleteSyncedReservesCache, "Slash reserves sync cache cleaner is not initialized")
+		assert(reserves.DeleteSyncedReservesCache, Diag.A.SlashReservesSyncCacheCleanerNotInitialized)
 
 	if isToggleCommand(sub) then
 		ReservesWidget:Toggle()

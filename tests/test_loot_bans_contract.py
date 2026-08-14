@@ -24,6 +24,7 @@ MASTER = ADDON / "Controllers" / "Master.lua"
 ATTENDANCE = ADDON / "Controllers" / "Attendance.lua"
 FRAMES = ADDON / "Modules" / "UI" / "Frames.lua"
 MASTER_XML = ADDON / "UI" / "Master.xml"
+DIAGNOSTICS_PATH = (ADDON / "Localization" / "DiagnoseLog.en.lua").as_posix()
 
 
 def run_lua(assertions: str) -> None:
@@ -57,6 +58,7 @@ end
 function addon.Bus.TriggerEvent(eventName, playerName, active, note)
     published[#published + 1] = {{ eventName, playerName, active, note }}
 end
+assert(loadfile("{DIAGNOSTICS_PATH}"))("Raid Management Addon", addon)
 local chunk = assert(loadfile("{service_path}"))
 local LootBans = chunk("Raid Management Addon", addon)
 {assertions}
@@ -126,6 +128,7 @@ function addon.Services.EnsureNamespace(name)
     addon.Services[name] = addon.Services[name] or {{}}
     return addon.Services[name]
 end
+assert(loadfile("{DIAGNOSTICS_PATH}"))("Raid Management Addon", addon)
 local AwardSequence = assert(loadfile("{award_path}"))("Raid Management Addon", addon)
 local lootState = {{ currentRollType = 1, fromInventory = false }}
 local awardExecutor = {{ effect = nil }}
@@ -222,6 +225,7 @@ function addon.Services.EnsureNamespace(name)
     addon.Services[name] = addon.Services[name] or {{}}
     return addon.Services[name]
 end
+assert(loadfile("{DIAGNOSTICS_PATH}"))("Raid Management Addon", addon)
 for _, path in ipairs({{ "{paths[0]}", "{paths[1]}", "{paths[2]}" }}) do
     assert(loadfile(path))("Raid Management Addon", addon)
 end
@@ -290,6 +294,7 @@ function addon.Services.EnsureNamespace(name)
     addon.Services[name] = addon.Services[name] or {{}}
     return addon.Services[name]
 end
+assert(loadfile("{DIAGNOSTICS_PATH}"))("Raid Management Addon", addon)
 for _, path in ipairs({{ "{paths[0]}", "{paths[1]}", "{paths[2]}", "{paths[3]}" }}) do
     assert(loadfile(path))("Raid Management Addon", addon)
 end
@@ -357,6 +362,7 @@ function addon.Services.EnsureNamespace(name)
     addon.Services[name] = addon.Services[name] or {{}}
     return addon.Services[name]
 end
+assert(loadfile("{DIAGNOSTICS_PATH}"))("Raid Management Addon", addon)
 for _, path in ipairs({{ "{paths[0]}", "{paths[1]}", "{paths[2]}" }}) do
     assert(loadfile(path))("Raid Management Addon", addon)
 end
@@ -425,6 +431,7 @@ function addon.Services.EnsureNamespace(name)
     addon.Services[name] = addon.Services[name] or {{}}
     return addon.Services[name]
 end
+assert(loadfile("{DIAGNOSTICS_PATH}"))("Raid Management Addon", addon)
 for _, path in ipairs({{ "{paths[0]}", "{paths[1]}", "{paths[2]}" }}) do
     assert(loadfile(path))("Raid Management Addon", addon)
 end
@@ -476,6 +483,7 @@ function addon.Services.EnsureNamespace(name)
     addon.Services[name] = addon.Services[name] or {{}}
     return addon.Services[name]
 end
+assert(loadfile("{DIAGNOSTICS_PATH}"))("Raid Management Addon", addon)
 assert(loadfile("{MASTER_ROLL_ROWS.as_posix()}"))("Raid Management Addon", addon)
 local RollRows = addon.Services.Master.RollRows
 {assertions}
@@ -515,6 +523,7 @@ function addon.Services.EnsureNamespace(name)
     addon.Services[name] = addon.Services[name] or {{}}
     return addon.Services[name]
 end
+assert(loadfile("{DIAGNOSTICS_PATH}"))("Raid Management Addon", addon)
 local TradeExecution = assert(loadfile("{trade_path}"))("Raid Management Addon", addon)
 local lootState = {{ fromInventory = true, selectedItemCount = 2, currentRollItem = 1 }}
 local itemInfo = {{}}
@@ -596,6 +605,7 @@ local addon = {{
     Strings = {{ TrimText = function(value) return value end }},
     UI = {{}},
 }}
+assert(loadfile("{DIAGNOSTICS_PATH}"))("Raid Management Addon", addon)
 assert(loadfile("{frames_path}"))("Raid Management Addon", addon)
 {assertions}
 """

@@ -6,6 +6,7 @@
 -- notes: reserves display/grouping helpers
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local L = addon.L
 local Colors = addon.Colors
 local Strings = addon.Strings
@@ -23,8 +24,8 @@ local module = Reserves
 module._Display = module._Display or {}
 
 local Display = module._Display
-local Aliases = assert(module._Aliases, "Reserves alias helpers are not initialized")
-local normalizeAliasKey = assert(Aliases._NormalizeKey, "Reserves alias key normalizer is not initialized")
+local Aliases = assert(module._Aliases, Diag.A.ReservesAliasHelpersNotInitialized)
+local normalizeAliasKey = assert(Aliases._NormalizeKey, Diag.A.ReservesAliasKeyNormalizerNotInitialized)
 
 local RESERVE_ROW_MAX_PLAYERS_INLINE = 6
 local playerTextTemp = {}

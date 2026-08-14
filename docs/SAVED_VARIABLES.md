@@ -58,6 +58,8 @@ still own the schema and meaning of their stores:
   to independent copies of their defaults, while valid `false` values remain
   unchanged. Unknown option names and non-string keys are removed after all
   namespaces are registered.
+- Registered table defaults must be acyclic so `RMA_Options` remains a
+  serializable data tree. Cyclic defaults are rejected before registration.
 - Option admission reads and normalizes only `RMA_Options`; it does not inspect,
   import, or migrate data from any non-RMA SavedVariables.
 

@@ -6,6 +6,7 @@
 -- notes: static raid item source data for Vanilla through Wrath of the Lich King
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local pairs = pairs
 local tostring = tostring
 local tonumber = tonumber
@@ -362,7 +363,7 @@ function LootSourcesData.CaptureActivationState()
 end
 
 function LootSourcesData.RestoreActivationState(snapshot)
-	assert(type(snapshot) == "table", "LootSourcesData activation snapshot is required")
+	assert(type(snapshot) == "table", Diag.A.LootSourcesDataActivationSnapshotRequired)
 	ByItemId = snapshot.byItemId
 	ByInstance = snapshot.byInstance
 	activeInstanceKey = snapshot.activeInstanceKey

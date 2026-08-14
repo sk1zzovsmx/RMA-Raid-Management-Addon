@@ -8,6 +8,7 @@
 -- those elements are data-driven and rebuilt from raid/player state.
 -- Keep static frame layout in XML and dynamic counter rows in Lua.
 local addon = select(2, ...)
+local Diag = addon.Diag
 local L = addon.L
 
 local Widgets = addon.Widgets
@@ -16,9 +17,9 @@ local Frames = UI.Frames
 local Primitives = UI.Primitives
 local Scaffold = UI.Scaffold
 local Popups = UI.Popups
-local DefineConfirmPopup = assert(Popups.DefineConfirm, "LootCounter popup confirmation builder is not initialized")
-local IsPopupDefined = assert(Popups.IsDefined, "LootCounter popup registry is not initialized")
-local ShowPopup = assert(Popups.Show, "LootCounter popup display service is not initialized")
+local DefineConfirmPopup = assert(Popups.DefineConfirm, Diag.A.LootCounterPopupConfirmationBuilderNotInitialized)
+local IsPopupDefined = assert(Popups.IsDefined, Diag.A.LootCounterPopupRegistryNotInitialized)
+local ShowPopup = assert(Popups.Show, Diag.A.LootCounterPopupDisplayServiceNotInitialized)
 local Tooltips = UI.Tooltips
 local Colors = addon.Colors
 local Events = addon.Events
@@ -27,20 +28,20 @@ local Options = addon.Options
 local Database = addon.Database
 local Bus = addon.Bus
 local Services = addon.Services
-local Chat = assert(Services.Chat, "LootCounter chat service is not initialized")
-local AnnounceChat = assert(Chat.Announce, "LootCounter chat announcement service is not initialized")
-local Raid = assert(Services.Raid, "LootCounter raid service is not initialized")
-local IsPlayerInRaid = assert(Raid.IsPlayerInRaid, "LootCounter raid membership service is not initialized")
-local GetCapabilityState = assert(Raid.GetCapabilityState, "LootCounter raid capability service is not initialized")
-local GetLootCounterRows = assert(Raid.GetLootCounterRows, "LootCounter raid count row service is not initialized")
+local Chat = assert(Services.Chat, Diag.A.LootCounterChatServiceNotInitialized)
+local AnnounceChat = assert(Chat.Announce, Diag.A.LootCounterChatAnnouncementServiceNotInitialized)
+local Raid = assert(Services.Raid, Diag.A.LootCounterRaidServiceNotInitialized)
+local IsPlayerInRaid = assert(Raid.IsPlayerInRaid, Diag.A.LootCounterRaidMembershipServiceNotInitialized)
+local GetCapabilityState = assert(Raid.GetCapabilityState, Diag.A.LootCounterRaidCapabilityServiceNotInitialized)
+local GetLootCounterRows = assert(Raid.GetLootCounterRows, Diag.A.LootCounterRaidCountRowServiceNotInitialized)
 local AddPlayerLootCountByNid =
-	assert(Raid.AddPlayerLootCountByNid, "LootCounter raid count increment service is not initialized")
+	assert(Raid.AddPlayerLootCountByNid, Diag.A.LootCounterRaidCountIncrementServiceNotInitialized)
 local SetPlayerLootCountByNid =
-	assert(Raid.SetPlayerLootCountByNid, "LootCounter raid count setter service is not initialized")
-local GetPlayerClass = assert(Raid.GetPlayerClass, "LootCounter raid class resolver is not initialized")
-local SpecInspect = assert(Services.SpecInspect, "LootCounter spec inspect service is not initialized")
+	assert(Raid.SetPlayerLootCountByNid, Diag.A.LootCounterRaidCountSetterServiceNotInitialized)
+local GetPlayerClass = assert(Raid.GetPlayerClass, Diag.A.LootCounterRaidClassResolverNotInitialized)
+local SpecInspect = assert(Services.SpecInspect, Diag.A.LootCounterSpecInspectServiceNotInitialized)
 local GetPlayerSpecSnapshot =
-	assert(SpecInspect.GetPlayerSpecSnapshot, "LootCounter spec snapshot resolver is not initialized")
+	assert(SpecInspect.GetPlayerSpecSnapshot, Diag.A.LootCounterSpecSnapshotResolverNotInitialized)
 
 local _G = _G
 local twipe = table.wipe
@@ -49,14 +50,14 @@ local tsort = table.sort
 local type, tostring, tonumber = type, tostring, tonumber
 local strlen = string.len
 
-local InternalEvents = assert(Events.Internal, "LootCounter internal events are not initialized")
-local RegisterCallback = assert(Bus.RegisterCallback, "LootCounter event bus listener is not initialized")
-local RaidRosterDeltaEvent = assert(InternalEvents.RaidRosterDelta, "LootCounter roster-delta event is not initialized")
+local InternalEvents = assert(Events.Internal, Diag.A.LootCounterInternalEventsNotInitialized)
+local RegisterCallback = assert(Bus.RegisterCallback, Diag.A.LootCounterEventBusListenerNotInitialized)
+local RaidRosterDeltaEvent = assert(InternalEvents.RaidRosterDelta, Diag.A.LootCounterRosterDeltaEventNotInitialized)
 local PlayerCountChangedEvent =
-	assert(InternalEvents.PlayerCountChanged, "LootCounter count-changed event is not initialized")
+	assert(InternalEvents.PlayerCountChanged, Diag.A.LootCounterCountChangedEventNotInitialized)
 local SpecInspectUpdatedEvent =
-	assert(InternalEvents.SpecInspectUpdated, "LootCounter spec update event is not initialized")
-local RaidCreateEvent = assert(InternalEvents.RaidCreate, "LootCounter raid-create event is not initialized")
+	assert(InternalEvents.SpecInspectUpdated, Diag.A.LootCounterSpecUpdateEventNotInitialized)
+local RaidCreateEvent = assert(InternalEvents.RaidCreate, Diag.A.LootCounterRaidCreateEventNotInitialized)
 
 -- Loot counter module.
 -- Tracks and edits item distribution counts (MS wins).
@@ -108,7 +109,7 @@ do
 	local COLOR_COUNT_FREE = { 0.70, 0.98, 0.72 }
 
 	local setTextureColor =
-		assert(Primitives.SetTextureColorRgba, "LootCounter texture-color primitive is not initialized")
+		assert(Primitives.SetTextureColorRgba, Diag.A.LootCounterTextureColorPrimitiveNotInitialized)
 
 	local function setFontColor(fs, rgb)
 		if not (fs and rgb) then

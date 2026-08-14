@@ -4,12 +4,13 @@
 -- exports: publish module APIs on addon.*
 -- events: none
 local addon = select(2, ...)
+local Diag = addon.Diag
 local DB = addon.DB
 local coreState = addon.State
 local Database = addon.Database
 local SavedVariables = Database.SavedVariables
 local Time = addon.Time
-local GetCurrentTime = assert(Time and Time.GetCurrentTime, "Raid store time provider is not initialized")
+local GetCurrentTime = assert(Time and Time.GetCurrentTime, Diag.A.RaidStoreTimeProviderNotInitialized)
 
 local tinsert, tremove = table.insert, table.remove
 local pairs, type = pairs, type
@@ -191,12 +192,12 @@ do
 	local function resolveRaidStartTime(value)
 		if value ~= nil then
 			local timestamp = tonumber(value)
-			assert(timestamp, "Raid start timestamp is not initialized")
+			assert(timestamp, Diag.A.RaidStartTimestampNotInitialized)
 			return timestamp
 		end
 
 		local timestamp = tonumber(GetCurrentTime())
-		assert(timestamp, "Raid start timestamp is not initialized")
+		assert(timestamp, Diag.A.RaidStartTimestampNotInitialized)
 		return timestamp
 	end
 
@@ -702,12 +703,12 @@ do
 		if not authorized then
 			return nil, authorityReason
 		end
-		assert(RaidEvents, "Raid event reducer is not initialized")
+		assert(RaidEvents, Diag.A.RaidEventReducerNotInitialized)
 		if type(args) ~= "table" then
 			return nil, "INVALID_RAID_STATE"
 		end
 		if not sessionNonce then
-			assert(GetTime, "Raid store monotonic time API is not initialized")
+			assert(GetTime, Diag.A.RaidStoreMonotonicTimeApiNotInitialized)
 			sessionNonce = format("%08x", math.floor((GetTime() * 1000) % 4294967295))
 		end
 		local archive = validArchive

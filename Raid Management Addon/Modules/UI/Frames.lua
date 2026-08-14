@@ -6,6 +6,7 @@
 -- ui ownership: Lua owns frame binding, named-reference resolution, scripts, and refresh drivers.
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local type = type
 local format = string.format
 local ipairs = ipairs
@@ -14,13 +15,13 @@ local tonumber = tonumber
 local strsub = string.sub
 
 local _G = _G
-local CreateFrame = assert(_G.CreateFrame, "UI frame creation API is not initialized")
-local InCombatLockdown = assert(_G.InCombatLockdown, "UI combat-lockdown API is not initialized")
+local CreateFrame = assert(_G.CreateFrame, Diag.A.UiFrameCreationApiNotInitialized)
+local InCombatLockdown = assert(_G.InCombatLockdown, Diag.A.UiCombatLockdownApiNotInitialized)
 
 local C = addon.C
 local Strings = addon.Strings
 local coreState = addon.State
-local TrimText = assert(Strings.TrimText, "UI edit-box text normalizer is not initialized")
+local TrimText = assert(Strings.TrimText, Diag.A.UiEditBoxTextNormalizerNotInitialized)
 
 local UI = addon.UI or {}
 local Frames = UI.Frames or {}

@@ -5,6 +5,7 @@
 -- events: owns spammer UI scripts; Services.Spammer.Runtime owns lifecycle state
 -- notes: Services.Chat owns spam transport and announcement policy
 local addon = select(2, ...)
+local Diag = addon.Diag
 local L = addon.L
 local Controllers = addon.Controllers
 local Database = addon.Database
@@ -18,7 +19,7 @@ local Tooltips = UI.Tooltips
 local Strings = addon.Strings
 local Services = addon.Services
 
-local SpammerSvc = assert(Services.Spammer, "Spammer controller service namespace is not initialized")
+local SpammerSvc = assert(Services.Spammer, Diag.A.SpammerControllerServiceNamespaceNotInitialized)
 
 local _G = _G
 local pairs, ipairs, type = pairs, ipairs, type
@@ -28,9 +29,9 @@ local tostring, tonumber = tostring, tonumber
 
 local requireServiceMethod = Database.RequireServiceMethod
 
-assert(Services.Chat, "Spammer controller chat service is not initialized")
-local DraftSvc = assert(SpammerSvc.Draft, "Spammer controller draft service is not initialized")
-local RuntimeSvc = assert(SpammerSvc.Runtime, "Spammer controller runtime service is not initialized")
+assert(Services.Chat, Diag.A.SpammerControllerChatServiceNotInitialized)
+local DraftSvc = assert(SpammerSvc.Draft, Diag.A.SpammerControllerDraftServiceNotInitialized)
+local RuntimeSvc = assert(SpammerSvc.Runtime, Diag.A.SpammerControllerRuntimeServiceNotInitialized)
 local GetRuntimeState = requireServiceMethod("Spammer.Runtime", RuntimeSvc, "GetState")
 local StartRuntime = requireServiceMethod("Spammer.Runtime", RuntimeSvc, "Start")
 local StopRuntime = requireServiceMethod("Spammer.Runtime", RuntimeSvc, "Stop")

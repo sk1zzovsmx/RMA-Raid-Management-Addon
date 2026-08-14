@@ -19,58 +19,58 @@ local Timer = addon.Timer
 local Sort = addon.Sort
 local Colors = addon.Colors
 local CalculateColumnWidths =
-	assert(UI.Lists.CalculateColumnWidths, "Attendance column layout owner is not initialized")
-local ExportDialog = assert(UI.ExportDialog, "Attendance export dialog owner is not initialized")
+	assert(UI.Lists.CalculateColumnWidths, Diag.A.AttendanceColumnLayoutOwnerNotInitialized)
+local ExportDialog = assert(UI.ExportDialog, Diag.A.AttendanceExportDialogOwnerNotInitialized)
 
-local GetFrameRef = assert(Frames.GetRef, "Attendance frame ref resolver is not initialized")
-local SetScriptSafely = assert(Frames.SetScriptSafely, "Attendance frame script binder is not initialized")
-local SetFrameTitle = assert(Frames.SetFrameTitle, "Attendance frame title binder is not initialized")
-local BindModuleFrame = assert(Frames.BindModuleFrame, "Attendance module frame binder is not initialized")
-local MakeFrameGetter = assert(Frames.MakeFrameGetter, "Attendance frame getter factory is not initialized")
-local ShowItemTooltip = assert(Tooltips.ShowItem, "Attendance item tooltip renderer is not initialized")
-local ShowTooltipLines = assert(Tooltips.ShowLines, "Attendance tooltip line renderer is not initialized")
-local HideTooltip = assert(Tooltips.Hide, "Attendance tooltip hide service is not initialized")
-local BindTooltipModel = assert(Tooltips.BindModel, "Attendance tooltip model binder is not initialized")
+local GetFrameRef = assert(Frames.GetRef, Diag.A.AttendanceFrameRefResolverNotInitialized)
+local SetScriptSafely = assert(Frames.SetScriptSafely, Diag.A.AttendanceFrameScriptBinderNotInitialized)
+local SetFrameTitle = assert(Frames.SetFrameTitle, Diag.A.AttendanceFrameTitleBinderNotInitialized)
+local BindModuleFrame = assert(Frames.BindModuleFrame, Diag.A.AttendanceModuleFrameBinderNotInitialized)
+local MakeFrameGetter = assert(Frames.MakeFrameGetter, Diag.A.AttendanceFrameGetterFactoryNotInitialized)
+local ShowItemTooltip = assert(Tooltips.ShowItem, Diag.A.AttendanceItemTooltipRendererNotInitialized)
+local ShowTooltipLines = assert(Tooltips.ShowLines, Diag.A.AttendanceTooltipLineRendererNotInitialized)
+local HideTooltip = assert(Tooltips.Hide, Diag.A.AttendanceTooltipHideServiceNotInitialized)
+local BindTooltipModel = assert(Tooltips.BindModel, Diag.A.AttendanceTooltipModelBinderNotInitialized)
 
-local InternalEvents = assert(Events.Internal, "Attendance controller internal events are not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "Attendance controller event publisher is not initialized")
-local RegisterCallback = assert(Bus.RegisterCallback, "Attendance controller event listener is not initialized")
+local InternalEvents = assert(Events.Internal, Diag.A.AttendanceControllerInternalEventsNotInitialized)
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.AttendanceControllerEventPublisherNotInitialized)
+local RegisterCallback = assert(Bus.RegisterCallback, Diag.A.AttendanceControllerEventListenerNotInitialized)
 local AttendanceEvents = {
-	RaidCreate = assert(InternalEvents.RaidCreate, "Attendance controller raid-create event is not initialized"),
+	RaidCreate = assert(InternalEvents.RaidCreate, Diag.A.AttendanceControllerRaidCreateEventNotInitialized),
 	RaidAttendanceChanged = assert(
 		InternalEvents.RaidAttendanceChanged,
-		"Attendance controller raid attendance changed event is not initialized"
+		Diag.A.AttendanceControllerRaidAttendanceChangedEventNotInitialized
 	),
 	EquipInspectUpdated = assert(
 		InternalEvents.EquipInspectUpdated,
-		"Attendance controller equip inspect update event is not initialized"
+		Diag.A.AttendanceControllerEquipInspectUpdateEventNotInitialized
 	),
 	EquipInspectCompleted = assert(
 		InternalEvents.EquipInspectCompleted,
-		"Attendance controller equip inspect completion event is not initialized"
+		Diag.A.AttendanceControllerEquipInspectCompletionEventNotInitialized
 	),
 	LoggerClearPlayerSelections = assert(
 		InternalEvents.LoggerClearPlayerSelections,
-		"Attendance controller logger selection-clear event is not initialized"
+		Diag.A.AttendanceControllerLoggerSelectionClearEventNotInitialized
 	),
-	LootBansChanged = assert(InternalEvents.LootBansChanged, "Attendance Loot Ban event is not initialized"),
+	LootBansChanged = assert(InternalEvents.LootBansChanged, Diag.A.AttendanceLootBanEventNotInitialized),
 }
 
-local AttendanceSvc = assert(Services.Attendance, "Attendance service namespace is not initialized")
-local AttendanceStore = assert(AttendanceSvc.Store, "Attendance store service is not initialized")
-local AttendanceView = assert(AttendanceSvc.View, "Attendance view service is not initialized")
-local AttendanceActions = assert(AttendanceSvc.Actions, "Attendance actions service is not initialized")
-local AttendanceExport = assert(AttendanceSvc.Export, "Attendance export service is not initialized")
-local EquipInspect = assert(Services.EquipInspect, "Attendance equip-inspect service is not initialized")
-local ForceInspectPlayer = assert(EquipInspect.ForcePlayer, "Attendance force-inspect method is not initialized")
-local Raid = assert(Services.Raid, "Attendance raid service is not initialized")
-local RaidProjections = assert(Raid.Projections, "Attendance raid projections service is not initialized")
-local LootBans = assert(Raid.LootBans, "Attendance Loot Ban owner is not initialized")
+local AttendanceSvc = assert(Services.Attendance, Diag.A.AttendanceServiceNamespaceNotInitialized)
+local AttendanceStore = assert(AttendanceSvc.Store, Diag.A.AttendanceStoreServiceNotInitialized)
+local AttendanceView = assert(AttendanceSvc.View, Diag.A.AttendanceViewServiceNotInitialized)
+local AttendanceActions = assert(AttendanceSvc.Actions, Diag.A.AttendanceActionsServiceNotInitialized)
+local AttendanceExport = assert(AttendanceSvc.Export, Diag.A.AttendanceExportServiceNotInitialized)
+local EquipInspect = assert(Services.EquipInspect, Diag.A.AttendanceEquipInspectServiceNotInitialized)
+local ForceInspectPlayer = assert(EquipInspect.ForcePlayer, Diag.A.AttendanceForceInspectMethodNotInitialized)
+local Raid = assert(Services.Raid, Diag.A.AttendanceRaidServiceNotInitialized)
+local RaidProjections = assert(Raid.Projections, Diag.A.AttendanceRaidProjectionsServiceNotInitialized)
+local LootBans = assert(Raid.LootBans, Diag.A.AttendanceLootBanOwnerNotInitialized)
 
 local _G = _G
 local type, tostring, tonumber = type, tostring, tonumber
 local floor, max = math.floor, math.max
-local CreateFrame = assert(_G.CreateFrame, "Attendance frame creation API is not initialized")
+local CreateFrame = assert(_G.CreateFrame, Diag.A.AttendanceFrameCreationApiNotInitialized)
 local CompareNumbers = Sort.CompareNumbers
 local CompareValues = Sort.CompareValues
 

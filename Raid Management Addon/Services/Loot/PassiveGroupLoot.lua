@@ -32,13 +32,13 @@ local strlen = string.len
 local tonumber, tostring = tonumber, tostring
 local type, pairs, select, next = type, pairs, select, next
 local _G = _G
-local GetLootRollItemInfo = assert(_G.GetLootRollItemInfo, "Passive group-loot roll item info API is not initialized")
-local GetLootRollItemLink = assert(_G.GetLootRollItemLink, "Passive group-loot roll item link API is not initialized")
+local GetLootRollItemInfo = assert(_G.GetLootRollItemInfo, Diag.A.PassiveGroupLootRollItemInfoApiNotInitialized)
+local GetLootRollItemLink = assert(_G.GetLootRollItemLink, Diag.A.PassiveGroupLootRollItemLinkApiNotInitialized)
 local GetItemStringFromLink =
-	assert(Item.GetItemStringFromLink, "Passive group-loot item-key resolver is not initialized")
-local Raid = assert(Services.Raid, "Passive group-loot raid service is not initialized")
+	assert(Item.GetItemStringFromLink, Diag.A.PassiveGroupLootItemKeyResolverNotInitialized)
+local Raid = assert(Services.Raid, Diag.A.PassiveGroupLootRaidServiceNotInitialized)
 local IsPassiveGroupLootMethod =
-	assert(Raid.IsPassiveGroupLootMethod, "Passive group-loot method policy resolver is not initialized")
+	assert(Raid.IsPassiveGroupLootMethod, Diag.A.PassiveGroupLootMethodPolicyResolverNotInitialized)
 
 local GROUP_LOOT_PENDING_AWARD_TTL_SECONDS = tonumber(C.GROUP_LOOT_PENDING_AWARD_TTL_SECONDS) or 60
 local GROUP_LOOT_ROLL_GRACE_SECONDS = tonumber(C.GROUP_LOOT_ROLL_GRACE_SECONDS) or 10

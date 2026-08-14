@@ -6,6 +6,7 @@
 -- ui ownership: XML owns static notice frame parts; Lua owns text, sizing, timing, and fade state.
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local UI = addon.UI or {}
 local ScreenNotice = UI.ScreenNotice or {}
 UI.ScreenNotice = ScreenNotice
@@ -13,9 +14,9 @@ UI.ScreenNotice = ScreenNotice
 local Effects = UI.Effects
 local Bus = addon.Bus
 local Events = addon.Events
-local InternalEvents = assert(Events.Internal, "Screen notice internal events are not initialized")
-local RegisterCallback = assert(Bus.RegisterCallback, "Screen notice event bus listener is not initialized")
-local ScreenNoticeEvent = assert(InternalEvents.ScreenNotice, "Screen notice event name is not initialized")
+local InternalEvents = assert(Events.Internal, Diag.A.ScreenNoticeInternalEventsNotInitialized)
+local RegisterCallback = assert(Bus.RegisterCallback, Diag.A.ScreenNoticeEventBusListenerNotInitialized)
+local ScreenNoticeEvent = assert(InternalEvents.ScreenNotice, Diag.A.ScreenNoticeEventNameNotInitialized)
 
 local max = math.max
 local min = math.min

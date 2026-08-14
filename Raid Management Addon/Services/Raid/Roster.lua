@@ -16,9 +16,9 @@ local Time = addon.Time
 local Timer = addon.Timer
 local coreState = addon.State
 
-local InternalEvents = assert(Events.Internal, "Raid roster internal events are not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "Raid roster event publisher is not initialized")
-local RaidRosterDeltaEvent = assert(InternalEvents.RaidRosterDelta, "Raid roster delta event is not initialized")
+local InternalEvents = assert(Events.Internal, Diag.A.RaidRosterInternalEventsNotInitialized)
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.RaidRosterEventPublisherNotInitialized)
+local RaidRosterDeltaEvent = assert(InternalEvents.RaidRosterDelta, Diag.A.RaidRosterDeltaEventNotInitialized)
 
 local tinsert, twipe = table.insert, table.wipe
 local pairs, ipairs, type = pairs, ipairs, type
@@ -26,7 +26,7 @@ local strlen = string.len
 local strsub = string.sub
 local strmatch = string.match
 local _G = _G
-local GetNumRaidMembers = assert(_G.GetNumRaidMembers, "Raid roster count API is not initialized")
+local GetNumRaidMembers = assert(_G.GetNumRaidMembers, Diag.A.RaidRosterCountApiNotInitialized)
 local tostring, tonumber = tostring, tonumber
 local getRaidRosterInfo = GetRaidRosterInfo
 local UnitRace, UnitSex = UnitRace, UnitSex
@@ -52,7 +52,7 @@ do
 	local RETRY_DELAY_SECONDS = 1
 	local RETRY_MAX_ATTEMPTS = 5
 	local ROSTER_REFRESH_DELAY_SECONDS = 2
-	local isUnknownName = assert(module._IsUnknownNameInternal, "Raid unknown-name helper is not initialized")
+	local isUnknownName = assert(module._IsUnknownNameInternal, Diag.A.RaidUnknownNameHelperNotInitialized)
 
 	-- ----- Private helpers ----- --
 	local isDebugEnabled = addon.Options.IsDebugEnabled

@@ -4,6 +4,7 @@
 -- exports: publish module APIs on addon.*
 -- events: owns warning UI scripts; sends announcements through Services/Chat
 local addon = select(2, ...)
+local Diag = addon.Diag
 local L = addon.L
 local Controllers = addon.Controllers
 local coreState = addon.State
@@ -19,12 +20,12 @@ local Primitives = UI.Primitives
 local EditBoxes = UI.EditBoxes
 local Strings = addon.Strings
 local Services = addon.Services
-local WarningsSvc = assert(Services.Warnings, "Warnings controller service namespace is not initialized")
-local WarningStore = assert(WarningsSvc.Store, "Warnings controller store service is not initialized")
-local RegisterCallback = assert(Bus.RegisterCallback, "Warnings controller event listener is not initialized")
-local InternalEvents = assert(Events.Internal, "Warnings controller internal events are not initialized")
+local WarningsSvc = assert(Services.Warnings, Diag.A.WarningsControllerServiceNamespaceNotInitialized)
+local WarningStore = assert(WarningsSvc.Store, Diag.A.WarningsControllerStoreServiceNotInitialized)
+local RegisterCallback = assert(Bus.RegisterCallback, Diag.A.WarningsControllerEventListenerNotInitialized)
+local InternalEvents = assert(Events.Internal, Diag.A.WarningsControllerInternalEventsNotInitialized)
 local WarningsDataChangedEvent =
-	assert(InternalEvents.WarningsDataChanged, "Warnings controller data-changed event is not initialized")
+	assert(InternalEvents.WarningsDataChanged, Diag.A.WarningsControllerDataChangedEventNotInitialized)
 
 local _G = _G
 
@@ -32,7 +33,7 @@ local tonumber, tostring = tonumber, tostring
 
 local requireServiceMethod = Database.RequireServiceMethod
 
-local Chat = assert(Services.Chat, "Warnings controller chat service is not initialized")
+local Chat = assert(Services.Chat, Diag.A.WarningsControllerChatServiceNotInitialized)
 local AnnounceWarningMessage = requireServiceMethod("Chat", Chat, "AnnounceWarningMessage")
 local GetStore = requireServiceMethod("Warnings.Store", WarningStore, "GetStore")
 local GetWarning = requireServiceMethod("Warnings.Store", WarningStore, "GetWarning")

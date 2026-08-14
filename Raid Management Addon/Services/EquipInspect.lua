@@ -5,6 +5,7 @@
 -- events: listens wow.INSPECT_TALENT_READY and wow.GET_ITEM_INFO_RECEIVED; emits EquipInspectStarted/EquipInspectUpdated/EquipInspectCompleted
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Database = addon.Database
 local Services = addon.Services
 local Events = addon.Events
@@ -12,34 +13,34 @@ local Bus = addon.Bus
 local Timer = addon.Timer
 local Time = addon.Time
 local Strings = addon.Strings
-local InspectCoordinator = assert(Services.InspectCoordinator, "EquipInspect coordinator is not initialized")
+local InspectCoordinator = assert(Services.InspectCoordinator, Diag.A.EquipInspectCoordinatorNotInitialized)
 
-local InternalEvents = assert(Events.Internal, "EquipInspect internal events are not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "EquipInspect event publisher is not initialized")
-local RegisterCallback = assert(Bus.RegisterCallback, "EquipInspect event bus listener is not initialized")
+local InternalEvents = assert(Events.Internal, Diag.A.EquipInspectInternalEventsNotInitialized)
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.EquipInspectEventPublisherNotInitialized)
+local RegisterCallback = assert(Bus.RegisterCallback, Diag.A.EquipInspectEventBusListenerNotInitialized)
 local ResolveWowForwardedName =
-	assert(Events.ResolveWowForwardedName, "EquipInspect forwarded-event resolver is not initialized")
+	assert(Events.ResolveWowForwardedName, Diag.A.EquipInspectForwardedEventResolverNotInitialized)
 local EquipInspectStartedEvent =
-	assert(InternalEvents.EquipInspectStarted, "EquipInspect started event is not initialized")
+	assert(InternalEvents.EquipInspectStarted, Diag.A.EquipInspectStartedEventNotInitialized)
 local EquipInspectCompletedEvent =
-	assert(InternalEvents.EquipInspectCompleted, "EquipInspect completed event is not initialized")
+	assert(InternalEvents.EquipInspectCompleted, Diag.A.EquipInspectCompletedEventNotInitialized)
 local EquipInspectUpdatedEvent =
-	assert(InternalEvents.EquipInspectUpdated, "EquipInspect update event is not initialized")
-local RaidCreateEvent = assert(InternalEvents.RaidCreate, "EquipInspect raid-create event is not initialized")
+	assert(InternalEvents.EquipInspectUpdated, Diag.A.EquipInspectUpdateEventNotInitialized)
+local RaidCreateEvent = assert(InternalEvents.RaidCreate, Diag.A.EquipInspectRaidCreateEventNotInitialized)
 
-local GetTime = assert(_G.GetTime, "EquipInspect time API is not initialized")
-local UnitGUID = assert(_G.UnitGUID, "EquipInspect unit GUID API is not initialized")
-local UnitExists = assert(_G.UnitExists, "EquipInspect unit existence API is not initialized")
-local UnitIsConnected = assert(_G.UnitIsConnected, "EquipInspect unit connection API is not initialized")
-local CanInspect = assert(_G.CanInspect, "EquipInspect inspect capability API is not initialized")
-local CheckInteractDistance = assert(_G.CheckInteractDistance, "EquipInspect unit range API is not initialized")
-local NotifyInspect = assert(_G.NotifyInspect, "EquipInspect notify inspect API is not initialized")
-local GetInventoryItemLink = assert(_G.GetInventoryItemLink, "EquipInspect inventory item link API is not initialized")
+local GetTime = assert(_G.GetTime, Diag.A.EquipInspectTimeApiNotInitialized)
+local UnitGUID = assert(_G.UnitGUID, Diag.A.EquipInspectUnitGuidApiNotInitialized)
+local UnitExists = assert(_G.UnitExists, Diag.A.EquipInspectUnitExistenceApiNotInitialized)
+local UnitIsConnected = assert(_G.UnitIsConnected, Diag.A.EquipInspectUnitConnectionApiNotInitialized)
+local CanInspect = assert(_G.CanInspect, Diag.A.EquipInspectInspectCapabilityApiNotInitialized)
+local CheckInteractDistance = assert(_G.CheckInteractDistance, Diag.A.EquipInspectUnitRangeApiNotInitialized)
+local NotifyInspect = assert(_G.NotifyInspect, Diag.A.EquipInspectNotifyInspectApiNotInitialized)
+local GetInventoryItemLink = assert(_G.GetInventoryItemLink, Diag.A.EquipInspectInventoryItemLinkApiNotInitialized)
 local GetInventoryItemTexture =
-	assert(_G.GetInventoryItemTexture, "EquipInspect inventory item texture API is not initialized")
+	assert(_G.GetInventoryItemTexture, Diag.A.EquipInspectInventoryItemTextureApiNotInitialized)
 local GetInventoryItemQuality =
-	assert(_G.GetInventoryItemQuality, "EquipInspect inventory item quality API is not initialized")
-local GetItemInfo = assert(_G.GetItemInfo, "EquipInspect item info API is not initialized")
+	assert(_G.GetInventoryItemQuality, Diag.A.EquipInspectInventoryItemQualityApiNotInitialized)
+local GetItemInfo = assert(_G.GetItemInfo, Diag.A.EquipInspectItemInfoApiNotInitialized)
 
 local type, tonumber, tostring = type, tonumber, tostring
 local pairs, ipairs = pairs, ipairs
@@ -947,13 +948,13 @@ local function handleItemInfoReceived(itemId, succeeded)
 end
 
 local inspectReadyEvent =
-	assert(ResolveWowForwardedName("INSPECT_TALENT_READY"), "EquipInspect talent-ready event is not initialized")
+	assert(ResolveWowForwardedName("INSPECT_TALENT_READY"), Diag.A.EquipInspectTalentReadyEventNotInitialized)
 RegisterCallback(inspectReadyEvent, function(_, guid)
 	handleInspectReady(guid)
 end)
 
 local itemInfoReceivedEvent =
-	assert(ResolveWowForwardedName("GET_ITEM_INFO_RECEIVED"), "EquipInspect item-info event is not initialized")
+	assert(ResolveWowForwardedName("GET_ITEM_INFO_RECEIVED"), Diag.A.EquipInspectItemInfoEventNotInitialized)
 RegisterCallback(itemInfoReceivedEvent, function(_, itemId, succeeded)
 	handleItemInfoReceived(itemId, succeeded)
 end)

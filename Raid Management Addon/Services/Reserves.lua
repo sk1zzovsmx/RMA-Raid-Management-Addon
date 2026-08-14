@@ -27,9 +27,9 @@ local byte, find, gsub, len, lower, strsub = string.byte, string.find, string.gs
 
 local tostring, tonumber = tostring, tonumber
 local _G = _G
-local GetItemInfo = assert(_G.GetItemInfo, "Reserves item info API is not initialized")
-local NormalizeName = assert(Strings.NormalizeName, "Reserves display name normalizer is not initialized")
-local NormalizeLower = assert(Strings.NormalizeLower, "Reserves canonical name normalizer is not initialized")
+local GetItemInfo = assert(_G.GetItemInfo, Diag.A.ReservesItemInfoApiNotInitialized)
+local NormalizeName = assert(Strings.NormalizeName, Diag.A.ReservesDisplayNameNormalizerNotInitialized)
+local NormalizeLower = assert(Strings.NormalizeLower, Diag.A.ReservesCanonicalNameNormalizerNotInitialized)
 
 local function countKeys(values)
 	local count = 0
@@ -39,10 +39,10 @@ local function countKeys(values)
 	return count
 end
 
-local InternalEvents = assert(Events.Internal, "Reserves internal events are not initialized")
-local TriggerEvent = assert(Bus.TriggerEvent, "Reserves event publisher is not initialized")
+local InternalEvents = assert(Events.Internal, Diag.A.ReservesInternalEventsNotInitialized)
+local TriggerEvent = assert(Bus.TriggerEvent, Diag.A.ReservesEventPublisherNotInitialized)
 local ReservesDataChangedEvent =
-	assert(InternalEvents.ReservesDataChanged, "Reserves data-changed event is not initialized")
+	assert(InternalEvents.ReservesDataChanged, Diag.A.ReservesDataChangedEventNotInitialized)
 	local IMPORT_APPLY_CHUNK_SIZE = 25
 	local IMPORT_APPLY_DELAY_SECONDS = 0.01
 	local MAX_BATCH_COMMANDS = 500
@@ -67,11 +67,11 @@ do
 		nameAliases = {},
 	})
 
-	local ImportHelpers = assert(module._Import, "Reserves import helpers are not initialized")
-	local AliasHelpers = assert(module._Aliases, "Reserves alias helpers are not initialized")
-	local DisplayHelpers = assert(module._Display, "Reserves display helpers are not initialized")
+	local ImportHelpers = assert(module._Import, Diag.A.ReservesImportHelpersNotInitialized)
+	local AliasHelpers = assert(module._Aliases, Diag.A.ReservesAliasHelpersNotInitialized)
+	local DisplayHelpers = assert(module._Display, Diag.A.ReservesDisplayHelpersNotInitialized)
 	local importParser =
-		assert(ImportHelpers.BuildParser and ImportHelpers.BuildParser(), "Missing Reserves import parser")
+		assert(ImportHelpers.BuildParser and ImportHelpers.BuildParser(), Diag.A.MissingReservesImportParser)
 	local fallbackIcon = C.RESERVES_ITEM_FALLBACK_ICON
 	local reserveListClearedKey = "StrReserve" .. "ListCleared"
 

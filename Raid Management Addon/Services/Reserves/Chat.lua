@@ -5,6 +5,7 @@
 -- events: listens to wow.CHAT_MSG_WHISPER and replies with opt-in SoftRes summaries
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local L = addon.L
 local Bus = addon.Bus
 local Comms = addon.Comms
@@ -29,25 +30,25 @@ local Reserves = Services.Reserves
 local module = Reserves
 module._Chat = module._Chat or {}
 
-local Raid = assert(Services.Raid, "Reserves chat raid service is not initialized")
-local GetPlayerRoleState = assert(Raid.GetPlayerRoleState, "Reserves chat raid-role resolver is not initialized")
-local CanUseCapability = assert(Raid.CanUseCapability, "Reserves chat raid capability resolver is not initialized")
-local SendWhisper = assert(Comms.SendWhisper, "Reserves chat whisper transport is not initialized")
-local RegisterCallback = assert(Bus.RegisterCallback, "Reserves chat event bus listener is not initialized")
+local Raid = assert(Services.Raid, Diag.A.ReservesChatRaidServiceNotInitialized)
+local GetPlayerRoleState = assert(Raid.GetPlayerRoleState, Diag.A.ReservesChatRaidRoleResolverNotInitialized)
+local CanUseCapability = assert(Raid.CanUseCapability, Diag.A.ReservesChatRaidCapabilityResolverNotInitialized)
+local SendWhisper = assert(Comms.SendWhisper, Diag.A.ReservesChatWhisperTransportNotInitialized)
+local RegisterCallback = assert(Bus.RegisterCallback, Diag.A.ReservesChatEventBusListenerNotInitialized)
 local WhisperEvent =
-	assert(Events.Wow and Events.Wow.ChatMsgWhisper, "Reserves chat whisper event name is not initialized")
-local ScheduleTimer = assert(module.ScheduleTimer, "Reserves chat throttle scheduler is not initialized")
-local IsPlusSystem = assert(module.IsPlusSystem, "Reserves chat import-mode resolver is not initialized")
-local AddPlayerReserve = assert(module.AddPlayerReserve, "Reserves chat add-reserve handler is not initialized")
+	assert(Events.Wow and Events.Wow.ChatMsgWhisper, Diag.A.ReservesChatWhisperEventNameNotInitialized)
+local ScheduleTimer = assert(module.ScheduleTimer, Diag.A.ReservesChatThrottleSchedulerNotInitialized)
+local IsPlusSystem = assert(module.IsPlusSystem, Diag.A.ReservesChatImportModeResolverNotInitialized)
+local AddPlayerReserve = assert(module.AddPlayerReserve, Diag.A.ReservesChatAddReserveHandlerNotInitialized)
 local GetPlayerReserveEntries =
-	assert(module.GetPlayerReserveEntries, "Reserves chat player-reserve lookup is not initialized")
+	assert(module.GetPlayerReserveEntries, Diag.A.ReservesChatPlayerReserveLookupNotInitialized)
 local ResolveWhisperPlayerName =
-	assert(module.ResolveWhisperPlayerName, "Reserves chat player identity resolver is not initialized")
+	assert(module.ResolveWhisperPlayerName, Diag.A.ReservesChatPlayerIdentityResolverNotInitialized)
 local NormalizeWhisperPlayerIdentity =
-	assert(module.NormalizeWhisperPlayerIdentity, "Reserves chat identity normalizer is not initialized")
-local GetCounts = assert(module.GetCounts, "Reserves chat reserve-count lookup is not initialized")
-local GetCurrentTime = assert(Time and Time.GetCurrentTime, "Reserves chat clock is not initialized")
-local GetRealmName = assert(Database and Database.GetRealmName, "Reserves chat realm resolver is not initialized")
+	assert(module.NormalizeWhisperPlayerIdentity, Diag.A.ReservesChatIdentityNormalizerNotInitialized)
+local GetCounts = assert(module.GetCounts, Diag.A.ReservesChatReserveCountLookupNotInitialized)
+local GetCurrentTime = assert(Time and Time.GetCurrentTime, Diag.A.ReservesChatClockNotInitialized)
+local GetRealmName = assert(Database and Database.GetRealmName, Diag.A.ReservesChatRealmResolverNotInitialized)
 
 local MAX_WHISPER_LEN = 255
 local MAX_PLAYERS = 1000
@@ -160,7 +161,7 @@ local function buildFallbackItemText(entry)
 	end
 
 	local itemId = entry.rawID or entry.itemId
-	return format(L.StrReservesItemFallback or "[Item %s]", tostring(itemId or "?"))
+	return format(L.StrReservesItemFallback, tostring(itemId or "?"))
 end
 
 local function buildItemText(entry)

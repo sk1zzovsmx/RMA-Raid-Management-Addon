@@ -5,11 +5,12 @@
 -- events: none
 -- notes: single owner for public RMA_* SavedVariables access
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Database = addon.Database
 local Services = addon.Services
 local _G = _G
 local type = type
-local GetRaidStore = assert(Database.GetRaidStore, "SavedVariables raid store resolver is not initialized")
+local GetRaidStore = assert(Database.GetRaidStore, Diag.A.SavedVariablesRaidStoreResolverNotInitialized)
 
 local SavedVariables = Database.SavedVariables or {}
 Database.SavedVariables = SavedVariables
@@ -50,8 +51,8 @@ local function ensureRaidArchive()
 end
 
 local function getReservesSave()
-	local reservesService = assert(Services.Reserves, "SavedVariables reserves service is not initialized")
-	return assert(reservesService.Save, "SavedVariables reserves save handler is not initialized"), reservesService
+	local reservesService = assert(Services.Reserves, Diag.A.SavedVariablesReservesServiceNotInitialized)
+	return assert(reservesService.Save, Diag.A.SavedVariablesReservesSaveHandlerNotInitialized), reservesService
 end
 
 -- ----- Public methods -----

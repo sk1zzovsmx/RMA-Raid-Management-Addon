@@ -20,6 +20,7 @@ Libs\LibTalentQuery-1.0\lib.xml
 Libs\LibGroupTalents-1.0\lib.xml
 
 # Layer 1 - Unified init/bootstrap/runtime (must load before all addon Lua files)
+Localization\DiagnoseLog.en.lua
 Init.lua
 Database\DB.lua
 Database\SavedVariables.lua
@@ -27,7 +28,10 @@ Database\DBOptions.lua
 
 # Layer 2 - Localization (must load before runtime modules)
 Localization\localization.en.lua
-Localization\DiagnoseLog.en.lua
+Localization\localization.ru.lua
+Localization\localization.zhCN.lua
+Localization\localization.es.lua
+Localization\localization.fr.lua
 
 # Layer 3 - Shared templates and lightweight XML-only frames
 UI\Templates\Common.xml
@@ -155,7 +159,7 @@ Controllers\Logger.lua
 Controllers\Attendance.lua
 Controllers\Warnings.lua
 Controllers\Spammer.lua
-Controllers\QuickBar.lua
+Widgets\QuickBar.lua
 EntryPoints\Minimap.lua
 Controllers\Config.lua
 EntryPoints\SlashEvents.lua

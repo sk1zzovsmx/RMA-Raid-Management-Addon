@@ -6,6 +6,7 @@
 -- notes: bootstrap-sensitive internal loot helpers
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Database = addon.Database
 local Services = addon.Services
 local Strings = addon.Strings
@@ -20,9 +21,9 @@ module._Context = module._Context or {}
 local LootContext = module._Context
 
 -- ----- Private helpers ----- --
-local NormalizeText = assert(Strings.NormalizeText, "Loot context text normalizer is not initialized")
-local EnsureRaidByIndex = assert(Database.EnsureRaidByIndex, "Loot context raid resolver is not initialized")
-local EnsureRaidSchema = assert(Database.EnsureRaidSchema, "Loot context raid schema normalizer is not initialized")
+local NormalizeText = assert(Strings.NormalizeText, Diag.A.LootContextTextNormalizerNotInitialized)
+local EnsureRaidByIndex = assert(Database.EnsureRaidByIndex, Diag.A.LootContextRaidResolverNotInitialized)
+local EnsureRaidSchema = assert(Database.EnsureRaidSchema, Diag.A.LootContextRaidSchemaNormalizerNotInitialized)
 
 local function isValidLootSourceKind(kind)
 	return kind == "boss" or kind == "trash" or kind == "shared" or kind == "object"
@@ -259,7 +260,7 @@ end
 function LootContext.ResolveRaidRecord(raidNum)
 	local resolvedRaidNum = raidNum
 	if not resolvedRaidNum then
-		local getCurrentRaid = assert(Database.GetCurrentRaid, "Loot context current-raid resolver is not initialized")
+		local getCurrentRaid = assert(Database.GetCurrentRaid, Diag.A.LootContextCurrentRaidResolverNotInitialized)
 		resolvedRaidNum = getCurrentRaid()
 	end
 	if not resolvedRaidNum then

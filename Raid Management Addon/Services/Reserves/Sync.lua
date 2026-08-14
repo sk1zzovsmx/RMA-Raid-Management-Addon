@@ -5,6 +5,7 @@
 -- events: handles RMAResSync addon-message traffic
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local L = addon.L
 local Comms = addon.Comms
 local Services = addon.Services
@@ -14,23 +15,23 @@ local floor, ceil = math.floor, math.ceil
 local pairs, tostring, tonumber, type = pairs, tostring, tonumber, type
 local tconcat = table.concat
 local _G = _G
-local UnitName = assert(_G.UnitName, "Reserves sync unit name API is not initialized")
-local GetTime = assert(_G.GetTime, "Reserves sync time API is not initialized")
+local UnitName = assert(_G.UnitName, Diag.A.ReservesSyncUnitNameApiNotInitialized)
+local GetTime = assert(_G.GetTime, Diag.A.ReservesSyncTimeApiNotInitialized)
 
 addon.Services.EnsureNamespace("Reserves")
 local module = Services.Reserves
 module._Sync = module._Sync or {}
 local Sync = module._Sync
 
-local Payload = assert(Comms.Payload, "Comms payload helpers are not initialized")
-local QueueAddonMessage = assert(Comms.QueueAddonMessage, "Reserves sync direct transport is not initialized")
-local QueueAddonMessages = assert(Comms.QueueAddonMessages, "Reserves sync batch transport is not initialized")
-local SendAddonBatch = assert(Comms.SendAddonBatch, "Reserves sync group transport is not initialized")
-local NormalizeLower = assert(Strings.NormalizeLower, "Reserves sync player normalizer is not initialized")
-local Raid = assert(Services.Raid, "Reserves sync raid service is not initialized")
-local GetPlayerRoleState = assert(Raid.GetPlayerRoleState, "Reserves sync raid-role resolver is not initialized")
-local IsGroupMember = assert(Raid.IsGroupMember, "Reserves sync group-membership resolver is not initialized")
-local IsReservesAuthority = assert(Raid.IsReservesAuthority, "Reserves sync authority resolver is not initialized")
+local Payload = assert(Comms.Payload, Diag.A.CommsPayloadHelpersNotInitialized)
+local QueueAddonMessage = assert(Comms.QueueAddonMessage, Diag.A.ReservesSyncDirectTransportNotInitialized)
+local QueueAddonMessages = assert(Comms.QueueAddonMessages, Diag.A.ReservesSyncBatchTransportNotInitialized)
+local SendAddonBatch = assert(Comms.SendAddonBatch, Diag.A.ReservesSyncGroupTransportNotInitialized)
+local NormalizeLower = assert(Strings.NormalizeLower, Diag.A.ReservesSyncPlayerNormalizerNotInitialized)
+local Raid = assert(Services.Raid, Diag.A.ReservesSyncRaidServiceNotInitialized)
+local GetPlayerRoleState = assert(Raid.GetPlayerRoleState, Diag.A.ReservesSyncRaidRoleResolverNotInitialized)
+local IsGroupMember = assert(Raid.IsGroupMember, Diag.A.ReservesSyncGroupMembershipResolverNotInitialized)
+local IsReservesAuthority = assert(Raid.IsReservesAuthority, Diag.A.ReservesSyncAuthorityResolverNotInitialized)
 
 local PREFIX = "RMAResSync"
 local WIRE_VERSION = 5
@@ -66,7 +67,7 @@ Sync._incoming = Sync._incoming or {}
 Sync._pendingRequests = Sync._pendingRequests or {}
 Sync._nextRequestId = Sync._nextRequestId or 0
 
-local normalizeSender = assert(Comms.NormalizeSender, "Reserves sync sender normalizer is not initialized")
+local normalizeSender = assert(Comms.NormalizeSender, Diag.A.ReservesSyncSenderNormalizerNotInitialized)
 
 local function ensurePrefix()
 	Comms.RegisterPrefixIfAvailable(PREFIX)

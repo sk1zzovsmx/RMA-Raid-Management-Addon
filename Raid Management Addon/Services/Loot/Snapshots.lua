@@ -6,6 +6,7 @@
 -- notes: internal loot-window snapshot helpers
 
 local addon = select(2, ...)
+local Diag = addon.Diag
 local Services = addon.Services
 
 -- ----- Internal state ----- --
@@ -15,14 +16,14 @@ local module = Loot
 module._Snapshots = module._Snapshots or {}
 
 local Snapshots = module._Snapshots
-local ContextState = assert(module._State, "Loot state helpers are not initialized")
-local ContextHelpers = assert(module._Context, "Loot context helpers are not initialized")
+local ContextState = assert(module._State, Diag.A.LootStateHelpersNotInitialized)
+local ContextHelpers = assert(module._Context, Diag.A.LootContextHelpersNotInitialized)
 local Item = addon.Item
 local Time = addon.Time
 
-local GetItemStringFromLink = assert(Item.GetItemStringFromLink, "Loot snapshot item-key resolver is not initialized")
+local GetItemStringFromLink = assert(Item.GetItemStringFromLink, Diag.A.LootSnapshotItemKeyResolverNotInitialized)
 local normalizeLootSnapshotState =
-	assert(ContextHelpers.NormalizeLootSnapshotState, "Missing LootContext.NormalizeLootSnapshotState")
+	assert(ContextHelpers.NormalizeLootSnapshotState, Diag.A.MissingLootContextNormalizeLootSnapshotState)
 
 local tremove, tsort = table.remove, table.sort
 local pairs, type = pairs, type
