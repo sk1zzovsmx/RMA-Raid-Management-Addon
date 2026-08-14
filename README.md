@@ -38,20 +38,29 @@ The Master Loot window is the main loot-distribution workflow.
 
 - Open the loot workflow with `/rma ml`.
 - Select loot from the open loot window or drag an item into the addon.
+- Select among all eligible loot-window items from the item picker.
+- Distribute multiple identical copies in one award sequence, including
+  multi-winner selection when the copies go to different players.
 - Start MS, OS, SoftRes, or Free rolls.
 - Run configurable countdowns for roll windows.
 - Block late rolls after the countdown when that option is enabled.
 - Announce roll starts, countdowns, winners, holds, bank assignments, and
   disenchant assignments.
 - Resolve ties with a reroll flow.
+- Select award targets from the roll list or from a class-colored raid grid.
 - Award loot to selected winners when you are allowed to assign loot.
 - Keep loot for later, send it to bank, or mark it for disenchant.
 - Handle inventory-trade mode for items already in bags.
+- Start a ready check from the inventory-trade workflow.
+- Classify manually traded items as MS, OS, SoftRes, or Free from the trade
+  window menu so accepted trades are recorded with the intended reason.
 - Show trade reminders and optional screenshot reminders before trading.
 - Optionally switch to Master Loot when a recognized raid boss is targeted by
   the raid leader.
 - Optionally ask to restore Group Loot after boss loot is cleared.
 - Optionally announce opened loot automatically when you are Master Looter.
+- Announce the current loot list manually, with an optional SoftRes summary for
+  each reserved item.
 
 RMA assists the raid leader. It does not bypass Blizzard loot permissions or
 protected action rules.
@@ -64,6 +73,8 @@ RMA records and displays roll responses during active loot sessions.
 - Supports MS, OS, SoftRes, and Free roll contexts.
 - Marks duplicate, blocked, timed-out, pass, cancelled, and reroll-only states.
 - Keeps per-player roll state for the current item.
+- Displays player class/spec information, loot counters, and reserve context
+  alongside roll responses when those data are available.
 - Supports tie detection and tie reroll handling.
 - Can sort rolls ascending or descending from configuration.
 
@@ -92,6 +103,8 @@ loot distribution.
 - Groups reserves by item and shows reserved players.
 - Shows item IDs, item names, quantities, Plus values, and possible drop source
   information.
+- Adds reserve details and source hints to the Master Loot workflow and item
+  tooltips when tooltips are enabled.
 - Checks the current item against imported SoftRes data with `/rma res check`.
 - Reports reserve players in raid, outside raid, unmatched reserve names, and
   suggested name matches.
@@ -111,6 +124,8 @@ RMA stores raid logs locally and provides a history view for review and cleanup.
 - Records raid zone, size, difficulty, roster snapshots, boss kills, trash
   entries, and loot entries.
 - Records loot winners, roll type, roll value, source, and item information.
+- Reconciles Master Loot assignments, inventory trades, passive Group Loot
+  messages, and manually classified trades into the stored raid history.
 - Can ignore Group Loot messages or override the raid loot threshold from
   configuration.
 - Uses a static loot-source database to resolve item sources where possible.
@@ -118,8 +133,8 @@ RMA stores raid logs locally and provides a history view for review and cleanup.
 - Exports loot and raid-attendance data as CSV.
 - Scans stored history for empty raids, missing sources, invalid sources,
   orphan data, duplicate candidates, and player-name conflicts.
-- Can purge history, rebuild missing loot sources, and clean selected history
-  categories.
+- Can purge all history, rebuild missing loot sources, or selectively delete
+  empty raids, sub-epic loot, and raids without a recorded boss encounter.
 
 ### Raid Attendance
 
@@ -142,6 +157,8 @@ RMA can exchange raid-history snapshots with other grouped RMA users.
   from one player.
 - `/rma history push <raidId|raidNid> <player>` sends a specific raid snapshot to
   one player.
+- Persistent sync can be enabled from configuration so compatible current-raid
+  history is exchanged automatically instead of only on demand.
 
 Sync is compatibility-sensitive and only applies data that matches the expected
 RMA protocol, schema, and raid context.
@@ -165,6 +182,8 @@ The LFM Spam tool builds and sends recruitment messages with safety limits.
 - Open with `/rma lfm`, `/rma pug`, `/rma group`, or `/rma grouper`.
 - Configure raid name, composition, needed roles, custom message text, duration,
   and channels.
+- Build role-aware recruitment text from the saved raid-composition draft and
+  achievement placeholders.
 - Preview the final message before sending.
 - Use `/rma lfm start` and `/rma lfm stop` to control the spam cycle.
 - Uses message length checks and safety caps for duration and message count.
@@ -189,14 +208,19 @@ Open configuration with `/rma config`.
 
 The configuration panel includes:
 
-- Master Loot announcement and countdown options.
+- Roll ordering, countdown duration, late-roll blocking, announcement channel,
+  winner/hold/bank/disenchant announcements, and loot-holder whispers.
 - Quiet, Standard, Verbose, and Defaults presets.
+- Tooltip display, screenshot reminders, stacked-item trading, Loot Counter
+  auto-display, minimap visibility, and SoftRes whisper replies.
+- Automatic Master Loot on recognized boss targets, configurable notice delay,
+  Group Loot restore prompts, automatic loot announcements, and automatic
+  SoftRes summaries when loot opens.
 - Raid Warning template preview and maintenance.
 - LFM Spam preview and start/stop shortcuts.
-- Loot History sync, maintenance, cleanup, and data-health actions.
-- Minimap button visibility.
-- Tooltip, screenshot reminder, stack-trade, SoftRes whisper, auto-spam, and
-  auto Master Loot options.
+- Loot History sync targets, persistent sync, passive Group Loot filtering,
+  quality-threshold override, maintenance, cleanup, and data-health actions.
+- Built-in command, permission, and diagnostic help.
 
 Use `/rma config reset` to restore default options.
 
