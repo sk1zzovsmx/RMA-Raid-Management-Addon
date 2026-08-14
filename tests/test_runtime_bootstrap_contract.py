@@ -15,6 +15,16 @@ LOOT_SOURCE_DIR = ADDON / "Modules" / "Dataset" / "LootSources"
 LOOT_SOURCE_DATA = ADDON / "Modules" / "Dataset" / "LootSourcesData.lua"
 DB_SYNCER = ADDON / "Database" / "DBSyncer.lua"
 LOCALIZATION = ADDON / "Localization" / "localization.en.lua"
+COMMS = ADDON / "Modules" / "Comms.lua"
+SYNC_PROTOCOL = ADDON / "Database" / "DBSyncProtocol.lua"
+SYNCER = ADDON / "Database" / "DBSyncer.lua"
+RESERVES_IMPORT = ADDON / "Services" / "Reserves" / "Import.lua"
+WIRE_CONTRACT_DOCS = (
+    ROOT / "docs" / "ARCHITECTURE.md",
+    ROOT / "docs" / "API_SURFACE.md",
+    ROOT / "docs" / "FEATURE_API_MAP.md",
+    ROOT / "docs" / "VALIDATION.md",
+)
 APPROVED_AWARD_SERVICE_FILES = {
     r"Services\Loot\LootAttribution.lua",
     r"Services\Master\AwardAttempt.lua",
@@ -180,6 +190,65 @@ class RuntimeBootstrapContractTest(unittest.TestCase):
             "PASS loot_duplicate_award_is_rejected_in_flight",
             result.stdout,
         )
+
+    def test_shared_r5_wire_codec_replaces_obsolete_protocol_infrastructure(self) -> None:
+        comms = COMMS.read_text(encoding="utf-8")
+        protocol = SYNC_PROTOCOL.read_text(encoding="utf-8")
+        toc = TOC.read_text(encoding="utf-8")
+        runtime_sources = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in ADDON.rglob("*.lua")
+            if "Libs" not in path.parts
+        )
+
+        for obsolete in (
+            "_addonQueue",
+            "PackFields",
+            "SplitFields",
+            "EncodeText",
+            "DecodeText",
+            'WIRE_MARKER = "R4"',
+        ):
+            self.assertNotIn(obsolete, comms + protocol)
+        self.assertIn('LibStub("LibSerialize")', comms)
+        self.assertIn('LibStub("LibDeflate")', comms)
+        self.assertIn("ChatThrottleLib.SendAddonMessage", comms)
+        self.assertNotIn("pcall(SendAddonMessage", runtime_sources)
+        self.assertNotIn("pcall(SendChatMessage", runtime_sources)
+        self.assertIn(r"Modules\Base64.lua", toc)
+        self.assertIn(r"Modules\Json.lua", toc)
+        self.assertNotIn("addon.Json", protocol)
+        self.assertIn("addon.Json", RESERVES_IMPORT.read_text(encoding="utf-8"))
+
+    def test_wire_contract_docs_declare_shared_r5_ownership(self) -> None:
+        docs = "\n".join(path.read_text(encoding="utf-8") for path in WIRE_CONTRACT_DOCS)
+        for statement in (
+            "`addon.Comms.Payload` owns LibSerialize plus LibDeflate addon-channel encoding.",
+            "`addon.Comms` owns destination validation and delegates all outbound scheduling to ChatThrottleLib.",
+            "RMA addon-message protocols use version 5 envelopes and reject earlier versions.",
+            "JSON and Base64 remain import/hash utilities, not addon-message wire codecs.",
+        ):
+            self.assertIn(statement, docs)
+
+    def test_external_api_surface_lists_the_active_raid_sync_prefix(self) -> None:
+        surface = (ROOT / "docs" / "API_SURFACE.md").read_text(encoding="utf-8")
+        self.assertIn("`RMARaidSync`", surface)
+        self.assertNotIn("`RMALogSync`", surface)
+
+    def test_all_rma_protocol_owners_are_r5_only_and_reject_earlier_envelopes(self) -> None:
+        syncer = SYNCER.read_text(encoding="utf-8")
+
+        self.assertNotIn("version-4", syncer)
+        self.assertNotRegex(syncer, r"\bProtocol\.VERSION\s+or\s+4\b")
+        self.assertRegex(syncer, r"assert\s*\(\s*Protocol\.VERSION\s*==\s*5\b")
+        for case_name in (
+            "raid_replication_protocol_rejects_invalid",
+            "reserves_sync_r5_envelopes_chunks_and_rejections",
+            "loot_distribution_r5_snapshot_chunks_and_rejections",
+            "comms_version_r5_envelope_and_alert_ack",
+        ):
+            result = run_lua_case(case_name)
+            self.assertIn(f"PASS {case_name}", result.stdout)
 
 
 if __name__ == "__main__":

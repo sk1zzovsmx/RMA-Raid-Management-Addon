@@ -1,5 +1,5 @@
 -- ----- RMA Lua Contract ----- --
--- deps: addon.DB.SyncProtocol, addon.Comms, addon.Timer, LibStub("LibDeflate")
+-- deps: addon.DB.SyncProtocol, addon.Comms, addon.Timer
 -- shared: addon.DB.SyncSession
 -- exports: bounded request correlation, transfer chunking, assembly, expiry, and results
 -- events: none
@@ -9,7 +9,6 @@ local DB = addon.DB
 local Protocol = assert(DB.SyncProtocol, "Sync protocol dependency is not initialized")
 local Comms = assert(addon.Comms, "Comms dependency is not initialized")
 local Timer = assert(addon.Timer, "Timer dependency is not initialized")
-local LibDeflate = assert(LibStub("LibDeflate"), "LibDeflate is not initialized")
 
 DB.SyncSession = DB.SyncSession or {}
 local Session = DB.SyncSession
@@ -31,7 +30,6 @@ local MAX_CHUNKS = 256
 local MAX_ENCODED_BYTES = MAX_CHUNK_BYTES * MAX_CHUNKS
 local MAX_ASSEMBLIES = 64
 local MAX_ASSEMBLIES_PER_SENDER = 8
-local MAX_DECODED_BYTES = 65536
 local RATE_WINDOW_SECONDS = 30
 local MAX_INCOMING_REQUESTS_PER_SENDER = 6
 local MAX_OUTGOING_OPERATIONS_PER_TARGET = 4
@@ -255,7 +253,8 @@ local function resendRequest(request)
 		Session:CancelTimer(request.timer)
 		request.timer = nil
 	end
-	local queued, reason = Comms.QueueAddonMessage(PREFIX, request.encodedRequest, "WHISPER", request.target)
+	local queued, reason =
+		Comms.QueueAddonMessage(PREFIX, request.encodedRequest, "WHISPER", request.target, { priority = "NORMAL" })
 	if not queued then
 		request.state = REQUEST_FAILED
 		return completeRequest(request, false, reason or "SEND_FAILED")
@@ -299,16 +298,9 @@ local function failRequest(request, reason)
 end
 
 local function encodeTransferText(body)
-	local serialized, reason = Protocol.EncodeBody(body)
-	if not serialized then
+	local encoded, reason = Protocol.EncodeBody(body)
+	if not encoded then
 		return nil, reason
-	end
-	if #serialized > MAX_DECODED_BYTES then
-		return nil, "TRANSFER_TOO_LARGE"
-	end
-	local okEncode, encoded = pcall(LibDeflate.EncodeForWoWAddonChannel, LibDeflate, serialized)
-	if not okEncode or type(encoded) ~= "string" or encoded == "" then
-		return nil, "ENCODE_FAILED"
 	end
 	if #encoded > MAX_ENCODED_BYTES then
 		return nil, "TRANSFER_TOO_LARGE"
@@ -320,14 +312,7 @@ local function decodeTransferText(encoded)
 	if type(encoded) ~= "string" or #encoded > MAX_ENCODED_BYTES then
 		return nil, "TRANSFER_TOO_LARGE"
 	end
-	local okDecode, serialized = pcall(LibDeflate.DecodeForWoWAddonChannel, LibDeflate, encoded)
-	if not okDecode or type(serialized) ~= "string" then
-		return nil, "DECODE_FAILED"
-	end
-	if #serialized > MAX_DECODED_BYTES then
-		return nil, "DECODED_BODY_TOO_LARGE"
-	end
-	return Protocol.DecodeBody(serialized)
+	return Protocol.DecodeBody(encoded)
 end
 
 local function copyChunkBody(metadata, partIndex, partCount, chunk)
@@ -408,7 +393,7 @@ function Session:BeginRequest(kind, target, body, expectedResponseKind, expected
 		state = REQUEST_PENDING,
 	}
 	self._pendingRequests[requestId] = request
-	local queued, queueReason = Comms.QueueAddonMessage(PREFIX, encoded, "WHISPER", target)
+	local queued, queueReason = Comms.QueueAddonMessage(PREFIX, encoded, "WHISPER", target, { priority = "NORMAL" })
 	if not queued then
 		self._pendingRequests[requestId] = nil
 		return nil, queueReason or "SEND_FAILED"
@@ -440,7 +425,10 @@ function Session:QueueTransfer(kind, requestId, target, metadata, body, rateClas
 	for chunkBytes = MAX_CHUNK_BYTES, 1, -1 do
 		local messages, buildReason = buildTransferMessages(kind, requestId, target, metadata, encoded, chunkBytes)
 		if messages then
-			return Comms.QueueAddonMessages(PREFIX, messages, "WHISPER", target)
+			return Comms.QueueAddonMessages(PREFIX, messages, "WHISPER", target, {
+				priority = "BULK",
+				queueName = PREFIX .. ":WHISPER:" .. normalizedTarget,
+			})
 		end
 		if buildReason == "TOO_MANY_CHUNKS" then
 			return false, buildReason
@@ -636,5 +624,5 @@ function Session:SendResult(target, requestId, outcome, reason)
 	if not encoded then
 		return false, encodeReason
 	end
-	return Comms.QueueAddonMessage(PREFIX, encoded, "WHISPER", target)
+	return Comms.QueueAddonMessage(PREFIX, encoded, "WHISPER", target, { priority = "NORMAL" })
 end

@@ -82,6 +82,69 @@ local function loadAddonFile(addon, path)
 	chunk("Raid Management Addon", addon)
 end
 
+local function installPayloadCodec(addon)
+	_G.strmatch = string.match
+	local hasLibraries = false
+	if type(_G.LibStub) == "function" then
+		local okSerialize, serializeLibrary = pcall(_G.LibStub, "LibSerialize", true)
+		local okDeflate, deflateLibrary = pcall(_G.LibStub, "LibDeflate", true)
+		hasLibraries = okSerialize and serializeLibrary ~= nil and okDeflate and deflateLibrary ~= nil
+	end
+	if not hasLibraries then
+		_G.LibStub = nil
+		assert(loadfile("Raid Management Addon/Libs/LibStub/LibStub.lua"))()
+		assert(loadfile("Raid Management Addon/Libs/LibSerialize/LibSerialize.lua"))()
+		assert(loadfile("Raid Management Addon/Libs/LibDeflate/LibDeflate.lua"))()
+	end
+	local libSerialize = assert(_G.LibStub("LibSerialize"))
+	local libDeflate = assert(_G.LibStub("LibDeflate"))
+	addon.Comms = addon.Comms or {}
+	addon.Comms.Payload = addon.Comms.Payload or {}
+	local payload = addon.Comms.Payload
+	function payload.Serialize(value)
+		local okSerialize, serialized = pcall(libSerialize.Serialize, libSerialize, value)
+		if not okSerialize or type(serialized) ~= "string" or serialized == "" then
+			return nil, "SERIALIZE_FAILED"
+		end
+		local okEncode, encoded = pcall(libDeflate.EncodeForWoWAddonChannel, libDeflate, serialized)
+		if not okEncode or type(encoded) ~= "string" or encoded == "" then
+			return nil, "CHANNEL_ENCODE_FAILED"
+		end
+		return encoded
+	end
+	function payload.Deserialize(text)
+		if type(text) ~= "string" or text == "" then
+			return nil, "MALFORMED_PAYLOAD"
+		end
+		local okDecode, serialized = pcall(libDeflate.DecodeForWoWAddonChannel, libDeflate, text)
+		if not okDecode or type(serialized) ~= "string" or serialized == "" then
+			return nil, "CHANNEL_DECODE_FAILED"
+		end
+		local okCall, success, value = pcall(libSerialize.Deserialize, libSerialize, serialized)
+		if not okCall or success ~= true then
+			return nil, "DESERIALIZE_FAILED"
+		end
+		return value
+	end
+	return payload
+end
+
+local function assertR5Envelope(addon, message, expectedKind)
+	local raw = assert(addon.Comms.Payload.Deserialize(message))
+	local count = 0
+	for key in pairs(raw) do
+		assertTrue(type(key) == "number" and key >= 1 and key <= 5 and key == math.floor(key), "R5 envelope is sparse")
+		count = count + 1
+	end
+	assertEqual(5, count, "R5 envelope slot count differs")
+	assertEqual(5, raw[1], "R5 wire version differs")
+	assertEqual(expectedKind, raw[2], "R5 message kind differs")
+	assertTrue(raw[3] ~= nil, "R5 request slot is absent")
+	assertTrue(raw[4] ~= nil, "R5 target slot is absent")
+	assertTrue(type(raw[5]) == "table", "R5 body is absent")
+	return raw
+end
+
 local function installInitStubs(addon)
 	local frame = {
 		registered = {},
@@ -2115,7 +2178,7 @@ end
 
 local cases = {}
 
-local function createDistributionSessionFixture(addon)
+local function createDistributionSessionFixture(addon, localName)
 	local fixture = {
 		now = 10,
 		authority = "LeaderA",
@@ -2125,12 +2188,13 @@ local function createDistributionSessionFixture(addon)
 		sent = {},
 		events = {},
 	}
+	local payload = installPayloadCodec(addon)
 	_G.GetTime = function()
 		return fixture.now
 	end
 	addon.Database = {
 		GetPlayerName = function()
-			return "Tester"
+			return localName or "Tester"
 		end,
 	}
 	addon.Diag = {}
@@ -2161,39 +2225,74 @@ local function createDistributionSessionFixture(addon)
 		end
 		return out, #out
 	end
+	payload.EncodeText = function(value)
+		return tostring(value or "")
+	end
+	payload.DecodeText = function(value)
+		return value
+	end
+	payload.PackFields = function(sep, ...)
+		local values = { ... }
+		for i = 1, #values do
+			values[i] = tostring(values[i])
+		end
+		return table.concat(values, sep)
+	end
+	payload.SplitFields = splitFields
+	local function recordMessage(prefix, message, channel, target, opts)
+		local envelope = payload.Deserialize(message)
+		local kind = type(envelope) == "table" and envelope[2] or tostring(message or ""):match("^([^|]+)")
+		local queueName = opts and opts.queueName
+		if queueName == nil then
+			queueName = tostring(prefix) .. ":" .. tostring(channel) .. ":" .. string.lower(tostring(target or "group"))
+		end
+		fixture.kindAttempts[kind] = (fixture.kindAttempts[kind] or 0) + 1
+		if kind == fixture.failKind and fixture.kindAttempts[kind] == fixture.failOccurrence then
+			return false
+		end
+		fixture.sent[#fixture.sent + 1] = {
+			prefix = prefix,
+			message = message,
+			kind = kind,
+			envelope = deepCopy(envelope),
+			body = envelope and deepCopy(envelope[5]) or nil,
+			channel = channel,
+			target = target,
+			priority = opts and opts.priority or "NORMAL",
+			queueName = queueName,
+		}
+		return true
+	end
 	addon.Comms = {
-		Payload = {
-			EncodeText = function(value)
-				return tostring(value or "")
-			end,
-			DecodeText = function(value)
-				return value
-			end,
-			PackFields = function(sep, ...)
-				local values = { ... }
-				for i = 1, #values do
-					values[i] = tostring(values[i])
-				end
-				return table.concat(values, sep)
-			end,
-			SplitFields = splitFields,
-		},
+		Payload = payload,
 		RegisterPrefixIfAvailable = function()
 			return true
 		end,
 		Sync = function(prefix, message)
-			local fields = splitFields(message, "|", {})
-			local kind = fields[1]
-			fixture.kindAttempts[kind] = (fixture.kindAttempts[kind] or 0) + 1
-			if kind == fixture.failKind and fixture.kindAttempts[kind] == fixture.failOccurrence then
-				return false
+			return recordMessage(prefix, message, "RAID", nil)
+		end,
+		QueueAddonMessage = function(prefix, message, channel, target, opts)
+			return recordMessage(prefix, message, channel, target, opts)
+		end,
+		QueueAddonMessages = function(prefix, messages, channel, target, opts)
+			for i = 1, #messages do
+				if not recordMessage(prefix, messages[i], channel, target, opts) then
+					return false
+				end
 			end
-			fixture.sent[#fixture.sent + 1] =
-				{ prefix = prefix, message = message, kind = kind, fields = deepCopy(fields) }
 			return true
 		end,
-		QueueAddonMessage = function()
+		SendAddonBatch = function(prefix, messages, target, opts)
+			local channel = target and "WHISPER" or "RAID"
+			for i = 1, #messages do
+				if not recordMessage(prefix, messages[i], channel, target, opts) then
+					return false
+				end
+			end
 			return true
+		end,
+		NormalizeSender = function(value)
+			return tostring(value or ""):match("^[^-]+") or ""
 		end,
 	}
 	addon.Item = {
@@ -2226,8 +2325,71 @@ local function createDistributionSessionFixture(addon)
 	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Loot/DistributionSession.lua")
 	fixture.owner = addon.Services.Loot.DistributionSession
+	local function optionalText(value)
+		return value ~= nil and value ~= "" and value or false
+	end
+	local function optionalNumber(value)
+		return value ~= nil and value ~= "" and tonumber(value) or false
+	end
+	local function convertLegacyMessage(message)
+		local fields = splitFields(message, "|", {})
+		local kind = fields[1]
+		local requestId = false
+		local body
+		if kind == "CLEAR" then
+			body = { sessionId = fields[3] }
+		elseif kind == "ITEM" then
+			body = { fields[3], fields[4], tonumber(fields[5]), tonumber(fields[6]), fields[7], fields[8], fields[9], tonumber(fields[10]) }
+		elseif kind == "WINDOW_BEGIN" then
+			body = { fields[3], tonumber(fields[4]), tonumber(fields[5]) }
+		elseif kind == "WINDOW_ITEM" then
+			body = { fields[3], tonumber(fields[4]), fields[5], tonumber(fields[6]), tonumber(fields[7]), fields[8], fields[9], fields[10], tonumber(fields[11]) }
+		elseif kind == "WINDOW_END" or kind == "SESSION_END" then
+			body = { fields[3], tonumber(fields[4]) }
+		elseif kind == "ROLL_START" then
+			body = { fields[3], fields[4], optionalNumber(fields[5]), optionalNumber(fields[6]) }
+		elseif kind == "ROLL_END" then
+			body = { fields[3], fields[4], optionalText(fields[5]), optionalNumber(fields[6]), optionalText(fields[7]) }
+		elseif kind == "ITEM_DONE" then
+			body = { fields[3], fields[4], optionalText(fields[5]) }
+		elseif kind == "ITEM_CANCELLED" then
+			body = { fields[3], fields[4], optionalText(fields[5]), optionalText(fields[6]) }
+		elseif kind == "ROLL_TICK" then
+			body = { fields[3], fields[4], optionalNumber(fields[5]) }
+		elseif kind == "TIE_START" then
+			body = { fields[3], fields[4], optionalText(fields[5]) }
+		elseif kind == "AWARDED" then
+			body = { fields[3], fields[4], optionalText(fields[5]), optionalText(fields[6]), optionalNumber(fields[7]) }
+		elseif kind == "HELLO" then
+			body = {}
+		elseif kind == "SNAP_REQ" then
+			requestId = optionalText(fields[3])
+			body = {}
+		elseif kind == "SNAP" then
+			requestId = optionalText(fields[3])
+			local rows = {}
+			if fields[5] and fields[5] ~= "" then
+				rows[1] = {
+					itemKey = fields[5], count = optionalNumber(fields[6]), quality = optionalNumber(fields[7]),
+					itemLink = optionalText(fields[8]), itemName = optionalText(fields[9]),
+					itemTexture = optionalText(fields[10]), slot = optionalNumber(fields[11]),
+					state = optionalText(fields[12]), rollType = optionalText(fields[13]),
+					duration = optionalNumber(fields[14]), winnerName = optionalText(fields[15]),
+					rollValue = optionalNumber(fields[16]), reason = optionalText(fields[17]),
+					remaining = optionalNumber(fields[18]), tieNamesText = optionalText(fields[19]),
+				}
+			end
+			body = { fields[4], assert(payload.Serialize(rows)) }
+		elseif kind == "SNAP_CHUNK" then
+			requestId = optionalText(fields[3])
+			body = { fields[4], tonumber(fields[5]), tonumber(fields[6]), fields[7] }
+		else
+			return message
+		end
+		return assert(payload.Serialize({ 5, kind, requestId, false, body }))
+	end
 	function fixture:Deliver(message, sender)
-		return self.owner.HandleMessage("RMADist", message, "RAID", sender or self.authority)
+		return self.owner.HandleMessage("RMADist", convertLegacyMessage(message), "RAID", sender or self.authority)
 	end
 	function fixture:CountSent(kind)
 		local count = 0
@@ -2303,7 +2465,8 @@ function cases.loot_distribution_window_sender_is_atomic(addon)
 	assertEqual(true, owner.PublishWindowItems({}, endRetryRevision), "zero-row END retry must commit")
 	assertEqual(2, fixture:CountSent("WINDOW_END"), "complete zero-row window must end once")
 	local begin = fixture.sent[#fixture.sent - 1]
-	assertEqual("0", begin.fields[5], "WINDOW_BEGIN must append expected row count")
+	assertR5Envelope(addon, begin.message, "WINDOW_BEGIN")
+	assertEqual(0, begin.body[3], "WINDOW_BEGIN must append expected row count")
 	local nextRevision = assert(owner.BeginWindow(0))
 	assertEqual(endRetryRevision + 1, nextRevision, "successful END retry did not advance revision")
 	assertEqual(true, owner.PublishWindowItems({}, nextRevision), "post-retry next revision must commit")
@@ -2392,6 +2555,243 @@ function cases.loot_distribution_snapshot_cannot_resurrect_ended_session(addon)
 	print("PASS loot_distribution_snapshot_cannot_resurrect_ended_session")
 end
 
+function cases.loot_distribution_r5_snapshot_chunks_and_rejections()
+	local leaderAddon = newAddon()
+	local receiverAddon = newAddon()
+	local leader = createDistributionSessionFixture(leaderAddon, "LeaderA")
+	local receiver = createDistributionSessionFixture(receiverAddon, "Follower")
+	for i = 1, 24 do
+		local text = {}
+		for j = 1, 12 do
+			text[j] = string.char(33 + ((i * 37 + j * 53) % 90))
+		end
+		local suffix = table.concat(text)
+		assertTrue(leader.owner.PublishItem({
+			itemKey = "item:r5:" .. tostring(i),
+			itemLink = "item:r5:" .. tostring(i) .. ":" .. suffix,
+			itemName = "R5 item " .. tostring(i) .. " " .. suffix,
+			itemTexture = "Interface\\Icons\\R5_" .. tostring(i) .. suffix,
+			count = (i % 3) + 1,
+			quality = 4,
+			slot = i,
+		}), "distribution fixture item did not publish")
+	end
+	local expected = leader.owner.GetDisplayModel()
+	for key in pairs(leader.sent) do
+		leader.sent[key] = nil
+	end
+	local snapshotRequestId = assert(receiver.owner.RequestSnapshot())
+	assertTrue(leader.owner.PublishSnapshot("Follower", snapshotRequestId), "R5 snapshot did not publish")
+	assertTrue(#leader.sent > 1, "distribution snapshot did not exercise chunking")
+	local queueName
+	for i = 1, #leader.sent do
+		local sent = leader.sent[i]
+		local raw = assertR5Envelope(leaderAddon, sent.message, "SNAP_CHUNK")
+		assertEqual("NORMAL", sent.priority, "distribution chunk priority differs")
+		queueName = queueName or sent.queueName
+		assertEqual(queueName, sent.queueName, "distribution chunk queue changed")
+		assertEqual(snapshotRequestId, raw[3], "distribution snapshot request differs")
+		assertEqual("Follower", raw[4], "distribution snapshot target differs")
+		assertTrue(#sent.message <= 243, "distribution chunk exceeded the addon wire limit")
+	end
+	for i = #leader.sent, 1, -1 do
+		assertTrue(receiver.owner.HandleMessage("RMADist", leader.sent[i].message, "WHISPER", "LeaderA"))
+	end
+	local actual = receiver.owner.GetDisplayModel()
+	assertEqual(expected.sessionId, actual.sessionId, "out-of-order distribution snapshot session differs")
+	assertEqual(#expected.rows, #actual.rows, "out-of-order distribution snapshot row count differs")
+	for i = 1, #expected.rows do
+		for _, field in ipairs({
+			"itemKey", "count", "quality", "itemLink", "itemName", "itemTexture", "slot", "state",
+			"rollType", "duration", "winnerName", "rollValue", "reason", "remaining", "tieNamesText",
+		}) do
+			assertEqual(expected.rows[i][field], actual.rows[i][field], "distribution snapshot field differs: " .. field)
+		end
+	end
+
+	local before = receiver.owner.GetDisplayModel()
+	local codec = receiverAddon.Comms.Payload
+	local invalid = {
+		assert(codec.Serialize({ 4, "CLEAR", false, false, { sessionId = "bad-version" } })),
+		assert(codec.Serialize({ [1] = 5, [2] = "CLEAR", [3] = false, [5] = { sessionId = "sparse" } })),
+		assert(codec.Serialize({ 5, "NOT_A_KIND", false, false, {} })),
+		assert(codec.Serialize({ 5, "SNAP_CHUNK", "too-many", "Follower", { before.sessionId, 1, 65, "x" } })),
+		assert(codec.Serialize({ 5, "SNAP_CHUNK", "oversized", "Follower", { before.sessionId, 1, 1, string.rep("x", 181) } })),
+		"\001malformed",
+		"CLEAR|2|legacy",
+	}
+	for i = 1, #invalid do
+		receiver.owner.HandleMessage("RMADist", invalid[i], "WHISPER", "LeaderA")
+		assertTrue(deepEqual(before, receiver.owner.GetDisplayModel()), "invalid distribution message mutated state " .. i)
+	end
+	assertEqual(nil, next(receiver.owner._incomingSnapshots), "invalid distribution chunks allocated assembly state")
+	print("PASS loot_distribution_r5_snapshot_chunks_and_rejections")
+end
+
+function cases.loot_distribution_ordered_flow_uses_one_normal_queue()
+	local fixture = createDistributionSessionFixture(newAddon(), "LeaderA")
+	local owner = fixture.owner
+	assertTrue(owner.Clear(), "ordered flow clear failed")
+	assertTrue(owner.PublishItem(distributionItem("item:ordered", 1)), "ordered flow item failed")
+	local revision = assert(owner.BeginWindow(1))
+	assertTrue(owner.PublishWindowItems({ distributionItem("item:ordered", 1) }, revision), "ordered flow window failed")
+	assertTrue(owner.PublishRollStart("item:ordered", 1, 30), "ordered flow roll start failed")
+	assertTrue(owner.PublishTieStart("item:ordered", { "Alpha", "Bravo" }), "ordered flow tie failed")
+	assertTrue(owner.PublishRollEnd("item:ordered", "Alpha", 99, "ms"), "ordered flow roll end failed")
+	assertTrue(owner.PublishItemDone("item:ordered", "Alpha"), "ordered flow completion failed")
+
+	local requestId = assert(owner.RequestSnapshot())
+	assertTrue(owner.PublishSnapshot("Follower", requestId), "ordered flow snapshot failed")
+	assertTrue(owner.PublishSessionEnd(), "ordered flow session end failed")
+
+	local groupQueue
+	local snapshotQueue
+	for i = 1, #fixture.sent do
+		local sent = fixture.sent[i]
+		if sent.kind == "SNAP_REQ" or sent.kind == "HELLO" then
+			assertEqual("ALERT", sent.priority, sent.kind .. " must remain out-of-band")
+		else
+			assertEqual("NORMAL", sent.priority, sent.kind .. " crossed the ordered state queue")
+			if sent.target then
+				snapshotQueue = snapshotQueue or sent.queueName
+				assertEqual(snapshotQueue, sent.queueName, "snapshot response queue changed")
+			else
+				groupQueue = groupQueue or sent.queueName
+				assertEqual(groupQueue, sent.queueName, "ordered group mutation queue changed")
+			end
+		end
+		assertTrue(sent.priority ~= "BULK", sent.kind .. " used a reorderable BULK classification")
+	end
+	assertTrue(groupQueue ~= nil, "ordered group flow did not enqueue")
+	assertTrue(snapshotQueue ~= nil, "ordered snapshot flow did not enqueue")
+	print("PASS loot_distribution_ordered_flow_uses_one_normal_queue")
+end
+
+function cases.loot_distribution_r5_rejects_invalid_body_scalars()
+	local addon = newAddon()
+	local fixture = createDistributionSessionFixture(addon, "Follower")
+	local owner = fixture.owner
+	fixture:Deliver("CLEAR|2|scalar-session")
+	local beforeRoll = owner.GetDisplayModel()
+	local invalidRoll = assert(addon.Comms.Payload.Serialize({
+		5,
+		"ROLL_START",
+		false,
+		false,
+		{ "scalar-session", "item:invalid-roll", {}, 30 },
+	}))
+	owner.HandleMessage("RMADist", invalidRoll, "RAID", "LeaderA")
+	assertTrue(deepEqual(beforeRoll, owner.GetDisplayModel()), "table roll type mutated distribution state")
+
+	local malformedRows = {
+		{
+			itemKey = "item:invalid-snapshot",
+			count = "many",
+			quality = 4,
+			itemLink = "item:invalid-snapshot",
+			itemName = {},
+			itemTexture = "texture",
+			slot = 1,
+			state = "active",
+			rollType = false,
+			duration = false,
+			winnerName = false,
+			rollValue = false,
+			reason = false,
+			remaining = false,
+			tieNamesText = false,
+		},
+	}
+	local malformedRequest = assert(owner.RequestSnapshot())
+	local malformedEncoded = assert(addon.Comms.Payload.Serialize(malformedRows))
+	local malformedChunkSize = 80
+	local malformedChunkCount = math.ceil(#malformedEncoded / malformedChunkSize)
+	local beforeSnapshot = owner.GetDisplayModel()
+	for index = 1, malformedChunkCount do
+		local malformedSnapshotChunk = assert(addon.Comms.Payload.Serialize({
+			5,
+			"SNAP_CHUNK",
+			malformedRequest,
+			"Follower",
+			{
+				"scalar-session",
+				index,
+				malformedChunkCount,
+				string.sub(malformedEncoded, ((index - 1) * malformedChunkSize) + 1, index * malformedChunkSize),
+			},
+		}))
+		owner.HandleMessage("RMADist", malformedSnapshotChunk, "WHISPER", "LeaderA")
+	end
+	assertTrue(deepEqual(beforeSnapshot, owner.GetDisplayModel()), "malformed snapshot scalars mutated state")
+	print("PASS loot_distribution_r5_rejects_invalid_body_scalars")
+end
+
+function cases.loot_distribution_snapshot_requests_are_correlated_and_bounded()
+	local addon = newAddon()
+	local fixture = createDistributionSessionFixture(addon, "Follower")
+	local owner = fixture.owner
+	local payload = addon.Comms.Payload
+	fixture:Deliver("CLEAR|2|unsolicited-session")
+	local unsolicited = assert(payload.Serialize({
+		5,
+		"SNAP_CHUNK",
+		"not-requested",
+		"Follower",
+		{ "unsolicited-session", 1, 2, "x" },
+	}))
+	local before = owner.GetDisplayModel()
+	owner.HandleMessage("RMADist", unsolicited, "WHISPER", "LeaderA")
+	assertTrue(deepEqual(before, owner.GetDisplayModel()), "unsolicited snapshot mutated distribution state")
+	assertEqual(nil, next(owner._incomingSnapshots), "unsolicited snapshot allocated assembly state")
+
+	local perSenderIds = {}
+	for i = 1, 5 do
+		perSenderIds[i] = assert(owner.RequestSnapshot())
+	end
+	for i = 1, #perSenderIds do
+		local chunk = assert(payload.Serialize({
+			5,
+			"SNAP_CHUNK",
+			perSenderIds[i],
+			"Follower",
+			{ "unsolicited-session", 1, 2, "x" },
+		}))
+		owner.HandleMessage("RMADist", chunk, "WHISPER", "LeaderA")
+	end
+	local perSenderCount = 0
+	for _ in pairs(owner._incomingSnapshots) do
+		perSenderCount = perSenderCount + 1
+	end
+	assertEqual(4, perSenderCount, "per-sender snapshot assembly cap differs")
+	assertEqual(nil, owner._pendingSnapshots[perSenderIds[5]], "per-sender overflow retained pending state")
+
+	local globalAddon = newAddon()
+	local globalFixture = createDistributionSessionFixture(globalAddon, "Follower")
+	local globalOwner = globalFixture.owner
+	local globalPayload = globalAddon.Comms.Payload
+	local globalIds = {}
+	for i = 1, 17 do
+		globalIds[i] = assert(globalOwner.RequestSnapshot())
+		local sender = "Leader" .. tostring(i)
+		globalFixture.authority = sender
+		local chunk = assert(globalPayload.Serialize({
+			5,
+			"SNAP_CHUNK",
+			globalIds[i],
+			"Follower",
+			{ "global-capacity", 1, 2, "x" },
+		}))
+		globalOwner.HandleMessage("RMADist", chunk, "WHISPER", sender)
+	end
+	local globalCount = 0
+	for _ in pairs(globalOwner._incomingSnapshots) do
+		globalCount = globalCount + 1
+	end
+	assertEqual(16, globalCount, "global snapshot assembly cap differs")
+	assertEqual(nil, globalOwner._pendingSnapshots[globalIds[17]], "global overflow retained pending state")
+	print("PASS loot_distribution_snapshot_requests_are_correlated_and_bounded")
+end
+
 function cases.loot_distribution_clear_requires_ordered_owner_transition(addon)
 	local fixture = createDistributionSessionFixture(addon)
 	local owner = fixture.owner
@@ -2414,12 +2814,14 @@ function cases.loot_distribution_clear_requires_ordered_owner_transition(addon)
 	local ownerC = owner.GetDisplayModel()
 	fixture:Deliver("CLEAR|2|LeaderA:2:20")
 	assertTrue(deepEqual(ownerC, owner.GetDisplayModel()), "delayed CLEAR replaced the newer owner")
-	fixture:Deliver("SNAP|2|request|LeaderA:4:40|item:snap|1|4|item:snap|Snap|texture|1|active|||||||")
+	local rejectedRequest = assert(owner.RequestSnapshot())
+	fixture:Deliver("SNAP|2|" .. rejectedRequest .. "|LeaderA:4:40|item:snap|1|4|item:snap|Snap|texture|1|active|||||||")
 	assertTrue(deepEqual(ownerC, owner.GetDisplayModel()), "snapshot changed session without an explicit transition")
 	fixture:Deliver("CLEAR|2|LeaderA:4:40")
 	local cleared = owner.GetDisplayModel()
 	assertEqual("LeaderA:4:40", cleared.sessionId, "newer ordered CLEAR did not transition session")
-	fixture:Deliver("SNAP|2|request|LeaderA:4:40|item:snap|1|4|item:snap|Snap|texture|1|active|||||||")
+	local acceptedRequest = assert(owner.RequestSnapshot())
+	fixture:Deliver("SNAP|2|" .. acceptedRequest .. "|LeaderA:4:40|item:snap|1|4|item:snap|Snap|texture|1|active|||||||")
 	local snapshotOwner = owner.GetDisplayModel()
 	assertEqual("item:snap", snapshotOwner.rows[1].itemKey, "snapshot after explicit CLEAR did not apply")
 	fixture:Deliver("CLEAR|2|LeaderA:5:50")
@@ -2706,36 +3108,23 @@ function cases.loot_distribution_done_retries_wire_without_duplicate_state(addon
 			events[#events + 1] = { reason = reason, row = row }
 		end,
 	}
-	addon.Comms = {
-		Payload = {
-			EncodeText = function(value)
-				return tostring(value or "")
-			end,
-			DecodeText = function(value)
-				return value
-			end,
-			PackFields = function(sep, ...)
-				local values = { ... }
-				for i = 1, #values do
-					values[i] = tostring(values[i])
-				end
-				return table.concat(values, sep)
-			end,
-			SplitFields = function()
-				return {}
-			end,
-		},
-		RegisterPrefixIfAvailable = function()
+	installPayloadCodec(addon)
+	addon.Comms.RegisterPrefixIfAvailable = function()
 			return true
-		end,
-		Sync = function()
+		end
+	addon.Comms.SendAddonBatch = function()
 			sends = sends + 1
 			return sends > 1
-		end,
-		QueueAddonMessage = function()
+		end
+	addon.Comms.QueueAddonMessage = function()
 			return true
-		end,
-	}
+		end
+	addon.Comms.QueueAddonMessages = function()
+			return true
+		end
+	addon.Comms.NormalizeSender = function(value)
+			return tostring(value or ""):match("^[^-]+") or ""
+		end
 	addon.Item = {
 		GetItemKey = function(value)
 			return value
@@ -4602,16 +4991,9 @@ function cases.raid_replication_loaded_beta_bridge(addon)
 end
 
 local function installRaidReplicationProtocolFixture(addon)
+	installPayloadCodec(addon)
 	installRaidReplicationEventFixture(addon)
 	loadAddonFile(addon, "Raid Management Addon/Modules/Json.lua")
-	addon.Item = addon.Item or {}
-	addon.Item.GetItemIdFromLink = function(itemLink)
-		return type(itemLink) == "string" and tonumber(string.match(itemLink, "item:(%d+)")) or nil
-	end
-	addon.Item.GetItemStringFromLink = function(itemLink)
-		return type(itemLink) == "string" and string.match(itemLink, "|H(item:[%-%d:]+)|h") or nil
-	end
-	addon.Comms = { Payload = {} }
 	local payload = addon.Comms.Payload
 	function payload.PackFields(separator, ...)
 		local values = { ... }
@@ -4633,6 +5015,13 @@ local function installRaidReplicationProtocolFixture(addon)
 			from = endAt + 1
 		end
 		return fields, #fields
+	end
+	addon.Item = addon.Item or {}
+	addon.Item.GetItemIdFromLink = function(itemLink)
+		return type(itemLink) == "string" and tonumber(string.match(itemLink, "item:(%d+)")) or nil
+	end
+	addon.Item.GetItemStringFromLink = function(itemLink)
+		return type(itemLink) == "string" and string.match(itemLink, "|H(item:[%-%d:]+)|h") or nil
 	end
 	loadAddonFile(addon, "Raid Management Addon/Database/DBSyncProtocol.lua")
 	return addon.DB.SyncProtocol
@@ -4718,7 +5107,14 @@ end
 
 function cases.raid_replication_protocol_round_trip(addon)
 	local protocol = installRaidReplicationProtocolFixture(addon)
-	assertEqual(4, protocol.VERSION, "protocol version differs")
+	assertEqual(5, protocol.VERSION, "protocol version differs")
+	local headRequestWire = assert(protocol.Encode("HEAD_REQ", nil, nil, {}))
+	local headRequestRaw = assert(addon.Comms.Payload.Deserialize(headRequestWire))
+	assertEqual(5, headRequestRaw[1], "raid wire version differs")
+	assertEqual("HEAD_REQ", headRequestRaw[2], "raid message kind differs")
+	assertEqual(false, headRequestRaw[3], "missing request id is not dense")
+	assertEqual(false, headRequestRaw[4], "missing target is not dense")
+	assertEqual(nil, protocol.Decode("R4\tHEAD_REQ\t-\t-\t{}"), "R4 wire was accepted")
 	local bodies = protocolBodies()
 	local kinds = {
 		"HEAD_REQ",
@@ -4749,7 +5145,8 @@ function cases.raid_replication_protocol_round_trip(addon)
 		assertEqual(requestId or "-", decoded.requestId, kind .. " decoded request ID differs")
 		assertEqual(target or "-", decoded.target, kind .. " decoded target differs")
 		assertTrue(deepEqual(bodies[kind], decoded.body), kind .. " decoded body differs")
-		assertEqual(nil, protocol.Decode(string.gsub(message, "^R4", "R3")), "R3 wire was accepted")
+		local oldWire = assert(addon.Comms.Payload.Serialize({ 4, kind, requestId or false, target or false, rawget(assert(addon.Comms.Payload.Deserialize(message)), 5) }))
+		assertEqual(nil, protocol.Decode(oldWire), "R4 wire was accepted")
 	end
 	local legacyHead = deepCopy(bodies.HEAD)
 	legacyHead.zone = nil
@@ -4761,8 +5158,8 @@ function cases.raid_replication_protocol_round_trip(addon)
 	local boundaryBody = deepCopy(bodies.OFFER)
 	boundaryBody.zone = string.rep("x", 69)
 	local boundaryMessage = assert(protocol.Encode("OFFER", "request-fixed", "Target", boundaryBody))
-	assertEqual(243, #boundaryMessage, "exact boundary envelope length differs")
-	assertTrue(protocol.Decode(boundaryMessage) ~= nil, "exact boundary envelope did not decode")
+	assertTrue(#boundaryMessage <= 243, "accepted R5 envelope exceeded the wire limit")
+	assertTrue(protocol.Decode(boundaryMessage) ~= nil, "bounded R5 envelope did not decode")
 	local internationalZones = { "Citadelle française", "Eiskronenzitadelle ä", "Ледяная Корона" }
 	for i = 1, #internationalZones do
 		local internationalOffer = deepCopy(bodies.OFFER)
@@ -4774,9 +5171,22 @@ function cases.raid_replication_protocol_round_trip(addon)
 			"international offer zone did not round-trip"
 		)
 	end
+	local function wireNoise(seed, count, excludePipe)
+		local value = {}
+		for i = 1, count do
+			local valueByte = 33 + ((seed * 41 + i * 53) % 94)
+			if excludePipe and valueByte == 124 then
+				valueByte = 123
+			end
+			value[i] = string.char(valueByte)
+		end
+		return table.concat(value)
+	end
 	local oversizedBody = deepCopy(boundaryBody)
-	oversizedBody.zone = boundaryBody.zone .. "x"
-	local oversizedMessage, oversizedReason = protocol.Encode("OFFER", "request-fixed", "Target", oversizedBody)
+	oversizedBody.raidUid = wireNoise(1, 40)
+	oversizedBody.zone = wireNoise(2, 128, true)
+	local oversizedMessage, oversizedReason =
+		protocol.Encode("OFFER", wireNoise(3, 64), wireNoise(4, 64), oversizedBody)
 	assertEqual(nil, oversizedMessage, "oversize envelope was accepted")
 	assertEqual("MESSAGE_TOO_LARGE", oversizedReason, "oversize envelope failed for the wrong reason")
 	print("PASS raid_replication_protocol_round_trip")
@@ -4865,21 +5275,27 @@ function cases.raid_replication_protocol_rejects_invalid(addon)
 		)
 	end
 	assertEqual(nil, protocol.Encode("EXEC", "request", "Target", {}), "unknown message kind was accepted")
-	assertEqual(nil, protocol.Decode("R4\tEXEC\trequest\tTarget\tgarbage"), "unknown decoded kind was accepted")
+	local unknownWire = assert(addon.Comms.Payload.Serialize({ 5, "EXEC", "request", "Target", {} }))
+	assertEqual(nil, protocol.Decode(unknownWire), "unknown decoded kind was accepted")
 	local unsupportedBodyCalls = 0
 	local decodeBody = protocol.DecodeBody
 	protocol.DecodeBody = function(...)
 		unsupportedBodyCalls = unsupportedBodyCalls + 1
 		return decodeBody(...)
 	end
-	local decoded, reason = protocol.Decode("R2\tHEAD\t-\t-\tnot-even-base64")
+	local oldWire = assert(addon.Comms.Payload.Serialize({ 4, "HEAD", false, false, bodies.HEAD }))
+	local decoded, reason = protocol.Decode(oldWire)
 	assertEqual(nil, decoded, "version 2 envelope was accepted")
 	assertEqual("UNSUPPORTED_PROTOCOL", reason, "version 2 rejection reason differs")
 	assertEqual(0, unsupportedBodyCalls, "unsupported version decoded its body")
 	protocol.DecodeBody = decodeBody
 
 	local validHead = assert(protocol.Encode("HEAD", nil, nil, bodies.HEAD))
-	assertEqual(nil, protocol.Decode(validHead .. "\textra"), "extra envelope field was accepted")
+	local validHeadRaw = assert(addon.Comms.Payload.Deserialize(validHead))
+	local extraWire = assert(addon.Comms.Payload.Serialize({
+		validHeadRaw[1], validHeadRaw[2], validHeadRaw[3], validHeadRaw[4], validHeadRaw[5], "extra",
+	}))
+	assertEqual(nil, protocol.Decode(extraWire), "extra envelope field was accepted")
 
 	local invalidCases = {}
 	local function reject(label, kind, requestId, target, body)
@@ -4997,11 +5413,9 @@ function cases.raid_replication_protocol_rejects_invalid(addon)
 	)
 	local maximumChunk = deepCopy(bodies.RANGE_DATA)
 	maximumChunk.chunk = string.rep("x", 220)
-	local maximumChunkBody = assert(protocol.EncodeBody(maximumChunk))
-	assertTrue(
-		protocol.Decode("R4\tRANGE_DATA\trequest\tTarget\t" .. maximumChunkBody) ~= nil,
-		"220-byte chunk was rejected"
-	)
+	local maximumChunkWire, maximumChunkReason = protocol.Encode("RANGE_DATA", "request", "Target", maximumChunk)
+	assertEqual(nil, maximumChunkWire, "R5 envelope accepted an oversized on-wire chunk")
+	assertEqual("MESSAGE_TOO_LARGE", maximumChunkReason, "R5 oversized chunk rejection reason differs")
 	local maximumReason = deepCopy(bodies.RESULT)
 	maximumReason.reason = string.rep("x", 96)
 	assertTrue(
@@ -5009,22 +5423,13 @@ function cases.raid_replication_protocol_rejects_invalid(addon)
 		"96-byte RESULT reason was rejected"
 	)
 
-	assertEqual(nil, protocol.Decode("R4\tSNAP_REQ\trequest\tTarget\t%%%"), "malformed encoded body was accepted")
-	local jsonDecodeCalls = 0
-	local jsonDecode = addon.Json.Decode
-	addon.Json.Decode = function(...)
-		jsonDecodeCalls = jsonDecodeCalls + 1
-		return jsonDecode(...)
-	end
-	local controlBytes = { 0, 31, 11, 10, 13 }
-	for i = 1, #controlBytes do
-		local bodyText = '{"raidUid":"r1' .. string.char(controlBytes[i]) .. '"}'
-		local controlBody, controlReason = protocol.Decode("R4\tSNAP_REQ\trequest\tTarget\t" .. bodyText)
-		assertEqual(nil, controlBody, "raw control byte " .. controlBytes[i] .. " was accepted")
-		assertEqual("MALFORMED_MESSAGE_BODY_CONTROL", controlReason, "raw control byte rejection reason differs")
-	end
-	assertEqual(0, jsonDecodeCalls, "raw control body reached JSON decoding")
-	addon.Json.Decode = jsonDecode
+	assertEqual(nil, protocol.Decode("\001malformed"), "malformed encoded envelope was accepted")
+	local sparseWire = assert(addon.Comms.Payload.Serialize({
+		[1] = 5, [2] = "SNAP_REQ", [3] = "request", [5] = bodies.SNAP_REQ,
+	}))
+	assertEqual(nil, protocol.Decode(sparseWire), "sparse R5 envelope was accepted")
+	local wrongBodyWire = assert(addon.Comms.Payload.Serialize({ 5, "SNAP_REQ", "request", "Target", "body" }))
+	assertEqual(nil, protocol.Decode(wrongBodyWire), "non-table R5 body was accepted")
 
 	local compactEvent = protocolBodies().LIVE_LOOT.event
 	local compactSlots = {
@@ -5043,11 +5448,11 @@ function cases.raid_replication_protocol_rejects_invalid(addon)
 		1721120200,
 		"DISTRIBUTION_AWARD",
 		compactEvent.payload.loot.itemTexture,
-		addon.Json.NULL,
+		false,
 	}
 	local function rejectCompact(label, slots)
-		local encoded = assert(protocol.EncodeBody(slots))
-		local body, compactReason = protocol.Decode("R4\tLIVE_LOOT\t-\t-\t" .. encoded)
+		local encoded = assert(addon.Comms.Payload.Serialize({ 5, "LIVE_LOOT", false, false, slots }))
+		local body, compactReason = protocol.Decode(encoded)
 		assertEqual(nil, body, label .. " was accepted")
 		assertTrue(
 			compactReason == "INVALID_MESSAGE_BODY"
@@ -5060,7 +5465,7 @@ function cases.raid_replication_protocol_rejects_invalid(addon)
 	arity[16] = nil
 	rejectCompact("compact dense-array arity", arity)
 	local nullSlot = deepCopy(compactSlots)
-	nullSlot[5] = addon.Json.NULL
+	nullSlot[5] = false
 	rejectCompact("compact required null slot", nullSlot)
 	local malformedLink = deepCopy(compactSlots)
 	malformedLink[6] = "item:47242"
@@ -5083,11 +5488,11 @@ function cases.raid_replication_protocol_rejects_invalid(addon)
 	malformedSource[16] = {
 		"BOSS",
 		4,
-		addon.Json.NULL,
-		addon.Json.NULL,
-		addon.Json.NULL,
-		addon.Json.NULL,
-		addon.Json.NULL,
+		false,
+		false,
+		false,
+		false,
+		false,
 		{ { "Name", "KIND", "key", 7, "extra" } },
 	}
 	rejectCompact("compact malformed nested source tuple", malformedSource)
@@ -5118,7 +5523,7 @@ function cases.raid_replication_protocol_rejects_malformed_compact_live_loot_sca
 		1721120200,
 		"DISTRIBUTION_AWARD",
 		compactEvent.payload.loot.itemTexture,
-		addon.Json.NULL,
+		false,
 	}
 	local function copyCompactSlots()
 		local copy = {}
@@ -5130,8 +5535,8 @@ function cases.raid_replication_protocol_rejects_malformed_compact_live_loot_sca
 	local function rejectCompact(label, slot, value)
 		local slots = copyCompactSlots()
 		slots[slot] = value
-		local encoded = assert(protocol.EncodeBody(slots))
-		local body = protocol.Decode("R4\tLIVE_LOOT\t-\t-\t" .. encoded)
+		local encoded = assert(addon.Comms.Payload.Serialize({ 5, "LIVE_LOOT", false, false, slots }))
+		local body = protocol.Decode(encoded)
 		assertEqual(nil, body, label .. " was accepted")
 	end
 
@@ -5184,13 +5589,13 @@ function cases.raid_replication_protocol_rejects_malformed_compact_live_loot_sca
 	end
 
 	local optionalNulls = copyCompactSlots()
-	optionalNulls[11] = addon.Json.NULL
-	optionalNulls[14] = addon.Json.NULL
-	optionalNulls[15] = addon.Json.NULL
-	optionalNulls[16] = addon.Json.NULL
-	local optionalBody, optionalReason =
-		protocol.Decode("R4\tLIVE_LOOT\t-\t-\t" .. assert(protocol.EncodeBody(optionalNulls)))
-	assertTrue(optionalBody ~= nil, "JSON-null optional compact slots were rejected: " .. tostring(optionalReason))
+	optionalNulls[11] = false
+	optionalNulls[14] = false
+	optionalNulls[15] = false
+	optionalNulls[16] = false
+	local optionalWire = assert(addon.Comms.Payload.Serialize({ 5, "LIVE_LOOT", false, false, optionalNulls }))
+	local optionalBody, optionalReason = protocol.Decode(optionalWire)
+	assertTrue(optionalBody ~= nil, "false optional compact slots were rejected: " .. tostring(optionalReason))
 	print("PASS raid_replication_protocol_rejects_malformed_compact_live_loot_scalars")
 end
 
@@ -12421,7 +12826,7 @@ function cases.reserves_whisper_storage_identity_resolution_is_owner_bound(addon
 	print("PASS reserves_whisper_storage_identity_resolution_is_owner_bound")
 end
 
-local function installRealReservesSyncFixture(addon)
+local function installRealReservesSyncFixture(addon, localName)
 	local reserves = installRealReservesMutationFixture(addon)
 	addon.L.MsgReservesSyncFailed = "failed:%s"
 	addon.L.MsgReservesSyncMeta = "%s %s %s %d %d"
@@ -12432,22 +12837,7 @@ local function installRealReservesSyncFixture(addon)
 		warnings[#warnings + 1] = message
 	end
 	local sent = {}
-	local function encodeText(value)
-		return (
-			tostring(value or ""):gsub(".", function(char)
-				return string.format("%02X", string.byte(char))
-			end)
-		)
-	end
-	local function decodeText(value)
-		if type(value) ~= "string" or (#value % 2) ~= 0 or value:find("[^0-9A-F]") then
-			return nil
-		end
-		return (value:gsub("..", function(pair)
-			return string.char(tonumber(pair, 16))
-		end))
-	end
-	local payload = {}
+	local payload = installPayloadCodec(addon)
 	function payload.PackFields(separator, ...)
 		local fields = { ... }
 		for i = 1, #fields do
@@ -12456,6 +12846,7 @@ local function installRealReservesSyncFixture(addon)
 		return table.concat(fields, separator)
 	end
 	function payload.SplitFields(text, separator, destination)
+		destination = destination or {}
 		for key in pairs(destination) do
 			destination[key] = nil
 		end
@@ -12471,24 +12862,61 @@ local function installRealReservesSyncFixture(addon)
 		end
 		return destination
 	end
-	payload.EncodeText = encodeText
-	payload.DecodeText = decodeText
+	function payload.EncodeText(value)
+		return (tostring(value or ""):gsub(".", function(char)
+			return string.format("%02X", string.byte(char))
+		end))
+	end
+	function payload.DecodeText(value)
+		if type(value) ~= "string" or (#value % 2) ~= 0 or value:find("[^0-9A-F]") then
+			return nil
+		end
+		return (value:gsub("..", function(pair)
+			return string.char(tonumber(pair, 16))
+		end))
+	end
+	local function recordMessage(prefix, target, message, channel, opts)
+		local envelope = payload.Deserialize(message)
+		sent[#sent + 1] = {
+			prefix = prefix,
+			target = target,
+			message = message,
+			channel = channel,
+			priority = opts and opts.priority or "NORMAL",
+			queueName = opts and opts.queueName or nil,
+			envelope = type(envelope) == "table" and deepCopy(envelope) or nil,
+			kind = type(envelope) == "table" and envelope[2] or nil,
+			body = type(envelope) == "table" and deepCopy(envelope[5]) or nil,
+		}
+		return true
+	end
 	addon.Comms = {
 		Payload = payload,
 		NormalizeSender = function(value)
 			return tostring(value or ""):match("^[^-]+") or ""
 		end,
 		SendAddonWhisper = function(prefix, target, message)
-			sent[#sent + 1] = { prefix = prefix, target = target, message = message }
+			return recordMessage(prefix, target, message, "WHISPER")
+		end,
+		QueueAddonMessage = function(prefix, message, channel, target, opts)
+			return recordMessage(prefix, target, message, channel, opts)
+		end,
+		QueueAddonMessages = function(prefix, messages, channel, target, opts)
+			for i = 1, #messages do
+				recordMessage(prefix, target, messages[i], channel, opts)
+			end
+			return true
+		end,
+		SendAddonBatch = function(prefix, messages, target, opts)
+			local channel = target and "WHISPER" or "RAID"
+			for i = 1, #messages do
+				recordMessage(prefix, target, messages[i], channel, opts)
+			end
 			return true
 		end,
 		RegisterPrefixIfAvailable = function() end,
-		NextRequestId = function(owner, field)
-			owner[field] = (owner[field] or 0) + 1
-			return tostring(owner[field])
-		end,
-		Sync = function()
-			return true
+		Sync = function(prefix, message)
+			return recordMessage(prefix, nil, message, "RAID")
 		end,
 	}
 	addon.Services.Raid = {
@@ -12503,7 +12931,7 @@ local function installRealReservesSyncFixture(addon)
 		end,
 	}
 	_G.UnitName = function()
-		return "Tester"
+		return localName or "Tester"
 	end
 	local now = 10
 	_G.GetTime = function()
@@ -12519,6 +12947,9 @@ local function installRealReservesSyncFixture(addon)
 			now = value
 		end,
 		warnings = warnings,
+		encode = function(kind, requestId, target, body, version)
+			return assert(payload.Serialize({ version or 5, kind, requestId or false, target or false, body or {} }))
+		end,
 	}
 end
 
@@ -12555,31 +12986,28 @@ function cases.reserves_sync_checksums_and_payloads_are_verified(addon)
 		"equivalent reserve maps and rows need one canonical checksum"
 	)
 
-	local function compactPayload(data)
-		local lines = { "H|multi|C1" }
-		local playerNames = { "Alpha", "Bravo" }
-		for i = 1, #playerNames do
-			local name = playerNames[i]
-			lines[#lines + 1] = "P|" .. i .. "|" .. fixture.payload.EncodeText(name)
-			local rows = data[string.lower(name)].reserves
-			for j = 1, #rows do
-				local row = rows[j]
-				lines[#lines + 1] = table.concat({
-					"R",
-					i,
-					row.rawID,
-					row.quantity,
-					row.plus,
-					fixture.payload.EncodeText(row.class),
-					fixture.payload.EncodeText(row.spec),
-					fixture.payload.EncodeText(row.note),
-					fixture.payload.EncodeText(row.source),
-				}, "|")
+	local function transferTable(data, mode)
+		local projection = assert(fixture.reserves.BuildCanonicalProjection(data))
+		local transfer = { mode = mode or "multi", players = {} }
+		for i = 1, #projection do
+			local player = { name = projection[i].name, rows = {} }
+			transfer.players[i] = player
+			for j = 1, #projection[i].rows do
+				local row = projection[i].rows[j]
+				player.rows[j] = {
+					rawID = row.rawID,
+					quantity = row.quantity,
+					plus = row.plus,
+					class = row.class,
+					spec = row.spec,
+					note = row.note,
+					source = row.source,
+				}
 			end
 		end
-		return table.concat(lines, "\n")
+		return transfer
 	end
-	local validPayload = compactPayload(first)
+	local validTransfer = transferTable(first)
 	local checksum = fixture.reserves.BuildCanonicalChecksum(first)
 	local setCalls = 0
 	local originalSet = fixture.sync.SetSyncedData
@@ -12588,35 +13016,44 @@ function cases.reserves_sync_checksums_and_payloads_are_verified(addon)
 		return originalSet(self, data, meta)
 	end
 	local function transfer(requestId, announcedChecksum, players, entries, encoded, totalChunks)
+		fixture.sync._pendingRequests[requestId] = { stage = "metadata", createdAt = 10 }
 		fixture.sync:HandleMessage(
 			"RMAResSync",
-			table.concat({
-				"META_ACK",
-				requestId,
-				announcedChecksum,
-				"multi",
-				players,
-				entries,
-				"Leader",
-				"C2",
-			}, "|"),
+			fixture.encode("META_ACK", requestId, "Tester", {
+				checksum = announcedChecksum,
+				mode = "multi",
+				players = players,
+				entries = entries,
+				source = "Leader",
+			}),
 			"WHISPER",
 			"Leader-Realm"
 		)
+		local chunkSize = 80
+		local encodedChunks = math.ceil(#encoded / chunkSize)
+		local announcedChunks = totalChunks or encodedChunks
+		local deliveredChunks = totalChunks and 1 or encodedChunks
+		for index = 1, deliveredChunks do
+			fixture.sync:HandleMessage(
+				"RMAResSync",
+				fixture.encode("DATA_CHUNK", requestId, "Tester", {
+					index = index,
+					count = announcedChunks,
+					chunk = string.sub(encoded, ((index - 1) * chunkSize) + 1, index * chunkSize),
+				}),
+				"WHISPER",
+				"Leader-Realm"
+			)
+		end
 		fixture.sync:HandleMessage(
 			"RMAResSync",
-			"DATA_CHUNK|" .. requestId .. "|1|" .. tostring(totalChunks or 1) .. "|" .. encoded,
-			"WHISPER",
-			"Leader-Realm"
-		)
-		fixture.sync:HandleMessage(
-			"RMAResSync",
-			"DATA_DONE|" .. requestId .. "|" .. announcedChecksum,
+			fixture.encode("DATA_DONE", requestId, "Tester", { checksum = announcedChecksum }),
 			"WHISPER",
 			"Leader-Realm"
 		)
 	end
-	transfer("valid", checksum, 2, 3, fixture.payload.EncodeText(validPayload))
+	local validEncoded = assert(fixture.payload.Serialize(validTransfer))
+	transfer("valid", checksum, 2, 3, validEncoded)
 	assertEqual(
 		1,
 		setCalls,
@@ -12626,29 +13063,39 @@ function cases.reserves_sync_checksums_and_payloads_are_verified(addon)
 	local validAlphaEntries = deepCopy(fixture.reserves:GetPlayerReserveEntries("Alpha"))
 	local validMeta = deepCopy(fixture.reserves:GetSyncMetadata())
 
+	local corruptTransfer = deepCopy(validTransfer)
+	corruptTransfer.players[2].rows[1].rawID = 999
+	local malformedTransfer = deepCopy(validTransfer)
+	malformedTransfer.players[1].rows[1].source = nil
 	local invalid = {
 		{
 			id = "corrupt",
 			checksum = checksum .. "1",
 			players = 2,
 			entries = 3,
-			payload = string.gsub(validPayload, "202", "999", 1),
+			encoded = assert(fixture.payload.Serialize(corruptTransfer)),
 		},
 		{
 			id = "truncated",
 			checksum = checksum .. "2",
 			players = 2,
 			entries = 3,
-			payload = string.sub(validPayload, 1, #validPayload - 8),
+			encoded = string.sub(validEncoded, 1, #validEncoded - 1),
 		},
-		{ id = "empty", checksum = checksum .. "3", players = 2, entries = 3, payload = "" },
-		{ id = "counts", checksum = checksum .. "4", players = 9, entries = 3, payload = validPayload },
+		{
+			id = "schema",
+			checksum = checksum .. "3",
+			players = 2,
+			entries = 3,
+			encoded = assert(fixture.payload.Serialize(malformedTransfer)),
+		},
+		{ id = "counts", checksum = checksum .. "4", players = 9, entries = 3, encoded = validEncoded },
 		{
 			id = "missing",
 			checksum = checksum .. "5",
 			players = 2,
 			entries = 3,
-			payload = validPayload,
+			encoded = validEncoded,
 			totalChunks = 2,
 		},
 		{
@@ -12656,7 +13103,7 @@ function cases.reserves_sync_checksums_and_payloads_are_verified(addon)
 			checksum = checksum .. "6",
 			players = 2,
 			entries = 3,
-			payload = string.gsub(validPayload, "H|multi|", "H|plus|", 1),
+			encoded = assert(fixture.payload.Serialize(transferTable(first, "plus"))),
 		},
 	}
 	for i = 1, #invalid do
@@ -12665,7 +13112,7 @@ function cases.reserves_sync_checksums_and_payloads_are_verified(addon)
 			invalid[i].checksum,
 			invalid[i].players,
 			invalid[i].entries,
-			fixture.payload.EncodeText(invalid[i].payload),
+			invalid[i].encoded,
 			invalid[i].totalChunks
 		)
 		assertEqual(1, setCalls, "rejected transfer must not reach SetSyncedData at row " .. i)
@@ -12681,17 +13128,33 @@ function cases.reserves_sync_checksums_and_payloads_are_verified(addon)
 			deepEqual(validMeta, fixture.reserves:GetSyncMetadata()),
 			"rejected transfer changed metadata at row " .. i
 		)
-		assertEqual(nil, fixture.sync._pendingRequests[invalid[i].id], "rejected request was not cleared at row " .. i)
-		assertEqual(
-			nil,
-			fixture.sync._incoming["Leader:" .. invalid[i].id],
-			"rejected chunks were not cleared at row " .. i
-		)
+		if invalid[i].totalChunks then
+			assertEqual(
+				invalid[i].checksum,
+				fixture.sync._pendingRequests[invalid[i].id].doneChecksum,
+				"early DONE marker was not retained at row " .. i
+			)
+			assertTrue(
+				fixture.sync._incoming["Leader:" .. invalid[i].id] ~= nil,
+				"partial early-DONE chunks were discarded at row " .. i
+			)
+		else
+			assertEqual(
+				nil,
+				fixture.sync._pendingRequests[invalid[i].id],
+				"rejected request was not cleared at row " .. i
+			)
+			assertEqual(
+				nil,
+				fixture.sync._incoming["Leader:" .. invalid[i].id],
+				"rejected chunks were not cleared at row " .. i
+			)
+		end
 	end
 	fixture.sync._pendingRequests.expired = { source = "Leader", checksum = "old", createdAt = 10 }
 	fixture.sync._incoming["Leader:expired"] = { total = 1, chunks = { "old" }, createdAt = 10 }
 	fixture.setNow(190)
-	fixture.sync:HandleMessage("RMAResSync", "UNKNOWN|expired", "WHISPER", "Leader-Realm")
+	fixture.sync:HandleMessage("RMAResSync", fixture.encode("UNKNOWN", "expired", "Tester", {}), "WHISPER", "Leader-Realm")
 	assertEqual(nil, fixture.sync._pendingRequests.expired, "expired request must be cleared deterministically")
 	assertEqual(nil, fixture.sync._incoming["Leader:expired"], "expired assembly must be cleared deterministically")
 	print("PASS reserves_sync_checksums_and_payloads_are_verified")
@@ -12735,110 +13198,509 @@ function cases.reserves_sync_protocol_projection_and_chunks_fail_closed(addon)
 	assertEqual(nil, sparseChecksum, "sparse reserve sequences must be rejected")
 	assertEqual("invalid_reserve_sequence", sparseReason, "sparse rejection reason differs")
 
-	-- Legacy C1 metadata has no reproducible integrity digest; the new receiver fails closed without allocating state.
+	-- Delimited metadata is not an R5 envelope and must fail closed without allocating state.
 	fixture.sync:HandleMessage("RMAResSync", "META_ACK|legacy|12345|multi|1|1|Leader|C1", "WHISPER", "Leader-Realm")
 	assertEqual(
 		nil,
 		fixture.sync._pendingRequests.legacy,
 		"untagged legacy metadata must not start an unverifiable transfer"
 	)
-	-- An old receiver treats the tagged checksum as opaque and accepts a matching DATA_DONE value.
-	local oldPendingChecksum = checksum
-	assertEqual(oldPendingChecksum, checksum, "new tagged META remains opaque to an old receiver")
-	assertEqual(oldPendingChecksum, checksum, "new tagged DATA_DONE remains comparable by an old receiver")
-
 	local invalidMeta = {
-		"META_ACK|bad-mode|" .. checksum .. "|broken|1|1|Leader|C2",
-		"META_ACK|bad-count|" .. checksum .. "|multi|1.5|1|Leader|C2",
-		"META_ACK|negative|" .. checksum .. "|multi|-1|1|Leader|C2",
-		"META_ACK|huge|" .. checksum .. "|multi|999999|1|Leader|C2",
-		"META_ACK|bad-hash|C2:nope|multi|1|1|Leader|C2",
+		{ id = "bad-mode", body = { checksum = checksum, mode = "broken", players = 1, entries = 1, source = "Leader" } },
+		{ id = "bad-count", body = { checksum = checksum, mode = "multi", players = 1.5, entries = 1, source = "Leader" } },
+		{ id = "negative", body = { checksum = checksum, mode = "multi", players = -1, entries = 1, source = "Leader" } },
+		{ id = "huge", body = { checksum = checksum, mode = "multi", players = 999999, entries = 1, source = "Leader" } },
+		{ id = "bad-hash", body = { checksum = "C2:nope", mode = "multi", players = 1, entries = 1, source = "Leader" } },
 	}
 	for i = 1, #invalidMeta do
-		fixture.sync:HandleMessage("RMAResSync", invalidMeta[i], "WHISPER", "Leader-Realm")
+		fixture.sync:HandleMessage(
+			"RMAResSync",
+			fixture.encode("META_ACK", invalidMeta[i].id, "Tester", invalidMeta[i].body),
+			"WHISPER",
+			"Leader-Realm"
+		)
 	end
 	for _, id in ipairs({ "bad-mode", "bad-count", "negative", "huge", "bad-hash" }) do
 		assertEqual(nil, fixture.sync._pendingRequests[id], "invalid META allocated request " .. id)
 	end
 
+	fixture.sync._pendingRequests.chunks = { stage = "metadata", createdAt = 10 }
 	fixture.sync:HandleMessage(
 		"RMAResSync",
-		"META_ACK|chunks|" .. checksum .. "|multi|1|1|Leader|C2",
+		fixture.encode("META_ACK", "chunks", "Tester", {
+			checksum = checksum, mode = "multi", players = 1, entries = 1, source = "Leader",
+		}),
 		"WHISPER",
 		"Leader-Realm"
 	)
-	fixture.sync:HandleMessage("RMAResSync", "DATA_CHUNK|chunks|1|2|AAAA", "WHISPER", "Leader-Realm")
-	fixture.sync:HandleMessage("RMAResSync", "DATA_CHUNK|chunks|1|2|AAAA", "WHISPER", "Leader-Realm")
+	local firstChunk = fixture.encode("DATA_CHUNK", "chunks", "Tester", { index = 1, count = 2, chunk = "AAAA" })
+	fixture.sync:HandleMessage("RMAResSync", firstChunk, "WHISPER", "Leader-Realm")
+	fixture.sync:HandleMessage("RMAResSync", firstChunk, "WHISPER", "Leader-Realm")
 	assertTrue(fixture.sync._incoming["Leader:chunks"] ~= nil, "identical duplicate chunk should be idempotent")
-	fixture.sync:HandleMessage("RMAResSync", "DATA_CHUNK|chunks|1|2|BBBB", "WHISPER", "Leader-Realm")
+	fixture.sync:HandleMessage(
+		"RMAResSync",
+		fixture.encode("DATA_CHUNK", "chunks", "Tester", { index = 1, count = 2, chunk = "BBBB" }),
+		"WHISPER",
+		"Leader-Realm"
+	)
 	assertEqual(nil, fixture.sync._incoming["Leader:chunks"], "conflicting duplicate must invalidate assembly")
 	assertEqual(nil, fixture.sync._pendingRequests.chunks, "conflicting duplicate must invalidate request")
 
 	local malformedChunks = {
-		"DATA_CHUNK|fractional|1.5|2|AAAA",
-		"DATA_CHUNK|empty|1|1|",
-		"DATA_CHUNK|zero|0|1|AAAA",
+		{ id = "fractional", body = { index = 1.5, count = 2, chunk = "AAAA" } },
+		{ id = "empty", body = { index = 1, count = 1, chunk = "" } },
+		{ id = "zero", body = { index = 0, count = 1, chunk = "AAAA" } },
 	}
 	for i = 1, #malformedChunks do
-		local id = malformedChunks[i]:match("DATA_CHUNK|([^|]+)")
+		local id = malformedChunks[i].id
 		fixture.sync._pendingRequests[id] =
 			{ source = "Leader", checksum = checksum, players = 1, entries = 1, createdAt = 10 }
-		fixture.sync:HandleMessage("RMAResSync", malformedChunks[i], "WHISPER", "Leader-Realm")
+		fixture.sync:HandleMessage(
+			"RMAResSync",
+			fixture.encode("DATA_CHUNK", id, "Tester", malformedChunks[i].body),
+			"WHISPER",
+			"Leader-Realm"
+		)
 		assertEqual(nil, fixture.sync._incoming["Leader:" .. id], "malformed chunk allocated assembly " .. id)
 		assertEqual(nil, fixture.sync._pendingRequests[id], "malformed chunk retained request " .. id)
 	end
 
-	-- A new sender keeps every old field position and serves the old noncompact DATA_REQ shape.
+	-- A new sender publishes canonical structured R5 metadata and transfer tables.
 	_G.RMA_Reserves = deepCopy(wireEquivalent)
 	fixture.reserves:Load()
 	for key in pairs(fixture.sent) do
 		fixture.sent[key] = nil
 	end
-	fixture.sync:HandleMessage("RMAResSync", "META_REQ|old-meta", "WHISPER", "Old-Realm")
-	local metaFields = {}
-	fixture.payload.SplitFields(fixture.sent[#fixture.sent].message, "|", metaFields)
-	assertEqual("META_ACK", metaFields[1], "new sender metadata kind changed")
-	assertEqual("C2", metaFields[8], "new sender must advertise verified checksum semantics")
+	fixture.sync:HandleMessage("RMAResSync", fixture.encode("META_REQ", "r5-meta", nil, {}), "RAID", "Old-Realm")
+	local metaEnvelope = assertR5Envelope(addon, fixture.sent[#fixture.sent].message, "META_ACK")
 	assertEqual(
 		fixture.reserves.BuildCanonicalChecksum(wireEquivalent),
-		metaFields[3],
+		metaEnvelope[5].checksum,
 		"outbound META must hash serialized projection"
 	)
-	local oldPending = metaFields[3]
+	local outboundChecksum = metaEnvelope[5].checksum
 	for key in pairs(fixture.sent) do
 		fixture.sent[key] = nil
 	end
-	fixture.sync:HandleMessage("RMAResSync", "DATA_REQ|old-data|" .. oldPending, "WHISPER", "Old-Realm")
+	fixture.sync:HandleMessage(
+		"RMAResSync",
+		fixture.encode("DATA_REQ", "r5-data", "Tester", { checksum = outboundChecksum }),
+		"WHISPER",
+		"Old-Realm"
+	)
 	local encodedParts = {}
-	local oldDoneChecksum
+	local doneChecksum
 	for i = 1, #fixture.sent do
-		local fields = {}
-		fixture.payload.SplitFields(fixture.sent[i].message, "|", fields)
-		if fields[1] == "DATA_CHUNK" then
-			encodedParts[tonumber(fields[3])] = fields[5]
+		local sent = fixture.sent[i]
+		if sent.kind == "DATA_CHUNK" then
+			encodedParts[sent.body.index] = sent.body.chunk
+			assertEqual("BULK", sent.priority, "R5 reserve chunk priority differs")
 		end
-		if fields[1] == "DATA_DONE" then
-			oldDoneChecksum = fields[3]
+		if sent.kind == "DATA_DONE" then
+			doneChecksum = sent.body.checksum
 		end
 	end
-	assertEqual(oldPending, oldDoneChecksum, "old receiver must accept matching opaque META/DONE checksum")
-	local oldPayload = fixture.payload.DecodeText(table.concat(encodedParts, ""))
-	assertTrue(oldPayload:find("H|multi|", 1, true) == 1, "old DATA_REQ must receive legacy noncompact payload header")
-	assertTrue(
-		oldPayload:find("|100|1|0|", 1, true) ~= nil,
-		"serialization must use the same numeric defaults as hashing"
-	)
+	assertEqual(outboundChecksum, doneChecksum, "R5 DATA_DONE checksum differs")
+	local transfer = assert(fixture.payload.Deserialize(table.concat(encodedParts, "")))
+	assertEqual("multi", transfer.mode, "R5 transfer mode differs")
+	assertEqual("Alpha", transfer.players[1].name, "R5 transfer player differs")
+	assertEqual(100, transfer.players[1].rows[1].rawID, "R5 transfer item differs")
+	assertEqual(1, transfer.players[1].rows[1].quantity, "R5 transfer quantity default differs")
+	assertEqual(0, transfer.players[1].rows[1].plus, "R5 transfer plus default differs")
 	print("PASS reserves_sync_protocol_projection_and_chunks_fail_closed")
 end
 
-function cases.comms_batch_preflight_prevents_partial_enqueue(addon)
+function cases.reserves_sync_r5_envelopes_chunks_and_rejections()
+	local providerAddon = newAddon()
+	local receiverAddon = newAddon()
+	local provider = installRealReservesSyncFixture(providerAddon, "Leader")
+	local canonical = {}
+	for i = 1, 48 do
+		local name = "Player" .. tostring(i)
+		local note = {}
+		for j = 1, 48 do
+			note[j] = string.char(33 + ((i * 41 + j * 29) % 90))
+		end
+		canonical[string.lower(name)] = {
+			playerNameDisplay = name,
+			reserves = {
+				{
+					rawID = 10000 + i,
+					quantity = (i % 3) + 1,
+					plus = i % 2,
+					class = "CLASS" .. tostring(i),
+					spec = "SPEC" .. tostring(i),
+					note = table.concat(note),
+					source = "r5-test-" .. tostring(i),
+				},
+			},
+		}
+	end
+	_G.RMA_Reserves = deepCopy(canonical)
+	provider.reserves:Load()
+	assertTrue(provider.reserves:IsLocalDataAvailable(), "provider reserves fixture did not load")
+
+	_G.RMA_Reserves = {}
+	local receiver = installRealReservesSyncFixture(receiverAddon, "Receiver")
+	assertEqual(false, receiver.reserves:IsLocalDataAvailable(), "receiver unexpectedly started with reserves data")
+	assertTrue(receiver.sync:RequestMetadata(), "R5 metadata request did not publish")
+	local metaRequest = receiver.sent[#receiver.sent]
+	local metaRequestRaw = assertR5Envelope(receiverAddon, metaRequest.message, "META_REQ")
+	assertEqual(false, metaRequestRaw[4], "metadata request target must be broadcast")
+	assertEqual("ALERT", metaRequest.priority, "metadata request priority differs")
+
+	assertTrue(provider.sync:HandleMessage("RMAResSync", metaRequest.message, "RAID", "Receiver-Realm"))
+	local metaAck = provider.sent[#provider.sent]
+	local metaAckRaw = assertR5Envelope(providerAddon, metaAck.message, "META_ACK")
+	assertEqual("Receiver", metaAckRaw[4], "metadata acknowledgement target differs")
+	assertEqual("ALERT", metaAck.priority, "metadata acknowledgement priority differs")
+	assertTrue(receiver.sync:HandleMessage("RMAResSync", metaAck.message, "WHISPER", "Leader-Realm"))
+	assertTrue(
+		receiver.sync._pendingRequests[metaAckRaw[3]] ~= nil,
+		"R5 metadata acknowledgement did not register a pending request"
+	)
+	local dataRequest = receiver.sent[#receiver.sent]
+	assertR5Envelope(receiverAddon, dataRequest.message, "DATA_REQ")
+	assertEqual("ALERT", dataRequest.priority, "data request priority differs")
+
+	for key in pairs(provider.sent) do
+		provider.sent[key] = nil
+	end
+	assertTrue(provider.sync:HandleMessage("RMAResSync", dataRequest.message, "WHISPER", "Receiver-Realm"))
+	local chunks = {}
+	local done
+	local queueName
+	for i = 1, #provider.sent do
+		local sent = provider.sent[i]
+		if sent.kind == "DATA_CHUNK" then
+			local raw = assertR5Envelope(providerAddon, sent.message, "DATA_CHUNK")
+			assertEqual("BULK", sent.priority, "reserves chunk priority differs")
+			queueName = queueName or sent.queueName
+			assertEqual(queueName, sent.queueName, "reserves chunk queue changed")
+			assertTrue(#sent.message <= 243, "reserves chunk exceeded the addon wire limit")
+			chunks[#chunks + 1] = sent
+			assertEqual(#chunks, raw[5].index, "reserves chunk index differs")
+		elseif sent.kind == "DATA_DONE" then
+			done = sent
+		end
+	end
+	assertTrue(#chunks > 1, "reserves transfer did not exercise chunking")
+	assertTrue(done ~= nil, "reserves transfer omitted DATA_DONE")
+	local doneRaw = assertR5Envelope(providerAddon, done.message, "DATA_DONE")
+	assertEqual("Receiver", doneRaw[4], "reserves DATA_DONE target differs")
+	assertEqual("ALERT", done.priority, "reserves DATA_DONE priority differs")
+	for i = #chunks, 1, -1 do
+		assertTrue(receiver.sync:HandleMessage("RMAResSync", chunks[i].message, "WHISPER", "Leader-Realm"))
+	end
+	assertTrue(receiver.sync._pendingRequests[metaAckRaw[3]] ~= nil, "reserves chunks cleared the pending request")
+	assertTrue(receiver.sync._incoming["Leader:" .. metaAckRaw[3]] ~= nil, "reserves chunks did not assemble")
+	assertEqual(
+		receiver.sync._pendingRequests[metaAckRaw[3]].checksum,
+		doneRaw[5].checksum,
+		"reserves DATA_DONE checksum differs"
+	)
+	assertTrue(receiver.sync:HandleMessage("RMAResSync", done.message, "WHISPER", "Leader-Realm"))
+	local receivedData = {}
+	for key, player in pairs(canonical) do
+		receivedData[key] = {
+			playerNameDisplay = player.playerNameDisplay,
+			reserves = receiver.reserves:GetPlayerReserveEntries(player.playerNameDisplay),
+		}
+	end
+	assertEqual(
+		provider.reserves.BuildCanonicalChecksum(canonical),
+		receiver.reserves.BuildCanonicalChecksum(receivedData),
+		"out-of-order reserves transfer changed canonical state: " .. tostring(receiver.warnings[#receiver.warnings])
+	)
+
+	local checksumBefore = receiver.reserves:GetSyncMetadata().checksum
+	local codec = receiverAddon.Comms.Payload
+	local invalid = {
+		assert(codec.Serialize({ 4, "META_ACK", "v4", "Receiver", metaAckRaw[5] })),
+		assert(codec.Serialize({ [1] = 5, [2] = "META_ACK", [3] = "sparse", [5] = metaAckRaw[5] })),
+		assert(codec.Serialize({ 5, "NOT_A_KIND", false, false, {} })),
+		assert(codec.Serialize({ 5, "DATA_CHUNK", "too-many", "Receiver", { index = 1, count = 65, chunk = "x" } })),
+		assert(codec.Serialize({ 5, "DATA_CHUNK", "oversized", "Receiver", { index = 1, count = 1, chunk = string.rep("x", 221) } })),
+		"\001malformed",
+		"META_ACK|legacy|checksum|multi|1|1|Leader|C2",
+	}
+	for i = 1, #invalid do
+		receiver.sync:HandleMessage("RMAResSync", invalid[i], "WHISPER", "Leader-Realm")
+		assertEqual(checksumBefore, receiver.reserves:GetSyncMetadata().checksum, "invalid reserves message mutated state " .. i)
+	end
+	assertEqual(nil, next(receiver.sync._incoming), "invalid reserves messages allocated assembly state")
+	print("PASS reserves_sync_r5_envelopes_chunks_and_rejections")
+end
+
+function cases.reserves_sync_done_before_chunks_and_foreign_error_are_safe()
+	_G.RMA_Reserves = {}
+	local addon = newAddon()
+	local fixture = installRealReservesSyncFixture(addon, "Receiver")
+	local canonical = {
+		alpha = {
+			playerNameDisplay = "Alpha",
+			reserves = {
+				{
+					rawID = 19019,
+					quantity = 2,
+					plus = 1,
+					class = "WARRIOR",
+					spec = "Fury",
+					note = string.rep("abcdefghij", 16),
+					source = "reviewer-race",
+				},
+			},
+		},
+	}
+	local projection = assert(fixture.reserves.BuildCanonicalProjection(canonical))
+	local transfer = { mode = "multi", players = {} }
+	for i = 1, #projection do
+		local player = { name = projection[i].name, rows = {} }
+		transfer.players[i] = player
+		for j = 1, #projection[i].rows do
+			local row = projection[i].rows[j]
+			player.rows[j] = {
+				rawID = row.rawID,
+				quantity = row.quantity,
+				plus = row.plus,
+				class = row.class,
+				spec = row.spec,
+				note = row.note,
+				source = row.source,
+			}
+		end
+	end
+	local encoded = assert(fixture.payload.Serialize(transfer))
+	local chunkSize = 80
+	local chunkCount = math.ceil(#encoded / chunkSize)
+	assertTrue(chunkCount > 1, "early-DONE fixture did not produce multiple chunks")
+	local checksum = fixture.reserves.BuildCanonicalChecksum(canonical)
+	assertTrue(fixture.sync:RequestMetadata(), "early-DONE metadata request was not sent")
+	local requestId = fixture.sent[#fixture.sent].envelope[3]
+	fixture.sync:HandleMessage(
+		"RMAResSync",
+		fixture.encode("META_ACK", requestId, "Receiver", {
+			checksum = checksum,
+			mode = "multi",
+			players = 1,
+			entries = 1,
+			source = "Leader",
+		}),
+		"WHISPER",
+		"Leader-Realm"
+	)
+	local applyCalls = 0
+	local originalSet = fixture.sync.SetSyncedData
+	fixture.sync.SetSyncedData = function(self, data, meta)
+		applyCalls = applyCalls + 1
+		return originalSet(self, data, meta)
+	end
+	fixture.sync:HandleMessage(
+		"RMAResSync",
+		fixture.encode("DATA_DONE", requestId, "Receiver", { checksum = checksum }),
+		"WHISPER",
+		"Leader-Realm"
+	)
+	local pending = fixture.sync._pendingRequests[requestId]
+	assertTrue(pending ~= nil, "early DATA_DONE cleared the correlated request")
+	assertEqual(checksum, pending.doneChecksum, "early DATA_DONE marker differs")
+	assertEqual(0, applyCalls, "early DATA_DONE applied before chunks arrived")
+
+	fixture.sync:HandleMessage(
+		"RMAResSync",
+		fixture.encode("DATA_ERR", requestId, "Receiver", { reason = "foreign" }),
+		"WHISPER",
+		"Other-Realm"
+	)
+	assertTrue(fixture.sync._pendingRequests[requestId] ~= nil, "non-selected authority cancelled pending reserves")
+	assertEqual(0, applyCalls, "non-selected authority error applied reserves")
+
+	for index = 1, chunkCount do
+		fixture.sync:HandleMessage(
+			"RMAResSync",
+			fixture.encode("DATA_CHUNK", requestId, "Receiver", {
+				index = index,
+				count = chunkCount,
+				chunk = string.sub(encoded, ((index - 1) * chunkSize) + 1, index * chunkSize),
+			}),
+			"WHISPER",
+			"Leader-Realm"
+		)
+	end
+	assertEqual(1, applyCalls, "last chunk did not complete early-DONE transfer exactly once")
+	assertEqual(nil, fixture.sync._pendingRequests[requestId], "completed early-DONE request was retained")
+	assertEqual(nil, fixture.sync._incoming["Leader:" .. requestId], "completed early-DONE assembly was retained")
+	fixture.sync:HandleMessage(
+		"RMAResSync",
+		fixture.encode("DATA_DONE", requestId, "Receiver", { checksum = checksum }),
+		"WHISPER",
+		"Leader-Realm"
+	)
+	assertEqual(1, applyCalls, "duplicate DATA_DONE reapplied reserves")
+	print("PASS reserves_sync_done_before_chunks_and_foreign_error_are_safe")
+end
+
+function cases.reserves_sync_metadata_requests_are_correlated_and_bounded()
+	_G.RMA_Reserves = {}
+	local addon = newAddon()
+	local fixture = installRealReservesSyncFixture(addon, "Receiver")
+	local metadata = {
+		checksum = "C2:1:1",
+		mode = "multi",
+		players = 1,
+		entries = 1,
+		source = "Leader",
+	}
+
+	local sentBefore = #fixture.sent
+	fixture.sync:HandleMessage(
+		"RMAResSync",
+		fixture.encode("META_ACK", "never-issued", "Receiver", metadata),
+		"WHISPER",
+		"Leader-Realm"
+	)
+	assertEqual(sentBefore, #fixture.sent, "unsolicited metadata acknowledgement triggered a data request")
+	assertEqual(nil, fixture.sync._pendingRequests["never-issued"], "unsolicited metadata allocated pending state")
+
+	assertTrue(fixture.sync:RequestMetadata(), "metadata request did not use the real Comms surface")
+	local request = fixture.sent[#fixture.sent].envelope
+	local requestId = request[3]
+	assertTrue(type(requestId) == "string" and requestId ~= "", "reserves did not generate its own request ID")
+	fixture.sync:HandleMessage(
+		"RMAResSync",
+		fixture.encode("META_ACK", requestId, "Receiver", metadata),
+		"WHISPER",
+		"Leader-Realm"
+	)
+	local selected = fixture.sync._pendingRequests[requestId]
+	assertEqual("Leader", selected and selected.source, "first correlated metadata source was not selected")
+	local afterSelection = #fixture.sent
+	fixture.sync:HandleMessage(
+		"RMAResSync",
+		fixture.encode("META_ACK", requestId, "Receiver", metadata),
+		"WHISPER",
+		"Other-Realm"
+	)
+	assertEqual(afterSelection, #fixture.sent, "second metadata authority replaced the selected source")
+	assertEqual("Leader", fixture.sync._pendingRequests[requestId].source, "selected metadata source changed")
+
+	fixture.sync._pendingRequests = {}
+	fixture.sync._nextRequestId = 999998
+	for i = 1, 32 do
+		assertTrue(fixture.sync:RequestMetadata(), "pending metadata capacity rejected request " .. i)
+	end
+	local firstBoundedId = fixture.sent[afterSelection + 1].envelope[3]
+	local secondBoundedId = fixture.sent[afterSelection + 2].envelope[3]
+	assertEqual("R999999", firstBoundedId, "reserves request sequence did not reach its bounded maximum")
+	assertEqual("R1", secondBoundedId, "reserves request sequence did not wrap at its bounded maximum")
+	local beforeCapacityReject = #fixture.sent
+	assertEqual(false, fixture.sync:RequestMetadata(), "pending metadata capacity was not enforced")
+	assertEqual(beforeCapacityReject, #fixture.sent, "capacity rejection reached the transport")
+
+	fixture.setNow(190)
+	assertTrue(fixture.sync:RequestMetadata(), "expired metadata requests did not release capacity")
+	assertEqual(1, (function()
+		local count = 0
+		for _ in pairs(fixture.sync._pendingRequests) do count = count + 1 end
+		return count
+	end)(), "expired metadata requests were retained")
+	print("PASS reserves_sync_metadata_requests_are_correlated_and_bounded")
+end
+
+function cases.reserves_sync_assembly_admission_is_globally_and_per_sender_bounded()
+	_G.RMA_Reserves = {}
+	local addon = newAddon()
+	local fixture = installRealReservesSyncFixture(addon, "Receiver")
+	local requests = {}
+	for i = 1, 22 do
+		assertTrue(fixture.sync:RequestMetadata(), "assembly fixture metadata request failed " .. i)
+		local requestId = fixture.sent[#fixture.sent].envelope[3]
+		local sender
+		if i <= 5 then
+			sender = "PerSender"
+		else
+			sender = "Global" .. tostring(math.floor((i - 6) / 4) + 1)
+		end
+		fixture.sync:HandleMessage(
+			"RMAResSync",
+			fixture.encode("META_ACK", requestId, "Receiver", {
+				checksum = "C2:" .. tostring(i) .. ":" .. tostring(i),
+				mode = "multi",
+				players = 1,
+				entries = 1,
+				source = sender,
+			}),
+			"WHISPER",
+			sender .. "-Realm"
+		)
+		requests[i] = { id = requestId, sender = sender }
+	end
+
+	for i = 1, 5 do
+		local request = requests[i]
+		fixture.sync:HandleMessage(
+			"RMAResSync",
+			fixture.encode("DATA_CHUNK", request.id, "Receiver", { index = 1, count = 2, chunk = "part" }),
+			"WHISPER",
+			request.sender .. "-Realm"
+		)
+	end
+	local perSenderCount = 0
+	for _ in pairs(fixture.sync._incoming) do perSenderCount = perSenderCount + 1 end
+	assertEqual(4, perSenderCount, "per-sender reserves assembly cap differs")
+	assertEqual(nil, fixture.sync._incoming["PerSender:" .. requests[5].id], "per-sender cap rejection allocated state")
+
+	fixture.sync._incoming = {}
+	for i = 6, 22 do
+		local request = requests[i]
+		fixture.sync:HandleMessage(
+			"RMAResSync",
+			fixture.encode("DATA_CHUNK", request.id, "Receiver", { index = 1, count = 2, chunk = "part" }),
+			"WHISPER",
+			request.sender .. "-Realm"
+		)
+	end
+	local globalCount = 0
+	local perSender = {}
+	for _, incoming in pairs(fixture.sync._incoming) do
+		globalCount = globalCount + 1
+		perSender[incoming.source] = (perSender[incoming.source] or 0) + 1
+	end
+	assertEqual(16, globalCount, "global reserves assembly cap differs")
+	for sender, count in pairs(perSender) do
+		assertTrue(count <= 4, "per-sender reserves assembly cap exceeded for " .. tostring(sender))
+	end
+	assertEqual(nil, fixture.sync._incoming["Global5:" .. requests[22].id], "global cap rejection allocated state")
+	print("PASS reserves_sync_assembly_admission_is_globally_and_per_sender_bounded")
+end
+
+local function installSharedCommsFixture(addon)
+	local calls = {}
+	_G.strmatch = string.match
+	_G.LibStub = nil
+	assert(loadfile("Raid Management Addon/Libs/LibStub/LibStub.lua"))()
+	assert(loadfile("Raid Management Addon/Libs/LibSerialize/LibSerialize.lua"))()
+	assert(loadfile("Raid Management Addon/Libs/LibDeflate/LibDeflate.lua"))()
+	_G.ChatThrottleLib = {
+		SendAddonMessage = function(_, priority, prefix, msg, channel, target, queueName)
+			calls[#calls + 1] = {
+				priority = priority,
+				prefix = prefix,
+				msg = msg,
+				channel = channel,
+				target = target,
+				queueName = queueName,
+			}
+		end,
+		SendChatMessage = function() end,
+	}
 	_G.SendAddonMessage = function() end
 	_G.SendChatMessage = function() end
 	_G.GetAddOnMetadata = function()
 		return "test"
 	end
 	_G.UnitName = function()
-		return "Tester"
+		return localName or "Tester"
 	end
 	_G.IsInInstance = function()
 		return false, "none"
@@ -12849,7 +13711,13 @@ function cases.comms_batch_preflight_prevents_partial_enqueue(addon)
 	_G.GetNumPartyMembers = function()
 		return 0
 	end
-	addon.L = {}
+	addon.L = {
+		MsgVersionCheckSent = "sent",
+		MsgVersionCheckNotInGroup = "not in group",
+		MsgVersionCheckPeer = "%s %s %s %s %s",
+	}
+	addon.info = function() end
+	addon.warn = function() end
 	addon.Database.GetSyncer = function()
 		return nil
 	end
@@ -12861,109 +13729,138 @@ function cases.comms_batch_preflight_prevents_partial_enqueue(addon)
 			return value
 		end,
 	}
-	addon.Timer = {
-		BindMixin = function(target)
-			target.ScheduleTimer = function()
-				return {}
-			end
-		end,
-	}
 	loadAddonFile(addon, "Raid Management Addon/Modules/Comms.lua")
-	for i = 1, 255 do
-		assertTrue(addon.Comms.QueueAddonMessage("RMA", "m" .. i, "RAID"), "queue fill must succeed")
-	end
-	local tailBefore = addon.Comms._addonQueueTail
-	local queued, reason = addon.Comms.QueueAddonMessages("RMA", { "a", "b" }, "RAID")
-	assertEqual(false, queued, "near-full batch must be rejected")
-	assertEqual("backpressure", reason, "batch rejection reason differs")
-	assertEqual(tailBefore, addon.Comms._addonQueueTail, "rejected batch must not change tail")
-	assertEqual(nil, addon.Comms._addonQueue[tailBefore + 1], "rejected batch must enqueue no prefix")
-	assertTrue(addon.Comms.QueueAddonMessages("RMA", { "last" }, "RAID"), "exact-capacity batch must succeed")
-	assertEqual(256, addon.Comms._addonQueueTail, "exact-capacity tail differs")
-	print("PASS comms_batch_preflight_prevents_partial_enqueue")
+	return calls
 end
 
-local function installRealCommsQueueFixture(addon)
-	local fixture = { sent = {}, timers = {}, nextTimer = 1 }
-	_G.SendAddonMessage = function(prefix, message, channel, target)
-		fixture.sent[#fixture.sent + 1] = {
-			prefix = prefix,
-			message = message,
-			channel = channel,
-			target = target,
-		}
-	end
-	_G.SendChatMessage = function() end
-	_G.GetAddOnMetadata = function()
-		return "test"
-	end
-	_G.UnitName = function()
-		return "Tester"
-	end
-	_G.IsInInstance = function()
-		return false, "none"
-	end
-	_G.GetNumRaidMembers = function()
-		return 1
-	end
-	_G.GetNumPartyMembers = function()
-		return 0
-	end
-	addon.L = {}
-	addon.Database.GetSyncer = function()
-		return nil
-	end
-	addon.Database.GetRaidSchemaVersion = function()
-		return 1
-	end
-	addon.Strings = {
-		NormalizeName = function(value)
-			return value
-		end,
-	}
-	addon.Timer = {
-		BindMixin = function(target)
-			target.ScheduleTimer = function(_, callback, delay)
-				local timer = { callback = callback, delay = delay }
-				fixture.timers[#fixture.timers + 1] = timer
-				return timer
-			end
-		end,
-	}
-	loadAddonFile(addon, "Raid Management Addon/Modules/Comms.lua")
-
-	function fixture:FireNextTimer()
-		local timer = self.timers[self.nextTimer]
-		assertTrue(timer ~= nil, "expected another queue timer")
-		self.nextTimer = self.nextTimer + 1
-		timer.callback()
-		return timer.delay
-	end
-
-	function fixture:Drain(expectedMessages)
-		local startSent = #self.sent
-		local elapsed = 0
-		while #self.sent - startSent < expectedMessages do
-			local before = #self.sent
-			elapsed = elapsed + self:FireNextTimer()
-			assertEqual(before + 1, #self.sent, "queue timer must send exactly one message")
-		end
-		return elapsed
-	end
-
-	return fixture
+function cases.comms_shared_wire_codec_round_trip_and_rejection(addon)
+	installSharedCommsFixture(addon)
+	local value = { 5, "EVENT", false, "Peer", { count = 2, enabled = true, nested = { "a", false, "b" } } }
+	local encoded = assert(addon.Comms.Payload.Serialize(value))
+	assertTrue(type(encoded) == "string" and encoded ~= "", "wire codec returned no text")
+	assertTrue(deepEqual(value, assert(addon.Comms.Payload.Deserialize(encoded))), "wire round trip changed values")
+	assertEqual(nil, addon.Comms.Payload.Deserialize("\001broken"), "malformed payload was accepted")
+	print("PASS comms_shared_wire_codec_round_trip_and_rejection")
 end
 
-function cases.comms_queue_uses_constant_single_message_pacing(addon)
-	local fixture = installRealCommsQueueFixture(addon)
-	assertTrue(addon.Comms.QueueAddonMessages("RMA", { "one", "two", "three" }, "RAID"), "batch enqueue failed")
-	for expected = 1, 3 do
-		local delay = fixture:FireNextTimer()
-		assertEqual(0.10, delay, "queue delay differs")
-		assertEqual(expected, #fixture.sent, "each timer must send exactly one message")
-	end
-	assertEqual(3, fixture.nextTimer - 1, "drain scheduled an extra timer")
-	print("PASS comms_queue_uses_constant_single_message_pacing")
+function cases.comms_chat_throttle_priority_and_queue_names(addon)
+	local calls = installSharedCommsFixture(addon)
+	assertTrue(addon.Comms.QueueAddonMessage("RMARaidSync", "live", "WHISPER", "Peer", { priority = "NORMAL" }))
+	assertTrue(addon.Comms.QueueAddonMessages(
+		"RMARaidSync",
+		{ "part-1", "part-2" },
+		"WHISPER",
+		"Peer",
+		{ priority = "BULK" }
+	))
+	assertEqual("NORMAL", calls[1].priority, "live priority differs")
+	assertEqual("BULK", calls[2].priority, "bulk priority differs")
+	assertEqual(calls[2].queueName, calls[3].queueName, "batch flow name changed")
+	assertEqual("RMARaidSync:WHISPER:peer", calls[2].queueName, "stable flow name differs")
+	print("PASS comms_chat_throttle_priority_and_queue_names")
+end
+
+function cases.comms_transport_options_fail_closed(addon)
+	local calls = installSharedCommsFixture(addon)
+	local before = #calls
+	local queued, reason = addon.Comms.QueueAddonMessage("RMARaidSync", "scalar", "RAID", nil, "BULK")
+	assertEqual(false, queued, "scalar transport options were accepted")
+	assertEqual("invalid_options", reason, "scalar transport options reason differs")
+	assertEqual(before, #calls, "scalar transport options reached the throttler")
+
+	queued, reason = addon.Comms.QueueAddonMessage("RMARaidSync", "empty-queue", "RAID", nil, { queueName = "" })
+	assertEqual(false, queued, "empty queue name was accepted")
+	assertEqual("invalid_queue_name", reason, "empty queue name reason differs")
+	assertEqual(before, #calls, "empty queue name reached the throttler")
+
+	queued, reason = addon.Comms.QueueAddonMessages("RMARaidSync", { "one", "two" }, "RAID", nil, 4)
+	assertEqual(false, queued, "scalar batch transport options were accepted")
+	assertEqual("invalid_options", reason, "scalar batch options reason differs")
+	assertEqual(before, #calls, "scalar batch options partially enqueued")
+
+	queued, reason = addon.Comms.QueueAddonMessages(
+		"RMARaidSync",
+		{ "one", "two" },
+		"RAID",
+		nil,
+		{ priority = "NORMAL", queueName = false }
+	)
+	assertEqual(false, queued, "non-string batch queue name was accepted")
+	assertEqual("invalid_queue_name", reason, "non-string batch queue reason differs")
+	assertEqual(before, #calls, "invalid batch queue name partially enqueued")
+	print("PASS comms_transport_options_fail_closed")
+end
+
+function cases.comms_batch_preflight_prevents_malformed_partial_enqueue(addon)
+	local calls = installSharedCommsFixture(addon)
+	local before = #calls
+	local queued, reason = addon.Comms.QueueAddonMessages("RMARaidSync", { "valid", false }, "RAID")
+	assertEqual(false, queued, "malformed batch was accepted")
+	assertEqual("invalid", reason, "malformed batch reason differs")
+	assertEqual(before, #calls, "malformed batch partially enqueued")
+	print("PASS comms_batch_preflight_prevents_malformed_partial_enqueue")
+end
+
+function cases.comms_addon_destination_validation(addon)
+	local calls = installSharedCommsFixture(addon)
+	local before = #calls
+	local queued, reason = addon.Comms.QueueAddonMessage("RMARaidSync", "bad", "CHANNEL", nil)
+	assertEqual(false, queued, "invalid addon channel was accepted")
+	assertEqual("invalid_destination", reason, "invalid addon channel reason differs")
+	assertEqual(before, #calls, "invalid addon channel reached the throttler")
+
+	queued, reason = addon.Comms.QueueAddonMessage("RMARaidSync", "missing", "WHISPER")
+	assertEqual(false, queued, "targetless whisper was accepted")
+	assertEqual("invalid_destination", reason, "targetless whisper reason differs")
+	assertEqual(before, #calls, "targetless whisper reached the throttler")
+
+	queued, reason = addon.Comms.QueueAddonMessages("RMARaidSync", { "group" }, "RAID", "Peer")
+	assertEqual(false, queued, "targeted group batch was accepted")
+	assertEqual("invalid_destination", reason, "targeted group batch reason differs")
+	assertEqual(before, #calls, "targeted group batch reached the throttler")
+
+	assertTrue(addon.Comms.QueueAddonMessage("RMARaidSync", "raid", "RAID"), "targetless RAID was rejected")
+	assertTrue(
+		addon.Comms.QueueAddonMessage("RMARaidSync", "whisper", "WHISPER", "Peer"),
+		"targeted WHISPER was rejected"
+	)
+	assertEqual(before + 2, #calls, "valid addon destinations did not enqueue exactly once each")
+	print("PASS comms_addon_destination_validation")
+end
+
+function cases.comms_version_r5_envelope_and_alert_ack(addon)
+	local calls = installSharedCommsFixture(addon)
+	assertTrue(addon.Comms:RequestVersionCheck(), "version request was not sent")
+	assertEqual(1, #calls, "version request did not use the throttler")
+	assertEqual("RMAVersion", calls[1].prefix, "version request prefix differs")
+	assertEqual("ALERT", calls[1].priority, "version request priority differs")
+	local request = assert(addon.Comms.Payload.Deserialize(calls[1].msg))
+	assertEqual(5, request[1], "version request wire version differs")
+	assertEqual("REQ", request[2], "version request kind differs")
+	assertEqual(false, request[3], "version request third slot differs")
+	assertEqual(false, request[4], "version request fourth slot differs")
+	assertTrue(type(request[5]) == "table", "version request body is absent")
+	assertTrue(type(request[5].addonVersion) == "string", "version request addon version is absent")
+
+	local before = #calls
+	assertTrue(addon.Comms:HandleVersionMessage("RMAVersion", "\001broken", "RAID", "Peer"))
+	assertEqual(before, #calls, "malformed version message produced an acknowledgement")
+	local oldWire = assert(addon.Comms.Payload.Serialize({ 4, "REQ", false, false, request[5] }))
+	assertTrue(addon.Comms:HandleVersionMessage("RMAVersion", oldWire, "RAID", "Peer"))
+	assertEqual(before, #calls, "non-R5 version message produced an acknowledgement")
+
+	local validRequest = assert(addon.Comms.Payload.Serialize({ 5, "REQ", false, false, request[5] }))
+	assertTrue(addon.Comms:HandleVersionMessage("RMAVersion", validRequest, "RAID", "Peer"))
+	assertEqual(before + 1, #calls, "valid R5 request did not produce one acknowledgement")
+	assertEqual("ALERT", calls[#calls].priority, "version acknowledgement priority differs")
+	assertEqual("RMAVersion", calls[#calls].prefix, "version acknowledgement prefix differs")
+	local acknowledgement = assert(addon.Comms.Payload.Deserialize(calls[#calls].msg))
+	assertEqual(5, acknowledgement[1], "version acknowledgement wire version differs")
+	assertEqual("ACK", acknowledgement[2], "version acknowledgement kind differs")
+	assertEqual(false, acknowledgement[3], "version acknowledgement third slot differs")
+	assertEqual(false, acknowledgement[4], "version acknowledgement fourth slot differs")
+	assertTrue(type(acknowledgement[5]) == "table", "version acknowledgement body is absent")
+	print("PASS comms_version_r5_envelope_and_alert_ack")
 end
 
 function cases.reserves_import_limits_and_schema_fail_closed(addon)
@@ -15125,6 +16022,17 @@ function cases.chat_delivery_uses_live_destinations_and_reports_failures(addon)
 	addon.info = function()
 		localPrints = localPrints + 1
 	end
+	_G.LibStub = function(name)
+		if name == "LibSerialize" or name == "LibDeflate" then
+			return {}
+		end
+	end
+	_G.ChatThrottleLib = {
+		SendAddonMessage = function() end,
+		SendChatMessage = function(_, _, _, message, destination, language, target)
+			return _G.SendChatMessage(message, destination, language, target)
+		end,
+	}
 	loadAddonFile(addon, "Raid Management Addon/Modules/Comms.lua")
 	loadAddonFile(addon, "Raid Management Addon/Services/Chat.lua")
 
@@ -18813,19 +19721,33 @@ local function installRaidTransferSessionFixture(addon, options)
 	addon.Comms.NormalizeSender = function(value)
 		return string.lower(string.match(tostring(value or ""), "^([^%-]+)") or tostring(value or ""))
 	end
-	addon.Comms.QueueAddonMessage = function(prefix, message, channel, target)
+	addon.Comms.QueueAddonMessage = function(prefix, message, channel, target, opts)
 		if options.rejectSingle then
 			return false, "backpressure"
 		end
-		fixture.queued[#fixture.queued + 1] = { prefix = prefix, message = message, channel = channel, target = target }
+		fixture.queued[#fixture.queued + 1] = {
+			prefix = prefix,
+			message = message,
+			channel = channel,
+			target = target,
+			priority = opts and opts.priority or "NORMAL",
+			queueName = opts and opts.queueName or nil,
+		}
 		return true
 	end
-	addon.Comms.QueueAddonMessages = function(prefix, messages, channel, target)
+	addon.Comms.QueueAddonMessages = function(prefix, messages, channel, target, opts)
 		local copy = {}
 		for i = 1, #messages do
 			copy[i] = messages[i]
 		end
-		fixture.batches[#fixture.batches + 1] = { prefix = prefix, messages = copy, channel = channel, target = target }
+		fixture.batches[#fixture.batches + 1] = {
+			prefix = prefix,
+			messages = copy,
+			channel = channel,
+			target = target,
+			priority = opts and opts.priority or "NORMAL",
+			queueName = opts and opts.queueName or nil,
+		}
 		if options.rejectBatch then
 			return false, "backpressure"
 		end
@@ -19165,9 +20087,8 @@ function cases.raid_transfer_session_decode_bounds(addon)
 	assertEqual(parseCalls, fixture.protocolDecodeBodyCalls, "oversized encoded input reached structured parsing")
 	assertEqual(0, fixture.session._assemblyCount, "oversized encoded input allocated assembly state")
 
-	fixture.decodedText = string.rep("x", 65537)
 	requestId = beginRangeRequest(fixture, function() end)
-	local decodedOversize = {
+	local malformedEncoded = {
 		kind = "RANGE_DATA",
 		requestId = requestId,
 		target = "Tester",
@@ -19178,30 +20099,37 @@ function cases.raid_transfer_session_decode_bounds(addon)
 			toSequence = 2,
 			partIndex = 1,
 			partCount = 1,
-			chunk = "x",
+			chunk = "not-a-shared-codec-payload",
 		},
 	}
 	parseCalls = fixture.protocolDecodeBodyCalls
-	accepted, reason = fixture.session:ReceiveChunk("Leader", decodedOversize)
-	assertEqual(nil, accepted, "oversized decoded body was accepted")
-	assertEqual("DECODED_BODY_TOO_LARGE", reason, "oversized decoded rejection reason differs")
-	assertEqual(parseCalls, fixture.protocolDecodeBodyCalls, "oversized decoded body reached structured parsing")
+	accepted, reason = fixture.session:ReceiveChunk("Leader", malformedEncoded)
+	assertEqual(nil, accepted, "malformed encoded body was accepted")
+	assertEqual("DESERIALIZE_FAILED", reason, "malformed encoded rejection reason differs")
+	assertEqual(parseCalls + 1, fixture.protocolDecodeBodyCalls, "malformed encoded body skipped shared decoding")
 	assertEqual(0, fixture.deflateCalls, "session invoked a Deflate method")
 
-	fixture.decodedText = nil
+	local noise = {}
+	local seed = 17
+	for i = 1, 65536 do
+		seed = (seed * 48271) % 2147483647
+		noise[i] = string.char(33 + (seed % 90))
+	end
 	local encodeCalls = fixture.channelEncodeCalls
+	local protocolEncodeCalls = fixture.protocolEncodeBodyCalls
 	local batchCalls = #fixture.batches
 	local queued, queueReason = fixture.session:QueueTransfer(
 		"SNAP_DATA",
 		"oversized",
 		"Recipient",
 		{ raidUid = "r1", authorityEpoch = 1, sequence = 1 },
-		{ snapshot = string.rep("x", 56321) },
+		{ snapshot = table.concat(noise) },
 		fixture.session.RATE_CLASS_LIVE
 	)
 	assertEqual(false, queued, "oversized outgoing body was accepted")
 	assertEqual("TRANSFER_TOO_LARGE", queueReason, "oversized outgoing reason differs")
-	assertEqual(encodeCalls + 1, fixture.channelEncodeCalls, "outgoing body was not channel encoded once")
+	assertEqual(protocolEncodeCalls + 1, fixture.protocolEncodeBodyCalls, "outgoing body skipped shared encoding")
+	assertEqual(encodeCalls, fixture.channelEncodeCalls, "session performed a second channel encoding")
 	assertEqual(batchCalls, #fixture.batches, "oversized outgoing body allocated a queue batch")
 	assertEqual(0, fixture.deflateCalls, "outgoing transfer invoked a Deflate method")
 	print("PASS raid_transfer_session_decode_bounds")
@@ -19245,6 +20173,8 @@ function cases.raid_transfer_session_atomic_batch(addon)
 	assertEqual("backpressure", reason, "batch rejection reason differs")
 	assertEqual(1, #fixture.batches, "transfer was not offered as one batch")
 	assertTrue(#fixture.batches[1].messages > 1, "atomic test must use multiple messages")
+	assertEqual("BULK", fixture.batches[1].priority, "raid transfer priority differs")
+	assertEqual("RMARaidSync:WHISPER:recipient", fixture.batches[1].queueName, "raid transfer queue differs")
 	assertEqual(0, #fixture.queued, "batch failure partially used single-message enqueue")
 	for i = 1, #fixture.batches[1].messages do
 		assertTrue(fixture.protocol.Decode(fixture.batches[1].messages[i]) ~= nil, "wire message was not preflighted")
@@ -19266,6 +20196,8 @@ function cases.raid_transfer_session_rechunks_snapshot_at_safe_wire_limit(addon)
 	assertEqual(true, queued, "snapshot transfer was rejected: " .. tostring(reason))
 	local messages = fixture.batches[1].messages
 	assertEqual(3, #messages, "snapshot was not rechunked at the safe wire limit")
+	assertEqual("BULK", fixture.batches[1].priority, "snapshot chunk priority differs")
+	assertEqual("RMARaidSync:WHISPER:recipient", fixture.batches[1].queueName, "snapshot chunk queue differs")
 	for i = 1, #messages do
 		assertTrue(#messages[i] <= 243, "snapshot envelope " .. i .. " exceeds the safe wire limit")
 		assertTrue(fixture.protocol.Decode(messages[i]) ~= nil, "rechunked snapshot envelope did not decode")
@@ -20026,6 +20958,7 @@ local function installLiveReplicationClient(network, name, initialRecord, option
 		client.protocol = installRaidReplicationProtocolFixture(addon)
 	else
 		client.protocol = {
+			VERSION = 5,
 			Encode = function(kind, requestId, target, body)
 				return network:encode(kind, requestId, target, body)
 			end,
@@ -20036,7 +20969,9 @@ local function installLiveReplicationClient(network, name, initialRecord, option
 	end
 	addon.DB.SyncProtocol = client.protocol
 	local pending, nextRequest = {}, 0
+	local protocolPayload = addon.Comms and addon.Comms.Payload
 	addon.Comms = {
+		Payload = protocolPayload,
 		RegisterPrefixIfAvailable = function(prefix)
 			client.prefix = prefix
 			return true
@@ -20364,9 +21299,13 @@ end
 
 function cases.raid_live_sync_event()
 	local network = newLiveReplicationNetwork()
-	local leader = installLiveReplicationClient(network, "Leader", makeLiveRecord(0))
-	local member = installLiveReplicationClient(network, "Member", makeLiveRecord(0))
-	leader.store:Commit(makeLiveEvent(1))
+	local leader = installLiveReplicationClient(network, "Leader", makeLiveRecord(0), { realProtocol = true })
+	local member = installLiveReplicationClient(network, "Member", makeLiveRecord(0), { realProtocol = true })
+	local event = makeLiveEvent(1)
+	event.eventType = "RAID_METADATA_UPDATED"
+	event.payload = { metadata = { zone = "Naxxramas", size = 25, difficulty = 1 } }
+	leader.store:Commit(event)
+	assertR5Envelope(leader.addon, leader.sentWires[#leader.sentWires], "EVENT")
 	assertEqual(1, member.store.record.sequence, "replica did not apply authoritative event")
 	assertEqual(leader.store.record.digest, member.store.record.digest, "replica digest diverged")
 	print("PASS raid_live_sync_event")
@@ -24133,40 +25072,8 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 	local master = installLiveReplicationClient(network, "Master", initial)
 	local member = installLiveReplicationClient(network, "Member", initial)
 
-	local function installPayloadCodec(addon)
-		local function splitFields(value, sep, out)
-			out = out or {}
-			for key in pairs(out) do
-				out[key] = nil
-			end
-			local start = 1
-			while true do
-				local index = string.find(value or "", sep, start, true)
-				if not index then
-					out[#out + 1] = string.sub(value or "", start)
-					break
-				end
-				out[#out + 1] = string.sub(value, start, index - 1)
-				start = index + string.len(sep)
-			end
-			return out, #out
-		end
-		addon.Comms.Payload = {
-			EncodeText = function(value)
-				return tostring(value or "")
-			end,
-			DecodeText = function(value)
-				return value
-			end,
-			PackFields = function(sep, ...)
-				local values = { ... }
-				for i = 1, #values do
-					values[i] = tostring(values[i])
-				end
-				return table.concat(values, sep)
-			end,
-			SplitFields = splitFields,
-		}
+	local function installDistributionPayloadCodec(clientAddon)
+		return installPayloadCodec(clientAddon)
 	end
 
 	local leaderAddon = leader.addon
@@ -24308,11 +25215,41 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 			leader.store:CommitAuthoritativeEvent(leader.store.record.raidUid, "PLAYER_UPDATED", { player = player })
 		return event and player or nil
 	end
-	installPayloadCodec(leaderAddon)
+	installDistributionPayloadCodec(leaderAddon)
 	local leaderDistribution
-	leaderAddon.Comms.Sync = function(prefix, message)
-		return leaderDistribution and leaderDistribution.HandleMessage(prefix, message, "RAID", "Leader") == true
-			or false
+	local leaderSendAddonBatch = leaderAddon.Comms.SendAddonBatch
+	local leaderQueueAddonMessages = leaderAddon.Comms.QueueAddonMessages
+	local leaderQueueAddonMessage = leaderAddon.Comms.QueueAddonMessage
+	local function deliverLeaderMessages(prefix, messages, target)
+		for i = 1, #messages do
+			if not leaderDistribution
+				or leaderDistribution.HandleMessage(prefix, messages[i], target and "WHISPER" or "RAID", "Leader") ~= true
+			then
+				return false
+			end
+		end
+		return true
+	end
+	leaderAddon.Comms.SendAddonBatch = function(prefix, messages, target, opts)
+		if prefix ~= "RMADist" then
+			return leaderSendAddonBatch(prefix, messages, target, opts)
+		end
+		return deliverLeaderMessages(prefix, messages, target)
+	end
+	leaderAddon.Comms.QueueAddonMessages = function(prefix, messages, channel, target, opts)
+		if prefix ~= "RMADist" then
+			return leaderQueueAddonMessages(prefix, messages, channel, target, opts)
+		end
+		return deliverLeaderMessages(prefix, messages, target)
+	end
+	leaderAddon.Comms.QueueAddonMessage = function(prefix, message, channel, target, opts)
+		if prefix ~= "RMADist" then
+			return leaderQueueAddonMessage(prefix, message, channel, target, opts)
+		end
+		return deliverLeaderMessages(prefix, { message }, target)
+	end
+	leaderAddon.Comms.NormalizeSender = function(value)
+		return tostring(value or ""):match("^[^-]+") or ""
 	end
 	local noopOwner = setmetatable({}, {
 		__index = function()
@@ -24402,9 +25339,38 @@ function cases.raid_live_sync_split_loot_authority_records_trade_award_once()
 	masterAddon.Services.Raid.IsLootAuthority = function(_, sender)
 		return sender == "Master"
 	end
-	installPayloadCodec(masterAddon)
-	masterAddon.Comms.Sync = function(prefix, message)
-		return leaderDistribution.HandleMessage(prefix, message, "RAID", "Master") == true
+	installDistributionPayloadCodec(masterAddon)
+	local masterSendAddonBatch = masterAddon.Comms.SendAddonBatch
+	local masterQueueAddonMessages = masterAddon.Comms.QueueAddonMessages
+	local masterQueueAddonMessage = masterAddon.Comms.QueueAddonMessage
+	local function deliverMasterMessages(prefix, messages, target)
+		for i = 1, #messages do
+			if leaderDistribution.HandleMessage(prefix, messages[i], target and "WHISPER" or "RAID", "Master") ~= true then
+				return false
+			end
+		end
+		return true
+	end
+	masterAddon.Comms.SendAddonBatch = function(prefix, messages, target, opts)
+		if prefix ~= "RMADist" then
+			return masterSendAddonBatch(prefix, messages, target, opts)
+		end
+		return deliverMasterMessages(prefix, messages, target)
+	end
+	masterAddon.Comms.QueueAddonMessages = function(prefix, messages, channel, target, opts)
+		if prefix ~= "RMADist" then
+			return masterQueueAddonMessages(prefix, messages, channel, target, opts)
+		end
+		return deliverMasterMessages(prefix, messages, target)
+	end
+	masterAddon.Comms.QueueAddonMessage = function(prefix, message, channel, target, opts)
+		if prefix ~= "RMADist" then
+			return masterQueueAddonMessage(prefix, message, channel, target, opts)
+		end
+		return deliverMasterMessages(prefix, { message }, target)
+	end
+	masterAddon.Comms.NormalizeSender = function(value)
+		return tostring(value or ""):match("^[^-]+") or ""
 	end
 	loadAddonFile(masterAddon, "Raid Management Addon/Services/Loot/DistributionSession.lua")
 	local distribution = masterAddon.Services.Loot.DistributionSession

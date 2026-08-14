@@ -1,23 +1,20 @@
 -- ----- RMA Lua Contract ----- --
--- deps: addon.DB.RaidEvents, addon.Comms.Payload, addon.Json, addon.Item
+-- deps: addon.DB.RaidEvents, addon.Comms.Payload, addon.Item
 -- shared: addon.DB.SyncProtocol
--- exports: version-4 raid replication envelope and body codec
+-- exports: version-5 raid replication envelope and body codec
 -- events: none
 
 local addon = select(2, ...)
 local DB = addon.DB
 local RaidEvents = assert(DB.RaidEvents, "Raid event codec dependency is not initialized")
 local Payload = assert(addon.Comms and addon.Comms.Payload, "Comms payload helpers are not initialized")
-local Json = assert(addon.Json, "JSON codec is not initialized")
 local Item = assert(addon.Item, "Item dependency is not initialized")
 
 DB.SyncProtocol = DB.SyncProtocol or {}
 local Protocol = DB.SyncProtocol
 
 local floor = math.floor
-local format = string.format
 local byte = string.byte
-local gsub = string.gsub
 local match = string.match
 local type = type
 local lower = string.lower
@@ -29,7 +26,6 @@ local MAX_PART_COUNT = 256
 local MAX_LIVE_LOOT_PART_COUNT = 32
 local MAX_CHUNK_BYTES = 220
 local MAX_MESSAGE_BYTES = 243
-local WIRE_MARKER = "R4"
 
 local OUTCOMES = {
 	IMPORTED = true,
@@ -361,93 +357,6 @@ local function validateEnvelope(kind, requestId, target)
 	return true
 end
 
-local JSON_ESCAPES = {
-	['"'] = '\\"',
-	["\\"] = "\\\\",
-	["\b"] = "\\b",
-	["\f"] = "\\f",
-	["\n"] = "\\n",
-	["\r"] = "\\r",
-	["\t"] = "\\t",
-}
-
-local function encodeJsonString(value)
-	return '"'
-		.. gsub(value, '[%z\1-\31\\"]', function(character)
-			return JSON_ESCAPES[character] or format("\\u%04x", byte(character))
-		end)
-		.. '"'
-end
-
-local function encodeJson(value, active)
-	local valueType = type(value)
-	if value == Json.NULL then
-		return "null"
-	elseif valueType == "boolean" then
-		return value and "true" or "false"
-	elseif valueType == "number" then
-		if value ~= value or value == math.huge or value == -math.huge then
-			return nil, "INVALID_BODY_NUMBER"
-		end
-		return format("%.17g", value)
-	elseif valueType == "string" then
-		return encodeJsonString(value)
-	elseif valueType ~= "table" then
-		return nil, "INVALID_BODY_VALUE"
-	end
-
-	active = active or {}
-	if active[value] then
-		return nil, "CYCLIC_BODY"
-	end
-	active[value] = true
-	local count, maximum, dense = 0, 0, true
-	for key in pairs(value) do
-		count = count + 1
-		if type(key) ~= "number" or key < 1 or key ~= floor(key) then
-			dense = false
-		elseif key > maximum then
-			maximum = key
-		end
-	end
-	dense = dense and maximum == count and count > 0
-
-	local parts = {}
-	if dense then
-		for i = 1, count do
-			local encoded, reason = encodeJson(value[i], active)
-			if not encoded then
-				active[value] = nil
-				return nil, reason
-			end
-			parts[i] = encoded
-		end
-		active[value] = nil
-		return "[" .. table.concat(parts, ",") .. "]"
-	end
-
-	local keys = {}
-	for key in pairs(value) do
-		if type(key) ~= "string" then
-			active[value] = nil
-			return nil, "INVALID_BODY_KEY"
-		end
-		keys[#keys + 1] = key
-	end
-	table.sort(keys)
-	for i = 1, #keys do
-		local key = keys[i]
-		local encoded, reason = encodeJson(value[key], active)
-		if not encoded then
-			active[value] = nil
-			return nil, reason
-		end
-		parts[i] = encodeJsonString(key) .. ":" .. encoded
-	end
-	active[value] = nil
-	return "{" .. table.concat(parts, ",") .. "}"
-end
-
 local function deepEqual(left, right, seen)
 	if left == right then
 		return true
@@ -500,7 +409,7 @@ local function closedMap(value, schema)
 end
 
 local function compactScalar(value)
-	if value == Json.NULL then
+	if value == false then
 		return nil
 	end
 	local valueType = type(value)
@@ -512,19 +421,26 @@ end
 
 local function compactSlot(value)
 	if value == nil then
-		return Json.NULL
+		return false
+	end
+	return value
+end
+
+local function envelopeSlot(value)
+	if value == nil or value == "-" then
+		return false
 	end
 	return value
 end
 
 local function encodeLootSource(source)
 	if source == nil then
-		return Json.NULL
+		return false
 	end
 	if not closedMap(source, LOOT_SOURCE_FIELDS) then
 		return nil, "NON_RECONSTRUCTIBLE_LIVE_LOOT"
 	end
-	local encodedCandidates = Json.NULL
+	local encodedCandidates = false
 	if source.candidates ~= nil then
 		if type(source.candidates) ~= "table" then
 			return nil, "NON_RECONSTRUCTIBLE_LIVE_LOOT"
@@ -562,7 +478,7 @@ local function encodeLootSource(source)
 end
 
 local function decodeLootSource(encoded)
-	if encoded == Json.NULL then
+	if encoded == false then
 		return nil
 	end
 	if not denseArray(encoded, 8) then
@@ -570,7 +486,7 @@ local function decodeLootSource(encoded)
 	end
 	local candidates = encoded[8]
 	local decodedCandidates
-	if candidates ~= Json.NULL then
+	if candidates ~= false then
 		if type(candidates) ~= "table" then
 			return nil, "INVALID_MESSAGE_BODY"
 		end
@@ -588,20 +504,20 @@ local function decodeLootSource(encoded)
 				local decodedCandidate = {}
 				for slot = 1, 4 do
 					local value = candidate[slot]
-					if value ~= Json.NULL and compactScalar(value) == nil then
+					if value ~= false and compactScalar(value) == nil then
 						return nil, "INVALID_MESSAGE_BODY"
 					end
 				end
-				if candidate[1] ~= Json.NULL then
+				if candidate[1] ~= false then
 					decodedCandidate.name = candidate[1]
 				end
-				if candidate[2] ~= Json.NULL then
+				if candidate[2] ~= false then
 					decodedCandidate.kind = candidate[2]
 				end
-				if candidate[3] ~= Json.NULL then
+				if candidate[3] ~= false then
 					decodedCandidate.sourceKey = candidate[3]
 				end
-				if candidate[4] ~= Json.NULL then
+				if candidate[4] ~= false then
 					decodedCandidate.npcId = candidate[4]
 				end
 				decodedCandidates[i] = decodedCandidate
@@ -612,10 +528,10 @@ local function decodeLootSource(encoded)
 	local names = { "kind", "bossNid", "sourceNpcId", "sourceName", "sourceKey", "openedAt", "snapshotId" }
 	for i = 1, #names do
 		local value = encoded[i]
-		if value ~= Json.NULL and compactScalar(value) == nil then
+		if value ~= false and compactScalar(value) == nil then
 			return nil, "INVALID_MESSAGE_BODY"
 		end
-		if value ~= Json.NULL then
+		if value ~= false then
 			decoded[names[i]] = value
 		end
 	end
@@ -648,7 +564,7 @@ local function compactLiveLoot(event)
 		return nil, "NON_RECONSTRUCTIBLE_LIVE_LOOT"
 	end
 	local source, sourceReason = encodeLootSource(loot.lootSource)
-	if not source then
+	if source == nil then
 		return nil, sourceReason
 	end
 	return {
@@ -684,14 +600,14 @@ local function reconstructLiveLoot(encoded)
 		or type(encoded[6]) ~= "string"
 		or not exactInteger(encoded[7], 1, MAX_SEQUENCE)
 		or not exactInteger(encoded[8], 1, MAX_SEQUENCE)
-		or (encoded[9] ~= Json.NULL and not exactInteger(encoded[9], 0, 9))
+		or (encoded[9] ~= false and not exactInteger(encoded[9], 0, 9))
 		or not finiteNumber(encoded[10], 0, MAX_SEQUENCE)
-		or (encoded[11] ~= Json.NULL and type(encoded[11]) ~= "string")
+		or (encoded[11] ~= false and type(encoded[11]) ~= "string")
 		or not exactInteger(encoded[12], 0, MAX_SEQUENCE)
 		or not exactInteger(encoded[13], 1, 9999999999)
-		or (encoded[14] ~= Json.NULL and type(encoded[14]) ~= "string")
-		or (encoded[15] ~= Json.NULL and type(encoded[15]) ~= "string")
-		or (encoded[16] ~= Json.NULL and type(encoded[16]) ~= "table")
+		or (encoded[14] ~= false and type(encoded[14]) ~= "string")
+		or (encoded[15] ~= false and type(encoded[15]) ~= "string")
+		or (encoded[16] ~= false and type(encoded[16]) ~= "table")
 	then
 		return nil, "INVALID_MESSAGE_BODY"
 	end
@@ -715,17 +631,17 @@ local function reconstructLiveLoot(encoded)
 		bossNid = encoded[12],
 		time = encoded[13],
 	}
-	if encoded[9] ~= Json.NULL then
+	if encoded[9] ~= false then
 		loot.rollType = encoded[9]
 	end
 	loot.rollValue = encoded[10]
-	if encoded[11] ~= Json.NULL then
+	if encoded[11] ~= false then
 		loot.rollSessionId = encoded[11]
 	end
-	if encoded[14] ~= Json.NULL then
+	if encoded[14] ~= false then
 		loot.source = encoded[14]
 	end
-	if encoded[15] ~= Json.NULL then
+	if encoded[15] ~= false then
 		loot.itemTexture = encoded[15]
 	end
 	if lootSource then
@@ -752,14 +668,10 @@ local function encodeLiveLootBody(event)
 	if not reconstructed or not deepEqual(event, reconstructed) then
 		return nil, reconstructedReason or "NON_RECONSTRUCTIBLE_LIVE_LOOT"
 	end
-	return encodeJson(compact)
+	return compact
 end
 
-local function decodeLiveLootBody(text)
-	local compact, reason = Protocol.DecodeBody(text)
-	if not compact then
-		return nil, reason
-	end
+local function decodeLiveLootBody(compact)
 	local event, eventReason = reconstructLiveLoot(compact)
 	if not event then
 		return nil, eventReason
@@ -768,21 +680,17 @@ local function decodeLiveLootBody(text)
 end
 
 local function encodeLiveLootPartBody(body)
-	return encodeJson({
+	return {
 		body.raidUid,
 		body.authorityEpoch,
 		body.sequence,
 		body.partIndex,
 		body.partCount,
 		body.chunk,
-	})
+	}
 end
 
-local function decodeLiveLootPartBody(text)
-	local compact, reason = Protocol.DecodeBody(text)
-	if not compact then
-		return nil, reason
-	end
+local function decodeLiveLootPartBody(compact)
 	if not denseArray(compact, 6) then
 		return nil, "INVALID_MESSAGE_BODY"
 	end
@@ -802,47 +710,49 @@ local function encodeBodyForKind(kind, body)
 	elseif kind == "LIVE_LOOT_PART" then
 		return encodeLiveLootPartBody(body)
 	end
-	return Protocol.EncodeBody(body)
+	return body
 end
 
-local function decodeBodyForKind(kind, text)
+local function decodeBodyForKind(kind, body)
 	if kind == "LIVE_LOOT" then
-		return decodeLiveLootBody(text)
+		return decodeLiveLootBody(body)
 	elseif kind == "LIVE_LOOT_PART" then
-		return decodeLiveLootPartBody(text)
+		return decodeLiveLootPartBody(body)
 	end
-	return Protocol.DecodeBody(text)
+	return body
 end
 
-Protocol.VERSION = 4
+Protocol.VERSION = 5
 
 function Protocol.EncodeBody(body)
 	if type(body) ~= "table" then
 		return nil, "INVALID_MESSAGE_BODY"
 	end
-	return encodeJson(body)
+	return Payload.Serialize(body)
 end
 
 function Protocol.DecodeBody(text)
-	if type(text) ~= "string" or text == "" then
-		return nil, "MALFORMED_MESSAGE_BODY"
-	end
-	if string.find(text, "[%z\1-\31]") then
-		return nil, "MALFORMED_MESSAGE_BODY_CONTROL"
-	end
-	local ok, body, reason = pcall(Json.Decode, text)
-	if not ok or type(body) ~= "table" then
+	local body, reason = Payload.Deserialize(text)
+	if type(body) ~= "table" then
 		return nil, reason or "MALFORMED_MESSAGE_BODY"
 	end
 	return body
 end
 
 function Protocol.EncodeLiveLootPayload(event)
-	return encodeLiveLootBody(event)
+	local compact, reason = encodeLiveLootBody(event)
+	if not compact then
+		return nil, reason
+	end
+	return Protocol.EncodeBody(compact)
 end
 
 function Protocol.DecodeLiveLootPayload(text)
-	local body, reason = decodeLiveLootBody(text)
+	local compact, decodeReason = Protocol.DecodeBody(text)
+	if not compact then
+		return nil, decodeReason
+	end
+	local body, reason = decodeLiveLootBody(compact)
 	if not body then
 		return nil, reason
 	end
@@ -857,9 +767,10 @@ function Protocol.Encode(kind, requestId, target, body)
 	if not MESSAGE_SCHEMAS[kind] then
 		return nil, "UNKNOWN_MESSAGE_KIND"
 	end
-	requestId = requestId or "-"
-	target = target or "-"
-	local envelopeValid, envelopeReason = validateEnvelope(kind, requestId, target)
+	local requestSlot = envelopeSlot(requestId)
+	local targetSlot = envelopeSlot(target)
+	local envelopeValid, envelopeReason =
+		validateEnvelope(kind, requestSlot == false and "-" or requestSlot, targetSlot == false and "-" or targetSlot)
 	if not envelopeValid then
 		return nil, envelopeReason
 	end
@@ -871,7 +782,10 @@ function Protocol.Encode(kind, requestId, target, body)
 	if not encodedBody then
 		return nil, encodeReason
 	end
-	local message = Payload.PackFields("\t", WIRE_MARKER, kind, requestId, target, encodedBody)
+	local message, messageReason = Payload.Serialize({ 5, kind, requestSlot, targetSlot, encodedBody })
+	if not message then
+		return nil, messageReason
+	end
 	if #message > MAX_MESSAGE_BYTES then
 		return nil, "MESSAGE_TOO_LARGE"
 	end
@@ -879,18 +793,26 @@ function Protocol.Encode(kind, requestId, target, body)
 end
 
 function Protocol.Decode(message)
-	if type(message) ~= "string" then
+	if type(message) ~= "string" or #message > MAX_MESSAGE_BYTES then
 		return nil, "UNSUPPORTED_PROTOCOL"
 	end
-	local fields, count = Payload.SplitFields(message, "\t")
-	if count ~= 5 or fields[1] ~= WIRE_MARKER then
+	local fields = Payload.Deserialize(message)
+	if not denseArray(fields, 5) or fields[1] ~= 5 then
 		return nil, "UNSUPPORTED_PROTOCOL"
 	end
 	local kind = fields[2]
 	if not MESSAGE_SCHEMAS[kind] then
 		return nil, "UNKNOWN_MESSAGE_KIND"
 	end
-	local envelopeValid, envelopeReason = validateEnvelope(kind, fields[3], fields[4])
+	local requestId = fields[3] == false and "-" or fields[3]
+	local target = fields[4] == false and "-" or fields[4]
+	if fields[3] ~= false and type(fields[3]) ~= "string" then
+		return nil, "INVALID_ENVELOPE_TARGET"
+	end
+	if fields[4] ~= false and type(fields[4]) ~= "string" then
+		return nil, "INVALID_ENVELOPE_TARGET"
+	end
+	local envelopeValid, envelopeReason = validateEnvelope(kind, requestId, target)
 	if not envelopeValid then
 		return nil, envelopeReason
 	end
@@ -902,5 +824,5 @@ function Protocol.Decode(message)
 	if not valid then
 		return nil, validationReason
 	end
-	return { kind = kind, requestId = fields[3], target = fields[4], body = body }
+	return { kind = kind, requestId = requestId, target = target, body = body }
 end

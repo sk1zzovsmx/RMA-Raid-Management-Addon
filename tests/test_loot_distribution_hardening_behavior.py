@@ -105,6 +105,18 @@ class LootDistributionHardeningTests(unittest.TestCase):
     def test_distribution_snapshot_cannot_resurrect_ended_session(self) -> None:
         self.assert_case("loot_distribution_snapshot_cannot_resurrect_ended_session")
 
+    def test_distribution_r5_snapshot_chunks_reassemble_and_fail_closed(self) -> None:
+        self.assert_case("loot_distribution_r5_snapshot_chunks_and_rejections")
+
+    def test_distribution_ordered_flow_uses_one_normal_queue(self) -> None:
+        self.assert_case("loot_distribution_ordered_flow_uses_one_normal_queue")
+
+    def test_distribution_r5_rejects_invalid_body_scalars(self) -> None:
+        self.assert_case("loot_distribution_r5_rejects_invalid_body_scalars")
+
+    def test_distribution_snapshot_requests_are_correlated_and_bounded(self) -> None:
+        self.assert_case("loot_distribution_snapshot_requests_are_correlated_and_bounded")
+
     def test_distribution_ownership_and_session_end_are_retry_safe(self) -> None:
         self.assert_case("loot_distribution_ownership_and_session_end_are_retry_safe")
 

@@ -139,11 +139,35 @@ class SyncCommunicationsBehaviorTests(unittest.TestCase):
         # Covers independently bounded live and historical transfer budgets.
         self.assert_case("raid_transfer_session_rate_limits")
 
-    def test_comms_batch_preflight_prevents_partial_enqueue(self) -> None:
-        self.assert_case("comms_batch_preflight_prevents_partial_enqueue")
+    def test_shared_wire_codec_round_trips_and_fails_closed(self) -> None:
+        self.assert_case("comms_shared_wire_codec_round_trip_and_rejection")
 
-    def test_comms_queue_keeps_constant_single_message_pacing(self) -> None:
-        self.assert_case("comms_queue_uses_constant_single_message_pacing")
+    def test_comms_routes_prioritized_flows_through_chat_throttle(self) -> None:
+        self.assert_case("comms_chat_throttle_priority_and_queue_names")
+
+    def test_comms_transport_options_fail_closed(self) -> None:
+        self.assert_case("comms_transport_options_fail_closed")
+
+    def test_comms_batch_preflight_prevents_malformed_partial_enqueue(self) -> None:
+        self.assert_case("comms_batch_preflight_prevents_malformed_partial_enqueue")
+
+    def test_comms_rejects_invalid_addon_message_destinations_before_enqueue(self) -> None:
+        self.assert_case("comms_addon_destination_validation")
+
+    def test_comms_version_r5_envelope_and_alert_ack(self) -> None:
+        self.assert_case("comms_version_r5_envelope_and_alert_ack")
+
+    def test_reserves_r5_envelopes_chunks_reassemble_and_fail_closed(self) -> None:
+        self.assert_case("reserves_sync_r5_envelopes_chunks_and_rejections")
+
+    def test_reserves_done_before_chunks_and_foreign_error_are_safe(self) -> None:
+        self.assert_case("reserves_sync_done_before_chunks_and_foreign_error_are_safe")
+
+    def test_reserves_metadata_requests_are_correlated_and_bounded(self) -> None:
+        self.assert_case("reserves_sync_metadata_requests_are_correlated_and_bounded")
+
+    def test_reserves_assembly_admission_is_globally_and_per_sender_bounded(self) -> None:
+        self.assert_case("reserves_sync_assembly_admission_is_globally_and_per_sender_bounded")
 
     def test_real_raid_capabilities_accept_numeric_unit_identity(self) -> None:
         self.assert_case("raid_capabilities_accept_numeric_unit_identity")

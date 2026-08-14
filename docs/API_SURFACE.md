@@ -30,12 +30,19 @@ internal export is allowed when repository callers have been migrated.
 |---|---|---|
 | Slash commands | `/rma` and the documented subcommand aliases in the addon README | User-facing command behavior; change deliberately and document aliases. |
 | SavedVariables | `RMA_Raids`, `RMA_Players`, `RMA_Reserves`, `RMA_Warnings`, `RMA_Spammer`, `RMA_Options` | Persisted compatibility surface; schema changes require explicit RMA migrations. |
-| Addon messages | `RMAVersion`, `RMAResSync`, `RMADist`, `RMALogSync` | Prefix, authorization, version, and payload behavior are compatibility-sensitive. |
+| Addon messages | `RMAVersion`, `RMAResSync`, `RMADist`, `RMARaidSync` | Prefix, authorization, version, and payload behavior are compatibility-sensitive. |
 | FrameXML globals | Named `RMA*` frames and templates referenced by runtime Lua | Stable while referenced; migrate XML and Lua together. |
 | TOC identity | Addon folder, title, Interface `30300`, version, and SavedVariables declarations | Release and client-loading contract. |
 
 Detailed wire ownership remains in `FEATURE_API_MAP.md`. Product ownership and
 command/query/notification rules remain in `FEATURE_BOUNDARIES.md`.
+
+## Addon-Message Compatibility
+
+RMA addon-message protocols use version 5 envelopes and reject earlier versions.
+`addon.Comms.Payload` owns LibSerialize plus LibDeflate addon-channel encoding.
+`addon.Comms` owns destination validation and delegates all outbound scheduling to ChatThrottleLib.
+JSON and Base64 remain import/hash utilities, not addon-message wire codecs.
 
 ## Expansion Rule
 

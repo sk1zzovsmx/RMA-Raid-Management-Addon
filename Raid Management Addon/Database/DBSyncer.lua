@@ -1,7 +1,7 @@
 -- ----- RMA Lua Contract ----- --
 -- deps: addon.DB.RaidStore, addon.DB.SyncProtocol, addon.DB.SyncSession, addon.Comms, addon.Services.Raid, addon.Timer
 -- shared: addon.DB.Syncer
--- exports: event-driven version-4 active-raid replication and recovery
+-- exports: event-driven version-5 active-raid replication and recovery
 -- events: handles RMARaidSync; listens raid commits, load, raid creation, roster, and zone changes
 
 local addon = select(2, ...)
@@ -16,6 +16,7 @@ local Diag = addon.Diagnose or addon.Diag
 local L = addon.L
 
 local Protocol = assert(DB.SyncProtocol, "Sync protocol dependency is not initialized")
+local SYNC_PROTOCOL_VERSION = assert(Protocol.VERSION == 5 and Protocol.VERSION, "Sync protocol must be version 5")
 local Session = assert(DB.SyncSession, "Sync session dependency is not initialized")
 local RaidStore = assert(DB.RaidStore, "Raid store dependency is not initialized")
 local Raid = assert(Services.Raid, "Raid service dependency is not initialized")
@@ -1871,7 +1872,7 @@ local HANDLERS = {
 }
 
 function module:GetProtocolVersion()
-	return Protocol.VERSION or 4
+	return SYNC_PROTOCOL_VERSION
 end
 
 function module:GetStatus()

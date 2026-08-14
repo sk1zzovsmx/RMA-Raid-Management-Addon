@@ -19,8 +19,9 @@ local InternalEvents = assert(Events.Internal, "Loot distribution internal event
 local _G = _G
 local GetTime = assert(_G.GetTime, "Loot distribution time API is not initialized")
 local GetPlayerName = assert(Database.GetPlayerName, "Loot distribution player-name resolver is not initialized")
-local SendSync = assert(Comms.Sync, "Loot distribution sync sender is not initialized")
 local QueueAddonMessage = assert(Comms.QueueAddonMessage, "Loot distribution direct sender is not initialized")
+local QueueAddonMessages = assert(Comms.QueueAddonMessages, "Loot distribution batch sender is not initialized")
+local SendAddonBatch = assert(Comms.SendAddonBatch, "Loot distribution group sender is not initialized")
 local DistributionChangedEvent =
 	assert(InternalEvents.LootDistributionSessionChanged, "Loot distribution change event is not initialized")
 local TriggerEvent = assert(Bus.TriggerEvent, "Loot distribution event bus sender is not initialized")
@@ -37,8 +38,8 @@ Loot.DistributionSession = Loot.DistributionSession or {}
 local DistributionSession = Loot.DistributionSession
 
 local PREFIX = "RMADist"
-local SEP = "|"
-local PROTOCOL_VERSION = 2
+local PROTOCOL_VERSION = 5
+local MAX_MESSAGE_BYTES = 243
 
 local MSG_ITEM = "ITEM"
 local MSG_ROLL_START = "ROLL_START"
@@ -58,11 +59,13 @@ local MSG_TIE_START = "TIE_START"
 local MSG_AWARDED = "AWARDED"
 local MSG_SNAPSHOT_CHUNK = "SNAP_CHUNK"
 
-local SNAP_ROW_SEP = "~"
 local MAX_SNAPSHOT_CHUNK_SIZE = 180
 local MAX_SNAPSHOT_CHUNKS = 64
 local SNAPSHOT_INCOMING_TTL_SECONDS = 180
 local MAX_INCOMING_SNAPSHOT_BYTES = MAX_SNAPSHOT_CHUNK_SIZE * MAX_SNAPSHOT_CHUNKS
+local MAX_INCOMING_SNAPSHOTS = 16
+local MAX_INCOMING_SNAPSHOTS_PER_SENDER = 4
+local MAX_PENDING_SNAPSHOTS = 32
 local MAX_INCOMING_WINDOWS = 8
 local MAX_WINDOW_ROWS = 128
 local MAX_WINDOW_BYTES = 32768
@@ -93,6 +96,9 @@ if type(state) ~= "table" then
 end
 DistributionSession._incomingSnapshots = DistributionSession._incomingSnapshots or {}
 local incomingSnapshots = DistributionSession._incomingSnapshots
+DistributionSession._pendingSnapshots = DistributionSession._pendingSnapshots or {}
+local pendingSnapshots = DistributionSession._pendingSnapshots
+local nextSnapshotRequestId = tonumber(DistributionSession._nextSnapshotRequestId) or 1
 DistributionSession._streams = DistributionSession._streams or {}
 local streams = DistributionSession._streams
 local nextStreamSequence = tonumber(DistributionSession._nextStreamSequence) or 1
@@ -114,32 +120,6 @@ end
 local function ensurePrefix()
 	Comms.RegisterPrefixIfAvailable(PREFIX)
 end
-
-local encodeText = Payload.EncodeText
-
-local decodeText = function(value)
-	local decoded = Payload.DecodeText(value)
-	if decoded ~= nil then
-		return decoded
-	end
-	return tostring(value or "")
-end
-
-local function packFields(...)
-	return Payload.PackFields(SEP, ...)
-end
-
-local function splitText(text, sep, out)
-	return Payload.SplitFields(text, sep, out)
-end
-
-local splitScratch = {}
-local function splitFields(text)
-	return Payload.SplitFields(text, SEP, splitScratch)
-end
-
-local snapshotRowsScratch = {}
-local snapshotFieldScratch = {}
 
 local function normalizeNumber(value)
 	local numeric = tonumber(value)
@@ -223,6 +203,16 @@ local function cleanupIncomingSnapshots()
 			local createdAt = tonumber(snapshotState.createdAt)
 			if createdAt == nil or (now > 0 and (now - createdAt) >= SNAPSHOT_INCOMING_TTL_SECONDS) then
 				incomingSnapshots[key] = nil
+			end
+		end
+	end
+	for requestId, pending in pairs(pendingSnapshots) do
+		if type(pending) ~= "table" then
+			pendingSnapshots[requestId] = nil
+		else
+			local createdAt = tonumber(pending.createdAt)
+			if createdAt == nil or (now > 0 and (now - createdAt) >= SNAPSHOT_INCOMING_TTL_SECONDS) then
+				pendingSnapshots[requestId] = nil
 			end
 		end
 	end
@@ -748,60 +738,410 @@ local function cleanupIncomingWindows()
 	cleanupStreams()
 end
 
-local function sendMessage(...)
-	ensurePrefix()
-	local ok = SendSync(PREFIX, packFields(...))
-	return ok == true
+local MESSAGE_KINDS = {
+	[MSG_ITEM] = true,
+	[MSG_ROLL_START] = true,
+	[MSG_ROLL_END] = true,
+	[MSG_ITEM_DONE] = true,
+	[MSG_ITEM_CANCELLED] = true,
+	[MSG_CLEAR] = true,
+	[MSG_WINDOW_BEGIN] = true,
+	[MSG_WINDOW_ITEM] = true,
+	[MSG_WINDOW_END] = true,
+	[MSG_SESSION_END] = true,
+	[MSG_HELLO] = true,
+	[MSG_SNAPSHOT_REQ] = true,
+	[MSG_SNAPSHOT] = true,
+	[MSG_ROLL_TICK] = true,
+	[MSG_TIE_START] = true,
+	[MSG_AWARDED] = true,
+	[MSG_SNAPSHOT_CHUNK] = true,
+}
+
+local OUT_OF_BAND_KINDS = {
+	[MSG_HELLO] = true,
+	[MSG_SNAPSHOT_REQ] = true,
+}
+
+local POSITIONAL_BODY_SIZES = {
+	[MSG_ITEM] = 8,
+	[MSG_WINDOW_BEGIN] = 3,
+	[MSG_WINDOW_ITEM] = 9,
+	[MSG_WINDOW_END] = 2,
+	[MSG_SESSION_END] = 2,
+	[MSG_ROLL_START] = 4,
+	[MSG_ROLL_END] = 5,
+	[MSG_ITEM_DONE] = 3,
+	[MSG_ITEM_CANCELLED] = 4,
+	[MSG_ROLL_TICK] = 3,
+	[MSG_TIE_START] = 3,
+	[MSG_AWARDED] = 5,
+	[MSG_SNAPSHOT] = 2,
+	[MSG_SNAPSHOT_CHUNK] = 4,
+}
+
+local SNAPSHOT_ROW_FIELDS = {
+	"itemKey",
+	"count",
+	"quality",
+	"itemLink",
+	"itemName",
+	"itemTexture",
+	"slot",
+	"state",
+	"rollType",
+	"duration",
+	"winnerName",
+	"rollValue",
+	"reason",
+	"remaining",
+	"tieNamesText",
+}
+
+local SNAPSHOT_ROW_FIELD_SET = {}
+for i = 1, #SNAPSHOT_ROW_FIELDS do
+	SNAPSHOT_ROW_FIELD_SET[SNAPSHOT_ROW_FIELDS[i]] = true
 end
 
-local function publishMessage(...)
+local function wireValue(value)
+	if value == nil then
+		return false
+	end
+	return value
+end
+
+local function valueOrNil(value)
+	if value == false then
+		return nil
+	end
+	return value
+end
+
+local function isDenseArray(value, expected)
+	if type(value) ~= "table" then
+		return false
+	end
+	for i = 1, expected do
+		if value[i] == nil then
+			return false
+		end
+	end
+	for key in pairs(value) do
+		if type(key) ~= "number" or key < 1 or key > expected or key % 1 ~= 0 then
+			return false
+		end
+	end
+	return true
+end
+
+local function isEmptyTable(value)
+	return type(value) == "table" and next(value) == nil
+end
+
+local function isClearBody(body)
+	if type(body) ~= "table" then
+		return false
+	end
+	for key in pairs(body) do
+		if key ~= "sessionId" then
+			return false
+		end
+	end
+	return true
+end
+
+local function validText(value, maximum)
+	return type(value) == "string" and value ~= "" and string.len(value) <= maximum
+end
+
+local function validOptionalText(value, maximum)
+	return value == false or (type(value) == "string" and string.len(value) <= maximum)
+end
+
+local function validNumber(value, minimum, maximum, integer)
+	return type(value) == "number"
+		and value == value
+		and value >= minimum
+		and value <= maximum
+		and value < math.huge
+		and (not integer or value == math.floor(value))
+end
+
+local function validOptionalNumber(value, minimum, maximum, integer)
+	return value == false or validNumber(value, minimum, maximum, integer)
+end
+
+local function validRollType(value)
+	return value == false or validNumber(value, 0, 64, true) or validText(value, 64)
+end
+
+local VALID_ROW_STATES = {
+	[STATE_ACTIVE] = true,
+	[STATE_ROLLING] = true,
+	[STATE_WINNER] = true,
+	[STATE_DONE] = true,
+	[STATE_AWARDED] = true,
+}
+
+local function validItemScalars(body, offset)
+	return validText(body[offset], 512)
+		and validNumber(body[offset + 1], 1, 999999999, true)
+		and validOptionalNumber(body[offset + 2], 0, 10, true)
+		and validOptionalText(body[offset + 3], 1024)
+		and validOptionalText(body[offset + 4], 512)
+		and validOptionalText(body[offset + 5], 512)
+		and validOptionalNumber(body[offset + 6], 0, 999999999, true)
+end
+
+local BODY_VALIDATORS = {
+	[MSG_ITEM] = function(body)
+		return validText(body[1], 128) and validItemScalars(body, 2)
+	end,
+	[MSG_WINDOW_BEGIN] = function(body)
+		return validText(body[1], 128)
+			and validNumber(body[2], 1, 9007199254740991, true)
+			and validNumber(body[3], 0, MAX_WINDOW_ROWS, true)
+	end,
+	[MSG_WINDOW_ITEM] = function(body)
+		return validText(body[1], 128) and validNumber(body[2], 1, 9007199254740991, true) and validItemScalars(body, 3)
+	end,
+	[MSG_WINDOW_END] = function(body)
+		return validText(body[1], 128) and validNumber(body[2], 1, 9007199254740991, true)
+	end,
+	[MSG_SESSION_END] = function(body)
+		return validText(body[1], 128) and validNumber(body[2], 0, 9007199254740991, true)
+	end,
+	[MSG_ROLL_START] = function(body)
+		return validText(body[1], 128)
+			and validText(body[2], 512)
+			and validRollType(body[3])
+			and validOptionalNumber(body[4], 0, 86400, false)
+	end,
+	[MSG_ROLL_END] = function(body)
+		return validText(body[1], 128)
+			and validText(body[2], 512)
+			and validOptionalText(body[3], 128)
+			and validOptionalNumber(body[4], 0, 999999999, false)
+			and validOptionalText(body[5], 512)
+	end,
+	[MSG_ITEM_DONE] = function(body)
+		return validText(body[1], 128) and validText(body[2], 512) and validOptionalText(body[3], 128)
+	end,
+	[MSG_ITEM_CANCELLED] = function(body)
+		return validText(body[1], 128)
+			and validText(body[2], 512)
+			and validOptionalText(body[3], 128)
+			and validOptionalText(body[4], 512)
+	end,
+	[MSG_ROLL_TICK] = function(body)
+		return validText(body[1], 128) and validText(body[2], 512) and validOptionalNumber(body[3], 0, 86400, false)
+	end,
+	[MSG_TIE_START] = function(body)
+		return validText(body[1], 128) and validText(body[2], 512) and validOptionalText(body[3], 1024)
+	end,
+	[MSG_AWARDED] = function(body)
+		return validText(body[1], 128)
+			and validText(body[2], 512)
+			and validOptionalText(body[3], 128)
+			and validRollType(body[4])
+			and validOptionalNumber(body[5], 0, 999999999, false)
+	end,
+	[MSG_SNAPSHOT] = function(body)
+		return validText(body[1], 128)
+			and type(body[2]) == "string"
+			and body[2] ~= ""
+			and string.len(body[2]) <= MAX_INCOMING_SNAPSHOT_BYTES
+	end,
+	[MSG_SNAPSHOT_CHUNK] = function(body)
+		return validText(body[1], 128)
+			and validNumber(body[2], 1, MAX_SNAPSHOT_CHUNKS, true)
+			and validNumber(body[3], 1, MAX_SNAPSHOT_CHUNKS, true)
+			and body[2] <= body[3]
+			and type(body[4]) == "string"
+			and body[4] ~= ""
+			and string.len(body[4]) <= MAX_SNAPSHOT_CHUNK_SIZE
+	end,
+}
+
+local function normalizeWireName(name)
+	if type(name) ~= "string" or name == "" then
+		return nil
+	end
+	local normalized = Comms.NormalizeSender and Comms.NormalizeSender(name) or name:match("^([^%-]+)") or name
+	return string.lower(tostring(normalized))
+end
+
+local function isLocalTarget(target)
+	if target == false then
+		return true
+	end
+	return normalizeWireName(target) == normalizeWireName(GetPlayerName())
+end
+
+local function clearPendingSnapshot(requestId)
+	pendingSnapshots[requestId] = nil
+	for key, snapshotState in pairs(incomingSnapshots) do
+		if type(snapshotState) == "table" and snapshotState.requestId == requestId then
+			incomingSnapshots[key] = nil
+		end
+	end
+end
+
+local function correlatePendingSnapshot(requestId, sender)
+	local pending = pendingSnapshots[requestId]
+	local source = normalizeWireName(sender)
+	if type(pending) ~= "table" or not source then
+		return nil
+	end
+	if pending.source and pending.source ~= source then
+		return nil
+	end
+	pending.source = source
+	return pending, source
+end
+
+local function canAllocateSnapshot(source)
+	local total, senderTotal = 0, 0
+	for _, snapshotState in pairs(incomingSnapshots) do
+		if type(snapshotState) == "table" then
+			total = total + 1
+			if snapshotState.source == source then
+				senderTotal = senderTotal + 1
+			end
+		end
+	end
+	return total < MAX_INCOMING_SNAPSHOTS and senderTotal < MAX_INCOMING_SNAPSHOTS_PER_SENDER
+end
+
+local function validateBody(kind, body)
+	if kind == MSG_CLEAR then
+		return isClearBody(body) and validText(body.sessionId, 128)
+	end
+	if kind == MSG_HELLO or kind == MSG_SNAPSHOT_REQ then
+		return isEmptyTable(body)
+	end
+	local expected = POSITIONAL_BODY_SIZES[kind]
+	if not expected or not isDenseArray(body, expected) then
+		return false
+	end
+	local validator = BODY_VALIDATORS[kind]
+	return validator and validator(body) == true
+end
+
+local function encodeMessage(kind, requestId, target, body)
+	if not MESSAGE_KINDS[kind] then
+		return nil, "unknown_message_kind"
+	end
+	local message, reason =
+		Payload.Serialize({ PROTOCOL_VERSION, kind, requestId or false, target or false, body or {} })
+	if not message then
+		return nil, reason or "serialize_failed"
+	end
+	if string.len(message) > MAX_MESSAGE_BYTES then
+		return nil, "message_too_large"
+	end
+	return message
+end
+
+local function decodeMessage(message)
+	if type(message) ~= "string" or message == "" or string.len(message) > MAX_MESSAGE_BYTES then
+		return nil
+	end
+	local raw = Payload.Deserialize(message)
+	if not isDenseArray(raw, 5) then
+		return nil
+	end
+	if raw[1] ~= PROTOCOL_VERSION then
+		if addon.hasDebug and Diag and Diag.W and Diag.W.LogDistributionUnsupportedVersion then
+			addon:warn(Diag.W.LogDistributionUnsupportedVersion:format(tostring(raw[1])))
+		end
+		return nil
+	end
+	local kind, requestId, target, body = raw[2], raw[3], raw[4], raw[5]
+	if not MESSAGE_KINDS[kind] then
+		return nil
+	end
+	if
+		(requestId ~= false and (type(requestId) ~= "string" or requestId == ""))
+		or (target ~= false and (type(target) ~= "string" or target == ""))
+		or not isLocalTarget(target)
+	then
+		return nil
+	end
+	if kind == MSG_SNAPSHOT_REQ or kind == MSG_SNAPSHOT or kind == MSG_SNAPSHOT_CHUNK then
+		if type(requestId) ~= "string" or requestId == "" then
+			return nil
+		end
+	elseif requestId ~= false then
+		return nil
+	end
+	if kind == MSG_SNAPSHOT_REQ then
+		if target ~= false then
+			return nil
+		end
+	elseif kind ~= MSG_SNAPSHOT and kind ~= MSG_SNAPSHOT_CHUNK and target ~= false then
+		return nil
+	end
+	if not validateBody(kind, body) then
+		return nil
+	end
+	return kind, requestId, target, body
+end
+
+local function sendEncoded(message, target, kind)
+	ensurePrefix()
+	local options = { priority = OUT_OF_BAND_KINDS[kind] and "ALERT" or "NORMAL" }
+	if target then
+		return QueueAddonMessage(PREFIX, message, "WHISPER", target, options)
+	end
+	return SendAddonBatch(PREFIX, { message }, nil, options)
+end
+
+local function sendMessage(kind, requestId, target, body)
+	local message = encodeMessage(kind, requestId, target, body)
+	if not message then
+		return false
+	end
+	local sent = sendEncoded(message, target, kind)
+	return sent == true
+end
+
+local function publishMessage(kind, requestId, body)
 	if not canPublish() then
 		return false
 	end
-	return sendMessage(...)
+	return sendMessage(kind, requestId, nil, body)
 end
 
-local function sendDirect(channel, target, ...)
-	ensurePrefix()
-	return QueueAddonMessage(PREFIX, packFields(...), channel, target)
-end
-
-local function isSupportedVersion(version)
-	local numeric = tonumber(version)
-	if numeric == PROTOCOL_VERSION then
-		return true
-	end
-	if addon.hasDebug and Diag and Diag.W and Diag.W.LogDistributionUnsupportedVersion then
-		addon:warn(Diag.W.LogDistributionUnsupportedVersion:format(tostring(version)))
-	end
-	return false
-end
-
-local function encodeSnapshot()
+local function buildSnapshotRows()
 	local rows = {}
 	for i = 1, #state.order do
 		local row = state.itemsByKey[state.order[i]]
 		if row then
-			rows[#rows + 1] = packFields(
-				row.itemKey,
-				row.count or 1,
-				row.quality or "",
-				encodeText(row.itemLink),
-				encodeText(row.itemName),
-				encodeText(row.itemTexture),
-				row.slot or "",
-				row.state or "",
-				row.rollType or "",
-				row.duration or "",
-				encodeText(row.winnerName),
-				row.rollValue or "",
-				encodeText(row.reason),
-				row.remaining or "",
-				encodeText(row.tieNamesText)
-			)
+			rows[#rows + 1] = {
+				itemKey = row.itemKey,
+				count = wireValue(row.count or 1),
+				quality = wireValue(row.quality),
+				itemLink = wireValue(row.itemLink),
+				itemName = wireValue(row.itemName),
+				itemTexture = wireValue(row.itemTexture),
+				slot = wireValue(row.slot),
+				state = wireValue(row.state),
+				rollType = wireValue(row.rollType),
+				duration = wireValue(row.duration),
+				winnerName = wireValue(row.winnerName),
+				rollValue = wireValue(row.rollValue),
+				reason = wireValue(row.reason),
+				remaining = wireValue(row.remaining),
+				tieNamesText = wireValue(row.tieNamesText),
+			}
 		end
 	end
-	return encodeText(tconcat(rows, SNAP_ROW_SEP))
+	return rows
+end
+
+local function encodeSnapshot()
+	return Payload.Serialize(buildSnapshotRows())
 end
 
 local function countSnapshotRows()
@@ -815,79 +1155,62 @@ local function countSnapshotRows()
 end
 
 local function publishItemRow(row)
-	return publishMessage(
-		MSG_ITEM,
-		PROTOCOL_VERSION,
+	return publishMessage(MSG_ITEM, false, {
 		ensureSessionId(),
 		row.itemKey,
 		row.count or 1,
-		row.quality or "",
-		encodeText(row.itemLink),
-		encodeText(row.itemName),
-		encodeText(row.itemTexture),
-		row.slot or ""
-	)
+		wireValue(row.quality),
+		wireValue(row.itemLink),
+		wireValue(row.itemName),
+		wireValue(row.itemTexture),
+		wireValue(row.slot),
+	})
 end
 
 local function publishWindowItemRow(row, revision)
-	return publishMessage(
-		MSG_WINDOW_ITEM,
-		PROTOCOL_VERSION,
+	return publishMessage(MSG_WINDOW_ITEM, false, {
 		ensureSessionId(),
 		revision,
 		row.itemKey,
 		row.count or 1,
-		row.quality or "",
-		encodeText(row.itemLink),
-		encodeText(row.itemName),
-		encodeText(row.itemTexture),
-		row.slot or ""
-	)
+		wireValue(row.quality),
+		wireValue(row.itemLink),
+		wireValue(row.itemName),
+		wireValue(row.itemTexture),
+		wireValue(row.slot),
+	})
 end
 
 local function publishRollStartRow(row)
 	return publishMessage(
 		MSG_ROLL_START,
-		PROTOCOL_VERSION,
-		ensureSessionId(),
-		row.itemKey,
-		row.rollType or "",
-		row.duration or ""
+		false,
+		{ ensureSessionId(), row.itemKey, wireValue(row.rollType), wireValue(row.duration) }
 	)
 end
 
 local function publishRollEndRow(row)
 	return publishMessage(
 		MSG_ROLL_END,
-		PROTOCOL_VERSION,
-		ensureSessionId(),
-		row.itemKey,
-		encodeText(row.winnerName),
-		row.rollValue or "",
-		encodeText(row.reason)
+		false,
+		{ ensureSessionId(), row.itemKey, wireValue(row.winnerName), wireValue(row.rollValue), wireValue(row.reason) }
 	)
 end
 
 local function publishItemDoneRow(row)
-	return publishMessage(MSG_ITEM_DONE, PROTOCOL_VERSION, ensureSessionId(), row.itemKey, encodeText(row.winnerName))
+	return publishMessage(MSG_ITEM_DONE, false, { ensureSessionId(), row.itemKey, wireValue(row.winnerName) })
 end
 
 local function publishItemCancelledRow(row, winnerName)
 	return publishMessage(
 		MSG_ITEM_CANCELLED,
-		PROTOCOL_VERSION,
-		ensureSessionId(),
-		row.itemKey,
-		encodeText(winnerName),
-		encodeText(row.failureReason)
+		false,
+		{ ensureSessionId(), row.itemKey, wireValue(winnerName), wireValue(row.failureReason) }
 	)
 end
 
-local function handleItemMessage(fields, sender)
-	if not isSupportedVersion(fields[2]) then
-		return true
-	end
-	local sessionId = normalizeText(fields[3], true)
+local function handleItemMessage(body, sender)
+	local sessionId = normalizeText(body[1], true)
 	if not acceptIncomingMutation(sender, sessionId, nil, "legacy") then
 		return true
 	end
@@ -899,26 +1222,23 @@ local function handleItemMessage(fields, sender)
 	sessionId = setSessionId(sessionId)
 	local row = upsertRow({
 		sessionId = sessionId,
-		itemKey = fields[4],
-		count = fields[5],
-		quality = fields[6],
-		itemLink = decodeText(fields[7]),
-		itemName = decodeText(fields[8]),
-		itemTexture = decodeText(fields[9]),
-		slot = fields[10],
+		itemKey = body[2],
+		count = valueOrNil(body[3]),
+		quality = valueOrNil(body[4]),
+		itemLink = valueOrNil(body[5]),
+		itemName = valueOrNil(body[6]),
+		itemTexture = valueOrNil(body[7]),
+		slot = valueOrNil(body[8]),
 		state = STATE_ACTIVE,
 		sender = sender,
 	}, "item")
 	return row ~= nil
 end
 
-local function handleWindowItemMessage(fields, sender, messageBytes)
-	if not isSupportedVersion(fields[2]) then
-		return true
-	end
+local function handleWindowItemMessage(body, sender, messageBytes)
 	cleanupIncomingWindows()
-	local sessionId = normalizeText(fields[3], true)
-	local accepted, key, stream = acceptIncomingMutation(sender, sessionId, fields[4], "window_item")
+	local sessionId = normalizeText(body[1], true)
+	local accepted, key, stream = acceptIncomingMutation(sender, sessionId, body[2], "window_item")
 	if not accepted then
 		return true
 	end
@@ -928,38 +1248,35 @@ local function handleWindowItemMessage(fields, sender, messageBytes)
 		removeIncomingWindow(key)
 		return true
 	end
-	local itemKey = resolveItemKey(fields[5], decodeText(fields[8]))
+	local itemKey = resolveItemKey(body[3], valueOrNil(body[6]))
 	if not itemKey or window.itemsByKey[itemKey] then
 		removeIncomingWindow(key)
 		return true
 	end
 	local row = upsertRow({
-		protocolVersion = fields[2],
+		protocolVersion = PROTOCOL_VERSION,
 		sessionId = sessionId,
-		itemKey = fields[5],
-		count = fields[6],
-		quality = fields[7],
-		itemLink = decodeText(fields[8]),
-		itemName = decodeText(fields[9]),
-		itemTexture = decodeText(fields[10]),
-		slot = fields[11],
+		itemKey = body[3],
+		count = valueOrNil(body[4]),
+		quality = valueOrNil(body[5]),
+		itemLink = valueOrNil(body[6]),
+		itemName = valueOrNil(body[7]),
+		itemTexture = valueOrNil(body[8]),
+		slot = valueOrNil(body[9]),
 		state = STATE_ACTIVE,
 		sender = sender,
 	}, "window_item", window, true)
 	return row ~= nil
 end
 
-local function handleWindowBeginMessage(fields, sender)
-	if not isSupportedVersion(fields[2]) then
-		return true
-	end
+local function handleWindowBeginMessage(body, sender)
 	cleanupIncomingWindows()
-	local sessionId = normalizeText(fields[3], true)
-	local expectedRows = fields[5] ~= nil and validExpectedRows(fields[5]) or nil
-	if fields[5] ~= nil and expectedRows == nil then
+	local sessionId = normalizeText(body[1], true)
+	local expectedRows = valueOrNil(body[3]) ~= nil and validExpectedRows(body[3]) or nil
+	if body[3] ~= false and expectedRows == nil then
 		return true
 	end
-	local accepted, _, _, revision = acceptIncomingMutation(sender, sessionId, fields[4], "window_begin")
+	local accepted, _, _, revision = acceptIncomingMutation(sender, sessionId, body[2], "window_begin")
 	if not accepted then
 		return true
 	end
@@ -967,12 +1284,9 @@ local function handleWindowBeginMessage(fields, sender)
 	return true
 end
 
-local function handleWindowEndMessage(fields, sender)
-	if not isSupportedVersion(fields[2]) then
-		return true
-	end
-	local sessionId = normalizeText(fields[3], true)
-	local accepted, key, stream, revision = acceptIncomingMutation(sender, sessionId, fields[4], "window_end")
+local function handleWindowEndMessage(body, sender)
+	local sessionId = normalizeText(body[1], true)
+	local accepted, key, stream, revision = acceptIncomingMutation(sender, sessionId, body[2], "window_end")
 	if not accepted then
 		return true
 	end
@@ -995,12 +1309,9 @@ local function handleWindowEndMessage(fields, sender)
 	return true
 end
 
-local function handleSessionEndMessage(fields, sender)
-	if not isSupportedVersion(fields[2]) then
-		return true
-	end
-	local sessionId = normalizeText(fields[3], true)
-	local accepted, key, stream, revision = acceptIncomingMutation(sender, sessionId, fields[4], "session_end")
+local function handleSessionEndMessage(body, sender)
+	local sessionId = normalizeText(body[1], true)
+	local accepted, key, stream, revision = acceptIncomingMutation(sender, sessionId, body[2], "session_end")
 	if accepted then
 		removeIncomingWindow(key)
 		addStreamTombstone(key, revision)
@@ -1021,21 +1332,18 @@ local function handleSessionEndMessage(fields, sender)
 	return true
 end
 
-local function handleRollStartMessage(fields, sender)
-	if not isSupportedVersion(fields[2]) then
-		return true
-	end
-	local sessionId = normalizeText(fields[3], true)
+local function handleRollStartMessage(body, sender)
+	local sessionId = normalizeText(body[1], true)
 	if not acceptIncomingMutation(sender, sessionId, nil, "legacy") then
 		return true
 	end
 	sessionId = setSessionId(sessionId)
-	local duration = normalizeNumber(fields[6])
+	local duration = normalizeNumber(valueOrNil(body[4]))
 	local row = upsertRow({
-		protocolVersion = fields[2],
+		protocolVersion = PROTOCOL_VERSION,
 		sessionId = sessionId,
-		itemKey = fields[4],
-		rollType = fields[5],
+		itemKey = body[2],
+		rollType = valueOrNil(body[3]),
 		duration = duration,
 		remaining = duration,
 		clearDuration = duration == nil,
@@ -1046,39 +1354,33 @@ local function handleRollStartMessage(fields, sender)
 	return row ~= nil
 end
 
-local function handleRollEndMessage(fields, sender)
-	if not isSupportedVersion(fields[2]) then
-		return true
-	end
-	local sessionId = normalizeText(fields[3], true)
+local function handleRollEndMessage(body, sender)
+	local sessionId = normalizeText(body[1], true)
 	if not acceptIncomingMutation(sender, sessionId, nil, "legacy") then
 		return true
 	end
 	sessionId = setSessionId(sessionId)
-	local winnerName = decodeText(fields[5])
+	local winnerName = valueOrNil(body[3])
 	local row = upsertRow({
 		sessionId = sessionId,
-		itemKey = fields[4],
+		itemKey = body[2],
 		winnerName = winnerName,
-		rollValue = fields[6],
-		reason = decodeText(fields[7]),
+		rollValue = valueOrNil(body[4]),
+		reason = valueOrNil(body[5]),
 		state = normalizeText(winnerName, true) and STATE_WINNER or STATE_ACTIVE,
 		sender = sender,
 	}, "roll_end")
 	return row ~= nil
 end
 
-local function handleItemDoneMessage(fields, sender)
-	if not isSupportedVersion(fields[2]) then
-		return true
-	end
-	local sessionId = normalizeText(fields[3], true)
+local function handleItemDoneMessage(body, sender)
+	local sessionId = normalizeText(body[1], true)
 	if not acceptIncomingMutation(sender, sessionId, nil, "legacy") then
 		return true
 	end
 	sessionId = setSessionId(sessionId)
-	local itemKey = resolveItemKey(fields[4], fields[4])
-	local winnerName = decodeText(fields[5])
+	local itemKey = resolveItemKey(body[2], body[2])
+	local winnerName = valueOrNil(body[3])
 	local committed = itemKey and state.itemsByKey[itemKey] or nil
 	if
 		committed
@@ -1099,19 +1401,16 @@ local function handleItemDoneMessage(fields, sender)
 	return row ~= nil
 end
 
-local function handleItemCancelledMessage(fields, sender)
-	if not isSupportedVersion(fields[2]) then
-		return true
-	end
-	local sessionId = normalizeText(fields[3], true)
+local function handleItemCancelledMessage(body, sender)
+	local sessionId = normalizeText(body[1], true)
 	if not acceptIncomingMutation(sender, sessionId, nil, "legacy") then
 		return true
 	end
 	local row = upsertRow({
 		sessionId = setSessionId(sessionId),
-		itemKey = fields[4],
-		winnerName = decodeText(fields[5]),
-		failureReason = decodeText(fields[6]),
+		itemKey = body[2],
+		winnerName = valueOrNil(body[3]),
+		failureReason = valueOrNil(body[4]),
 		clearWinner = true,
 		state = STATE_ACTIVE,
 		sender = sender,
@@ -1119,120 +1418,146 @@ local function handleItemCancelledMessage(fields, sender)
 	return row ~= nil
 end
 
-local function handleRollTickMessage(fields, sender)
-	if not isSupportedVersion(fields[2]) then
-		return true
-	end
-	local sessionId = normalizeText(fields[3], true)
+local function handleRollTickMessage(body, sender)
+	local sessionId = normalizeText(body[1], true)
 	if not acceptIncomingMutation(sender, sessionId, nil, "legacy") then
 		return true
 	end
 	sessionId = setSessionId(sessionId)
 	local row = upsertRow({
-		protocolVersion = fields[2],
+		protocolVersion = PROTOCOL_VERSION,
 		sessionId = sessionId,
-		itemKey = fields[4],
-		remaining = fields[5],
+		itemKey = body[2],
+		remaining = valueOrNil(body[3]),
 		state = STATE_ROLLING,
 		sender = sender,
 	}, "roll_tick")
 	return row ~= nil
 end
 
-local function handleTieStartMessage(fields, sender)
-	if not isSupportedVersion(fields[2]) then
-		return true
-	end
-	local sessionId = normalizeText(fields[3], true)
+local function handleTieStartMessage(body, sender)
+	local sessionId = normalizeText(body[1], true)
 	if not acceptIncomingMutation(sender, sessionId, nil, "legacy") then
 		return true
 	end
 	sessionId = setSessionId(sessionId)
 	local row = upsertRow({
-		protocolVersion = fields[2],
+		protocolVersion = PROTOCOL_VERSION,
 		sessionId = sessionId,
-		itemKey = fields[4],
-		tieNamesText = decodeText(fields[5]),
+		itemKey = body[2],
+		tieNamesText = valueOrNil(body[3]),
 		state = STATE_WINNER,
 		sender = sender,
 	}, "tie_start")
 	return row ~= nil
 end
 
-local function handleAwardedMessage(fields, sender)
-	if not isSupportedVersion(fields[2]) then
-		return true
-	end
-	local sessionId = normalizeText(fields[3], true)
+local function handleAwardedMessage(body, sender)
+	local sessionId = normalizeText(body[1], true)
 	if not acceptIncomingMutation(sender, sessionId, nil, "legacy") then
 		return true
 	end
 	sessionId = setSessionId(sessionId)
 	local row = upsertRow({
-		protocolVersion = fields[2],
+		protocolVersion = PROTOCOL_VERSION,
 		sessionId = sessionId,
-		itemKey = fields[4],
-		winnerName = decodeText(fields[5]),
-		rollValue = fields[6],
+		itemKey = body[2],
+		winnerName = valueOrNil(body[3]),
+		rollType = valueOrNil(body[4]),
+		rollValue = valueOrNil(body[5]),
 		state = STATE_AWARDED,
 		sender = sender,
 	}, "awarded")
 	return row ~= nil
 end
 
-local function applySnapshot(protocolVersion, sessionId, decodedSnapshot, sender)
-	protocolVersion = normalizeNumber(protocolVersion)
-	if protocolVersion ~= PROTOCOL_VERSION then
-		return true
+local function isSnapshotRow(row)
+	if type(row) ~= "table" then
+		return false
 	end
+	for i = 1, #SNAPSHOT_ROW_FIELDS do
+		if row[SNAPSHOT_ROW_FIELDS[i]] == nil then
+			return false
+		end
+	end
+	for key in pairs(row) do
+		if not SNAPSHOT_ROW_FIELD_SET[key] then
+			return false
+		end
+	end
+	return validText(row.itemKey, 512)
+		and validNumber(row.count, 1, 999999999, true)
+		and validOptionalNumber(row.quality, 0, 10, true)
+		and validOptionalText(row.itemLink, 1024)
+		and validOptionalText(row.itemName, 512)
+		and validOptionalText(row.itemTexture, 512)
+		and validOptionalNumber(row.slot, 0, 999999999, true)
+		and (row.state == false or (type(row.state) == "string" and VALID_ROW_STATES[row.state] == true))
+		and validRollType(row.rollType)
+		and validOptionalNumber(row.duration, 0, 86400, false)
+		and validOptionalText(row.winnerName, 128)
+		and validOptionalNumber(row.rollValue, 0, 999999999, false)
+		and validOptionalText(row.reason, 512)
+		and validOptionalNumber(row.remaining, 0, 86400, false)
+		and validOptionalText(row.tieNamesText, 1024)
+end
 
+local function applySnapshot(sessionId, snapshotRows, sender)
 	local accepted, key = acceptIncomingMutation(sender, sessionId, nil, "snapshot")
 	if not accepted then
 		return true
 	end
-	if string.len(decodedSnapshot or "") > MAX_INCOMING_SNAPSHOT_BYTES then
+	if type(snapshotRows) ~= "table" then
 		return true
 	end
-	local rows, rowCount = splitText(decodedSnapshot, SNAP_ROW_SEP, snapshotRowsScratch)
+	local rowCount = 0
+	for index in pairs(snapshotRows) do
+		if type(index) ~= "number" or index < 1 or index % 1 ~= 0 then
+			return true
+		end
+		rowCount = rowCount + 1
+	end
 	if rowCount > MAX_WINDOW_ROWS then
 		return true
+	end
+	for i = 1, rowCount do
+		if not isSnapshotRow(snapshotRows[i]) then
+			return true
+		end
 	end
 	local candidate = { sessionId = sessionId, revision = 0, order = {}, itemsByKey = {} }
 	local applied = 0
 
 	for i = 1, rowCount do
-		local rowText = rows[i]
-		if rowText and rowText ~= "" then
-			local rowFields = splitText(rowText, SEP, snapshotFieldScratch)
-			local itemKey = resolveItemKey(rowFields[1], decodeText(rowFields[4]))
-			if not itemKey or candidate.itemsByKey[itemKey] then
-				return true
-			end
-			local row = upsertRow({
-				protocolVersion = protocolVersion,
-				sessionId = sessionId,
-				itemKey = rowFields[1],
-				count = rowFields[2],
-				quality = rowFields[3],
-				itemLink = decodeText(rowFields[4]),
-				itemName = decodeText(rowFields[5]),
-				itemTexture = decodeText(rowFields[6]),
-				slot = rowFields[7],
-				state = normalizeText(rowFields[8], true) or STATE_ACTIVE,
-				rollType = rowFields[9],
-				duration = rowFields[10],
-				winnerName = decodeText(rowFields[11]),
-				rollValue = rowFields[12],
-				reason = decodeText(rowFields[13]),
-				remaining = rowFields[14],
-				tieNamesText = decodeText(rowFields[15]),
-				sender = sender,
-			}, "snapshot", candidate, true)
-			if row then
-				applied = applied + 1
-			else
-				return true
-			end
+		local sourceRow = snapshotRows[i]
+		local itemKey = resolveItemKey(sourceRow.itemKey, valueOrNil(sourceRow.itemLink))
+		if not itemKey or candidate.itemsByKey[itemKey] then
+			return true
+		end
+		local row = upsertRow({
+			protocolVersion = PROTOCOL_VERSION,
+			sessionId = sessionId,
+			itemKey = sourceRow.itemKey,
+			count = valueOrNil(sourceRow.count),
+			quality = valueOrNil(sourceRow.quality),
+			itemLink = valueOrNil(sourceRow.itemLink),
+			itemName = valueOrNil(sourceRow.itemName),
+			itemTexture = valueOrNil(sourceRow.itemTexture),
+			slot = valueOrNil(sourceRow.slot),
+			state = normalizeText(valueOrNil(sourceRow.state), true) or STATE_ACTIVE,
+			rollType = valueOrNil(sourceRow.rollType),
+			duration = valueOrNil(sourceRow.duration),
+			winnerName = valueOrNil(sourceRow.winnerName),
+			rollValue = valueOrNil(sourceRow.rollValue),
+			reason = valueOrNil(sourceRow.reason),
+			remaining = valueOrNil(sourceRow.remaining),
+			tieNamesText = valueOrNil(sourceRow.tieNamesText),
+			sender = sender,
+		}, "snapshot", candidate, true)
+		if row then
+			applied = applied + 1
+		else
+			return true
 		end
 	end
 	accepted = acceptIncomingMutation(sender, sessionId, nil, "snapshot")
@@ -1259,50 +1584,57 @@ local function applySnapshot(protocolVersion, sessionId, decodedSnapshot, sender
 	return true
 end
 
-local function handleSnapshotMessage(fields, sender)
-	if not isSupportedVersion(fields[2]) then
-		return true
-	end
-
-	local protocolVersion = normalizeNumber(fields[2])
-	local sessionId = normalizeText(fields[4], true)
+local function handleSnapshotMessage(body, sender)
+	local sessionId = normalizeText(body[1], true)
 	if not acceptIncomingMutation(sender, sessionId, nil, "snapshot") then
 		return true
 	end
-	local decoded = decodeText(fields[5])
-	return applySnapshot(protocolVersion, sessionId, decoded, sender)
+	local encoded = body[2]
+	if type(encoded) ~= "string" or string.len(encoded) > MAX_INCOMING_SNAPSHOT_BYTES then
+		return true
+	end
+	local decoded = Payload.Deserialize(encoded)
+	return applySnapshot(sessionId, decoded, sender)
 end
 
-local function handleSnapshotChunkMessage(fields, sender)
+local function handleSnapshotChunkMessage(requestId, body, sender, source)
 	cleanupIncomingSnapshots()
-
-	local protocolVersion = tonumber(fields[2])
-	if protocolVersion ~= PROTOCOL_VERSION then
-		return true
-	end
-
-	local requestId = normalizeText(fields[3], true) or ""
-	local sessionId = normalizeText(fields[4], true)
+	local sessionId = normalizeText(body[1], true)
 	if not acceptIncomingMutation(sender, sessionId, nil, "snapshot") then
+		clearPendingSnapshot(requestId)
 		return true
 	end
-	local chunkIndex = tonumber(fields[5])
-	local totalChunks = tonumber(fields[6])
-	local chunk = fields[7] or ""
+	local chunkIndex = tonumber(body[2])
+	local totalChunks = tonumber(body[3])
+	local chunk = body[4]
+	if type(chunk) ~= "string" then
+		clearPendingSnapshot(requestId)
+		return true
+	end
 	local chunkLength = string.len(chunk)
 
 	if
-		not (chunkIndex and chunkIndex > 0 and totalChunks and totalChunks > 0 and totalChunks <= MAX_SNAPSHOT_CHUNKS)
+		not (
+			chunkIndex
+			and chunkIndex > 0
+			and chunkIndex % 1 == 0
+			and totalChunks
+			and totalChunks > 0
+			and totalChunks % 1 == 0
+			and totalChunks <= MAX_SNAPSHOT_CHUNKS
+		)
 	then
+		clearPendingSnapshot(requestId)
 		return true
 	end
 	if chunkIndex > totalChunks then
+		clearPendingSnapshot(requestId)
 		return true
 	end
 
 	local key = tostring(sender or "?") .. "|" .. requestId .. "|" .. sessionId
 	if chunkLength > MAX_SNAPSHOT_CHUNK_SIZE then
-		incomingSnapshots[key] = nil
+		clearPendingSnapshot(requestId)
 		return true
 	end
 
@@ -1315,14 +1647,19 @@ local function handleSnapshotChunkMessage(fields, sender)
 			or type(snapshotState.chunkBytes) ~= "table"
 			or type(snapshotState.bytes) ~= "number"
 		if totalMismatch or isMalformed then
-			incomingSnapshots[key] = nil
-			snapshotState = nil
+			clearPendingSnapshot(requestId)
 			return true
 		end
 	end
 	if type(snapshotState) ~= "table" or snapshotState.total ~= totalChunks then
+		if not canAllocateSnapshot(source) then
+			clearPendingSnapshot(requestId)
+			return true
+		end
 		snapshotState = {
 			total = totalChunks,
+			requestId = requestId,
+			source = source,
 			chunks = {},
 			received = 0,
 			chunkBytes = {},
@@ -1335,13 +1672,17 @@ local function handleSnapshotChunkMessage(fields, sender)
 	local priorLength = tonumber(snapshotState.chunkBytes[chunkIndex])
 	local nextBytes = snapshotState.bytes or 0
 	if priorLength then
+		if snapshotState.chunks[chunkIndex] ~= chunk then
+			clearPendingSnapshot(requestId)
+			return true
+		end
 		nextBytes = nextBytes - priorLength
 	else
 		snapshotState.received = (snapshotState.received or 0) + 1
 	end
 	nextBytes = nextBytes + chunkLength
 	if nextBytes > MAX_INCOMING_SNAPSHOT_BYTES then
-		incomingSnapshots[key] = nil
+		clearPendingSnapshot(requestId)
 		return true
 	end
 
@@ -1364,8 +1705,35 @@ local function handleSnapshotChunkMessage(fields, sender)
 	end
 	incomingSnapshots[key] = nil
 
-	local decoded = decodeText(tconcat(encoded))
-	return applySnapshot(protocolVersion, sessionId, decoded, sender)
+	local decoded = Payload.Deserialize(tconcat(encoded))
+	local handled = applySnapshot(sessionId, decoded, sender)
+	clearPendingSnapshot(requestId)
+	return handled
+end
+
+local function buildSnapshotChunkMessages(requestId, target, sessionId, snapshot)
+	for chunkSize = MAX_SNAPSHOT_CHUNK_SIZE, 1, -1 do
+		local chunkCount = math.ceil(string.len(snapshot) / chunkSize)
+		if chunkCount <= MAX_SNAPSHOT_CHUNKS then
+			local messages = {}
+			local valid = true
+			for chunkIndex = 1, chunkCount do
+				local chunkStart = ((chunkIndex - 1) * chunkSize) + 1
+				local chunk = snapshot:sub(chunkStart, chunkIndex * chunkSize)
+				local message =
+					encodeMessage(MSG_SNAPSHOT_CHUNK, requestId, target, { sessionId, chunkIndex, chunkCount, chunk })
+				if not message then
+					valid = false
+					break
+				end
+				messages[chunkIndex] = message
+			end
+			if valid then
+				return messages
+			end
+		end
+	end
+	return nil
 end
 
 -- ----- Public methods ----- --
@@ -1377,7 +1745,7 @@ function DistributionSession.Clear()
 	local sessionId = buildSessionId()
 	clearState(sessionId)
 	sessionEndRequested = false
-	return publishMessage(MSG_CLEAR, PROTOCOL_VERSION, sessionId)
+	return publishMessage(MSG_CLEAR, false, { sessionId = sessionId })
 end
 
 function DistributionSession.BeginWindow(expectedRows)
@@ -1389,7 +1757,7 @@ function DistributionSession.BeginWindow(expectedRows)
 		return nil, "invalid_expected_rows"
 	end
 	local revision = tonumber(state.nextRevision) or 1
-	if not publishMessage(MSG_WINDOW_BEGIN, PROTOCOL_VERSION, ensureSessionId(), revision, expectedRows) then
+	if not publishMessage(MSG_WINDOW_BEGIN, false, { ensureSessionId(), revision, expectedRows }) then
 		return nil, "window_begin_send_failed"
 	end
 	state.revision = revision
@@ -1409,7 +1777,7 @@ function DistributionSession.EndWindow(revision)
 	then
 		return false
 	end
-	local sent = publishMessage(MSG_WINDOW_END, PROTOCOL_VERSION, ensureSessionId(), revision)
+	local sent = publishMessage(MSG_WINDOW_END, false, { ensureSessionId(), revision })
 	if sent then
 		state.pendingWindow = nil
 		state.nextRevision = revision + 1
@@ -1421,7 +1789,7 @@ function DistributionSession.PublishSessionEnd()
 	if not canPublish() or not state.sessionId then
 		return false
 	end
-	local sent = publishMessage(MSG_SESSION_END, PROTOCOL_VERSION, state.sessionId, tonumber(state.revision) or 0)
+	local sent = publishMessage(MSG_SESSION_END, false, { state.sessionId, tonumber(state.revision) or 0 })
 	if sent then
 		state.sessionId = nil
 		state.order = {}
@@ -1633,64 +2001,68 @@ function DistributionSession.PublishItemCancelled(itemKeyOrLink, winnerName, rea
 	return publishItemCancelledRow(row, winnerName)
 end
 
+function DistributionSession.RequestSnapshot()
+	cleanupIncomingSnapshots()
+	local pendingCount = 0
+	for _ in pairs(pendingSnapshots) do
+		pendingCount = pendingCount + 1
+	end
+	if pendingCount >= MAX_PENDING_SNAPSHOTS then
+		return nil, "snapshot_request_capacity"
+	end
+	local requestId = "D" .. tostring(nextSnapshotRequestId) .. ":" .. tostring(math.floor(getIncomingNow() * 1000))
+	nextSnapshotRequestId = nextSnapshotRequestId + 1
+	DistributionSession._nextSnapshotRequestId = nextSnapshotRequestId
+	if not sendMessage(MSG_SNAPSHOT_REQ, requestId, nil, {}) then
+		return nil, "snapshot_request_send_failed"
+	end
+	pendingSnapshots[requestId] = { createdAt = getIncomingNow() }
+	return requestId
+end
+
 function DistributionSession.PublishSnapshot(target, requestId)
 	if not canPublish() then
 		return false
 	end
+	requestId = normalizeText(requestId, true)
+	if not requestId then
+		return false
+	end
+	if target ~= nil and target ~= "" and normalizeWireName(target) == nil then
+		return false
+	end
+	if target == "" then
+		target = nil
+	end
 
 	local sessionId = ensureSessionId()
 	local snapshot = encodeSnapshot()
-	local snapshotLength = string.len(snapshot or "")
-	if snapshotLength <= MAX_SNAPSHOT_CHUNK_SIZE then
-		local sent
-		if target and target ~= "" then
-			sent = sendDirect("WHISPER", target, MSG_SNAPSHOT, PROTOCOL_VERSION, requestId or "", sessionId, snapshot)
-		else
-			sent = publishMessage(MSG_SNAPSHOT, PROTOCOL_VERSION, requestId or "", sessionId, snapshot)
-		end
-		if sent and addon.hasDebug and Diag and Diag.D and Diag.D.LogDistributionSnapshotSent then
-			addon:debug(Diag.D.LogDistributionSnapshotSent:format(countSnapshotRows(), tostring(target or "group")))
-		end
-		return sent == true
-	end
-
-	local chunkCount = math.ceil(snapshotLength / MAX_SNAPSHOT_CHUNK_SIZE)
-	if chunkCount > MAX_SNAPSHOT_CHUNKS then
+	if type(snapshot) ~= "string" or string.len(snapshot) > MAX_INCOMING_SNAPSHOT_BYTES then
 		return false
 	end
+	local snapshotLength = string.len(snapshot or "")
+	if snapshotLength <= MAX_SNAPSHOT_CHUNK_SIZE then
+		local message = encodeMessage(MSG_SNAPSHOT, requestId, target, { sessionId, snapshot })
+		if message then
+			local sent = sendEncoded(message, target, MSG_SNAPSHOT)
+			if sent and addon.hasDebug and Diag and Diag.D and Diag.D.LogDistributionSnapshotSent then
+				addon:debug(Diag.D.LogDistributionSnapshotSent:format(countSnapshotRows(), tostring(target or "group")))
+			end
+			return sent == true
+		end
+	end
 
-	local sentAll = true
-	for chunkIndex = 1, chunkCount do
-		local chunkStart = ((chunkIndex - 1) * MAX_SNAPSHOT_CHUNK_SIZE) + 1
-		local chunkEnd = chunkIndex * MAX_SNAPSHOT_CHUNK_SIZE
-		local chunk = snapshot:sub(chunkStart, chunkEnd)
-		local sent
-		if target and target ~= "" then
-			sent = sendDirect(
-				"WHISPER",
-				target,
-				MSG_SNAPSHOT_CHUNK,
-				PROTOCOL_VERSION,
-				requestId or "",
-				sessionId,
-				chunkIndex,
-				chunkCount,
-				chunk
-			)
-		else
-			sent = publishMessage(
-				MSG_SNAPSHOT_CHUNK,
-				PROTOCOL_VERSION,
-				requestId or "",
-				sessionId,
-				chunkIndex,
-				chunkCount,
-				chunk
-			)
-		end
-		if sent ~= true then
-			sentAll = false
-		end
+	local messages = buildSnapshotChunkMessages(requestId, target, sessionId, snapshot)
+	if not messages then
+		return false
+	end
+	local options = { priority = "NORMAL" }
+	local sentAll
+	ensurePrefix()
+	if target then
+		sentAll = QueueAddonMessages(PREFIX, messages, "WHISPER", target, options)
+	else
+		sentAll = SendAddonBatch(PREFIX, messages, nil, options)
 	end
 
 	if sentAll and addon.hasDebug and Diag and Diag.D and Diag.D.LogDistributionSnapshotSent then
@@ -1713,16 +2085,19 @@ function DistributionSession.PublishTieStart(itemKeyOrLink, names)
 	if not row then
 		return false
 	end
-	return publishMessage(MSG_TIE_START, PROTOCOL_VERSION, ensureSessionId(), row.itemKey, encodeText(tieNamesText))
+	return publishMessage(MSG_TIE_START, false, { ensureSessionId(), row.itemKey, wireValue(tieNamesText) })
 end
 
 function DistributionSession.HandleMessage(prefix, msg, _channel, sender)
 	if prefix ~= PREFIX then
 		return false
 	end
+	cleanupIncomingSnapshots()
 
-	local fields = splitFields(msg)
-	local kind = fields[1]
+	local kind, requestId, _, body = decodeMessage(msg)
+	if not kind then
+		return true
+	end
 	if kind == MSG_SNAPSHOT_REQ then
 		if not IsGroupMember(Raid, sender) then
 			return true
@@ -1735,32 +2110,37 @@ function DistributionSession.HandleMessage(prefix, msg, _channel, sender)
 			return true
 		end
 	end
-	if kind == MSG_CLEAR then
-		if not isSupportedVersion(fields[2]) then
+	local snapshotSource
+	if kind == MSG_SNAPSHOT or kind == MSG_SNAPSHOT_CHUNK then
+		local pending
+		pending, snapshotSource = correlatePendingSnapshot(requestId, sender)
+		if not pending then
 			return true
 		end
-		local accepted, key = acceptIncomingMutation(sender, fields[3], nil, "clear")
+	end
+	if kind == MSG_CLEAR then
+		local accepted, key = acceptIncomingMutation(sender, body.sessionId, nil, "clear")
 		if accepted then
 			tombstoneSupersededOwner(key)
-			clearState(fields[3])
+			clearState(body.sessionId)
 			state.transitionSender = sender
 		end
 		return true
 	end
 	if kind == MSG_ITEM then
-		return handleItemMessage(fields, sender)
+		return handleItemMessage(body, sender)
 	end
 	if kind == MSG_WINDOW_ITEM then
-		return handleWindowItemMessage(fields, sender, string.len(msg or ""))
+		return handleWindowItemMessage(body, sender, string.len(msg or ""))
 	end
 	if kind == MSG_WINDOW_BEGIN then
-		return handleWindowBeginMessage(fields, sender)
+		return handleWindowBeginMessage(body, sender)
 	end
 	if kind == MSG_WINDOW_END then
-		return handleWindowEndMessage(fields, sender)
+		return handleWindowEndMessage(body, sender)
 	end
 	if kind == MSG_SESSION_END then
-		local handled, closed = handleSessionEndMessage(fields, sender)
+		local handled, closed = handleSessionEndMessage(body, sender)
 		if closed then
 			trustedAuthority = nil
 			DistributionSession._trustedAuthority = nil
@@ -1768,40 +2148,39 @@ function DistributionSession.HandleMessage(prefix, msg, _channel, sender)
 		return handled
 	end
 	if kind == MSG_ROLL_START then
-		return handleRollStartMessage(fields, sender)
+		return handleRollStartMessage(body, sender)
 	end
 	if kind == MSG_ROLL_END then
-		return handleRollEndMessage(fields, sender)
+		return handleRollEndMessage(body, sender)
 	end
 	if kind == MSG_ITEM_DONE then
-		return handleItemDoneMessage(fields, sender)
+		return handleItemDoneMessage(body, sender)
 	end
 	if kind == MSG_ITEM_CANCELLED then
-		return handleItemCancelledMessage(fields, sender)
+		return handleItemCancelledMessage(body, sender)
 	end
 	if kind == MSG_HELLO then
-		return isSupportedVersion(fields[2])
+		return true
 	end
 	if kind == MSG_SNAPSHOT_REQ then
-		if not isSupportedVersion(fields[2]) then
-			return true
-		end
-		return DistributionSession.PublishSnapshot(sender, fields[3])
+		return DistributionSession.PublishSnapshot(sender, requestId)
 	end
 	if kind == MSG_SNAPSHOT then
-		return handleSnapshotMessage(fields, sender)
+		local handled = handleSnapshotMessage(body, sender)
+		clearPendingSnapshot(requestId)
+		return handled
 	end
 	if kind == MSG_SNAPSHOT_CHUNK then
-		return handleSnapshotChunkMessage(fields, sender)
+		return handleSnapshotChunkMessage(requestId, body, sender, snapshotSource)
 	end
 	if kind == MSG_ROLL_TICK then
-		return handleRollTickMessage(fields, sender)
+		return handleRollTickMessage(body, sender)
 	end
 	if kind == MSG_TIE_START then
-		return handleTieStartMessage(fields, sender)
+		return handleTieStartMessage(body, sender)
 	end
 	if kind == MSG_AWARDED then
-		return handleAwardedMessage(fields, sender)
+		return handleAwardedMessage(body, sender)
 	end
 	return true
 end

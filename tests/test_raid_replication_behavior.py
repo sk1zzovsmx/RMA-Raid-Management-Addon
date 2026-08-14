@@ -197,19 +197,19 @@ class RaidReplicationBehaviorTests(unittest.TestCase):
     def test_conclusion_compacts_the_active_event_ledger_atomically(self) -> None:
         self.assert_case("raid_replication_conclusion")
 
-    def test_version_4_protocol_round_trips_every_closed_message_kind(self) -> None:
+    def test_version_5_protocol_round_trips_every_closed_message_kind(self) -> None:
         self.assert_case("raid_replication_protocol_round_trip")
 
-    def test_version_4_protocol_rejects_invalid_envelopes_and_bodies(self) -> None:
+    def test_version_5_protocol_rejects_invalid_envelopes_and_bodies(self) -> None:
         self.assert_case("raid_replication_protocol_rejects_invalid")
 
-    def test_version_4_compact_live_loot_is_exact_and_wire_bounded(self) -> None:
+    def test_version_5_compact_live_loot_is_exact_and_wire_bounded(self) -> None:
         self.assert_case("raid_replication_protocol_compact_live_loot")
 
-    def test_version_4_compact_live_loot_accepts_need_and_greed_roll_types(self) -> None:
+    def test_version_5_compact_live_loot_accepts_need_and_greed_roll_types(self) -> None:
         self.assert_case("raid_replication_protocol_accepts_group_loot_roll_types")
 
-    def test_version_4_compact_live_loot_rejects_malformed_scalars_and_bounds(self) -> None:
+    def test_version_5_compact_live_loot_rejects_malformed_scalars_and_bounds(self) -> None:
         self.assert_case("raid_replication_protocol_rejects_malformed_compact_live_loot_scalars")
 
     def test_transfer_sessions_assemble_ranges_and_reject_conflicting_duplicates(self) -> None:

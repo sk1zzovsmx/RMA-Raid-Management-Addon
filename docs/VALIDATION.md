@@ -30,6 +30,9 @@ These static gates cover:
 - TOC file existence, references, Interface `30300`, and unsupported TOC
   directives.
 - Python behavior and contract tests discovered under `tests/`.
+- The shared R5 wire contract: LibSerialize plus LibDeflate encoding belongs to
+  `addon.Comms.Payload`; destination validation belongs to `addon.Comms`; and
+  ChatThrottleLib is the sole outbound scheduler.
 - Lua 5.1 parse compatibility across the addon folder.
 - Lua 5.1 `xpcall` extra-argument traps.
 - XML script blocks or XML event handlers under `UI/`.

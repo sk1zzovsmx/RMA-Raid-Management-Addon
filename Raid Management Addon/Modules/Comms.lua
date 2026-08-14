@@ -9,11 +9,8 @@ local addon = select(2, ...)
 local type, tostring, tonumber = type, tostring, tonumber
 local pcall = pcall
 local select = select
-local strfind, strmatch, strsub = string.find, string.match, string.sub
-local tconcat = table.concat
+local strmatch = string.match
 local _G = _G
-local SendAddonMessage = assert(_G.SendAddonMessage, "Comms addon-message send API is not initialized")
-local SendChatMessage = assert(_G.SendChatMessage, "Comms chat send API is not initialized")
 local GetAddOnMetadata = assert(_G.GetAddOnMetadata, "Comms addon metadata API is not initialized")
 local UnitName = assert(_G.UnitName, "Comms unit name API is not initialized")
 local IsInInstance = assert(_G.IsInInstance, "Comms instance state API is not initialized")
@@ -32,21 +29,19 @@ local L = addon.L
 local Database = addon.Database
 local Strings = addon.Strings
 local NormalizeName = assert(Strings.NormalizeName, "Comms sender name normalizer is not initialized")
-local Timer = addon.Timer
-local BindTimerMixin = assert(Timer.BindMixin, "Comms timer mixin is not initialized")
-
-Comms._addonQueue = Comms._addonQueue or {}
-Comms._addonQueueHead = tonumber(Comms._addonQueueHead) or 1
-Comms._addonQueueTail = tonumber(Comms._addonQueueTail) or #Comms._addonQueue
-Comms._addonQueueTimer = Comms._addonQueueTimer
-
-local COMMS_ADDON_QUEUE_BURST = 1
-local COMMS_ADDON_QUEUE_MAX = 256
-local COMMS_ADDON_QUEUE_DELAY_SECONDS = 0.10
-local packFieldsBuffer = {}
-
-BindTimerMixin(Comms, "Modules/Comms")
-local ScheduleTimer = assert(Comms.ScheduleTimer, "Comms addon-message queue scheduler is not initialized")
+local LibSerialize = assert(LibStub("LibSerialize"), "LibSerialize is not initialized")
+local LibDeflate = assert(LibStub("LibDeflate"), "LibDeflate is not initialized")
+local ChatThrottleLib = assert(_G.ChatThrottleLib, "ChatThrottleLib is not initialized")
+local WIRE_VERSION = 5
+local VALID_PRIORITIES = { ALERT = true, NORMAL = true, BULK = true }
+local VALID_ADDON_DESTINATIONS = {
+	RAID = true,
+	PARTY = true,
+	BATTLEGROUND = true,
+	GUILD = true,
+	OFFICER = true,
+	WHISPER = true,
+}
 
 -- ----- Internal state ----- --
 
@@ -60,88 +55,31 @@ local function getUnknownText()
 	return tostring((L and L.StrUnknown) or "unknown")
 end
 
-local function getBase64()
-	return addon.Base64 or addon.Base64
+function Payload.Serialize(value)
+	local okSerialize, serialized = pcall(LibSerialize.Serialize, LibSerialize, value)
+	if not okSerialize or type(serialized) ~= "string" or serialized == "" then
+		return nil, "SERIALIZE_FAILED"
+	end
+	local okEncode, encoded = pcall(LibDeflate.EncodeForWoWAddonChannel, LibDeflate, serialized)
+	if not okEncode or type(encoded) ~= "string" or encoded == "" then
+		return nil, "CHANNEL_ENCODE_FAILED"
+	end
+	return encoded
 end
 
-local function encodeCommsPayloadText(value)
-	local base64 = getBase64()
-	local encode = base64 and base64.Encode
-	if type(encode) ~= "function" then
-		return ""
+function Payload.Deserialize(text)
+	if type(text) ~= "string" or text == "" then
+		return nil, "MALFORMED_PAYLOAD"
 	end
-
-	local ok, out = pcall(encode, tostring(value or ""))
-	if ok and out then
-		return out
+	local okDecode, serialized = pcall(LibDeflate.DecodeForWoWAddonChannel, LibDeflate, text)
+	if not okDecode or type(serialized) ~= "string" or serialized == "" then
+		return nil, "CHANNEL_DECODE_FAILED"
 	end
-	return ""
-end
-
-local function decodeCommsPayloadText(value)
-	local input = tostring(value or "")
-	if input == "" then
-		return ""
+	local okCall, success, value = pcall(LibSerialize.Deserialize, LibSerialize, serialized)
+	if not okCall or success ~= true then
+		return nil, "DESERIALIZE_FAILED"
 	end
-
-	local base64 = getBase64()
-	local decode = base64 and base64.Decode
-	if type(decode) ~= "function" then
-		return nil
-	end
-
-	local ok, out = pcall(decode, input)
-	if ok and out then
-		return out
-	end
-	return nil
-end
-
-local function splitCommsPayloadFields(text, sep, out)
-	local fields = out or {}
-	local delimiter = tostring(sep or "|")
-	local input = tostring(text or "")
-	local n = 0
-
-	if delimiter == "" then
-		fields[1] = input
-		for i = 2, #fields do
-			fields[i] = nil
-		end
-		return fields, 1
-	end
-
-	local startPos = 1
-	while true do
-		local fromPos, toPos = strfind(input, delimiter, startPos, true)
-		if not fromPos then
-			n = n + 1
-			fields[n] = strsub(input, startPos)
-			break
-		end
-		n = n + 1
-		fields[n] = strsub(input, startPos, fromPos - 1)
-		startPos = toPos + 1
-	end
-
-	for i = n + 1, #fields do
-		fields[i] = nil
-	end
-
-	return fields, n
-end
-
-local function packCommsPayloadFields(sep, ...)
-	local delimiter = tostring(sep or "|")
-	local n = select("#", ...)
-	for i = 1, n do
-		packFieldsBuffer[i] = tostring(select(i, ...) or "")
-	end
-	local result = tconcat(packFieldsBuffer, delimiter, 1, n)
-	for i = 1, n do
-		packFieldsBuffer[i] = nil
-	end
-	return result
+	return value
 end
 
 function Comms.RegisterPrefixIfAvailable(prefix)
@@ -153,11 +91,6 @@ function Comms.RegisterPrefixIfAvailable(prefix)
 	end
 	_G.RegisterAddonMessagePrefix(prefix)
 	return true
-end
-
-local function splitVersionPayload(msg)
-	local fields = splitCommsPayloadFields(msg, "|")
-	return fields[1], fields[2], fields[3], fields[4], fields[5]
 end
 
 local function getAddonMetadata(key, fallback)
@@ -186,13 +119,7 @@ end
 
 local function buildVersionPayload(kind)
 	local info = Comms.GetVersionInfo()
-	return tconcat({
-		kind,
-		info.addonVersion,
-		info.interfaceVersion,
-		info.raidSchemaVersion,
-		info.syncProtocolVersion,
-	}, "|")
+	return Payload.Serialize({ WIRE_VERSION, kind, false, false, info })
 end
 
 local function getGroupTransport()
@@ -217,167 +144,129 @@ local function getPlayerName()
 	return tostring(name or "")
 end
 
-local function sendAddonMessageNow(prefix, msg, channel, target)
-	local ok
-	if type(target) == "string" and target ~= "" then
-		ok = pcall(SendAddonMessage, prefix, tostring(msg), channel, target)
-	else
-		ok = pcall(SendAddonMessage, prefix, tostring(msg), channel)
-	end
-	return ok == true
+local function stableQueueName(prefix, channel, target)
+	return tostring(prefix) .. ":" .. tostring(channel) .. ":" .. string.lower(tostring(target or "group"))
 end
 
-local function scheduleAddonQueueFlush()
-	if Comms._addonQueueTimer then
-		return true
+local function normalizeTransportOptions(prefix, channel, target, opts)
+	if opts ~= nil and type(opts) ~= "table" then
+		return nil, "invalid_options"
 	end
-
-	Comms._addonQueueTimer = ScheduleTimer(Comms, function()
-		Comms._addonQueueTimer = nil
-		Comms:FlushAddonQueue(COMMS_ADDON_QUEUE_BURST)
-	end, COMMS_ADDON_QUEUE_DELAY_SECONDS)
-	return Comms._addonQueueTimer ~= nil
+	local priority = opts and opts.priority or "NORMAL"
+	if not VALID_PRIORITIES[priority] then
+		return nil, "invalid_priority"
+	end
+	local queueName = opts and opts.queueName
+	if queueName ~= nil and (type(queueName) ~= "string" or queueName == "") then
+		return nil, "invalid_queue_name"
+	end
+	return priority, queueName or stableQueueName(prefix, channel, target)
 end
 
-local function flushAddonQueue(limit)
-	local queue = Comms._addonQueue
-	local head = tonumber(Comms._addonQueueHead) or 1
-	if type(queue) ~= "table" or queue[head] == nil then
-		Comms._addonQueue = {}
-		Comms._addonQueueHead = 1
-		Comms._addonQueueTail = 0
-		return 0
+local function validateAddonDestination(channel, target)
+	if type(channel) ~= "string" or channel == "" then
+		return nil
 	end
-
-	local burst = tonumber(limit) or COMMS_ADDON_QUEUE_BURST
-	if burst <= 0 then
-		burst = COMMS_ADDON_QUEUE_BURST
+	local destination = string.upper(channel)
+	if not VALID_ADDON_DESTINATIONS[destination] then
+		return nil
 	end
-
-	local sent = 0
-	for i = 1, burst do
-		local entry = queue[head]
-		if not entry then
-			break
-		end
-
-		queue[head] = nil
-		head = head + 1
-		if sendAddonMessageNow(entry.prefix, entry.msg, entry.channel, entry.target) then
-			sent = sent + 1
-		end
+	if destination == "WHISPER" then
+		return type(target) == "string" and target ~= "" and destination or nil
 	end
-	Comms._addonQueueHead = head
-	if queue[head] ~= nil then
-		scheduleAddonQueueFlush()
-	else
-		Comms._addonQueue = {}
-		Comms._addonQueueHead = 1
-		Comms._addonQueueTail = 0
-	end
-	return sent
+	return target == nil and destination or nil
 end
 
 function Comms.QueueAddonMessage(prefix, msg, channel, target, opts)
-	if type(prefix) ~= "string" or prefix == "" or type(channel) ~= "string" or channel == "" or msg == nil then
-		return false
-	end
-
-	if not (opts and opts.immediate == true) then
-		local queue = Comms._addonQueue
-		local head = tonumber(Comms._addonQueueHead) or 1
-		local tail = tonumber(Comms._addonQueueTail) or 0
-		if tail - head + 1 >= COMMS_ADDON_QUEUE_MAX then
-			return false, "backpressure"
-		end
-		queue[tail + 1] = {
-			prefix = prefix,
-			msg = tostring(msg),
-			channel = channel,
-			target = (type(target) == "string" and target ~= "" and target) or nil,
-		}
-		Comms._addonQueueTail = tail + 1
-		if scheduleAddonQueueFlush() then
-			return true
-		end
-
-		return flushAddonQueue(COMMS_ADDON_QUEUE_MAX) > 0
-	end
-
-	return sendAddonMessageNow(prefix, msg, channel, target)
-end
-
-function Comms.QueueAddonMessages(prefix, messages, channel, target)
-	if type(prefix) ~= "string" or prefix == "" or type(channel) ~= "string" or channel == "" or type(messages) ~= "table" then
+	if
+		type(prefix) ~= "string"
+		or prefix == ""
+		or type(channel) ~= "string"
+		or channel == ""
+		or type(msg) ~= "string"
+		or msg == ""
+	then
 		return false, "invalid"
 	end
-	local count = #messages
-	if count < 1 then return true end
-	local queue = Comms._addonQueue
-	local head = tonumber(Comms._addonQueueHead) or 1
-	local tail = tonumber(Comms._addonQueueTail) or 0
-	if tail - head + 1 + count > COMMS_ADDON_QUEUE_MAX then
-		return false, "backpressure"
+	local destination = validateAddonDestination(channel, target)
+	if not destination then
+		return false, "invalid_destination"
 	end
-	for i = 1, count do
-		if messages[i] == nil then return false, "invalid" end
+	local priority, queueName = normalizeTransportOptions(prefix, destination, target, opts)
+	if not priority then
+		return false, queueName
 	end
-	for i = 1, count do
-		queue[tail + i] = {
-			prefix = prefix,
-			msg = tostring(messages[i]),
-			channel = channel,
-			target = (type(target) == "string" and target ~= "" and target) or nil,
-		}
-	end
-	Comms._addonQueueTail = tail + count
-	if scheduleAddonQueueFlush() then return true end
-	for i = 1, count do queue[tail + i] = nil end
-	Comms._addonQueueTail = tail
-	return false, "scheduler_unavailable"
+	local ok =
+		pcall(ChatThrottleLib.SendAddonMessage, ChatThrottleLib, priority, prefix, msg, destination, target, queueName)
+	return ok == true, ok and nil or "send_failed"
 end
 
-function Comms.SendAddonBatch(prefix, messages, target)
+function Comms.QueueAddonMessages(prefix, messages, channel, target, opts)
+	if
+		type(prefix) ~= "string"
+		or prefix == ""
+		or type(channel) ~= "string"
+		or channel == ""
+		or type(messages) ~= "table"
+	then
+		return false, "invalid"
+	end
+	local destination = validateAddonDestination(channel, target)
+	if not destination then
+		return false, "invalid_destination"
+	end
+	local priority, queueName = normalizeTransportOptions(prefix, destination, target, opts)
+	if not priority then
+		return false, queueName
+	end
+	local count = 0
+	for key, message in pairs(messages) do
+		if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or type(message) ~= "string" or message == "" then
+			return false, "invalid"
+		end
+		count = count + 1
+	end
+	for i = 1, count do
+		if messages[i] == nil then
+			return false, "invalid"
+		end
+	end
+	if count < 1 then
+		return true
+	end
+	for i = 1, count do
+		local queued, reason = Comms.QueueAddonMessage(prefix, messages[i], destination, target, {
+			priority = priority,
+			queueName = queueName,
+		})
+		if not queued then
+			return false, reason
+		end
+	end
+	return true
+end
+
+function Comms.SendAddonBatch(prefix, messages, target, opts)
 	if type(target) == "string" and target ~= "" then
-		return Comms.QueueAddonMessages(prefix, messages, "WHISPER", target)
+		return Comms.QueueAddonMessages(prefix, messages, "WHISPER", target, opts)
 	end
 	local channel = getGroupTransport()
-	if not channel then return false, "not_in_group" end
-	return Comms.QueueAddonMessages(prefix, messages, channel)
+	if not channel then
+		return false, "not_in_group"
+	end
+	return Comms.QueueAddonMessages(prefix, messages, channel, nil, opts)
 end
 
-function Comms.FlushAddonQueue(limit)
-	return flushAddonQueue(limit)
-end
-
-local function sendGroupMessage(prefix, msg)
+local function sendGroupMessage(prefix, msg, opts)
 	local channel = getGroupTransport()
 	if channel then
-		local sent = Comms.QueueAddonMessage(prefix, msg, channel)
+		local sent = Comms.QueueAddonMessage(prefix, msg, channel, nil, opts)
 		if sent then
 			return true, channel
 		end
 		return false
 	end
 	return false
-end
-
--- ----- Public methods ----- --
-
-function Payload.EncodeText(value)
-	return encodeCommsPayloadText(value)
-end
-
-function Payload.DecodeText(value)
-	return decodeCommsPayloadText(value)
-end
-
-function Payload.SplitFields(text, sep, out)
-	return splitCommsPayloadFields(text, sep, out)
-end
-
-function Payload.PackFields(sep, ...)
-	return packCommsPayloadFields(sep, ...)
 end
 
 function Comms.Sync(prefix, msg)
@@ -389,7 +278,9 @@ local function resolveChannelId(channelName)
 		return nil, "channel_unavailable"
 	end
 	local wanted = string.lower(channelName)
-	local callOk, rows = pcall(function() return { GetChannelList() } end)
+	local callOk, rows = pcall(function()
+		return { GetChannelList() }
+	end)
 	if not callOk then
 		return nil, "channel_unavailable"
 	end
@@ -430,9 +321,13 @@ local function validateChatDestination(channel, target)
 	end
 	local destination = string.upper(channel)
 	if destination == "RAID" then
-		if (tonumber(GetNumRaidMembers()) or 0) <= 0 then return nil, "not_in_raid" end
+		if (tonumber(GetNumRaidMembers()) or 0) <= 0 then
+			return nil, "not_in_raid"
+		end
 	elseif destination == "RAID_WARNING" then
-		if (tonumber(GetNumRaidMembers()) or 0) <= 0 then return nil, "not_in_raid" end
+		if (tonumber(GetNumRaidMembers()) or 0) <= 0 then
+			return nil, "not_in_raid"
+		end
 		if type(Database.GetUnitRank) ~= "function" or (tonumber(Database.GetUnitRank("player", 0)) or 0) <= 0 then
 			return nil, "insufficient_rank"
 		end
@@ -441,19 +336,31 @@ local function validateChatDestination(channel, target)
 			return nil, "not_in_party"
 		end
 	elseif destination == "GUILD" then
-		if type(IsInGuild) ~= "function" or not IsInGuild() then return nil, "not_in_guild" end
+		if type(IsInGuild) ~= "function" or not IsInGuild() then
+			return nil, "not_in_guild"
+		end
 	elseif destination == "OFFICER" then
-		if not canSpeakOfficer() then return nil, "insufficient_rank" end
+		if not canSpeakOfficer() then
+			return nil, "insufficient_rank"
+		end
 	elseif destination == "WHISPER" then
-		if type(target) ~= "string" or target == "" then return nil, "invalid_target" end
+		if type(target) ~= "string" or target == "" then
+			return nil, "invalid_target"
+		end
 	elseif destination == "CHANNEL" then
-		if type(target) ~= "string" then return nil, "invalid_channel" end
+		if type(target) ~= "string" then
+			return nil, "invalid_channel"
+		end
 		local channelId, reason = resolveChannelId(target)
-		if not channelId then return nil, reason end
+		if not channelId then
+			return nil, reason
+		end
 		return destination, channelId
 	elseif destination ~= "SAY" and destination ~= "YELL" and destination ~= "EMOTE" then
 		local channelId, reason = resolveChannelId(channel)
-		if not channelId then return nil, reason end
+		if not channelId then
+			return nil, reason
+		end
 		return "CHANNEL", channelId
 	end
 	return destination, target
@@ -467,7 +374,17 @@ function Comms.SendChat(msg, channel, language, target, bypass)
 	if not destination then
 		return nil, resolvedTarget
 	end
-	local callOk, result = pcall(SendChatMessage, tostring(msg), destination, language, resolvedTarget)
+	local callOk, result = pcall(
+		ChatThrottleLib.SendChatMessage,
+		ChatThrottleLib,
+		bypass == true and "ALERT" or "NORMAL",
+		"RMA",
+		tostring(msg),
+		destination,
+		language,
+		resolvedTarget,
+		stableQueueName("RMAChat", destination, resolvedTarget)
+	)
 	if not callOk or result == false then
 		return nil, "send_failed"
 	end
@@ -511,13 +428,45 @@ end
 
 function Comms:RequestVersionCheck()
 	self:EnsureVersionPrefix()
-	local ok = sendGroupMessage(VERSION_PREFIX, buildVersionPayload(MSG_VERSION_REQ))
+	local payload = buildVersionPayload(MSG_VERSION_REQ)
+	local ok = payload and sendGroupMessage(VERSION_PREFIX, payload, { priority = "ALERT" })
 	if ok then
 		addon:info(L.MsgVersionCheckSent)
 		return true
 	end
 	addon:warn(L.MsgVersionCheckNotInGroup)
 	return false
+end
+
+local function isDenseVersionEnvelope(envelope)
+	if type(envelope) ~= "table" then
+		return false
+	end
+	for i = 1, 5 do
+		if envelope[i] == nil then
+			return false
+		end
+	end
+	for key in pairs(envelope) do
+		if type(key) ~= "number" or key < 1 or key > 5 or key % 1 ~= 0 then
+			return false
+		end
+	end
+	return envelope[3] == false and envelope[4] == false
+end
+
+local function isValidVersionInfo(info)
+	if type(info) ~= "table" then
+		return false
+	end
+	return type(info.addonVersion) == "string"
+		and info.addonVersion ~= ""
+		and type(info.interfaceVersion) == "string"
+		and info.interfaceVersion ~= ""
+		and type(info.raidSchemaVersion) == "string"
+		and info.raidSchemaVersion ~= ""
+		and type(info.syncProtocolVersion) == "string"
+		and info.syncProtocolVersion ~= ""
 end
 
 function Comms:HandleVersionMessage(prefix, msg, channel, sender)
@@ -528,19 +477,30 @@ function Comms:HandleVersionMessage(prefix, msg, channel, sender)
 		return true
 	end
 
-	local kind, addonVersion, interfaceVersion, schemaVersion, syncProtocol = splitVersionPayload(msg)
+	local envelope = Payload.Deserialize(msg)
+	if not isDenseVersionEnvelope(envelope) or envelope[1] ~= WIRE_VERSION then
+		return true
+	end
+	local kind = envelope[2]
+	local info = envelope[5]
+	if (kind ~= MSG_VERSION_REQ and kind ~= MSG_VERSION_ACK) or not isValidVersionInfo(info) then
+		return true
+	end
 	if kind == MSG_VERSION_REQ then
-		Comms.QueueAddonMessage(VERSION_PREFIX, buildVersionPayload(MSG_VERSION_ACK), "WHISPER", sender)
+		local response = buildVersionPayload(MSG_VERSION_ACK)
+		if response then
+			Comms.QueueAddonMessage(VERSION_PREFIX, response, "WHISPER", sender, { priority = "ALERT" })
+		end
 		return true
 	end
 	if kind == MSG_VERSION_ACK then
 		addon:info(
 			L.MsgVersionCheckPeer:format(
 				tostring(sender or "?"),
-				tostring(addonVersion or "?"),
-				tostring(interfaceVersion or "?"),
-				tostring(schemaVersion or "?"),
-				tostring(syncProtocol or "?")
+				tostring(info.addonVersion),
+				tostring(info.interfaceVersion),
+				tostring(info.raidSchemaVersion),
+				tostring(info.syncProtocolVersion)
 			)
 		)
 		return true

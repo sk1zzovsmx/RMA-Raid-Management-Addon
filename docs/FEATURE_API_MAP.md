@@ -12,6 +12,13 @@ the load-order authority and all runtime code targets WotLK 3.3.5a / Lua 5.1.
   controllers, widgets, or controller frames.
 - `RMA_*` SavedVariables and addon-message payloads are compatibility surfaces.
 
+## Shared Addon-Message Transport
+
+- `addon.Comms.Payload` owns LibSerialize plus LibDeflate addon-channel encoding.
+- `addon.Comms` owns destination validation and delegates all outbound scheduling to ChatThrottleLib.
+- RMA addon-message protocols use version 5 envelopes and reject earlier versions.
+- JSON and Base64 remain import/hash utilities, not addon-message wire codecs.
+
 ## Master Loot
 
 `Controllers/Master.lua` is the feature composition root. It owns frame binding,
@@ -38,8 +45,8 @@ needs them. They are domain-shaped and do not create a generic facade:
 
 - `DistributionSession`: lifecycle and transport for an active loot
   distribution; payloads carry `sessionId`, item identity, mode, and revision.
-  Protocol v2 `WINDOW_BEGIN` accepts an optional expected-row field; new
-  receivers enforce it and older v2 receivers ignore the additive field.
+  The shared R5 `WINDOW_BEGIN` body carries an expected-row field that receivers
+  enforce before committing the staged window.
 - `Rolls`: lifecycle and read model of one roll session; its display model is
   immutable from the controller's perspective.
 - `AwardAttempt` and `AwardConfirmation`: runtime-only transaction/checkpoint
@@ -184,9 +191,9 @@ refactor.
 | Prefix | Owner | Compatibility rule |
 |---|---|---|
 | `RMAVersion` | `Modules/Comms.lua` | Version request and response protocol. |
-| `RMAResSync` | `Services/Reserves/Sync.lua` | Requests are accepted from current group members; metadata and data responses require the remote master looter, group leader, or raid assistant. Authorization uses the realm-qualified sender identity. |
-| `RMADist` | `Services/Loot/DistributionSession.lua` | Active loot-distribution mutations require the current master looter; snapshot requests are limited to current group members. A verified session owner may close its established stream after a loot-method transition. |
-| `RMALogSync` | `Database/DBSyncer.lua` | Raid-history synchronization, including chunked payloads. |
+| `RMAResSync` | `Services/Reserves/Sync.lua` | Requests are accepted from current group members; metadata and data responses require the remote master looter, group leader, or raid assistant. Issued requests expire and are capped at 32; transfer assemblies are capped at 16 globally and 4 per sender. Authorization uses the realm-qualified sender identity. |
+| `RMADist` | `Services/Loot/DistributionSession.lua` | Active loot-distribution mutations require the current master looter; snapshot requests are limited to current group members. All ordered state and snapshot responses use one `NORMAL` priority per destination; only out-of-band `HELLO` and `SNAP_REQ` use `ALERT`. A verified session owner may close its established stream after a loot-method transition. |
+| `RMARaidSync` | `Database/DBSyncer.lua` | Live raid replication and bounded recovery, including chunked range and snapshot payloads. |
 
 `RMA-RollWinner` was retired after confirming that RMA had no receiver for it,
 no repository consumer depended on it, and its unversioned player-name-only

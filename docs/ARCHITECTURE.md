@@ -71,9 +71,8 @@ runtime placement; the feature boundaries describe workflow and data ownership.
   item/string/time utilities, static datasets, module registry, and shared UI
   helpers. `Modules/UI/Frames.lua` owns shared frame getters, module-frame
   binding, popup wrappers, tooltip wrappers, and frame-script safety helpers.
-  `Modules/Comms.lua` owns a bounded FIFO addon-message queue (256 entries),
-  draining four messages every 0.08 seconds and returning backpressure before
-  accepting an atomic batch that cannot fit.
+  `Modules/Comms.lua` owns communication payload encoding, destination
+  validation, and transport dispatch.
   Instance-scoped loot-source indexes are built off-side and published as one
   generation. Stable instance map IDs resolve localized raid names to the same
   canonical key used by loot sources and ignored-mob policy.
@@ -84,6 +83,13 @@ runtime placement; the feature boundaries describe workflow and data ownership.
   persistence.
 - `EntryPoints/*` owns `/rma` routing and the minimap entrypoint.
 - `UI/*` is layout-only.
+
+## Addon-Message Wire Ownership
+
+- `addon.Comms.Payload` owns LibSerialize plus LibDeflate addon-channel encoding.
+- `addon.Comms` owns destination validation and delegates all outbound scheduling to ChatThrottleLib.
+- RMA addon-message protocols use version 5 envelopes and reject earlier versions.
+- JSON and Base64 remain import/hash utilities, not addon-message wire codecs.
 
 ## Feature Areas
 
@@ -112,8 +118,9 @@ runtime placement; the feature boundaries describe workflow and data ownership.
   awards. `TradeExecution` and `Trade` require a positive matching inventory
   delta before award history, counters, RMADist completion, or success feedback.
   `DistributionSession` is the RMADist session/transport reducer: complete
-  windows are staged by session and revision before commit, and protocol v2's
-  `WINDOW_BEGIN` may carry an additive expected-row count.
+  windows are staged by session and revision before commit. Under the shared R5
+  envelope, `WINDOW_BEGIN` carries the expected-row count that receivers
+  validate before committing the window.
 - Loot history/logger: `Services/Logger/*`, `Controllers/Logger.lua`,
   and loot-history XML. Logger export covers logger and loot-history data only.
 - Reserves and SoftRes: `Services/Reserves.lua`, `Services/Reserves/*`,
