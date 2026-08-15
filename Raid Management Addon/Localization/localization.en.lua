@@ -986,26 +986,36 @@ L.RaidZones = {
 }
 -- The reason we are using these is because of the missing
 -- UNIT_DIED event once these bosses are dealt with.
-L.BossYells = {
-	-- Naxxramas
-	["I grow tired of these games. Proceed, and I will banish your souls to oblivion!"] = "Four Horsemen",
-	-- Ulduar
-	["You rush headlong into the maw of madness!"] = "Iron Council", -- Normalmode - Stormcaller Brundir last
-	["What have you gained from my defeat? You are no less doomed, mortals!"] = "Iron Council", -- Semi-Hardmode - Runemaster Molgeim last
-	-- ["Impossible..."] = MRT_IsInstanceUlduar("Iron Council"),  -- Hardmode - Steelbreaker last  // also yelled by Lich King -> instance check necessary
-	["I... I am released from his grasp... at last."] = "Hodir",
-	["Stay your arms! I yield!"] = "Thorim",
-	["His hold on me dissipates. I can see clearly once more. Thank you, heroes."] = "Freya",
-	["It would appear that I've made a slight miscalculation. I allowed my mind to be corrupted by the fiend in the prison, overriding my primary directive. All systems seem to be functional now. Clear."] = "Mimiron",
-	["I've rearranged the reply code. Your planet will be spared. I cannot be certain of my own calculations anymore."] = "Algalon",
-	-- Trial of the Crusader
-	["A shallow and tragic victory. We are weaker as a whole from the losses suffered today. Who but the Lich King could benefit from such foolishness? Great warriors have lost their lives. And for what? The true threat looms ahead - the Lich King awaits us all in death."] = "Faction Champions",
-	["The Scourge cannot be stopped..."] = "Val'kyr Twins",
-	-- Icecrown Citadel
-	["Don't say I didn't warn ya, scoundrels! Onward, brothers and sisters!"] = "Gunship Battle", -- Muradin
-	["The Alliance falter. Onward to the Lich King!"] = "Gunship Battle", -- Saurfang
-	["My queen, they... come."] = "Blood Prince Council", -- Prince Keleseth
-	["I AM RENEWED! Ysera grant me the favor to lay these foul creatures to rest!"] = "Valithria Dreamwalker", -- Dreamwalker
-	-- Ruby Sanctum
-	["Relish this victory, mortals, for it will be your last. This world will burn with the master's return!"] = "Halion", -- Halion
+L.BossYellFourHorsemen = "I grow tired of these games. Proceed, and I will banish your souls to oblivion!"
+L.BossYellIronCouncilBrundir = "You rush headlong into the maw of madness!"
+L.BossYellIronCouncilMolgeim = "What have you gained from my defeat? You are no less doomed, mortals!"
+L.BossYellHodir = "I... I am released from his grasp... at last."
+L.BossYellThorim = "Stay your arms! I yield!"
+L.BossYellFreya = "His hold on me dissipates. I can see clearly once more. Thank you, heroes."
+L.BossYellMimiron = "It would appear that I've made a slight miscalculation. I allowed my mind to be corrupted by the fiend in the prison, overriding my primary directive. All systems seem to be functional now. Clear."
+L.BossYellAlgalon = "I've rearranged the reply code. Your planet will be spared. I cannot be certain of my own calculations anymore."
+L.BossYellFactionChampions = "A shallow and tragic victory. We are weaker as a whole from the losses suffered today. Who but the Lich King could benefit from such foolishness? Great warriors have lost their lives. And for what? The true threat looms ahead - the Lich King awaits us all in death."
+L.BossYellValkyrTwins = "The Scourge cannot be stopped..."
+L.BossYellGunshipMuradin = "Don't say I didn't warn ya, scoundrels! Onward, brothers and sisters!"
+L.BossYellGunshipSaurfang = "The Alliance falter. Onward to the Lich King!"
+L.BossYellBloodPrinceCouncil = "My queen, they... come."
+L.BossYellValithriaDreamwalker = "I AM RENEWED! Ysera grant me the favor to lay these foul creatures to rest!"
+L.BossYellHalion = "Relish this victory, mortals, for it will be your last. This world will burn with the master's return!"
+
+L.BossYellDefinitions = {
+	{ localeKey = "BossYellFourHorsemen", englishText = L.BossYellFourHorsemen, boss = "Four Horsemen", instanceKey = "naxxramas" },
+	{ localeKey = "BossYellIronCouncilBrundir", englishText = L.BossYellIronCouncilBrundir, boss = "Iron Council", instanceKey = "ulduar" },
+	{ localeKey = "BossYellIronCouncilMolgeim", englishText = L.BossYellIronCouncilMolgeim, boss = "Iron Council", instanceKey = "ulduar" },
+	{ localeKey = "BossYellHodir", englishText = L.BossYellHodir, boss = "Hodir", instanceKey = "ulduar" },
+	{ localeKey = "BossYellThorim", englishText = L.BossYellThorim, boss = "Thorim", instanceKey = "ulduar" },
+	{ localeKey = "BossYellFreya", englishText = L.BossYellFreya, boss = "Freya", instanceKey = "ulduar" },
+	{ localeKey = "BossYellMimiron", englishText = L.BossYellMimiron, boss = "Mimiron", instanceKey = "ulduar" },
+	{ localeKey = "BossYellAlgalon", englishText = L.BossYellAlgalon, boss = "Algalon", instanceKey = "ulduar" },
+	{ localeKey = "BossYellFactionChampions", englishText = L.BossYellFactionChampions, boss = "Faction Champions", instanceKey = "trial of the crusader" },
+	{ localeKey = "BossYellValkyrTwins", englishText = L.BossYellValkyrTwins, boss = "Val'kyr Twins", instanceKey = "trial of the crusader" },
+	{ localeKey = "BossYellGunshipMuradin", englishText = L.BossYellGunshipMuradin, boss = "Gunship Battle", instanceKey = "icecrown citadel" },
+	{ localeKey = "BossYellGunshipSaurfang", englishText = L.BossYellGunshipSaurfang, boss = "Gunship Battle", instanceKey = "icecrown citadel" },
+	{ localeKey = "BossYellBloodPrinceCouncil", englishText = L.BossYellBloodPrinceCouncil, boss = "Blood Prince Council", instanceKey = "icecrown citadel" },
+	{ localeKey = "BossYellValithriaDreamwalker", englishText = L.BossYellValithriaDreamwalker, boss = "Valithria Dreamwalker", instanceKey = "icecrown citadel" },
+	{ localeKey = "BossYellHalion", englishText = L.BossYellHalion, boss = "Halion", instanceKey = "the ruby sanctum" },
 }

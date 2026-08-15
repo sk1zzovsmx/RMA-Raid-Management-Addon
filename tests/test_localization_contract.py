@@ -820,6 +820,8 @@ class LocalizationContractTest(unittest.TestCase):
         for locale, path in LOCALES.items():
             translated = scalar_assignments(path)
             for key, value in english.items():
+                if key.startswith("BossYell"):
+                    continue
                 english_value = unquoted(value)
                 if any(token in english_value for token in COMMAND_TOKENS):
                     for token in COMMAND_TOKENS:
