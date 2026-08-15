@@ -135,7 +135,7 @@ local function admitRaidHistorySync()
 	if not quarantine then
 		return true
 	end
-	local reason = L and L.RaidSyncStatusQuarantined or "RAID_ARCHIVE_QUARANTINED"
+	local reason = L.RaidSyncStatusQuarantined
 	setStatus(STATUS_SUSPENDED, reason)
 	return false, reason
 end
