@@ -1931,6 +1931,110 @@ function cases.nested_dispatch_preserves_outer_snapshot(addon)
 	print("PASS nested_dispatch_preserves_outer_snapshot")
 end
 
+local function installBossYellFixture(locale, localePath)
+	local fixtureAddon = newAddon()
+	fixtureAddon.L = {}
+	installInitStubs(fixtureAddon)
+	_G.GetLocale = function()
+		return locale
+	end
+	loadAddonFile(fixtureAddon, "Raid Management Addon/Localization/localization.en.lua")
+	loadAddonFile(fixtureAddon, localePath)
+
+	local activeInstanceKey
+	local currentRaid = {}
+	local addedBosses = {}
+	local combatCall
+	fixtureAddon.LootSourcesData = {
+		GetActiveInstanceKey = function()
+			return activeInstanceKey
+		end,
+	}
+	fixtureAddon.Database.GetCurrentRaid = function()
+		return currentRaid
+	end
+	fixtureAddon.Services.Raid = {
+		AddBoss = function(_, boss)
+			addedBosses[#addedBosses + 1] = boss
+		end,
+		COMBAT_LOG_EVENT_UNFILTERED = function(_, ...)
+			combatCall = { count = select("#", ...), ... }
+		end,
+	}
+	loadAddonFile(fixtureAddon, "Raid Management Addon/Init.lua")
+
+	return {
+		addon = fixtureAddon,
+		addedBosses = addedBosses,
+		setActiveInstanceKey = function(value)
+			activeInstanceKey = value
+		end,
+		setCurrentRaid = function(value)
+			currentRaid = value
+		end,
+		getCombatCall = function()
+			return combatCall
+		end,
+	}
+end
+
+function cases.boss_yells_require_exact_text_and_canonical_instance(addon)
+	local localeFiles = {
+		{ "ruRU", "Raid Management Addon/Localization/localization.ru.lua" },
+		{ "zhCN", "Raid Management Addon/Localization/localization.zhCN.lua" },
+		{ "esES", "Raid Management Addon/Localization/localization.es.lua" },
+		{ "frFR", "Raid Management Addon/Localization/localization.fr.lua" },
+	}
+	for localeIndex = 1, #localeFiles do
+		local fixture = installBossYellFixture(localeFiles[localeIndex][1], localeFiles[localeIndex][2])
+		local definitions = fixture.addon.L.BossYellDefinitions
+		assertEqual(15, #definitions, "fallback definition count differs")
+		for definitionIndex = 1, #definitions do
+			local definition = definitions[definitionIndex]
+			fixture.setCurrentRaid({})
+			fixture.setActiveInstanceKey(definition.instanceKey)
+			local before = #fixture.addedBosses
+
+			fixture.addon:CHAT_MSG_MONSTER_YELL(definition.englishText)
+			assertEqual(before + 1, #fixture.addedBosses, "exact English yell was rejected")
+			assertEqual(definition.boss, fixture.addedBosses[#fixture.addedBosses])
+
+			fixture.addon:CHAT_MSG_MONSTER_YELL(fixture.addon.L[definition.localeKey])
+			assertEqual(before + 2, #fixture.addedBosses, "exact current-locale yell was rejected")
+			assertEqual(definition.boss, fixture.addedBosses[#fixture.addedBosses])
+
+			local englishText = definition.englishText
+			local rejected = {
+				string.lower(englishText),
+				englishText .. " ",
+				englishText .. "!",
+				string.sub(englishText, 1, #englishText - 1),
+			}
+			for rejectedIndex = 1, #rejected do
+				fixture.addon:CHAT_MSG_MONSTER_YELL(rejected[rejectedIndex])
+			end
+			assertEqual(before + 2, #fixture.addedBosses, "altered yell text was accepted")
+
+			fixture.setActiveInstanceKey(definition.instanceKey == "ulduar" and "naxxramas" or "ulduar")
+			fixture.addon:CHAT_MSG_MONSTER_YELL(definition.englishText)
+			assertEqual(before + 2, #fixture.addedBosses, "wrong canonical instance accepted yell")
+
+			fixture.setActiveInstanceKey(definition.instanceKey)
+			fixture.setCurrentRaid(nil)
+			fixture.addon:CHAT_MSG_MONSTER_YELL(fixture.addon.L[definition.localeKey])
+			assertEqual(before + 2, #fixture.addedBosses, "missing current raid accepted yell")
+		end
+
+		fixture.addon:COMBAT_LOG_EVENT_UNFILTERED("UNIT_DIED", 42, "Boss")
+		local combatCall = fixture.getCombatCall()
+		assertEqual(3, combatCall.count, "combat-log argument count changed")
+		assertEqual("UNIT_DIED", combatCall[1], "combat-log event was not delegated")
+		assertEqual(42, combatCall[2], "combat-log numeric argument changed")
+		assertEqual("Boss", combatCall[3], "combat-log boss argument changed")
+	end
+	print("PASS boss_yells_require_exact_text_and_canonical_instance")
+end
+
 function cases.localized_raid_identity_uses_instance_map_id(addon)
 	addon.LootSourceCandidates = {
 		GetModeSignature = function()
@@ -1981,6 +2085,12 @@ end
 function cases.instance_datasets_share_canonical_identity(addon)
 	installInitStubs(addon)
 	local activated = {}
+	local instance = {
+		name = "Citadelle de la Couronne de glace",
+		instanceType = "raid",
+		difficulty = 2,
+		mapId = 631,
+	}
 	addon.L = { RaidZones = {} }
 	addon.Diag = {
 		D = { LogRaidInstanceRecognized = "%s %s" },
@@ -1989,9 +2099,9 @@ function cases.instance_datasets_share_canonical_identity(addon)
 	addon.warn = function() end
 	addon.LootSourcesData = {
 		ResolveInstanceKey = function(name, instanceMapId)
-			assertEqual("Citadelle de la Couronne de glace", name)
-			assertEqual(631, instanceMapId)
-			return "icecrown citadel"
+			if name == "Citadelle de la Couronne de glace" and instanceMapId == 631 then
+				return "icecrown citadel"
+			end
 		end,
 		ActivateInstance = function(key)
 			activated.loot = key
@@ -2031,12 +2141,17 @@ function cases.instance_datasets_share_canonical_identity(addon)
 		end,
 	}
 	_G.GetInstanceInfo = function()
-		return "Citadelle de la Couronne de glace", "raid", 2, nil, 25, 0, false, 631
+		return instance.name, instance.instanceType, instance.difficulty, nil, 25, 0, false, instance.mapId
 	end
 	loadAddonFile(addon, "Raid Management Addon/Init.lua")
 	addon:ZONE_CHANGED_NEW_AREA()
 	assertEqual("icecrown citadel", activated.loot, "loot dataset must receive the canonical key")
 	assertEqual("icecrown citadel", activated.ignored, "ignored-mob dataset must receive the same canonical key")
+	instance.name = "Unknown Custom Raid"
+	instance.mapId = 999999
+	addon:ZONE_CHANGED_NEW_AREA()
+	assertEqual(nil, activated.loot, "recognized-to-unknown transition retained the loot key")
+	assertEqual(nil, activated.ignored, "recognized-to-unknown transition retained the ignored-mob key")
 	print("PASS instance_datasets_share_canonical_identity")
 end
 

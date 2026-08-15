@@ -12,6 +12,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 ADDON = ROOT / "Raid Management Addon"
 TOC = ADDON / "Raid Management Addon.toc"
+INIT = ADDON / "Init.lua"
 ROOT_README = ROOT / "README.md"
 PACKAGED_README = ADDON / "README.md"
 SLASH_EVENTS = ADDON / "EntryPoints" / "SlashEvents.lua"
@@ -749,6 +750,34 @@ class LocalizationContractTest(unittest.TestCase):
         self.assertNotIn("Impossible...", source)
         for locale_key, _, _, english_text in YELL_FALLBACKS.values():
             self.assertEqual(english_text, english[locale_key], locale_key)
+
+    def test_yell_handler_uses_only_exact_text_and_canonical_scope(self) -> None:
+        source = INIT.read_text(encoding="utf-8")
+        handler = source.split("-- CHAT_MSG_MONSTER_YELL", 1)[1].split(
+            "-- COMBAT_LOG_EVENT_UNFILTERED", 1
+        )[0]
+        self.assertIn("L.BossYellDefinitions", handler)
+        self.assertIn("GetActiveInstanceKey", handler)
+        self.assertIn("definition.instanceKey", handler)
+        self.assertIn("text == definition.englishText", handler)
+        self.assertIn("text == L[definition.localeKey]", handler)
+        self.assertIn("Database.GetCurrentRaid()", handler)
+        for forbidden in (
+            "string.lower",
+            "string.find",
+            "string.match",
+            "string.gsub",
+            "string.sub",
+        ):
+            self.assertNotIn(forbidden, handler)
+
+    def test_combat_log_handler_remains_direct_delegation(self) -> None:
+        source = INIT.read_text(encoding="utf-8")
+        handler = source.split("-- COMBAT_LOG_EVENT_UNFILTERED", 1)[1].split(
+            "-- PLAYER_LOGOUT", 1
+        )[0]
+        self.assertIn("raidService:COMBAT_LOG_EVENT_UNFILTERED(...)", handler)
+        self.assertNotIn("BossYell", handler)
 
     def test_toc_loads_english_then_all_locale_overrides(self) -> None:
         toc = (ADDON / "Raid Management Addon.toc").read_text(encoding="utf-8")

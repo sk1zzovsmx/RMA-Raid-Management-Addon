@@ -78,6 +78,10 @@ class InspectDatasetBehaviorTests(unittest.TestCase):
         result = run_lua_case("instance_datasets_share_canonical_identity")
         self.assertIn("PASS instance_datasets_share_canonical_identity", result.stdout)
 
+    def test_boss_yells_require_exact_text_and_canonical_instance(self) -> None:
+        result = run_lua_case("boss_yells_require_exact_text_and_canonical_instance")
+        self.assertIn("PASS boss_yells_require_exact_text_and_canonical_instance", result.stdout)
+
     def test_dataset_activation_requires_snapshot_contract(self) -> None:
         result = run_lua_case("dataset_activation_requires_snapshot_contract")
         self.assertIn("PASS dataset_activation_requires_snapshot_contract", result.stdout)
