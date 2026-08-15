@@ -1178,11 +1178,23 @@ do
 	function addon:CHAT_MSG_MONSTER_YELL(...)
 		local text = ...
 		local raidService = getService("Raid")
-		if raidService and L.BossYells[text] and Database.GetCurrentRaid() then
-			if isTraceEnabled() then
-				addon:trace(Diag.D.LogBossYellMatched:format(tostring(text), tostring(L.BossYells[text])))
+		if not raidService or not Database.GetCurrentRaid() then
+			return
+		end
+		local activeInstanceKey = addon.LootSourcesData.GetActiveInstanceKey()
+		local definitions = L.BossYellDefinitions
+		for i = 1, #definitions do
+			local definition = definitions[i]
+			if
+				activeInstanceKey == definition.instanceKey
+				and (text == definition.englishText or text == L[definition.localeKey])
+			then
+				if isTraceEnabled() then
+					addon:trace(Diag.D.LogBossYellMatched:format(tostring(text), tostring(definition.boss)))
+				end
+				raidService:AddBoss(definition.boss)
+				return
 			end
-			raidService:AddBoss(L.BossYells[text])
 		end
 	end
 
