@@ -5407,6 +5407,14 @@ function cases.raid_live_sync_group_loot_leader_authority()
 	_G.GetInstanceInfo = function()
 		return "Icecrown Citadel", "raid", 4
 	end
+	assertTrue(
+		memberRaid:CommitRecognizedInstanceContext("Icecrown Citadel", "icecrown citadel", 4),
+		"ordinary member recognized context was rejected"
+	)
+	assertTrue(
+		leaderRaid:CommitRecognizedInstanceContext("Icecrown Citadel", "icecrown citadel", 4),
+		"raid leader recognized context was rejected"
+	)
 	memberRaid:ScheduleInstanceChecks()
 	assertEqual(1, member.createAttempts, "ordinary member did not exercise recognized-instance creation")
 	assertEqual(0, member.createSuccesses, "ordinary member created a competing raid")

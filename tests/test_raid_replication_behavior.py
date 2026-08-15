@@ -44,7 +44,7 @@ class RaidReplicationBehaviorTests(unittest.TestCase):
     def test_canonical_values_fail_closed(self) -> None:
         self.assert_case("raid_replication_canonical_failures")
 
-    def test_beta_store_resets_and_reload_preserves_sync_position(self) -> None:
+    def test_valid_archive_reload_preserves_sync_position(self) -> None:
         self.assert_case("raid_replication_archive_reload")
 
     def test_store_commit_and_replica_apply_are_atomic(self) -> None:

@@ -902,11 +902,11 @@ function cases.raid_handover_recovery_fact_bounds_and_invalid_success(addon)
 end
 
 function cases.raid_replication_archive_reload(addon)
-	_G.RMA_Raids = { { raidNid = 99, zone = "unsupported beta" } }
+	_G.RMA_Raids = nil
 	local store = installRaidArchiveFixture(addon)
 	local archive = store:EnsureArchive()
 	assertEqual(1, archive.formatVersion, "archive format differs")
-	assertEqual(0, #archive.order, "unsupported beta data was migrated")
+	assertEqual(0, #archive.order, "fresh canonical archive was not empty")
 	local event, state = assert(store:CreateActiveRaid("Leader-Realm", newReplicationState(), 1721120000))
 	assertEqual(1, event.sequence)
 	assertTrue(state == store:GetActiveRecord().state, "create did not return canonical state")

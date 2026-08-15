@@ -2091,9 +2091,15 @@ function cases.instance_datasets_share_canonical_identity(addon)
 		difficulty = 2,
 		mapId = 631,
 	}
-	addon.L = { RaidZones = {} }
+	addon.L = {
+		RaidZones = {},
+		MsgRaidInstanceUnsupported = "unsupported raid",
+	}
 	addon.Diag = {
-		D = { LogRaidInstanceRecognized = "%s %s" },
+		D = {
+			LogRaidInstanceRecognized = "%s %s",
+			LogRaidUnknownInstance = "%s %s %s",
+		},
 		W = { LogRaidUnmappedZone = "%s %s" },
 	}
 	addon.warn = function() end

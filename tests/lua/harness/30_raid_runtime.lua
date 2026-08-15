@@ -25,6 +25,8 @@ end
 
 function cases.raid_session_uses_transient_canonical_identity(addon)
 	local fixture, raid = installRaidSessionCheckFixture(addon)
+	fixture.raids[1].size = 25
+	fixture.raids[1].difficulty = 2
 	local createCalls = 0
 	local createdZone
 	fixture.store.GetActiveRecord = function()
@@ -85,6 +87,7 @@ function cases.unknown_raid_retry_recovers_without_warning_spam(addon)
 		requestRaidInfoCount = requestRaidInfoCount + 1
 	end
 	addon.L.MsgRaidInstanceUnsupported = "unsupported raid"
+	addon.Diag.D.LogRaidUnknownInstance = "%s %s %s"
 	addon.State.debugEnabled = true
 	addon.Database.SetNextReset = function(value)
 		return value
@@ -813,6 +816,7 @@ function cases.bootstrap_raid_archive_quarantine_is_degraded_and_recovers(addon)
 		local quarantined = true
 		local validArchive = { formatVersion = 1, activeRaidUid = nil, order = {}, raids = {} }
 
+		fixtureAddon.L = {}
 		fixtureAddon.L.MsgRaidHistoryQuarantined = "quarantine %s: %s"
 		fixtureAddon.L.StrRaidArchiveInvalidType = "invalid type"
 		fixtureAddon.L.StrRaidArchiveUnsupportedFormat = "unsupported format"
