@@ -305,6 +305,12 @@ class RaidReplicationBehaviorTests(unittest.TestCase):
     def test_legacy_nid_deletes_reject_active_and_ambiguous_records(self) -> None:
         self.assert_case("raid_archive_legacy_nid_delete_is_fail_closed")
 
+    def test_nil_and_valid_format_one_archives_follow_the_supported_path(self) -> None:
+        self.assert_case("raid_archive_nil_and_valid_load")
+
+    def test_existing_unsupported_archives_are_preserved_and_classified(self) -> None:
+        self.assert_case("raid_archive_unsupported_load_preservation")
+
     def test_invalid_format_one_archive_is_quarantined_without_mutation(self) -> None:
         self.assert_case("raid_archive_invalid_load_quarantine")
 

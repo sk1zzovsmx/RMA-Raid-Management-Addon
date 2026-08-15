@@ -1912,6 +1912,117 @@ function cases.raid_archive_legacy_nid_delete_is_fail_closed(addon)
 	print("PASS raid_archive_legacy_nid_delete_is_fail_closed")
 end
 
+local function installRaidArchiveLoadFixture(initialArchive)
+	resetSavedVariables()
+	local fixtureAddon = newAddon()
+	_G.RMA_Raids = initialArchive
+	installRaidReplicationEventFixture(fixtureAddon)
+	_G.GetTime = function()
+		return 123.456
+	end
+	_G.UnitFullName = function()
+		return "Leader", "Realm"
+	end
+	fixtureAddon.Time = {
+		GetCurrentTime = function()
+			return 1721120000
+		end,
+	}
+	fixtureAddon.Events.Internal = { RaidReplicationCommitted = "RaidReplicationCommitted" }
+	fixtureAddon.Bus.TriggerEvent = function() end
+	fixtureAddon.IgnoredMobs = {
+		IsTrashMobName = function()
+			return false
+		end,
+	}
+	loadAddonFile(fixtureAddon, "Raid Management Addon/Database/DB.lua")
+	fixtureAddon.Services.Reserves = { Save = function() end }
+	loadAddonFile(fixtureAddon, "Raid Management Addon/Database/SavedVariables.lua")
+	loadAddonFile(fixtureAddon, "Raid Management Addon/Database/DBRaidValidator.lua")
+	loadAddonFile(fixtureAddon, "Raid Management Addon/Database/DBRaidStore.lua")
+	return fixtureAddon
+end
+
+function cases.raid_archive_nil_and_valid_load(addon)
+	local freshAddon = installRaidArchiveLoadFixture(nil)
+	local freshArchive = _G.RMA_Raids
+	assertTrue(type(freshArchive) == "table", "nil archive did not initialize a table")
+	assertEqual(1, freshArchive.formatVersion, "nil archive format differs")
+	assertTrue(type(freshArchive.order) == "table", "nil archive order was not initialized")
+	assertTrue(type(freshArchive.raids) == "table", "nil archive records were not initialized")
+	assertEqual(nil, freshArchive.activeRaidUid, "nil archive initialized an active raid")
+	assertTrue(freshAddon.Database.SavedVariables.EnsureAll() ~= nil, "fresh EnsureAll failed")
+	assertTrue(_G.RMA_Raids == freshArchive, "fresh EnsureAll replaced the canonical archive")
+	assertTrue(freshAddon.Database.SavedVariables.GetRaids() == freshArchive, "fresh getter replaced the archive")
+	assertTrue(freshAddon.Database.SavedVariables.NormalizeAfterLoad() == freshArchive, "fresh normalize failed")
+	assertTrue(freshAddon.Database.SavedVariables.PrepareForSave("logout") ~= nil, "fresh save preparation failed")
+	assertTrue(_G.RMA_Raids == freshArchive, "fresh save preparation replaced the archive")
+
+	local validArchive = {
+		formatVersion = 1,
+		activeRaidUid = nil,
+		order = {},
+		raids = {},
+	}
+	local before = deepCopy(validArchive)
+	local validAddon = installRaidArchiveLoadFixture(validArchive)
+	assertTrue(_G.RMA_Raids == validArchive, "module load replaced a valid archive")
+	validAddon.Database.SavedVariables.EnsureAll()
+	assertTrue(_G.RMA_Raids == validArchive, "EnsureAll replaced a valid archive")
+	assertTrue(validAddon.Database.SavedVariables.GetRaids() == validArchive, "getter replaced a valid archive")
+	assertTrue(validAddon.Database.SavedVariables.NormalizeAfterLoad() == validArchive, "valid normalize failed")
+	assertTrue(deepEqual(before, validArchive), "valid normalize changed the archive")
+	assertTrue(validAddon.Database.SavedVariables.PrepareForSave("logout") ~= nil, "valid save preparation failed")
+	assertTrue(_G.RMA_Raids == validArchive and deepEqual(before, validArchive), "valid save preparation changed the archive")
+	print("PASS raid_archive_nil_and_valid_load")
+end
+
+function cases.raid_archive_unsupported_load_preservation(addon)
+	local variants = {
+		{ name = "invalid type", value = "not-an-archive", category = "INVALID_RAID_ARCHIVE_TYPE" },
+		{
+			name = "future format",
+			value = { formatVersion = 2, futureData = { keep = true } },
+			category = "UNSUPPORTED_RAID_ARCHIVE_FORMAT",
+		},
+		{
+			name = "older format",
+			value = { formatVersion = 0, legacyData = { keep = true } },
+			category = "UNSUPPORTED_RAID_ARCHIVE_FORMAT",
+		},
+		{
+			name = "corrupt current format",
+			value = { formatVersion = 1, order = "invalid", raids = {} },
+			category = "CORRUPT_RAID_ARCHIVE",
+		},
+	}
+	for i = 1, #variants do
+		local variant = variants[i]
+		local before = deepCopy(variant.value)
+		local fixtureAddon = installRaidArchiveLoadFixture(variant.value)
+		local savedVariables = fixtureAddon.Database.SavedVariables
+		assertTrue(_G.RMA_Raids == variant.value, variant.name .. " was replaced during module load")
+		savedVariables.EnsureAll()
+		assertTrue(_G.RMA_Raids == variant.value, variant.name .. " was replaced by EnsureAll")
+		assertTrue(savedVariables.GetRaids() == variant.value, variant.name .. " was replaced by GetRaids")
+		assertTrue(deepEqual(before, variant.value), variant.name .. " changed before validation")
+		local loaded, category, detail = savedVariables.NormalizeAfterLoad()
+		assertEqual(nil, loaded, variant.name .. " was accepted")
+		assertEqual(variant.category, category, variant.name .. " category differs")
+		assertTrue(type(detail) == "string", variant.name .. " validator detail is absent")
+		assertEqual(category, savedVariables.GetRaidArchiveError(), variant.name .. " store guard category differs")
+		assertEqual(category, savedVariables.GetRaidArchiveCategory(), variant.name .. " exposed category differs")
+		assertEqual(detail, savedVariables.GetRaidArchiveErrorDetail(), variant.name .. " exposed detail differs")
+		assertTrue(_G.RMA_Raids == variant.value and deepEqual(before, variant.value), variant.name .. " changed during normalization")
+		local prepared, saveCategory, saveDetail = savedVariables.PrepareForSave("logout")
+		assertEqual(nil, prepared, variant.name .. " was prepared for save")
+		assertEqual(category, saveCategory, variant.name .. " save category differs")
+		assertEqual(detail, saveDetail, variant.name .. " save detail differs")
+		assertTrue(_G.RMA_Raids == variant.value and deepEqual(before, variant.value), variant.name .. " changed during save preparation")
+	end
+	print("PASS raid_archive_unsupported_load_preservation")
+end
+
 function cases.raid_archive_invalid_load_quarantine(addon)
 	local store = installRaidArchiveFixture(addon)
 	local _, _, uid = assert(store:CreateActiveRaid({ authorityKey = "Leader", serverTime = 1721120000 }))
