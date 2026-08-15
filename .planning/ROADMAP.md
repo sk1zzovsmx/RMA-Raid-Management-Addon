@@ -79,7 +79,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 04-01-PLAN.md - Close the one ASCII finding, repair six stale harness contracts, and run the complete automated gate.
+- [x] 04-01-PLAN.md - Close the one ASCII finding, repair six stale harness contracts, and run the complete automated gate.
 - [ ] 04-02-PLAN.md - Record blocking human-observed SavedVariables, localized multi-client, combat, and taint acceptance.
 
 ## Progress
@@ -92,4 +92,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Persistence Safety | 3/3 | Complete | 2026-08-15 |
 | 2. Locale-Independent Raid Recognition | 5/5 | Complete | 2026-08-15 |
 | 3. Bounded Sync Requests | 2/2 | Complete | 2026-08-15 |
-| 4. Milestone Verification | 0/2 | Not started | - |
+| 4. Milestone Verification | 1/2 | In Progress | - |
