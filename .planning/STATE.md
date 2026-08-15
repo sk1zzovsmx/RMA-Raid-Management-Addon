@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-08-15T09:23:01.003Z"
-last_activity: 2026-08-15 - Completed Phase 2 Plan 03 yell evidence gate
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-08-15T09:34:05.271Z"
+last_activity: 2026-08-15 - Completed Phase 2 Plan 02 bounded unknown-raid recovery
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 8
-  completed_plans: 5
-  percent: 63
+  completed_plans: 6
+  percent: 75
 ---
 
 # Project State
@@ -26,34 +26,35 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 ## Current Position
 
 Phase: 2 of 4 (Locale-Independent Raid Recognition)
-Plan: 2 of 5
+Plan: 4 of 5
 Status: Phase 2 in progress
-Last activity: 2026-08-15 - Completed Phase 2 Plan 03 yell evidence gate
+Last activity: 2026-08-15 - Completed Phase 2 Plan 02 bounded unknown-raid recovery
 
-Progress: [██████░░░░] 63%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
+- Total plans completed: 6
 - Average duration: 13 min
-- Total execution time: 1.1 hours
+- Total execution time: 1.3 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | Phase 01 | 3 | 30 min | 10 min |
-| Phase 02 | 2 | 37 min | 19 min |
+| Phase 02 | 3 | 47 min | 16 min |
 
 **Recent Trend:**
-- Last 5 plans: 10 min, 8 min, 12 min, 20 min, 17 min
-- Trend: Phase 2 admission and evidence foundations completed
+- Last 5 plans: 8 min, 12 min, 20 min, 17 min, 10 min
+- Trend: Phase 2 admission, bounded recovery, and evidence foundations completed
 
 *Updated after each plan completion*
 | Phase 01 P03 | 12min | 2 tasks | 5 files |
 | Phase 02 P01 | 20min | 2 tasks | 7 files |
 | Phase 02 P03 | 17min | 2 tasks | 1 files |
+| Phase 02 P02 | 10min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,8 @@ Recent decisions affecting current work:
 - [Phase 02]: The first recognized context after reload binds the current raid without rewriting its saved zone. — Historical localized names remain stable while subsequent same-instance checks use canonical identity.
 - [Phase 02]: Only the 60 byte-exact accepted BroadcastText payloads may feed runtime locale catalogs. — Functional exact matching cannot tolerate guessed translations or punctuation normalization.
 - [Phase 02]: Direct locale discrepancies require an exact same-ID client-derived source before acceptance. — Numeric provenance and digest agreement resolve invisible punctuation or stale direct-row conflicts without judgment.
+- [Phase 02]: Unknown raid warning dedupe is transient Init state keyed by received map ID and display name. — This prevents overlapping entry events and bounded retries from spamming while allowing a fresh warning after recognized or non-raid transitions.
+- [Phase 02]: Session owns the bounded timer cadence while Init owns every retry refresh and dataset activation. — This preserves module ownership and avoids recursive scheduling or a new polling mechanism.
 
 ### Pending Todos
 
@@ -89,6 +92,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-15T09:23:01.000Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-08-15T09:34:05.269Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None
