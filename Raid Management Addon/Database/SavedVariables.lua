@@ -20,6 +20,12 @@ addon.Database.SavedVariables = SavedVariables
 local warningsFresh = false
 local RAID_ARCHIVE_FORMAT_VERSION = 1
 local raidArchiveError
+local raidArchiveErrorDetail
+local raidArchiveFormatVersion
+
+local RAID_ARCHIVE_CATEGORY_INVALID_TYPE = "INVALID_RAID_ARCHIVE_TYPE"
+local RAID_ARCHIVE_CATEGORY_UNSUPPORTED_FORMAT = "UNSUPPORTED_RAID_ARCHIVE_FORMAT"
+local RAID_ARCHIVE_CATEGORY_CORRUPT = "CORRUPT_RAID_ARCHIVE"
 
 -- ----- Private helpers -----
 local function ensureTable(key)
@@ -40,14 +46,40 @@ end
 
 local function ensureRaidArchive()
 	local current = _G.RMA_Raids
-	if
-		type(current) ~= "table"
-		or current.formatVersion ~= RAID_ARCHIVE_FORMAT_VERSION
-	then
+	if current == nil then
 		current = newRaidArchive()
 		_G.RMA_Raids = current
 	end
 	return current
+end
+
+local function validateRaidArchive(archive)
+	if type(archive) ~= "table" then
+		return nil, RAID_ARCHIVE_CATEGORY_INVALID_TYPE, "INVALID_RAID_ARCHIVE_TYPE"
+	end
+	if archive.formatVersion ~= RAID_ARCHIVE_FORMAT_VERSION then
+		return nil, RAID_ARCHIVE_CATEGORY_UNSUPPORTED_FORMAT, "UNSUPPORTED_RAID_ARCHIVE_FORMAT"
+	end
+	local validator = Database.GetRaidValidator and Database.GetRaidValidator() or nil
+	if validator then
+		local valid, reason = validator:ValidateArchive(archive)
+		if not valid then
+			return nil, RAID_ARCHIVE_CATEGORY_CORRUPT, reason or "INVALID_RAID_ARCHIVE"
+		end
+	end
+	return true
+end
+
+local function setRaidArchiveError(category, detail, archive)
+	raidArchiveError = category
+	raidArchiveErrorDetail = detail
+	raidArchiveFormatVersion = type(archive) == "table" and archive.formatVersion or nil
+end
+
+local function clearRaidArchiveError()
+	raidArchiveError = nil
+	raidArchiveErrorDetail = nil
+	raidArchiveFormatVersion = nil
 end
 
 local function getReservesSave()
@@ -118,16 +150,12 @@ end
 function SavedVariables.NormalizeAfterLoad()
 	local archive = ensureRaidArchive()
 	local raidStore = GetRaidStore()
-	local validator = Database.GetRaidValidator and Database.GetRaidValidator() or nil
-	local valid, reason
-	if validator then
-		valid, reason = validator:ValidateArchive(archive)
+	local valid, category, detail = validateRaidArchive(archive)
+	if not valid then
+		setRaidArchiveError(category, detail, archive)
+		return nil, raidArchiveError, raidArchiveErrorDetail
 	end
-	if validator and not valid then
-		raidArchiveError = reason or "INVALID_RAID_ARCHIVE"
-		return nil, raidArchiveError
-	end
-	raidArchiveError = nil
+	clearRaidArchiveError()
 	raidStore:NormalizeAllRaids("load")
 	return archive
 end
@@ -135,16 +163,12 @@ end
 function SavedVariables.PrepareForSave(contextTag)
 	local raidStore = GetRaidStore()
 	local archive = _G.RMA_Raids
-	local validator = Database.GetRaidValidator and Database.GetRaidValidator() or nil
-	local valid, reason
-	if validator then
-		valid, reason = validator:ValidateArchive(archive)
+	local valid, category, detail = validateRaidArchive(archive)
+	if not valid then
+		setRaidArchiveError(category, detail, archive)
+		return nil, raidArchiveError, raidArchiveErrorDetail
 	end
-	if validator and not valid then
-		raidArchiveError = reason or "INVALID_RAID_ARCHIVE"
-		return nil, raidArchiveError
-	end
-	raidArchiveError = nil
+	clearRaidArchiveError()
 	local prepared, prepareError, raidIndex = raidStore:PrepareAllRaidsForSave()
 	if not prepared then
 		return nil, prepareError, raidIndex
@@ -157,6 +181,18 @@ end
 
 function SavedVariables.GetRaidArchiveError()
 	return raidArchiveError
+end
+
+function SavedVariables.GetRaidArchiveCategory()
+	return raidArchiveError
+end
+
+function SavedVariables.GetRaidArchiveErrorDetail()
+	return raidArchiveErrorDetail
+end
+
+function SavedVariables.GetRaidArchiveFormatVersion()
+	return raidArchiveFormatVersion
 end
 
 SavedVariables.EnsureAll()
