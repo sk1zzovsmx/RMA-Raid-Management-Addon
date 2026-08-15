@@ -117,6 +117,9 @@ class LootDistributionHardeningTests(unittest.TestCase):
     def test_distribution_snapshot_requests_are_correlated_and_bounded(self) -> None:
         self.assert_case("loot_distribution_snapshot_requests_are_correlated_and_bounded")
 
+    def test_distribution_snapshot_requests_are_rate_limited_before_response_work(self) -> None:
+        self.assert_case("loot_distribution_snapshot_requests_are_rate_limited_before_response_work")
+
     def test_distribution_ownership_and_session_end_are_retry_safe(self) -> None:
         self.assert_case("loot_distribution_ownership_and_session_end_are_retry_safe")
 

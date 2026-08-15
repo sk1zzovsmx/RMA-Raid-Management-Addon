@@ -4,13 +4,30 @@ local function createDistributionSessionFixture(addon, localName)
 	local fixture = {
 		now = 10,
 		authority = "LeaderA",
+		canUseLoot = true,
 		failKind = nil,
 		failOccurrence = nil,
 		kindAttempts = {},
 		sent = {},
 		events = {},
+		infos = {},
+		warnings = {},
+		debugMessages = {},
+		membershipChecks = {},
+		work = {
+			publishCalls = 0,
+			serializeCalls = 0,
+			directQueueAttempts = 0,
+			batchQueueAttempts = 0,
+			emittedPackets = 0,
+		},
 	}
 	local payload = installPayloadCodec(addon)
+	local serializePayload = payload.Serialize
+	function payload.Serialize(value)
+		fixture.work.serializeCalls = fixture.work.serializeCalls + 1
+		return serializePayload(value)
+	end
 	_G.GetTime = function()
 		return fixture.now
 	end
@@ -18,8 +35,22 @@ local function createDistributionSessionFixture(addon, localName)
 		GetPlayerName = function()
 			return localName or "Tester"
 		end,
+		SyncSession = {
+			_requestAdmissions = {},
+		},
 	}
 	addon.Diag = {}
+	loadAddonFile(addon, "Raid Management Addon/Localization/DiagnoseLog.en.lua")
+	addon.hasDebug = nil
+	addon.info = function(_, message)
+		fixture.infos[#fixture.infos + 1] = message
+	end
+	addon.warn = function(_, message)
+		fixture.warnings[#fixture.warnings + 1] = message
+	end
+	addon.debug = function(_, message)
+		fixture.debugMessages[#fixture.debugMessages + 1] = message
+	end
 	addon.Events = { Internal = { LootDistributionSessionChanged = "LootDistributionSessionChanged" } }
 	addon.Bus = {
 		TriggerEvent = function(_, reason, row, sessionId)
@@ -38,6 +69,7 @@ local function createDistributionSessionFixture(addon, localName)
 			queueName = tostring(prefix) .. ":" .. tostring(channel) .. ":" .. string.lower(tostring(target or "group"))
 		end
 		fixture.kindAttempts[kind] = (fixture.kindAttempts[kind] or 0) + 1
+		fixture.work.emittedPackets = fixture.work.emittedPackets + 1
 		if kind == fixture.failKind and fixture.kindAttempts[kind] == fixture.failOccurrence then
 			return false
 		end
@@ -60,9 +92,11 @@ local function createDistributionSessionFixture(addon, localName)
 			return true
 		end,
 		QueueAddonMessage = function(prefix, message, channel, target, opts)
+			fixture.work.directQueueAttempts = fixture.work.directQueueAttempts + 1
 			return recordMessage(prefix, message, channel, target, opts)
 		end,
 		QueueAddonMessages = function(prefix, messages, channel, target, opts)
+			fixture.work.batchQueueAttempts = fixture.work.batchQueueAttempts + 1
 			for i = 1, #messages do
 				if not recordMessage(prefix, messages[i], channel, target, opts) then
 					return false
@@ -71,6 +105,7 @@ local function createDistributionSessionFixture(addon, localName)
 			return true
 		end,
 		SendAddonBatch = function(prefix, messages, target, opts)
+			fixture.work.batchQueueAttempts = fixture.work.batchQueueAttempts + 1
 			local channel = target and "WHISPER" or "RAID"
 			for i = 1, #messages do
 				if not recordMessage(prefix, messages[i], channel, target, opts) then
@@ -93,28 +128,66 @@ local function createDistributionSessionFixture(addon, localName)
 			return value and value ~= "" and tostring(value) or nil
 		end,
 	}
+	local defaultMembership = true
+	local membershipBySender = {}
 	addon.Services = {
 		EnsureNamespace = function(name)
 			addon.Services[name] = addon.Services[name] or {}
 			return addon.Services[name]
 		end,
 		Raid = {
-			IsGroupMember = function()
-				return true
+			IsGroupMember = function(_, sender)
+				fixture.membershipChecks[#fixture.membershipChecks + 1] = sender
+				local allowed = membershipBySender[sender]
+				if allowed == nil then
+					return defaultMembership
+				end
+				return allowed
 			end,
 			IsLootAuthority = function(_, sender)
 				return sender == fixture.authority
 			end,
-			CanUseCapability = function()
-				return true
+			CanUseCapability = function(_, capability)
+				return capability == "loot" and fixture.canUseLoot == true
 			end,
 		},
 		Loot = {},
+		Reserves = {
+			_Sync = {
+				_requestAdmissions = {},
+			},
+		},
 	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Loot/DistributionSession.lua")
 	fixture.owner = addon.Services.Loot.DistributionSession
+	fixture.reserveAdmissions = addon.Services.Reserves._Sync._requestAdmissions
+	fixture.dbSyncAdmissions = addon.Database.SyncSession._requestAdmissions
+	local publishSnapshot = fixture.owner.PublishSnapshot
+	function fixture.owner.PublishSnapshot(...)
+		fixture.work.publishCalls = fixture.work.publishCalls + 1
+		return publishSnapshot(...)
+	end
+	function fixture:ResetWork()
+		self.work.publishCalls = 0
+		self.work.serializeCalls = 0
+		self.work.directQueueAttempts = 0
+		self.work.batchQueueAttempts = 0
+		self.work.emittedPackets = 0
+	end
+	function fixture:SetDebug(enabled)
+		addon.hasDebug = enabled and true or nil
+	end
+	function fixture:SetDefaultMembership(allowed)
+		defaultMembership = allowed == true
+	end
+	function fixture:SetMember(sender, allowed)
+		membershipBySender[sender] = allowed
+	end
+	function fixture:Encode(kind, body, requestId, target, version)
+		return assert(payload.Serialize({ version or 5, kind, requestId or false, target or false, body or {} }))
+	end
 	function fixture:Deliver(kind, body, sender, requestId, target)
-		local message = assert(payload.Serialize({ 5, kind, requestId or false, target or false, body }))
+		local message = self:Encode(kind, body, requestId, target)
 		local channel = target and "WHISPER" or "RAID"
 		return self.owner.HandleMessage("RMADist", message, channel, sender or self.authority)
 	end
@@ -545,6 +618,216 @@ function cases.loot_distribution_snapshot_requests_are_correlated_and_bounded()
 	assertEqual(16, globalCount, "global snapshot assembly cap differs")
 	assertEqual(nil, globalOwner._pendingSnapshots[globalIds[17]], "global overflow retained pending state")
 	print("PASS loot_distribution_snapshot_requests_are_correlated_and_bounded")
+end
+
+function cases.loot_distribution_snapshot_requests_are_rate_limited_before_response_work()
+	local function countKeys(value)
+		local count = 0
+		for _ in pairs(type(value) == "table" and value or {}) do
+			count = count + 1
+		end
+		return count
+	end
+
+	local function assertHandledWithoutResponseWork(fixture, message, sender, label, expectedDebugDelta)
+		local sentBefore = #fixture.sent
+		local infoBefore = #fixture.infos
+		local warningBefore = #fixture.warnings
+		local debugBefore = #fixture.debugMessages
+		fixture:ResetWork()
+		assertEqual(
+			true,
+			fixture.owner.HandleMessage("RMADist", message, "WHISPER", sender),
+			label .. " was not consumed"
+		)
+		assertEqual(0, fixture.work.publishCalls, label .. " entered PublishSnapshot")
+		assertEqual(0, fixture.work.serializeCalls, label .. " serialized a snapshot response")
+		assertEqual(0, fixture.work.directQueueAttempts, label .. " reached the direct queue")
+		assertEqual(0, fixture.work.batchQueueAttempts, label .. " built or queued a response batch")
+		assertEqual(0, fixture.work.emittedPackets, label .. " emitted a response packet")
+		assertEqual(sentBefore, #fixture.sent, label .. " changed the captured transport")
+		assertEqual(infoBefore, #fixture.infos, label .. " emitted ordinary chat output")
+		assertEqual(warningBefore, #fixture.warnings, label .. " emitted a warning")
+		assertEqual(expectedDebugDelta or 0, #fixture.debugMessages - debugBefore, label .. " debug output differs")
+	end
+
+	local addon = newAddon()
+	local fixture = createDistributionSessionFixture(addon, "Provider")
+	local owner = fixture.owner
+	local payload = addon.Comms.Payload
+	fixture.now = 10
+	local firstRequest = fixture:Encode("SNAP_REQ", {}, "snapshot-first", false)
+	fixture:ResetWork()
+	assertTrue(owner.HandleMessage("RMADist", firstRequest, "RAID", "Player-Realm"))
+	assertEqual(1, fixture.work.publishCalls, "first snapshot request did not enter PublishSnapshot once")
+	assertEqual(2, fixture.work.serializeCalls, "first snapshot response serialization count differs")
+	assertEqual(1, fixture.work.directQueueAttempts, "first snapshot response queue count differs")
+	assertEqual(0, fixture.work.batchQueueAttempts, "small snapshot unexpectedly used a response batch")
+	assertEqual(1, fixture.work.emittedPackets, "first snapshot response packet count differs")
+	assertEqual("Player-Realm", fixture.membershipChecks[#fixture.membershipChecks], "membership did not receive raw sender")
+	local firstResponse = fixture.sent[#fixture.sent]
+	assertEqual("RMADist", firstResponse.prefix, "snapshot response prefix differs")
+	assertEqual(5, firstResponse.envelope[1], "snapshot response protocol version differs")
+	assertEqual("SNAP", firstResponse.envelope[2], "small snapshot response kind differs")
+	assertEqual("snapshot-first", firstResponse.envelope[3], "snapshot response request ID differs")
+	assertEqual("Player-Realm", firstResponse.envelope[4], "snapshot response target differs")
+	assertEqual("WHISPER", firstResponse.channel, "snapshot response channel differs")
+	assertEqual("NORMAL", firstResponse.priority, "snapshot response priority differs")
+	assertTrue(
+		type(firstResponse.body) == "table"
+			and type(firstResponse.body[1]) == "string"
+			and type(firstResponse.body[2]) == "string"
+			and firstResponse.body[3] == nil,
+		"SNAP response body shape differs"
+	)
+	assertTrue(type(payload.Deserialize(firstResponse.body[2])) == "table", "SNAP response payload is not encoded rows")
+
+	fixture.now = 11
+	local debugDisabledReplay = fixture:Encode("SNAP_REQ", {}, "snapshot-disabled", false)
+	assertHandledWithoutResponseWork(fixture, debugDisabledReplay, "player", "debug-disabled case alias replay")
+	fixture:SetDebug(true)
+	local debugReplay = fixture:Encode("SNAP_REQ", {}, "snapshot-debug", false)
+	assertHandledWithoutResponseWork(fixture, debugReplay, "Player-OtherRealm", "first debug-visible cooldown rejection", 1)
+	assertContains(
+		fixture.debugMessages[1],
+		"service=distribution kind=SNAP_REQ sender=player",
+		"rate-limit diagnostic omitted bounded identity fields"
+	)
+	local deduplicatedReplay = fixture:Encode("SNAP_REQ", {}, "snapshot-deduplicated", false)
+	assertHandledWithoutResponseWork(fixture, deduplicatedReplay, "PLAYER-Realm", "deduplicated cooldown rejection")
+	fixture.now = 14.999
+	local beforeBoundary = fixture:Encode("SNAP_REQ", {}, "snapshot-before-boundary", false)
+	assertHandledWithoutResponseWork(fixture, beforeBoundary, "Player-Realm", "replay before five seconds")
+
+	for i = 1, 8 do
+		local itemKey = "item:chunked:" .. tostring(i)
+		local row = distributionSnapshotRow(itemKey, string.rep("Long snapshot item ", 8) .. tostring(i))
+		owner._state.order[i] = itemKey
+		owner._state.itemsByKey[itemKey] = row
+	end
+	fixture.now = 15
+	local exactBoundary = fixture:Encode("SNAP_REQ", {}, "snapshot-boundary", false)
+	local chunkStart = #fixture.sent + 1
+	fixture:ResetWork()
+	assertTrue(owner.HandleMessage("RMADist", exactBoundary, "RAID", "Player-Realm"))
+	assertEqual(1, fixture.work.publishCalls, "exact five-second snapshot boundary was not admitted")
+	assertEqual(0, fixture.work.directQueueAttempts, "chunked snapshot unexpectedly used the direct queue")
+	assertEqual(1, fixture.work.batchQueueAttempts, "chunked snapshot did not use one response batch")
+	assertTrue(#fixture.sent >= chunkStart + 1, "chunked snapshot response emitted fewer than two packets")
+	local expectedChunkCount = #fixture.sent - chunkStart + 1
+	for i = chunkStart, #fixture.sent do
+		local packet = fixture.sent[i]
+		assertEqual("RMADist", packet.prefix, "snapshot chunk prefix differs")
+		assertEqual(5, packet.envelope[1], "snapshot chunk protocol version differs")
+		assertEqual("SNAP_CHUNK", packet.envelope[2], "snapshot chunk response kind differs")
+		assertEqual("snapshot-boundary", packet.envelope[3], "snapshot chunk request ID differs")
+		assertEqual("Player-Realm", packet.envelope[4], "snapshot chunk target differs")
+		assertEqual("WHISPER", packet.channel, "snapshot chunk channel differs")
+		assertEqual("NORMAL", packet.priority, "snapshot chunk priority differs")
+		assertTrue(
+			type(packet.body) == "table"
+				and type(packet.body[1]) == "string"
+				and type(packet.body[2]) == "number"
+				and packet.body[2] == i - chunkStart + 1
+				and packet.body[3] == expectedChunkCount
+				and type(packet.body[4]) == "string"
+				and packet.body[5] == nil,
+			"SNAP_CHUNK response body shape differs"
+		)
+	end
+
+	local validationAddon = newAddon()
+	local validationFixture = createDistributionSessionFixture(validationAddon, "Validator")
+	local validationOwner = validationFixture.owner
+	validationFixture.now = 30
+	local wrongVersion = validationFixture:Encode("SNAP_REQ", {}, "invalid-version", false, 4)
+	local wrongTarget = validationFixture:Encode("SNAP_REQ", {}, "invalid-target", "Validator")
+	local wrongBody = validationFixture:Encode("SNAP_REQ", { unexpected = true }, "invalid-body", false)
+	local validAfterMalformed = validationFixture:Encode("SNAP_REQ", {}, "valid-after-malformed", false)
+	assertHandledWithoutResponseWork(validationFixture, wrongVersion, "Validator-Realm", "wrong-version request")
+	assertHandledWithoutResponseWork(validationFixture, wrongTarget, "Validator-Realm", "mistargeted request")
+	assertHandledWithoutResponseWork(validationFixture, wrongBody, "Validator-Realm", "malformed-body request")
+	assertHandledWithoutResponseWork(validationFixture, validAfterMalformed, "-Realm", "invalid normalized identity")
+	assertEqual(0, countKeys(validationOwner._requestAdmissions), "invalid requests allocated admission state")
+	validationFixture:ResetWork()
+	assertTrue(validationOwner.HandleMessage("RMADist", validAfterMalformed, "RAID", "Validator-Realm"))
+	assertEqual(1, validationFixture.work.publishCalls, "invalid requests consumed the later valid admission")
+
+	local deniedRequest = validationFixture:Encode("SNAP_REQ", {}, "denied", false)
+	validationFixture:SetMember("Denied-Realm", false)
+	assertHandledWithoutResponseWork(validationFixture, deniedRequest, "Denied-Realm", "non-member request")
+	assertEqual("Denied-Realm", validationFixture.membershipChecks[#validationFixture.membershipChecks], "membership did not receive raw denied sender")
+	validationFixture:SetMember("Denied-Realm", true)
+	validationFixture:ResetWork()
+	assertTrue(validationOwner.HandleMessage("RMADist", deniedRequest, "RAID", "Denied-Realm"))
+	assertEqual(1, validationFixture.work.publishCalls, "non-member request consumed admission state")
+	validationFixture.now = 31
+	validationFixture:SetMember("Denied-Realm", false)
+	assertHandledWithoutResponseWork(validationFixture, deniedRequest, "Denied-Realm", "sender after leaving group")
+	validationFixture:SetMember("Denied-Realm", true)
+	assertHandledWithoutResponseWork(validationFixture, deniedRequest, "Denied-Realm", "re-entered sender with active cooldown")
+	validationFixture.now = 35
+	validationFixture:ResetWork()
+	assertTrue(validationOwner.HandleMessage("RMADist", deniedRequest, "RAID", "Denied-Realm"))
+	assertEqual(1, validationFixture.work.publishCalls, "re-entered sender was not admitted at the original expiry")
+
+	local noPublishAddon = newAddon()
+	local noPublishFixture = createDistributionSessionFixture(noPublishAddon, "NoPublishProvider")
+	local noPublishOwner = noPublishFixture.owner
+	noPublishFixture.now = 40
+	noPublishFixture.canUseLoot = false
+	local noPublishRequest = noPublishFixture:Encode("SNAP_REQ", {}, "no-publish", false)
+	noPublishFixture:ResetWork()
+	assertEqual(false, noPublishOwner.HandleMessage("RMADist", noPublishRequest, "RAID", "NoPublish-Realm"))
+	assertEqual(1, noPublishFixture.work.publishCalls, "admitted no-publish request did not reach PublishSnapshot")
+	assertEqual(0, noPublishFixture.work.serializeCalls, "no-publish path serialized a snapshot")
+	assertEqual(0, noPublishFixture.work.directQueueAttempts, "no-publish path reached the direct queue")
+	assertEqual(0, noPublishFixture.work.batchQueueAttempts, "no-publish path built or queued a batch")
+	noPublishFixture.now = 41
+	assertHandledWithoutResponseWork(noPublishFixture, noPublishRequest, "NoPublish-Realm", "no-publish replay with debug disabled")
+	noPublishFixture:SetDebug(true)
+	assertHandledWithoutResponseWork(noPublishFixture, noPublishRequest, "NoPublish-Realm", "no-publish first debug rejection", 1)
+	assertContains(
+		noPublishFixture.debugMessages[1],
+		"service=distribution kind=SNAP_REQ sender=nopublish",
+		"no-publish diagnostic omitted bounded identity fields"
+	)
+	assertHandledWithoutResponseWork(noPublishFixture, noPublishRequest, "NoPublish-Realm", "no-publish deduplicated rejection")
+
+	local capacityAddon = newAddon()
+	local capacityFixture = createDistributionSessionFixture(capacityAddon, "CapacityProvider")
+	local capacityOwner = capacityFixture.owner
+	capacityFixture.now = 60
+	local capacityRequests = {}
+	for i = 1, 129 do
+		capacityRequests[i] = capacityFixture:Encode("SNAP_REQ", {}, "capacity-" .. tostring(i), false)
+	end
+	capacityFixture:ResetWork()
+	for i = 1, 128 do
+		assertTrue(
+			capacityOwner.HandleMessage("RMADist", capacityRequests[i], "RAID", "Cap" .. tostring(i) .. "-Realm"),
+			"capacity sender was not handled " .. tostring(i)
+		)
+	end
+	assertTrue(type(capacityOwner._requestAdmissions) == "table", "distribution owner did not create its own admission map")
+	assertTrue(capacityOwner._requestAdmissions ~= capacityFixture.reserveAdmissions, "distribution reused reserve admission state")
+	assertTrue(capacityOwner._requestAdmissions ~= capacityFixture.dbSyncAdmissions, "distribution reused DBSync admission state")
+	assertEqual(0, countKeys(capacityFixture.reserveAdmissions), "distribution mutated reserve admission state")
+	assertEqual(0, countKeys(capacityFixture.dbSyncAdmissions), "distribution mutated DBSync admission state")
+	assertEqual(128, countKeys(capacityOwner._requestAdmissions), "distribution admission sender map bound differs")
+	local firstAdmission = capacityOwner._requestAdmissions.cap1
+	capacityFixture:SetDebug(true)
+	assertHandledWithoutResponseWork(capacityFixture, capacityRequests[129], "Cap129-Realm", "unseen sender at capacity")
+	assertEqual(128, countKeys(capacityOwner._requestAdmissions), "capacity rejection changed the map bound")
+	assertTrue(capacityOwner._requestAdmissions.cap1 == firstAdmission, "capacity rejection evicted an active sender")
+	capacityFixture.now = 65
+	capacityFixture:ResetWork()
+	assertTrue(capacityOwner.HandleMessage("RMADist", capacityRequests[129], "RAID", "Cap129-Realm"))
+	assertEqual(1, capacityFixture.work.publishCalls, "lazy exact-boundary expiry did not admit a new sender")
+	assertEqual(1, countKeys(capacityOwner._requestAdmissions), "lazy expiry retained inactive distribution senders")
+	assertTrue(capacityOwner._requestAdmissions.cap129 ~= nil, "new sender was not recorded after lazy expiry")
+
+	print("PASS loot_distribution_snapshot_requests_are_rate_limited_before_response_work")
 end
 
 function cases.loot_distribution_clear_requires_ordered_owner_transition(addon)
