@@ -33,9 +33,11 @@ Requirements for the stabilization milestone. Each requirement maps to exactly o
 
 ### Verification and Hygiene
 
-- [ ] **QUAL-01**: Proprietary runtime Lua contains no non-ASCII characters outside localization data explicitly intended for non-English clients.
-- [ ] **QUAL-02**: The TOC validator, Lua 5.1 validator, variadic-`xpcall` scanner, XML handler scan, branding scan, and complete available automated test suite pass after the corrections.
-- [ ] **QUAL-03**: A documented in-game smoke test verifies clean login, `/rma`, window creation, valid and quarantined SavedVariables reload, localized raid recognition, loot/reserve workflows, multi-client sync, combat lockdown, and taint behavior.
+- [x] **QUAL-01**: Proprietary runtime Lua contains no non-ASCII characters outside localization data explicitly intended for non-English clients.
+- [x] **QUAL-02**: The TOC validator, Lua 5.1 validator, variadic-`xpcall` scanner, XML handler scan, branding scan, and complete available automated test suite pass after the corrections.
+- [ ] **QUAL-03**: A privacy-safe verification disposition record distinguishes: automated coverage; the user's exact live observation that no Lua errors occurred; and the explicitly deferred residual risks of SavedVariables quarantine/recovery, localized/multi-client sync, combat protected-action behavior, and taint. No unexecuted live check is recorded as PASS. Completion of this requirement means the disposition is complete and accepted, not that every deferred live scenario was executed successfully.
+
+**QUAL-03 status convention:** `Complete` means the approved disposition record exists and clearly labels `AUTOMATED`, `OBSERVED`, and `DEFERRED` evidence. It does not mean the deferred live risks passed. Until Plan 04-02 records that disposition, QUAL-03 remains `Pending`.
 
 ## v2 Requirements
 
@@ -70,9 +72,9 @@ Roadmap phase mappings will be populated during roadmap creation.
 | COMM-04 | Phase 3 | Complete |
 | LOCL-01 | Phase 2 | Complete |
 | LOCL-02 | Phase 2 | Complete |
-| QUAL-01 | Phase 4 | Pending |
-| QUAL-02 | Phase 4 | Pending |
-| QUAL-03 | Phase 4 | Pending |
+| QUAL-01 | Phase 4 | Complete — proprietary runtime ASCII gate clean |
+| QUAL-02 | Phase 4 | Complete — 507/507 and all automated gates clean |
+| QUAL-03 | Phase 4 | Pending — disposition record not yet finalized |
 
 **Coverage:**
 - v1 requirements: 15 total

@@ -2,7 +2,7 @@
 
 ## Overview
 
-This milestone first makes persisted raid history fail closed without data loss, then removes locale-dependent raid admission and restores localized encounter fallback coverage. It next bounds request-driven synchronization work without changing the version-5 wire contract, and concludes with repository validation plus the in-game checks that static tooling cannot prove.
+This milestone first makes persisted raid history fail closed without data loss, then removes locale-dependent raid admission and restores localized encounter fallback coverage. It next bounds request-driven synchronization work without changing the version-5 wire contract, and concludes with full automated validation plus an honest disposition of observed and deferred live coverage.
 
 ## Phases
 
@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Persistence Safety** - Preserve incompatible raid archives and expose quarantine without disabling unrelated features.
 - [x] **Phase 2: Locale-Independent Raid Recognition** - Use one canonical admission path and retain encounter fallback coverage on supported locales.
 - [x] **Phase 3: Bounded Sync Requests** - Rate-limit request-driven reserve and distribution responses without changing wire compatibility.
-- [ ] **Phase 4: Milestone Verification** - Complete runtime hygiene, automated validation, and documented in-game acceptance checks.
+- [ ] **Phase 4: Milestone Verification** - Complete runtime hygiene and automated validation, then document the exact observed live evidence and accepted residual risks.
 
 ## Phase Details
 
@@ -68,19 +68,19 @@ Plans:
 - [x] 03-02-PLAN.md - Bound distribution SNAP_REQ response work and close cross-owner R5 compatibility coverage.
 
 ### Phase 4: Milestone Verification
-**Goal**: The corrective milestone is demonstrably compatible with WotLK 3.3.5a and safe across reload, localization, multi-client synchronization, combat, and taint-sensitive workflows.
+**Goal**: The corrective milestone has complete automated WotLK 3.3.5a evidence and a privacy-safe disposition that does not misrepresent unexecuted live-risk coverage.
 **Depends on**: Phase 3
 **Requirements**: QUAL-01, QUAL-02, QUAL-03
 **Success Criteria** (what must be TRUE):
   1. Proprietary runtime Lua is ASCII-only outside intentional non-English localization data.
   2. All required WotLK, Lua 5.1, TOC, XML, branding, `xpcall`, and available automated test checks pass after the corrections.
-  3. A repeatable in-game checklist records successful login, `/rma`, window creation, valid and quarantined reload behavior, localized raid recognition, and loot/reserve workflows.
-  4. Multi-client synchronization, combat-lockdown behavior, and taint logging complete without new Lua errors, protected-action failures, or protocol incompatibility.
+  3. The disposition record preserves the user's exact live observation that no Lua errors occurred without expanding it into claims about unobserved workflows.
+  4. SavedVariables quarantine/recovery, localized/multi-client sync, combat protected-action behavior, and taint are explicitly recorded as unexecuted `DEFERRED` residual risks, never PASS; Phase 4 closes under the formally redefined QUAL-03 disposition contract.
 **Plans**: 2 plans
 
 Plans:
 - [x] 04-01-PLAN.md - Close the one ASCII finding, repair six stale harness contracts, and run the complete automated gate.
-- [ ] 04-02-PLAN.md - Record blocking human-observed SavedVariables, localized multi-client, combat, and taint acceptance.
+- [ ] 04-02-PLAN.md - Record the exact no-Lua-error observation and the user-accepted deferred live-risk disposition without falsifying execution.
 
 ## Progress
 
