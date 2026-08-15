@@ -61,7 +61,11 @@ Plans:
   2. Repeated `META_REQ`, `DATA_REQ`, and `SNAP_REQ` messages from one sender are rejected at the defined boundary before response serialization or queue allocation, then become eligible after expiry.
   3. Sender normalization prevents equivalent sender identities from bypassing the per-sender limit.
   4. Existing RMA prefixes, protocol-version-5 envelopes, payload shapes, and authorization behavior remain unchanged and are covered by regression tests.
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 03-01-PLAN.md - Bound reserve META_REQ and DATA_REQ response work per canonical sender and request kind.
+- [ ] 03-02-PLAN.md - Bound distribution SNAP_REQ response work and close cross-owner R5 compatibility coverage.
 
 ### Phase 4: Milestone Verification
 **Goal**: The corrective milestone is demonstrably compatible with WotLK 3.3.5a and safe across reload, localization, multi-client synchronization, combat, and taint-sensitive workflows.
