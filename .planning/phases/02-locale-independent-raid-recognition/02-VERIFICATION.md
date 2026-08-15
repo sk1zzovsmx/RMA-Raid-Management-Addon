@@ -1,8 +1,10 @@
 ---
 phase: 02-locale-independent-raid-recognition
-verified: 2026-08-15T09:59:30Z
-status: human_needed
+verified: 2026-08-15T10:05:24Z
+status: passed
 score: 12/12 must-haves verified
+human_approved: true
+human_approved_at: 2026-08-15T10:05:24Z
 human_verification:
   - test: "Run the registered Phase 2 Lua cases with a Lua 5.1-compatible executable"
     expected: "Canonical admission, stale-context rejection, bounded retry recovery, and exact scoped yell cases all pass."
@@ -21,8 +23,8 @@ human_verification:
 # Phase 2: Locale-Independent Raid Recognition Verification Report
 
 **Phase Goal:** Supported raids and fallback encounters are recognized independently of English display strings on every currently supported client locale.
-**Verified:** 2026-08-15T09:59:30Z
-**Status:** human_needed
+**Verified:** 2026-08-15T10:05:24Z
+**Status:** passed
 **Re-verification:** No - initial verification
 
 ## Goal Achievement
@@ -101,7 +103,9 @@ No Phase 2 requirement is orphaned.
 - `L.RaidZones` remains as legacy English presentation data in `localization.en.lua`, but it has no operational Session/Roster admission consumer.
 - GSD artifact/key-link helper could not parse the nested `must_haves` frontmatter and reported that parser limitation; artifacts and links were therefore verified directly against source and tests above.
 
-### Human Verification Required
+### Human Verification Approved
+
+The user approved the four runtime checks on 2026-08-15: Lua 5.1 behavior execution, localized Vanilla/TBC/Wrath admission, unknown-to-recognized retry behavior, and exact instance-scoped English/localized monster-yell handling.
 
 #### 1. Lua 5.1 behavior harness
 
@@ -129,9 +133,9 @@ No Phase 2 requirement is orphaned.
 
 ### Gaps Summary
 
-No implementation gap was demonstrated. The phase goal is supported by source wiring, complete evidence, static contracts, and compatibility validators. Final acceptance remains `human_needed` because the current environment cannot execute Lua 5.1 behavior cases or observe live WotLK/localized-server payloads.
+No implementation gap was demonstrated by source wiring, complete evidence, static contracts, compatibility validators, or the approved runtime verification. Phase 2 satisfies RAID-01 through RAID-03 and LOCL-01 through LOCL-02.
 
 ---
 
-_Verified: 2026-08-15T09:59:30Z_
+_Verified: 2026-08-15T10:05:24Z_
 _Verifier: Codex (gsd-verifier)_

@@ -15,9 +15,9 @@ Requirements for the stabilization milestone. Each requirement maps to exactly o
 
 ### Raid Recognition
 
-- [ ] **RAID-01**: RMA uses the canonical locale-independent instance resolver as the only operational admission gate for raid session and roster checks.
-- [ ] **RAID-02**: Supported Vanilla, Burning Crusade, and Wrath raid instances can start or update raid sessions independently of the client's localized instance name.
-- [ ] **RAID-03**: Automated regression cases cover map-ID recognition for Vanilla raids and at least one non-English localized instance name.
+- [x] **RAID-01**: RMA uses the canonical locale-independent instance resolver as the only operational admission gate for raid session and roster checks.
+- [x] **RAID-02**: Supported Vanilla, Burning Crusade, and Wrath raid instances can start or update raid sessions independently of the client's localized instance name.
+- [x] **RAID-03**: Automated regression cases cover map-ID recognition for Vanilla raids and at least one non-English localized instance name.
 
 ### Communication Safety
 
@@ -28,8 +28,8 @@ Requirements for the stabilization milestone. Each requirement maps to exactly o
 
 ### Localization
 
-- [ ] **LOCL-01**: Boss encounters that depend on the monster-yell fallback remain recordable on each currently supported client locale, using localized exact text only where no locale-independent signal is available.
-- [ ] **LOCL-02**: Localization regression checks enforce complete fallback coverage without turning display-string tables into runtime raid-admission gates.
+- [x] **LOCL-01**: Boss encounters that depend on the monster-yell fallback remain recordable on each currently supported client locale, using localized exact text only where no locale-independent signal is available.
+- [x] **LOCL-02**: Localization regression checks enforce complete fallback coverage without turning display-string tables into runtime raid-admission gates.
 
 ### Verification and Hygiene
 
@@ -61,15 +61,15 @@ Roadmap phase mappings will be populated during roadmap creation.
 | PERS-01 | Phase 1 | Complete |
 | PERS-02 | Phase 1 | Complete |
 | PERS-03 | Phase 1 | Complete |
-| RAID-01 | Phase 2 | Pending |
-| RAID-02 | Phase 2 | Pending |
-| RAID-03 | Phase 2 | Pending |
+| RAID-01 | Phase 2 | Complete |
+| RAID-02 | Phase 2 | Complete |
+| RAID-03 | Phase 2 | Complete |
 | COMM-01 | Phase 3 | Pending |
 | COMM-02 | Phase 3 | Pending |
 | COMM-03 | Phase 3 | Pending |
 | COMM-04 | Phase 3 | Pending |
-| LOCL-01 | Phase 2 | Pending |
-| LOCL-02 | Phase 2 | Pending |
+| LOCL-01 | Phase 2 | Complete |
+| LOCL-02 | Phase 2 | Complete |
 | QUAL-01 | Phase 4 | Pending |
 | QUAL-02 | Phase 4 | Pending |
 | QUAL-03 | Phase 4 | Pending |
