@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-08-15T09:19:53.523Z"
-last_activity: 2026-08-15 - Phase 2 context gathered
+status: executing
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-08-15T09:23:01.003Z"
+last_activity: 2026-08-15 - Completed Phase 2 Plan 03 yell evidence gate
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 8
-  completed_plans: 4
-  percent: 50
+  completed_plans: 5
+  percent: 63
 ---
 
 # Project State
@@ -26,33 +26,34 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 ## Current Position
 
 Phase: 2 of 4 (Locale-Independent Raid Recognition)
-Plan: 1 of 5 in current phase
+Plan: 2 of 5
 Status: Phase 2 in progress
-Last activity: 2026-08-15 - Completed Phase 2 Plan 01 canonical raid admission
+Last activity: 2026-08-15 - Completed Phase 2 Plan 03 yell evidence gate
 
-Progress: [█████-----] 50%
+Progress: [██████░░░░] 63%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
+- Total plans completed: 5
 - Average duration: 13 min
-- Total execution time: 0.8 hours
+- Total execution time: 1.1 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | Phase 01 | 3 | 30 min | 10 min |
-| Phase 02 | 1 | 20 min | 20 min |
+| Phase 02 | 2 | 37 min | 19 min |
 
 **Recent Trend:**
-- Last 5 plans: 10 min, 8 min, 12 min, 20 min
-- Trend: Phase 2 first plan completed
+- Last 5 plans: 10 min, 8 min, 12 min, 20 min, 17 min
+- Trend: Phase 2 admission and evidence foundations completed
 
 *Updated after each plan completion*
 | Phase 01 P03 | 12min | 2 tasks | 5 files |
 | Phase 02 P01 | 20min | 2 tasks | 7 files |
+| Phase 02 P03 | 17min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,8 @@ Recent decisions affecting current work:
 - [Phase 01]: DBSyncer rejects quarantine before protocol, session, recovery, import, or store work. — A peer must never replace an incompatible archive and unrelated sync owners must remain independent.
 - [Phase 02]: Canonical identity remains transient and Raid-owned while persisted zone names and wire payloads remain unchanged. — Locale-independent admission must not migrate history or change compatibility contracts.
 - [Phase 02]: The first recognized context after reload binds the current raid without rewriting its saved zone. — Historical localized names remain stable while subsequent same-instance checks use canonical identity.
+- [Phase 02]: Only the 60 byte-exact accepted BroadcastText payloads may feed runtime locale catalogs. — Functional exact matching cannot tolerate guessed translations or punctuation normalization.
+- [Phase 02]: Direct locale discrepancies require an exact same-ID client-derived source before acceptance. — Numeric provenance and digest agreement resolve invisible punctuation or stale direct-row conflicts without judgment.
 
 ### Pending Todos
 
@@ -86,6 +89,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-15T09:19:53.521Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-08-15T09:23:01.000Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None
