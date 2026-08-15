@@ -65,7 +65,7 @@ Plans:
 
 Plans:
 - [x] 03-01-PLAN.md - Bound reserve META_REQ and DATA_REQ response work per canonical sender and request kind.
-- [ ] 03-02-PLAN.md - Bound distribution SNAP_REQ response work and close cross-owner R5 compatibility coverage.
+- [x] 03-02-PLAN.md - Bound distribution SNAP_REQ response work and close cross-owner R5 compatibility coverage.
 
 ### Phase 4: Milestone Verification
 **Goal**: The corrective milestone is demonstrably compatible with WotLK 3.3.5a and safe across reload, localization, multi-client synchronization, combat, and taint-sensitive workflows.
@@ -87,5 +87,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Persistence Safety | 3/3 | Complete | 2026-08-15 |
 | 2. Locale-Independent Raid Recognition | 5/5 | Complete | 2026-08-15 |
-| 3. Bounded Sync Requests | 1/2 | In Progress | - |
+| 3. Bounded Sync Requests | 2/2 | In Progress | - |
 | 4. Milestone Verification | 0/TBD | Not started | - |
