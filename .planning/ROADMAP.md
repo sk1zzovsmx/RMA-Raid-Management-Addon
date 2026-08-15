@@ -27,7 +27,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   1. Loading an unknown or future `RMA_Raids` archive leaves its in-memory value unchanged rather than replacing it with an empty archive.
   2. When raid-history validation fails, the user receives a localized quarantine diagnostic and raid-history mutations fail closed while unrelated RMA features remain usable.
   3. Valid, malformed format-1, non-table, and future-format archives have automated load-and-save-preparation regression coverage.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 01-01-PLAN.md - Preserve every existing unsupported raid archive and establish stable quarantine classification.
+- [ ] 01-02-PLAN.md - Complete degraded bootstrap, localized diagnostics, and automatic recovery behavior.
+- [ ] 01-03-PLAN.md - Make history read-only and suspend only raid-history synchronization while quarantined.
 
 ### Phase 2: Locale-Independent Raid Recognition
 **Goal**: Supported raids and fallback encounters are recognized independently of English display strings on every currently supported client locale.
