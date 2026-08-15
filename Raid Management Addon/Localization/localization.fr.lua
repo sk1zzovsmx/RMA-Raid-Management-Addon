@@ -837,6 +837,7 @@ L.StrCmdLoggerShare = "Offrez le raid terminé sélectionné à un membre actuel
 L.MsgValidateUnavailable = "Le service de validation n’est pas disponible."
 L.MsgSpecInspectNoService = "Le service d'inspection des spécialisations n'est pas disponible."
 L.MsgSpecInspectRefresh = "Actualisation de l'inspection des spécialisations : queued=%d cached=%d skipped=%d."
+L.MsgRaidInstanceUnsupported = "Cette instance de raid n'est pas prise en charge. L'enregistrement du raid est suspendu."
 L.MsgValidateRaidsNoData = "Validation du raid : aucun raid disponible."
 L.MsgValidateRaidsSummary = "Validation des raids : raids=%d ok=%d avertissements=%d erreurs=%d schéma=%d."
 L.MsgValidateRaidsDetailsTruncated = "Validation du raid : les lignes de détails %d ont été tronquées."

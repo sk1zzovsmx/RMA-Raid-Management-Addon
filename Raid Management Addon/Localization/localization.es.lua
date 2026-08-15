@@ -837,6 +837,7 @@ L.StrCmdLoggerShare = "Ofrezca la incursión completada seleccionada a un miembr
 L.MsgValidateUnavailable = "El servicio de validación no está disponible."
 L.MsgSpecInspectNoService = "El servicio de inspección de especificaciones no está disponible."
 L.MsgSpecInspectRefresh = "Actualización de inspección de especificaciones: en cola=%d en caché=%d omitido=%d."
+L.MsgRaidInstanceUnsupported = "Esta instancia de banda no es compatible. El registro de banda está en pausa."
 L.MsgValidateRaidsNoData = "Validación de incursiones: no hay incursiones disponibles."
 L.MsgValidateRaidsSummary = "Validación de incursión: raids=%d ok=%d warn=%d err=%d esquema=%d."
 L.MsgValidateRaidsDetailsTruncated = "Validación de incursión: %d filas de detalles se truncaron."

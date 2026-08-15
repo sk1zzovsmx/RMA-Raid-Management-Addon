@@ -837,6 +837,7 @@ L.StrCmdLoggerShare = "Предложите выбранный пройденн�
 L.MsgValidateUnavailable = "Служба проверки недоступна."
 L.MsgSpecInspectNoService = "Служба проверки специализаций недоступна."
 L.MsgSpecInspectRefresh = "Обновление проверки специализации: поставлено в очередь=%d кэшировано=%d пропущено=%d."
+L.MsgRaidInstanceUnsupported = "Этот рейдовый инстанс не поддерживается. Запись рейда приостановлена."
 L.MsgValidateRaidsNoData = "Проверка рейда: рейдов нет."
 L.MsgValidateRaidsSummary = "Проверка рейда: рейды=%d ok=%d alert=%d err=%d схема=%d."
 L.MsgValidateRaidsDetailsTruncated = "Проверка рейда: %d строк сведений были усечены."

@@ -68,6 +68,7 @@ QUARANTINE_KEYS = {
     "StrRaidHistoryQuarantined",
     "RaidSyncStatusQuarantined",
 }
+UNKNOWN_RAID_WARNING_KEY = "MsgRaidInstanceUnsupported"
 DIAGNOSTIC_IDENTIFIER = re.compile(
     r"(?<![A-Za-z])(?:raid|nid|schemaVersion|current|required|players|count|loot|bossNid|"
     r"_TrashMob_|bossKills|playerNid|looterNid)(?![A-Za-z])"
@@ -623,6 +624,16 @@ class LocalizationContractTest(unittest.TestCase):
                 "RMA_Options",
             ):
                 self.assertNotIn(forbidden_key, warning, f"{locale}:{forbidden_key}")
+
+    def test_unknown_raid_warning_is_localized_and_non_technical(self) -> None:
+        catalogs = {"enUS": ENGLISH, **LOCALES}
+        for locale, path in catalogs.items():
+            translated = scalar_assignments(path)
+            self.assertIn(UNKNOWN_RAID_WARNING_KEY, translated, locale)
+            warning = unquoted(translated[UNKNOWN_RAID_WARNING_KEY])
+            self.assertEqual([], placeholders(translated[UNKNOWN_RAID_WARNING_KEY]), locale)
+            for technical_token in ("mapId", "difficulty", "instanceName"):
+                self.assertNotIn(technical_token, warning, f"{locale}:{technical_token}")
 
     def test_locale_catalogs_only_contain_scalar_translations(self) -> None:
         for path in LOCALES.values():

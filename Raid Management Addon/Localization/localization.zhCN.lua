@@ -837,6 +837,7 @@ L.StrCmdLoggerShare = "将选定的已完成团队记录提供给当前队伍成
 L.MsgValidateUnavailable = "验证服务不可用。"
 L.MsgSpecInspectNoService = "专精检查服务不可用。"
 L.MsgSpecInspectRefresh = "专精检查刷新：排队=%d缓存=%d跳过=%d。"
+L.MsgRaidInstanceUnsupported = "不支持此团队副本。团队记录已暂停。"
 L.MsgValidateRaidsNoData = "团队记录验证：没有可用的团队记录。"
 L.MsgValidateRaidsSummary = "团队验证：raid=%d ok=%d warn=%d err=%d schema=%d。"
 L.MsgValidateRaidsDetailsTruncated = "Raid 验证：%d 详细信息行被截断。"
