@@ -61,6 +61,8 @@ local MSG_SNAPSHOT_CHUNK = "SNAP_CHUNK"
 
 local MAX_SNAPSHOT_CHUNK_SIZE = 180
 local MAX_SNAPSHOT_CHUNKS = 64
+local REQUEST_COOLDOWN_SECONDS = 5
+local MAX_REQUEST_SENDERS = 128
 local SNAPSHOT_INCOMING_TTL_SECONDS = 180
 local MAX_INCOMING_SNAPSHOT_BYTES = MAX_SNAPSHOT_CHUNK_SIZE * MAX_SNAPSHOT_CHUNKS
 local MAX_INCOMING_SNAPSHOTS = 16
@@ -98,6 +100,7 @@ DistributionSession._incomingSnapshots = DistributionSession._incomingSnapshots 
 local incomingSnapshots = DistributionSession._incomingSnapshots
 DistributionSession._pendingSnapshots = DistributionSession._pendingSnapshots or {}
 local pendingSnapshots = DistributionSession._pendingSnapshots
+DistributionSession._requestAdmissions = DistributionSession._requestAdmissions or {}
 local nextSnapshotRequestId = tonumber(DistributionSession._nextSnapshotRequestId) or 1
 DistributionSession._streams = DistributionSession._streams or {}
 local streams = DistributionSession._streams
@@ -115,6 +118,62 @@ assert(lastWindowNow and lastWindowNow == lastWindowNow and lastWindowNow >= 0, 
 -- ----- Private helpers ----- --
 local function getIncomingNow()
 	return GetTime()
+end
+
+local function pruneRequestAdmissions(now)
+	local senderCount = 0
+	for senderKey, requestKinds in pairs(DistributionSession._requestAdmissions) do
+		if type(requestKinds) == "table" then
+			for requestKind, requestState in pairs(requestKinds) do
+				local admittedAt = type(requestState) == "table" and tonumber(requestState.admittedAt) or nil
+				if not admittedAt or (now - admittedAt) >= REQUEST_COOLDOWN_SECONDS then
+					requestKinds[requestKind] = nil
+				end
+			end
+			if next(requestKinds) == nil then
+				DistributionSession._requestAdmissions[senderKey] = nil
+			else
+				senderCount = senderCount + 1
+			end
+		else
+			DistributionSession._requestAdmissions[senderKey] = nil
+		end
+	end
+	return senderCount
+end
+
+local function admitResponseRequest(originalSender, requestKind)
+	local normalizedSender = Comms.NormalizeSender and Comms.NormalizeSender(originalSender)
+	if type(normalizedSender) ~= "string" or normalizedSender == "" then
+		return false
+	end
+	local senderKey = string.lower(normalizedSender)
+	if senderKey == "" then
+		return false
+	end
+	local now = getIncomingNow()
+	local senderCount = pruneRequestAdmissions(now)
+	local senderState = DistributionSession._requestAdmissions[senderKey]
+	local requestState = type(senderState) == "table" and senderState[requestKind] or nil
+	if type(requestState) == "table" then
+		if addon.hasDebug and type(addon.debug) == "function" and not requestState.rejectionLogged then
+			addon:debug(Diag.D.LogSyncRequestRateLimited:format("distribution", requestKind, senderKey))
+			requestState.rejectionLogged = true
+		end
+		return false
+	end
+	if type(senderState) ~= "table" then
+		if senderCount >= MAX_REQUEST_SENDERS then
+			return false
+		end
+		senderState = {}
+		DistributionSession._requestAdmissions[senderKey] = senderState
+	end
+	senderState[requestKind] = {
+		admittedAt = now,
+		rejectionLogged = false,
+	}
+	return true
 end
 
 local function ensurePrefix()
@@ -2163,6 +2222,9 @@ function DistributionSession.HandleMessage(prefix, msg, _channel, sender)
 		return true
 	end
 	if kind == MSG_SNAPSHOT_REQ then
+		if not admitResponseRequest(sender, MSG_SNAPSHOT_REQ) then
+			return true
+		end
 		return DistributionSession.PublishSnapshot(sender, requestId)
 	end
 	if kind == MSG_SNAPSHOT then
