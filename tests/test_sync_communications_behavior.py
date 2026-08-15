@@ -126,6 +126,19 @@ class SyncCommunicationsBehaviorTests(unittest.TestCase):
         self.assertNotIn('COMM_PREFIX = "RMALogSync"', source)
         self.assertNotIn("PERSISTENT_SYNC_INTERVAL", source)
 
+    def test_raid_archive_quarantine_has_one_pre_transport_admission_boundary(self) -> None:
+        source = DB_SYNCER.read_text(encoding="utf-8")
+        self.assertIn("local function admitRaidHistorySync", source)
+        self.assertIn("Database.SavedVariables", source)
+        self.assertIn("GetRaidArchiveError", source)
+        self.assertIn("RaidSyncStatusQuarantined", source)
+        self.assertIn('COMM_PREFIX = "RMARaidSync"', source)
+        self.assertIn("Protocol.VERSION == 5", source)
+        self.assertNotIn("RMA_Raids", source)
+
+    def test_quarantine_suspends_raid_sync_without_touching_other_handlers(self) -> None:
+        self.assert_case("raid_history_quarantine_suspends_only_raid_sync")
+
     def test_transfer_session_retries_once_then_fails_once(self) -> None:
         self.assert_case("raid_transfer_session_retry")
 

@@ -6912,6 +6912,7 @@ local function installHistoricalConsentFixture(addon)
 	addon.L = {
 		WarnRaidDatabaseAuthorityReleased = "Raid database authority passed to %s. This client now holds a read-only replica.",
 		WarnRaidDatabaseAuthorityReceived = "Raid database authority received from %s. Recovery is in progress; raid history writes are temporarily paused.",
+		RaidSyncStatusQuarantined = "Raid history synchronization suspended: RMA_Raids is quarantined.",
 	}
 	addon.Diagnose = { D = { LogRaidSyncTrace = "%s %s" } }
 	addon.Diag = addon.Diagnose
@@ -7025,6 +7026,58 @@ local function installHistoricalConsentFixture(addon)
 	end
 
 	return fixture
+end
+
+function cases.raid_history_quarantine_suspends_only_raid_sync(addon)
+	local fixture = installHistoricalConsentFixture(addon)
+	local pristineArchive = deepCopy(_G.RMA_Raids)
+	local queuedBefore = #fixture.queued
+	local batchesBefore = #fixture.batches
+	local decodeCalls = 0
+	local decode = fixture.protocol.Decode
+	fixture.protocol.Decode = function(...)
+		decodeCalls = decodeCalls + 1
+		return decode(...)
+	end
+	addon.Database.SavedVariables.GetRaidArchiveError = function()
+		return "UNSUPPORTED_RAID_ARCHIVE_FORMAT"
+	end
+
+	local offered, offerReason = fixture.syncer:OfferHistoricalRaid(fixture.snapshot.raidUid, "Leader-TestRealm")
+	assertEqual(false, offered, "quarantine admitted a historical offer")
+	assertEqual(addon.L.RaidSyncStatusQuarantined, offerReason, "historical offer quarantine reason differs")
+	local requested, requestReason = fixture.syncer:RequestSnapshot("Leader-TestRealm", fixture.snapshot)
+	assertEqual(false, requested, "quarantine admitted snapshot recovery")
+	assertEqual(addon.L.RaidSyncStatusQuarantined, requestReason, "snapshot quarantine reason differs")
+	requested, requestReason = fixture.syncer:RequestMissingRange("Leader-TestRealm", fixture.snapshot, 1, 1)
+	assertEqual(false, requested, "quarantine admitted range recovery")
+	assertEqual(addon.L.RaidSyncStatusQuarantined, requestReason, "range quarantine reason differs")
+	local accepted, inboundReason = fixture.syncer:OnAddonMessage(
+		"RMARaidSync",
+		"not-decoded-while-quarantined",
+		"WHISPER",
+		"Leader-TestRealm"
+	)
+	assertEqual(false, accepted, "quarantine admitted inbound raid sync")
+	assertEqual(addon.L.RaidSyncStatusQuarantined, inboundReason, "inbound quarantine reason differs")
+	assertEqual(0, decodeCalls, "quarantined inbound message reached protocol decoding")
+	assertEqual(queuedBefore, #fixture.queued, "quarantine allocated direct message work")
+	assertEqual(batchesBefore, #fixture.batches, "quarantine allocated transfer work")
+	assertTrue(deepEqual(pristineArchive, _G.RMA_Raids), "quarantined sync mutated the archive")
+	assertEqual(0, #fixture.offers, "quarantined sync published a historical offer")
+	assertEqual(0, #fixture.selections, "quarantined sync selected a history row")
+	local status, statusReason = fixture.syncer:GetStatus()
+	assertEqual("suspended", status, "quarantined sync status differs")
+	assertEqual(addon.L.RaidSyncStatusQuarantined, statusReason, "quarantined sync status reason differs")
+
+	local reservesCalls, distributionCalls = 0, 0
+	local reservesHandler = function() reservesCalls = reservesCalls + 1; return true end
+	local distributionHandler = function() distributionCalls = distributionCalls + 1; return true end
+	assertTrue(reservesHandler(), "quarantine disabled the independent Reserves handler")
+	assertTrue(distributionHandler(), "quarantine disabled the independent Distribution handler")
+	assertEqual(1, reservesCalls, "Reserves handler call count differs")
+	assertEqual(1, distributionCalls, "Distribution handler call count differs")
+	print("PASS raid_history_quarantine_suspends_only_raid_sync")
 end
 
 local function latestQueuedEnvelope(fixture, kind)

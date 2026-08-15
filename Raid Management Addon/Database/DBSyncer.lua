@@ -127,6 +127,19 @@ local function setStatus(status, reason)
 	return status ~= STATUS_FAILED and status ~= STATUS_SUSPENDED
 end
 
+local function admitRaidHistorySync()
+	local savedVariables = Database.SavedVariables
+	local quarantine = savedVariables
+		and savedVariables.GetRaidArchiveError
+		and savedVariables.GetRaidArchiveError()
+	if not quarantine then
+		return true
+	end
+	local reason = L and L.RaidSyncStatusQuarantined or "RAID_ARCHIVE_QUARANTINED"
+	setStatus(STATUS_SUSPENDED, reason)
+	return false, reason
+end
+
 local function countEntries(values)
 	local count = 0
 	for _ in pairs(values) do
@@ -340,6 +353,10 @@ local function canRequestRange(localHead, remoteHead)
 end
 
 local function sendGroup(kind, body)
+	local admitted, admissionReason = admitRaidHistorySync()
+	if not admitted then
+		return false, admissionReason
+	end
 	local message, reason = Protocol.Encode(kind, "-", "-", body)
 	if not message then
 		return false, reason
@@ -348,6 +365,10 @@ local function sendGroup(kind, body)
 end
 
 local function sendDirectFireAndForget(kind, target, body)
+	local admitted, admissionReason = admitRaidHistorySync()
+	if not admitted then
+		return false, admissionReason
+	end
 	local message, reason = Protocol.Encode(kind, "-", "-", body)
 	if not message then
 		return false, reason
@@ -722,6 +743,10 @@ local function admitRecovery(recovery)
 end
 
 local function requestRange(remoteSender, fromSequence, toSequence, remoteHead, handover)
+	local admitted, admissionReason = admitRaidHistorySync()
+	if not admitted then
+		return false, admissionReason
+	end
 	if module._status == STATUS_SUSPENDED then
 		return false, "SUSPENDED"
 	end
@@ -806,6 +831,10 @@ local function requestRange(remoteSender, fromSequence, toSequence, remoteHead, 
 end
 
 requestSnapshot = function(remoteSender, remoteHead, handover, reentry)
+	local admitted, admissionReason = admitRaidHistorySync()
+	if not admitted then
+		return false, admissionReason
+	end
 	if module._status == STATUS_SUSPENDED then
 		return false, "SUSPENDED"
 	end
@@ -1354,6 +1383,9 @@ local function refreshAuthority()
 end
 
 local function requestActiveRaidIfNeeded(eventName, instanceName, instanceKey, instanceDiff)
+	if not admitRaidHistorySync() then
+		return
+	end
 	refreshAuthority()
 	local authority = normalizeName(Raid:GetRaidLeaderName())
 	if Raid:IsRaidLeader() and authority == localPlayer then
@@ -1876,6 +1908,7 @@ function module:GetProtocolVersion()
 end
 
 function module:GetStatus()
+	admitRaidHistorySync()
 	pruneHistoryRuntime()
 	pruneLiveLootAssemblies(GetTime())
 	return self._status, self._statusReason
@@ -1896,6 +1929,10 @@ function module:IsAuthorityRecovering(raidUid)
 end
 
 function module:AdvertiseHead()
+	local admitted, admissionReason = admitRaidHistorySync()
+	if not admitted then
+		return false, admissionReason
+	end
 	if not Raid:IsRaidLeader() then
 		return false, "NOT_AUTHORITY"
 	end
@@ -1925,6 +1962,10 @@ function module:RequestSnapshot(sender, remoteHead)
 end
 
 function module:OfferHistoricalRaid(raidUid, target)
+	local admitted, admissionReason = admitRaidHistorySync()
+	if not admitted then
+		return false, admissionReason
+	end
 	local now = pruneHistoryRuntime()
 	local normalizedTarget = normalizeName(target)
 	if not normalizedTarget or normalizedTarget == localPlayer or not Raid:IsGroupMember(target) then
@@ -1990,6 +2031,10 @@ function module:OfferHistoricalRaid(raidUid, target)
 end
 
 function module:AcceptHistoricalOffer(sender, offerId)
+	local admitted, admissionReason = admitRaidHistorySync()
+	if not admitted then
+		return false, admissionReason
+	end
 	local now = pruneHistoryRuntime()
 	if self._historyTransfer then
 		return false, "HISTORY_TRANSFER_IN_PROGRESS"
@@ -2073,6 +2118,10 @@ function module:AcceptHistoricalOffer(sender, offerId)
 end
 
 function module:DeclineHistoricalOffer(sender, offerId)
+	local admitted, admissionReason = admitRaidHistorySync()
+	if not admitted then
+		return false, admissionReason
+	end
 	pruneHistoryRuntime()
 	local normalizedSender = normalizeName(sender)
 	local key = normalizedSender and historyOfferKey(normalizedSender, offerId) or nil
@@ -2091,6 +2140,10 @@ end
 function module:OnAddonMessage(prefix, message, channel, rawSender)
 	if prefix ~= COMM_PREFIX or type(message) ~= "string" or #message < 1 or #message > MAX_WIRE_BYTES then
 		return false
+	end
+	local admitted, admissionReason = admitRaidHistorySync()
+	if not admitted then
+		return false, admissionReason
 	end
 	local sender = normalizeName(rawSender)
 	if not sender or sender == localPlayer then
@@ -2205,6 +2258,9 @@ local function buildFragmentedLiveLoot(event)
 end
 
 broadcastCommittedEvent = function(_, event)
+	if not admitRaidHistorySync() then
+		return
+	end
 	if not Raid:IsRaidLeader() or module._handover or type(event) ~= "table" then
 		return
 	end
@@ -2293,6 +2349,9 @@ broadcastCommittedEvent = function(_, event)
 end
 
 local function advertiseIfAuthoritative()
+	if not admitRaidHistorySync() then
+		return
+	end
 	if module._deferReentryAdvertise then
 		return
 	end
@@ -2302,6 +2361,10 @@ local function advertiseIfAuthoritative()
 end
 
 assert(RaidStore:SetAuthorityGuard(function(operation)
+	local admitted, admissionReason = admitRaidHistorySync()
+	if not admitted then
+		return false, admissionReason
+	end
 	refreshAuthority()
 	local isRaidLeader = Raid:IsRaidLeader() == true
 	local identifiedLeader = normalizeName(Raid:GetRaidLeaderName())
