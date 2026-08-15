@@ -82,6 +82,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Persistence Safety | 3/3 | Complete | 2026-08-15 |
-| 2. Locale-Independent Raid Recognition | 0/5 | Not started | - |
+| 2. Locale-Independent Raid Recognition | 1/5 | In Progress | - |
 | 3. Bounded Sync Requests | 0/TBD | Not started | - |
 | 4. Milestone Verification | 0/TBD | Not started | - |
