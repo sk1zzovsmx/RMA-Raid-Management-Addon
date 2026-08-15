@@ -6132,6 +6132,8 @@ local function installLoggerShareFixture(addon)
 	local callbacks, dialogs, resolved = {}, {}, {}
 	local shown
 	local offerResult, offerReason = true, nil
+	local quarantineReason
+	local clearedSelections = {}
 	local frameBinding
 	local scaffoldDefinition
 
@@ -6211,6 +6213,28 @@ local function installLoggerShareFixture(addon)
 		_G[listName .. listSuffixes[i]] = newControl(listName .. listSuffixes[i])
 	end
 
+	local lootListName = "RMALootHistoryLoot"
+	local lootListSuffixes = {
+		"Title",
+		"ExportBtn",
+		"ClearBtn",
+		"AddBtn",
+		"EditBtn",
+		"DeleteBtn",
+		"HeaderItem",
+		"HeaderSource",
+		"HeaderWinner",
+		"HeaderType",
+		"HeaderRoll",
+		"HeaderTime",
+		"EmptyState",
+		"ScrollFrame",
+	}
+	_G[lootListName] = newControl(lootListName)
+	for i = 1, #lootListSuffixes do
+		_G[lootListName .. lootListSuffixes[i]] = newControl(lootListName .. lootListSuffixes[i])
+	end
+
 	local shareName = "RMALootHistoryShareFrame"
 	_G[shareName] = newControl(shareName)
 	for _, suffix in ipairs({ "RecipientLabel", "RecipientDropDown", "SendBtn", "Summary", "Status" }) do
@@ -6233,7 +6257,9 @@ local function installLoggerShareFixture(addon)
 		RaidSyncStatusHandover = "Handover",
 		RaidSyncStatusTransferringHistory = "Transferring",
 		RaidSyncStatusSuspended = "Suspended",
+		RaidSyncStatusQuarantined = "Raid history sync suspended",
 		RaidSyncStatusFailed = "Failed",
+		StrRaidHistoryQuarantined = "Raid history unavailable (quarantined).",
 		StrUnknown = "Unknown",
 		PopupRaidReentryConfirm = "Resume the previous raid?\nZone: %s\nSize: %d\nDifficulty: %s",
 	}, {
@@ -6412,6 +6438,11 @@ local function installLoggerShareFixture(addon)
 	addon.Database.GetRaidStore = function()
 		return raidStore
 	end
+	addon.Database.SavedVariables = {
+		GetRaidArchiveError = function()
+			return quarantineReason
+		end,
+	}
 	addon.Database.GetSyncer = function()
 		return syncer
 	end
@@ -6531,7 +6562,9 @@ local function installLoggerShareFixture(addon)
 			SelectRange = function()
 				return nil, 0
 			end,
-			Clear = noop,
+			Clear = function(context)
+				clearedSelections[#clearedSelections + 1] = context
+			end,
 		},
 		ModuleState = {
 			Ensure = function()
@@ -6591,12 +6624,19 @@ local function installLoggerShareFixture(addon)
 
 	loadAddonFile(addon, "Raid Management Addon/Controllers/Logger.lua")
 	local raidController = addon.Controllers.Logger.Raids._ctrl
+	local lootController = addon.Controllers.Logger.Loot._ctrl
 	raidController.config.localize(listName)
+	lootController.config.localize(lootListName)
 
 	return {
 		controller = addon.Controllers.Logger,
 		raidController = raidController,
+		lootController = lootController,
 		shareButton = _G[listName .. "ShareBtn"],
+		raidHint = _G[listName .. "EmptyState"],
+		lootHint = _G[lootListName .. "EmptyState"],
+		lootExportButton = _G[lootListName .. "ExportBtn"],
+		lootDeleteButton = _G[lootListName .. "DeleteBtn"],
 		shareFrame = _G[shareName],
 		sendButton = _G[shareName .. "SendBtn"],
 		warnings = warnings,
@@ -6634,7 +6674,38 @@ local function installLoggerShareFixture(addon)
 		setOfferResult = function(result, reason)
 			offerResult, offerReason = result, reason
 		end,
+		setQuarantine = function(reason)
+			quarantineReason = reason
+		end,
+		clearedSelections = clearedSelections,
 	}
+end
+
+function cases.logger_quarantined_history_is_visible_and_read_only(addon)
+	local fixture = installLoggerShareFixture(addon)
+	local logger = fixture.controller
+	logger._SetSelectedRaid(1)
+	fixture.setQuarantine("UNSUPPORTED_RAID_ARCHIVE_FORMAT")
+
+	fixture.raidController.config.postUpdate("RMALootHistoryRaids")
+	fixture.lootController.config.postUpdate("RMALootHistoryLoot")
+
+	assertEqual(nil, logger.selectedRaid, "quarantine retained a raid selection")
+	assertEqual(addon.L.StrRaidHistoryQuarantined, fixture.raidHint.text, "raid quarantine hint differs")
+	assertEqual(true, fixture.raidHint.shown, "raid quarantine hint is hidden")
+	assertEqual(addon.L.StrRaidHistoryQuarantined, fixture.lootHint.text, "loot quarantine hint differs")
+	assertEqual(true, fixture.lootHint.shown, "loot quarantine hint is hidden")
+	assertEqual(false, fixture.currentButton.enabled, "quarantine enabled Set Current")
+	assertEqual(false, fixture.shareButton.enabled, "quarantine enabled Share")
+	assertEqual(false, _G.RMALootHistoryRaidsDeleteBtn.enabled, "quarantine enabled raid deletion")
+	assertEqual(false, fixture.lootExportButton.enabled, "quarantine enabled export")
+	assertEqual(false, fixture.lootDeleteButton.enabled, "quarantine enabled loot deletion")
+	assertTrue(#fixture.clearedSelections > 0, "quarantine did not clear history selections")
+
+	fixture.showLogger()
+	assertEqual(nil, logger.selectedRaid, "opening quarantined history selected an archive row")
+	assertEqual(true, fixture.raidHint.shown, "history window did not remain available for status visibility")
+	print("PASS logger_quarantined_history_is_visible_and_read_only")
 end
 
 function cases.raid_reentry_popup_routes_explicit_decisions(addon)

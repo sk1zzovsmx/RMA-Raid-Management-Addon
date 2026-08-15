@@ -317,6 +317,16 @@ class RaidReplicationBehaviorTests(unittest.TestCase):
     def test_quarantined_archive_reads_fail_closed(self) -> None:
         self.assert_case("raid_archive_quarantined_reads_fail_closed")
 
+    def test_quarantined_history_ui_is_visible_and_read_only(self) -> None:
+        self.assert_case("logger_quarantined_history_is_visible_and_read_only")
+
+    def test_logger_has_one_database_owned_quarantine_boundary(self) -> None:
+        logger = Path("Raid Management Addon/Controllers/Logger.lua").read_text(encoding="utf-8")
+        self.assertIn("Database.SavedVariables", logger)
+        self.assertIn("GetRaidArchiveError", logger)
+        self.assertIn("StrRaidHistoryQuarantined", logger)
+        self.assertNotIn("RMA_Raids", logger)
+
     def test_history_ui_uses_archive_order_identity(self) -> None:
         projections = Path("Raid Management Addon/Services/Raid/Projections.lua").read_text(encoding="utf-8")
         logger = Path("Raid Management Addon/Controllers/Logger.lua").read_text(encoding="utf-8")

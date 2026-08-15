@@ -165,6 +165,35 @@ local GetTrashMobName = IgnoredMobs.GetTrashMobName
 Controllers.Logger = Controllers.Logger or {}
 local module = Controllers.Logger
 
+local function getRaidArchiveQuarantine()
+	local savedVariables = Database.SavedVariables
+	if savedVariables and savedVariables.GetRaidArchiveError then
+		return savedVariables.GetRaidArchiveError()
+	end
+	return nil
+end
+
+local function clearQuarantinedHistorySelection()
+	module.selectedRaid = nil
+	module.selectedBoss = nil
+	module.selectedPlayer = nil
+	module.selectedBossPlayer = nil
+	module.selectedItem = nil
+	coreState.selectedRaid = nil
+	local contexts = {
+		module._msRaidCtx,
+		module._msBossCtx,
+		module._msBossAttCtx,
+		module._msRaidAttCtx,
+		module._msLootCtx,
+	}
+	for i = 1, #contexts do
+		if contexts[i] then
+			UI.Selection.Clear(contexts[i])
+		end
+	end
+end
+
 module._loggerPanelNames = module._loggerPanelNames or {
 	"RMALootHistoryRaids",
 	"RMALootHistoryLoot",
@@ -482,6 +511,9 @@ end
 local uiState = UI.ModuleState.Ensure(module)
 
 local function getShareEligibility(raid)
+	if getRaidArchiveQuarantine() then
+		return false, L.StrRaidHistoryQuarantined
+	end
 	if not raid then
 		return false, L.StrLoggerShareNoRaid
 	end
@@ -889,6 +921,9 @@ do
 	end
 
 	local function getDefaultViewedRaid()
+		if getRaidArchiveQuarantine() then
+			return nil
+		end
 		local currentRaid = Database.GetCurrentRaid()
 		if currentRaid then
 			return currentRaid
@@ -1184,6 +1219,9 @@ do
 	end
 
 	showLoggerExportFrame = function()
+		if getRaidArchiveQuarantine() then
+			return false, L.StrRaidHistoryQuarantined
+		end
 		local raid = module._needRaid()
 		if not raid then
 			addon:error(L.ErrLoggerInvalidRaid)
@@ -1280,6 +1318,10 @@ do
 
 	-- Selectors
 	module._selectRaid = function(btn, button, opts)
+		if getRaidArchiveQuarantine() then
+			clearQuarantinedHistorySelection()
+			return false, L.StrRaidHistoryQuarantined
+		end
 		if button and button ~= "LeftButton" then
 			return
 		end
@@ -1758,6 +1800,9 @@ do
 			end,
 
 			getData = function(out)
+				if getRaidArchiveQuarantine() then
+					return
+				end
 				RaidProjections.FillRaidList(out)
 			end,
 
@@ -1781,6 +1826,18 @@ do
 
 			postUpdate = function(n)
 				applyRaidListColumnWidths(n)
+				local quarantine = getRaidArchiveQuarantine()
+				if quarantine then
+					clearQuarantinedHistorySelection()
+					UI.Primitives.SetEnabled(_G[n .. "CurrentBtn"], false)
+					UI.Primitives.SetEnabled(_G[n .. "ShareBtn"], false)
+					local delBtn = _G[n .. "DeleteBtn"]
+					UI.Primitives.SetButtonCount(delBtn, L.BtnDelete, 0)
+					UI.Primitives.SetEnabled(delBtn, false)
+					module._setPanelTitle(n, getCountTitle(L.StrRaidsList, 0))
+					module._setFrameHint(n, "EmptyState", L.StrRaidHistoryQuarantined)
+					return
+				end
 
 				local sel = module.selectedRaid
 				local raid = sel and Database.EnsureRaidByIndex(sel) or nil
@@ -2093,6 +2150,9 @@ do
 		end,
 
 		getData = function(out)
+			if getRaidArchiveQuarantine() then
+				return
+			end
 			local raid = module._needRaid()
 			if not raid then
 				return
@@ -2225,6 +2285,18 @@ do
 		postUpdate = function(n)
 			applyLootListColumnWidths(n)
 			updateSourceHeaderState(n)
+			local quarantine = getRaidArchiveQuarantine()
+			if quarantine then
+				clearQuarantinedHistorySelection()
+				local actionSuffixes = { "ExportBtn", "ClearBtn", "AddBtn", "EditBtn", "DeleteBtn" }
+				for i = 1, #actionSuffixes do
+					UI.Primitives.SetEnabled(_G[n .. actionSuffixes[i]], false)
+				end
+				UI.Primitives.SetButtonCount(_G[n .. "DeleteBtn"], L.BtnDelete, 0)
+				module._setPanelTitle(n, getCountTitle(L.StrRaidLoot, 0))
+				module._setFrameHint(n, "EmptyState", L.StrRaidHistoryQuarantined)
+				return
+			end
 
 			local lootSelCount = UI.Selection.GetCount(module._msLootCtx)
 			local exportBtn = _G[n .. "ExportBtn"]
@@ -2443,6 +2515,9 @@ do
 end
 
 RegisterCallback(LoggerEvents.LoggerRaidOfferReceived, function(_, offer)
+	if getRaidArchiveQuarantine() then
+		return
+	end
 	if type(offer) ~= "table" or not offer.sender then
 		return
 	end
