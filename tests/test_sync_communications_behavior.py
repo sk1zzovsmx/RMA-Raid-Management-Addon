@@ -179,6 +179,9 @@ class SyncCommunicationsBehaviorTests(unittest.TestCase):
     def test_reserves_metadata_requests_are_correlated_and_bounded(self) -> None:
         self.assert_case("reserves_sync_metadata_requests_are_correlated_and_bounded")
 
+    def test_reserves_incoming_requests_are_rate_limited_before_response_work(self) -> None:
+        self.assert_case("reserves_sync_incoming_requests_are_rate_limited_before_response_work")
+
     def test_reserves_assembly_admission_is_globally_and_per_sender_bounded(self) -> None:
         self.assert_case("reserves_sync_assembly_admission_is_globally_and_per_sender_bounded")
 

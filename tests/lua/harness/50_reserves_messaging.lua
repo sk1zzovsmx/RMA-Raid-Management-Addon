@@ -1394,16 +1394,37 @@ end
 
 local function installRealReservesSyncFixture(addon, localName)
 	local reserves = installRealReservesMutationFixture(addon)
+	loadAddonFile(addon, "Raid Management Addon/Localization/DiagnoseLog.en.lua")
 	addon.L.MsgReservesSyncFailed = "failed:%s"
 	addon.L.MsgReservesSyncMeta = "%s %s %s %d %d"
 	addon.L.MsgReservesSyncApplied = "applied:%s"
-	addon.info = function() end
+	local infos = {}
+	addon.info = function(_, message)
+		infos[#infos + 1] = message
+	end
 	local warnings = {}
 	addon.warn = function(_, message)
 		warnings[#warnings + 1] = message
 	end
+	local debugMessages = {}
+	addon.hasDebug = nil
+	addon.debug = function(_, message)
+		debugMessages[#debugMessages + 1] = message
+	end
 	local sent = {}
 	local payload = installPayloadCodec(addon)
+	local work = {
+		payloadCalls = 0,
+		serializeCalls = 0,
+		directQueueAttempts = 0,
+		batchQueueAttempts = 0,
+		emittedPackets = 0,
+	}
+	local serializePayload = payload.Serialize
+	function payload.Serialize(value)
+		work.serializeCalls = work.serializeCalls + 1
+		return serializePayload(value)
+	end
 	function payload.PackFields(separator, ...)
 		local fields = { ... }
 		for i = 1, #fields do
@@ -1443,6 +1464,7 @@ local function installRealReservesSyncFixture(addon, localName)
 	end
 	local function recordMessage(prefix, target, message, channel, opts)
 		local envelope = payload.Deserialize(message)
+		work.emittedPackets = work.emittedPackets + 1
 		sent[#sent + 1] = {
 			prefix = prefix,
 			target = target,
@@ -1462,18 +1484,22 @@ local function installRealReservesSyncFixture(addon, localName)
 			return tostring(value or ""):match("^[^-]+") or ""
 		end,
 		SendAddonWhisper = function(prefix, target, message)
+			work.directQueueAttempts = work.directQueueAttempts + 1
 			return recordMessage(prefix, target, message, "WHISPER")
 		end,
 		QueueAddonMessage = function(prefix, message, channel, target, opts)
+			work.directQueueAttempts = work.directQueueAttempts + 1
 			return recordMessage(prefix, target, message, channel, opts)
 		end,
 		QueueAddonMessages = function(prefix, messages, channel, target, opts)
+			work.batchQueueAttempts = work.batchQueueAttempts + 1
 			for i = 1, #messages do
 				recordMessage(prefix, target, messages[i], channel, opts)
 			end
 			return true
 		end,
 		SendAddonBatch = function(prefix, messages, target, opts)
+			work.batchQueueAttempts = work.batchQueueAttempts + 1
 			local channel = target and "WHISPER" or "RAID"
 			for i = 1, #messages do
 				recordMessage(prefix, target, messages[i], channel, opts)
@@ -1485,12 +1511,20 @@ local function installRealReservesSyncFixture(addon, localName)
 			return recordMessage(prefix, nil, message, "RAID")
 		end,
 	}
+	local defaultMembership = true
+	local membershipBySender = {}
+	local membershipChecks = {}
 	addon.Services.Raid = {
 		GetPlayerRoleState = function()
 			return { isLeader = true }
 		end,
-		IsGroupMember = function()
-			return true
+		IsGroupMember = function(_, sender)
+			membershipChecks[#membershipChecks + 1] = sender
+			local allowed = membershipBySender[sender]
+			if allowed == nil then
+				return defaultMembership
+			end
+			return allowed
 		end,
 		IsReservesAuthority = function()
 			return true
@@ -1504,13 +1538,50 @@ local function installRealReservesSyncFixture(addon, localName)
 		return now
 	end
 	loadAddonFile(addon, "Raid Management Addon/Services/Reserves/Sync.lua")
+	local sync = reserves._Sync
+	local getPayload = sync.GetPayload
+	function sync:GetPayload()
+		work.payloadCalls = work.payloadCalls + 1
+		return getPayload(self)
+	end
+	local forcedLocalDataAvailability
+	local isLocalDataAvailable = reserves.IsLocalDataAvailable
+	function reserves:IsLocalDataAvailable()
+		if forcedLocalDataAvailability ~= nil then
+			return forcedLocalDataAvailability
+		end
+		return isLocalDataAvailable(self)
+	end
 	return {
 		reserves = reserves,
-		sync = reserves._Sync,
+		sync = sync,
 		payload = payload,
 		sent = sent,
+		infos = infos,
+		debugMessages = debugMessages,
+		work = work,
+		resetWork = function()
+			work.payloadCalls = 0
+			work.serializeCalls = 0
+			work.directQueueAttempts = 0
+			work.batchQueueAttempts = 0
+			work.emittedPackets = 0
+		end,
 		setNow = function(value)
 			now = value
+		end,
+		setDebug = function(enabled)
+			addon.hasDebug = enabled and true or nil
+		end,
+		setDefaultMembership = function(allowed)
+			defaultMembership = allowed == true
+		end,
+		setMember = function(sender, allowed)
+			membershipBySender[sender] = allowed
+		end,
+		membershipChecks = membershipChecks,
+		setLocalDataAvailable = function(available)
+			forcedLocalDataAvailability = available
 		end,
 		warnings = warnings,
 		encode = function(kind, requestId, target, body, version)
@@ -2171,6 +2242,220 @@ function cases.reserves_sync_metadata_requests_are_correlated_and_bounded()
 		return count
 	end)(), "expired metadata requests were retained")
 	print("PASS reserves_sync_metadata_requests_are_correlated_and_bounded")
+end
+
+function cases.reserves_sync_incoming_requests_are_rate_limited_before_response_work()
+	local function countKeys(value)
+		local count = 0
+		for _ in pairs(type(value) == "table" and value or {}) do
+			count = count + 1
+		end
+		return count
+	end
+
+	local function installProvider(localName)
+		_G.RMA_Reserves = {}
+		local providerAddon = newAddon()
+		local fixture = installRealReservesSyncFixture(providerAddon, localName or "Provider")
+		_G.RMA_Reserves = {
+			alpha = {
+				playerNameDisplay = "Alpha",
+				reserves = {
+					{
+						rawID = 10001,
+						quantity = 1,
+						plus = 0,
+						class = "MAGE",
+						spec = "Arcane",
+						note = "bounded",
+						source = "test",
+					},
+				},
+			},
+		}
+		fixture.reserves:Load()
+		assertTrue(fixture.reserves:IsLocalDataAvailable(), "reserve provider fixture did not load local data")
+		return providerAddon, fixture
+	end
+
+	local function assertHandledWithoutResponseWork(fixture, message, sender, label, expectedDebugDelta)
+		local sentBefore = #fixture.sent
+		local infoBefore = #fixture.infos
+		local warningBefore = #fixture.warnings
+		local debugBefore = #fixture.debugMessages
+		fixture.resetWork()
+		assertEqual(
+			true,
+			fixture.sync:HandleMessage("RMAResSync", message, "WHISPER", sender),
+			label .. " was not consumed"
+		)
+		assertEqual(0, fixture.work.payloadCalls, label .. " constructed a reserve payload")
+		assertEqual(0, fixture.work.serializeCalls, label .. " serialized a response")
+		assertEqual(0, fixture.work.directQueueAttempts, label .. " reached the direct queue")
+		assertEqual(0, fixture.work.batchQueueAttempts, label .. " built or queued a response batch")
+		assertEqual(0, fixture.work.emittedPackets, label .. " emitted a response packet")
+		assertEqual(sentBefore, #fixture.sent, label .. " changed the captured transport")
+		assertEqual(infoBefore, #fixture.infos, label .. " emitted ordinary chat output")
+		assertEqual(warningBefore, #fixture.warnings, label .. " emitted a warning")
+		assertEqual(expectedDebugDelta or 0, #fixture.debugMessages - debugBefore, label .. " debug output differs")
+	end
+
+	local providerAddon, fixture = installProvider("Provider")
+	fixture.setNow(10)
+	local metaRequest = fixture.encode("META_REQ", "meta-first", false, {})
+	local dataRequest = fixture.encode("DATA_REQ", "data-first", "Provider", { checksum = "C2:0:0" })
+	fixture.resetWork()
+	assertTrue(fixture.sync:HandleMessage("RMAResSync", metaRequest, "RAID", "Player-Realm"))
+	assertEqual(1, fixture.work.payloadCalls, "first metadata request payload count differs")
+	assertEqual(1, fixture.work.serializeCalls, "first metadata response serialization count differs")
+	assertEqual(1, fixture.work.directQueueAttempts, "first metadata response queue count differs")
+	assertEqual(1, fixture.work.emittedPackets, "first metadata response packet count differs")
+	local metaAck = fixture.sent[#fixture.sent]
+	local metaEnvelope = assertR5Envelope(providerAddon, metaAck.message, "META_ACK")
+	assertEqual("RMAResSync", metaAck.prefix, "metadata response prefix differs")
+	assertEqual("meta-first", metaEnvelope[3], "metadata response request ID differs")
+	assertEqual("Player", metaEnvelope[4], "metadata response target differs")
+	assertEqual("ALERT", metaAck.priority, "metadata response priority differs")
+	assertEqual("WHISPER", metaAck.channel, "metadata response channel differs")
+	assertTrue(type(metaEnvelope[5].checksum) == "string", "metadata checksum is absent")
+	assertEqual("multi", metaEnvelope[5].mode, "metadata mode differs")
+	assertEqual(1, metaEnvelope[5].players, "metadata player count differs")
+	assertEqual(1, metaEnvelope[5].entries, "metadata entry count differs")
+	assertEqual("Provider", metaEnvelope[5].source, "metadata source differs")
+
+	local dataSentAt = #fixture.sent
+	fixture.resetWork()
+	assertTrue(fixture.sync:HandleMessage("RMAResSync", dataRequest, "WHISPER", "Player-Realm"))
+	assertEqual(1, fixture.work.payloadCalls, "independent first data request payload count differs")
+	assertEqual(1, fixture.work.batchQueueAttempts, "first data response batch count differs")
+	assertEqual(1, fixture.work.directQueueAttempts, "first data completion queue count differs")
+	local dataChunks = 0
+	local dataDone
+	for i = dataSentAt + 1, #fixture.sent do
+		local packet = fixture.sent[i]
+		local envelope = assertR5Envelope(providerAddon, packet.message, packet.kind)
+		assertEqual("RMAResSync", packet.prefix, "data response prefix differs")
+		assertEqual("data-first", envelope[3], "data response request ID differs")
+		assertEqual("Player", envelope[4], "data response target differs")
+		if packet.kind == "DATA_CHUNK" then
+			dataChunks = dataChunks + 1
+			assertEqual("BULK", packet.priority, "data chunk priority differs")
+			assertTrue(type(envelope[5].chunk) == "string" and envelope[5].chunk ~= "", "data chunk body differs")
+		elseif packet.kind == "DATA_DONE" then
+			dataDone = envelope
+			assertEqual("ALERT", packet.priority, "data completion priority differs")
+		end
+	end
+	assertTrue(dataChunks >= 1, "first data request emitted no chunks")
+	assertTrue(dataDone ~= nil, "first data request emitted no DATA_DONE")
+	assertTrue(type(dataDone[5].checksum) == "string", "data completion checksum is absent")
+
+	fixture.setNow(14.999)
+	local aliasLower = fixture.encode("META_REQ", "meta-lower", false, {})
+	local aliasRealm = fixture.encode("META_REQ", "meta-realm", false, {})
+	assertHandledWithoutResponseWork(fixture, aliasLower, "player", "case alias replay before five seconds")
+	assertHandledWithoutResponseWork(fixture, aliasRealm, "Player-OtherRealm", "realm alias replay before five seconds")
+	fixture.setNow(15)
+	local exactBoundary = fixture.encode("META_REQ", "meta-boundary", false, {})
+	fixture.resetWork()
+	assertTrue(fixture.sync:HandleMessage("RMAResSync", exactBoundary, "RAID", "Player-Realm"))
+	assertEqual(1, fixture.work.payloadCalls, "exact five-second metadata boundary was not admitted")
+	assertEqual("meta-boundary", fixture.sent[#fixture.sent].envelope[3], "boundary response request ID differs")
+
+	local _, validationFixture = installProvider("Validator")
+	validationFixture.setNow(30)
+	local wrongVersion = validationFixture.encode("META_REQ", "invalid-version", false, {}, 4)
+	local wrongTarget = validationFixture.encode("META_REQ", "invalid-target", "Validator", {})
+	local wrongBody = validationFixture.encode("META_REQ", "invalid-body", false, { unexpected = true })
+	local validAfterMalformed = validationFixture.encode("META_REQ", "valid-after-malformed", false, {})
+	assertHandledWithoutResponseWork(validationFixture, wrongVersion, "Validator-Realm", "wrong-version request")
+	assertHandledWithoutResponseWork(validationFixture, wrongTarget, "Validator-Realm", "mistargeted request")
+	assertHandledWithoutResponseWork(validationFixture, wrongBody, "Validator-Realm", "malformed-body request")
+	assertHandledWithoutResponseWork(validationFixture, validAfterMalformed, "-Realm", "invalid normalized identity")
+	assertEqual(0, countKeys(validationFixture.sync._requestAdmissions), "invalid requests allocated admission state")
+	validationFixture.resetWork()
+	assertTrue(validationFixture.sync:HandleMessage("RMAResSync", validAfterMalformed, "RAID", "Validator-Realm"))
+	assertEqual(1, validationFixture.work.payloadCalls, "malformed requests consumed the later valid admission")
+
+	local deniedRequest = validationFixture.encode("META_REQ", "denied", false, {})
+	validationFixture.setMember("Denied-Realm", false)
+	assertHandledWithoutResponseWork(validationFixture, deniedRequest, "Denied-Realm", "non-member request")
+	assertEqual("Denied-Realm", validationFixture.membershipChecks[#validationFixture.membershipChecks], "membership did not receive raw sender")
+	validationFixture.setMember("Denied-Realm", true)
+	validationFixture.resetWork()
+	assertTrue(validationFixture.sync:HandleMessage("RMAResSync", deniedRequest, "RAID", "Denied-Realm"))
+	assertEqual(1, validationFixture.work.payloadCalls, "non-member request consumed admission state")
+	validationFixture.setNow(31)
+	validationFixture.setMember("Denied-Realm", false)
+	assertHandledWithoutResponseWork(validationFixture, deniedRequest, "Denied-Realm", "sender after leaving group")
+	validationFixture.setMember("Denied-Realm", true)
+	assertHandledWithoutResponseWork(validationFixture, deniedRequest, "Denied-Realm", "re-entered sender with active cooldown")
+	validationFixture.setNow(35)
+	validationFixture.resetWork()
+	assertTrue(validationFixture.sync:HandleMessage("RMAResSync", deniedRequest, "RAID", "Denied-Realm"))
+	assertEqual(1, validationFixture.work.payloadCalls, "re-entered sender was not admitted at the original expiry")
+
+	_G.RMA_Reserves = {}
+	local noDataAddon = newAddon()
+	local noDataFixture = installRealReservesSyncFixture(noDataAddon, "NoDataProvider")
+	noDataFixture.setNow(40)
+	local noDataRequest = noDataFixture.encode("META_REQ", "no-data", false, {})
+	noDataFixture.resetWork()
+	assertTrue(noDataFixture.sync:HandleMessage("RMAResSync", noDataRequest, "RAID", "NoData-Realm"))
+	assertEqual(0, noDataFixture.work.payloadCalls, "no-data path unexpectedly built a reserve payload")
+	assertEqual(1, noDataFixture.work.directQueueAttempts, "no-data path did not preserve its error response")
+	local noDataError = assertR5Envelope(noDataAddon, noDataFixture.sent[#noDataFixture.sent].message, "DATA_ERR")
+	assertEqual("no-data", noDataError[3], "no-data error request ID differs")
+	assertEqual("NoData", noDataError[4], "no-data error target differs")
+	assertEqual("no_data", noDataError[5].reason, "no-data error reason differs")
+	noDataFixture.setNow(41)
+	assertHandledWithoutResponseWork(noDataFixture, noDataRequest, "NoData-Realm", "no-data replay with debug disabled")
+	noDataFixture.setDebug(true)
+	assertHandledWithoutResponseWork(noDataFixture, noDataRequest, "NoData-Realm", "first debug-visible cooldown rejection", 1)
+	assertContains(
+		noDataFixture.debugMessages[1],
+		"service=reserves kind=META_REQ sender=nodata",
+		"rate-limit diagnostic omitted bounded identity fields"
+	)
+	assertHandledWithoutResponseWork(noDataFixture, noDataRequest, "NoData-Realm", "deduplicated debug cooldown rejection")
+
+	local _, capacityFixture = installProvider("CapacityProvider")
+	capacityFixture.setNow(60)
+	local capacityRequests = {}
+	for i = 1, 128 do
+		capacityRequests[i] = capacityFixture.encode("META_REQ", "capacity-" .. tostring(i), false, {})
+	end
+	capacityFixture.resetWork()
+	for i = 1, 128 do
+		assertTrue(
+			capacityFixture.sync:HandleMessage("RMAResSync", capacityRequests[i], "RAID", "Cap" .. tostring(i) .. "-Realm"),
+			"capacity sender was not handled " .. tostring(i)
+		)
+	end
+	assertEqual(128, countKeys(capacityFixture.sync._requestAdmissions), "reserve admission sender map bound differs")
+	local existingOtherKind = capacityFixture.encode(
+		"DATA_REQ",
+		"capacity-data",
+		"CapacityProvider",
+		{ checksum = "C2:0:0" }
+	)
+	capacityFixture.resetWork()
+	assertTrue(capacityFixture.sync:HandleMessage("RMAResSync", existingOtherKind, "WHISPER", "Cap1-Realm"))
+	assertEqual(1, capacityFixture.work.payloadCalls, "existing sender's other request kind was blocked at capacity")
+	assertEqual(128, countKeys(capacityFixture.sync._requestAdmissions), "independent request kind expanded sender capacity")
+	local overflow = capacityFixture.encode("META_REQ", "capacity-overflow", false, {})
+	assertHandledWithoutResponseWork(capacityFixture, overflow, "Cap129-Realm", "unseen sender at capacity")
+	assertEqual(128, countKeys(capacityFixture.sync._requestAdmissions), "capacity rejection changed the map bound")
+	assertTrue(capacityFixture.sync._requestAdmissions.cap1 ~= nil, "capacity rejection evicted an active sender")
+	capacityFixture.setNow(65)
+	local afterExpiry = capacityFixture.encode("META_REQ", "capacity-expired", false, {})
+	capacityFixture.resetWork()
+	assertTrue(capacityFixture.sync:HandleMessage("RMAResSync", afterExpiry, "RAID", "Cap129-Realm"))
+	assertEqual(1, capacityFixture.work.payloadCalls, "lazy exact-boundary expiry did not admit a new sender")
+	assertEqual(1, countKeys(capacityFixture.sync._requestAdmissions), "lazy expiry retained inactive reserve senders")
+	assertTrue(capacityFixture.sync._requestAdmissions.cap129 ~= nil, "new sender was not recorded after lazy expiry")
+
+	print("PASS reserves_sync_incoming_requests_are_rate_limited_before_response_work")
 end
 
 function cases.reserves_sync_assembly_admission_is_globally_and_per_sender_bounded()
