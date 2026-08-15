@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-08-15T09:34:05.271Z"
+stopped_at: Completed 02-04-PLAN.md
+last_updated: "2026-08-15T09:42:33.055Z"
 last_activity: 2026-08-15 - Completed Phase 2 Plan 02 bounded unknown-raid recovery
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 8
-  completed_plans: 6
-  percent: 75
+  completed_plans: 7
+  percent: 88
 ---
 
 # Project State
@@ -26,35 +26,36 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 ## Current Position
 
 Phase: 2 of 4 (Locale-Independent Raid Recognition)
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Phase 2 in progress
-Last activity: 2026-08-15 - Completed Phase 2 Plan 02 bounded unknown-raid recovery
+Last activity: 2026-08-15 - Completed Phase 2 Plan 04 evidence-bound localized yell catalogs
 
-Progress: [████████░░] 75%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
-- Average duration: 13 min
-- Total execution time: 1.3 hours
+- Total plans completed: 7
+- Average duration: 12 min
+- Total execution time: 1.4 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | Phase 01 | 3 | 30 min | 10 min |
-| Phase 02 | 3 | 47 min | 16 min |
+| Phase 02 | 4 | 54 min | 14 min |
 
 **Recent Trend:**
-- Last 5 plans: 8 min, 12 min, 20 min, 17 min, 10 min
-- Trend: Phase 2 admission, bounded recovery, and evidence foundations completed
+- Last 5 plans: 12 min, 20 min, 17 min, 10 min, 7 min
+- Trend: Phase 2 admission, bounded recovery, evidence, and localized catalogs completed
 
 *Updated after each plan completion*
 | Phase 01 P03 | 12min | 2 tasks | 5 files |
 | Phase 02 P01 | 20min | 2 tasks | 7 files |
 | Phase 02 P03 | 17min | 2 tasks | 1 files |
 | Phase 02 P02 | 10min | 2 tasks | 11 files |
+| Phase 02 P04 | 7min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -80,6 +81,8 @@ Recent decisions affecting current work:
 - [Phase 02]: Direct locale discrepancies require an exact same-ID client-derived source before acceptance. — Numeric provenance and digest agreement resolve invisible punctuation or stale direct-row conflicts without judgment.
 - [Phase 02]: Unknown raid warning dedupe is transient Init state keyed by received map ID and display name. — This prevents overlapping entry events and bounded retries from spamming while allowing a fresh warning after recognized or non-raid transitions.
 - [Phase 02]: Session owns the bounded timer cadence while Init owns every retry refresh and dataset activation. — This preserves module ownership and avoids recursive scheduling or a new polling mechanism.
+- [Phase 02]: English yell fallback definitions retain original text separately from current-locale scalars and carry one canonical raid scope. — Exact English acceptance and localized acceptance must coexist without display-name admission or persisted schema changes.
+- [Phase 02]: Non-English yell catalogs bind only the 60 accepted evidence bytes and remain scalar-only. — Exact matching makes punctuation, whitespace, and Unicode byte drift correctness-relevant.
 
 ### Pending Todos
 
@@ -92,6 +95,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-15T09:34:05.269Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-08-15T09:42:33.053Z
+Stopped at: Completed 02-04-PLAN.md
 Resume file: None
