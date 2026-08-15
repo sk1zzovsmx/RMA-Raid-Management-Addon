@@ -415,7 +415,7 @@ do
 			row.reset:SetSize(RESET_BTN_W, BTN_H)
 			row.reset:SetPoint("RIGHT", row, "RIGHT", RIGHT_EDGE, 0)
 
-			-- Build one section container per loot type (FREE → OS → MS, right to left).
+			-- Build one section container per loot type (FREE -> OS -> MS, right to left).
 			local function makeSection(anchorRight, anchorOffset)
 				local sec = CreateFrame("Frame", nil, row)
 				sec:SetSize(SECTION_W, rowHeight)
