@@ -791,6 +791,7 @@ Diag.I.LogPerfBlock = "[Perf] %s %.1fms%s"
 -- Utils --
 Diag.E.LogUtilsCallbackExec = "Error while executing callback %s for event %s: %s"
 Diag.D.LogListHighlightRefresh = "[%s] refresh key=%s%s"
+Diag.D.LogSyncRequestRateLimited = "[Sync] Request rate limited service=%s kind=%s sender=%s"
 
 -- Raid --
 Diag.D.LogRaidLeftGroupEndSession = "[Raid] Left group -> ending current raid session"

@@ -53,6 +53,8 @@ local MAX_PENDING_REQUESTS = 32
 local MAX_INCOMING_ASSEMBLIES = 16
 local MAX_INCOMING_PER_SENDER = 4
 local MAX_REQUEST_SEQUENCE = 999999
+local REQUEST_COOLDOWN_SECONDS = 5
+local MAX_REQUEST_SENDERS = 128
 
 local MESSAGE_KINDS = {
 	[MSG_META_REQ] = true,
@@ -66,6 +68,7 @@ local MESSAGE_KINDS = {
 Sync._incoming = Sync._incoming or {}
 Sync._pendingRequests = Sync._pendingRequests or {}
 Sync._nextRequestId = Sync._nextRequestId or 0
+Sync._requestAdmissions = Sync._requestAdmissions or {}
 
 local normalizeSender = assert(Comms.NormalizeSender, Diag.A.ReservesSyncSenderNormalizerNotInitialized)
 
@@ -75,6 +78,62 @@ end
 
 local function getIncomingNow()
 	return GetTime()
+end
+
+local function pruneRequestAdmissions(now)
+	local senderCount = 0
+	for senderKey, requestKinds in pairs(Sync._requestAdmissions) do
+		if type(requestKinds) == "table" then
+			for requestKind, state in pairs(requestKinds) do
+				local admittedAt = type(state) == "table" and tonumber(state.admittedAt) or nil
+				if not admittedAt or (now - admittedAt) >= REQUEST_COOLDOWN_SECONDS then
+					requestKinds[requestKind] = nil
+				end
+			end
+			if next(requestKinds) == nil then
+				Sync._requestAdmissions[senderKey] = nil
+			else
+				senderCount = senderCount + 1
+			end
+		else
+			Sync._requestAdmissions[senderKey] = nil
+		end
+	end
+	return senderCount
+end
+
+local function admitResponseRequest(originalSender, requestKind)
+	local normalizedSender = normalizeSender(originalSender)
+	if type(normalizedSender) ~= "string" or normalizedSender == "" then
+		return false
+	end
+	local senderKey = string.lower(normalizedSender)
+	if senderKey == "" then
+		return false
+	end
+	local now = getIncomingNow()
+	local senderCount = pruneRequestAdmissions(now)
+	local senderState = Sync._requestAdmissions[senderKey]
+	local requestState = type(senderState) == "table" and senderState[requestKind] or nil
+	if type(requestState) == "table" then
+		if addon.hasDebug and type(addon.debug) == "function" and not requestState.rejectionLogged then
+			addon:debug(Diag.D.LogSyncRequestRateLimited:format("reserves", requestKind, senderKey))
+			requestState.rejectionLogged = true
+		end
+		return false
+	end
+	if type(senderState) ~= "table" then
+		if senderCount >= MAX_REQUEST_SENDERS then
+			return false
+		end
+		senderState = {}
+		Sync._requestAdmissions[senderKey] = senderState
+	end
+	senderState[requestKind] = {
+		admittedAt = now,
+		rejectionLogged = false,
+	}
+	return true
 end
 
 local function denseArray(value, count)
@@ -612,12 +671,18 @@ function Sync:HandleMessage(prefix, msg, _channel, sender)
 		if next(body) ~= nil then
 			return true
 		end
+		if not admitResponseRequest(rawSource, MSG_META_REQ) then
+			return true
+		end
 		sendMetadata(source, requestId)
 		return true
 	end
 
 	if kind == MSG_DATA_REQ then
 		if not closedMap(body, { checksum = true }) or type(body.checksum) ~= "string" or #body.checksum > 64 then
+			return true
+		end
+		if not admitResponseRequest(rawSource, MSG_DATA_REQ) then
 			return true
 		end
 		sendData(source, requestId)
