@@ -23,6 +23,9 @@ do
 	-- ----- Internal state ----- --
 	local raidInstanceCheckHandles = {}
 	local RAID_INSTANCE_CHECK_DELAYS = { 0.3, 0.8, 1.5, 2.5, 3.5 }
+	local recognizedInstanceContext
+	local boundRaidId
+	local boundInstanceKey
 
 	-- ----- Private helpers ----- --
 	local isDebugEnabled = addon.Options.IsDebugEnabled
@@ -35,14 +38,17 @@ do
 	end
 
 	local function runLiveRaidInstanceCheck()
-		local instanceName, instanceType, instanceDiff = GetInstanceInfo()
-		if instanceType ~= "raid" then
-			return
+		module:Check()
+	end
+
+	local function bindCurrentRaid(instanceKey)
+		local currentRaid = Database.GetCurrentRaid()
+		if currentRaid == nil then
+			return false
 		end
-		if L.RaidZones[instanceName] == nil then
-			return
-		end
-		module:Check(instanceName, instanceDiff)
+		boundRaidId = currentRaid
+		boundInstanceKey = instanceKey
+		return true
 	end
 
 	local function createRaidSessionWithReason(instanceName, newSize, instanceDiff, isCreate)
@@ -73,13 +79,48 @@ do
 		cancelRaidInstanceChecks()
 	end
 
-	function module:ResolveRaidInstanceContext(instanceName, instanceDiff)
+	function module:CommitRecognizedInstanceContext(instanceName, instanceKey, instanceDiff)
 		local difficulty = module._ResolveRaidDifficultyInternal(instanceDiff)
 		local size = module._GetRaidSizeFromDifficultyInternal(difficulty)
-		if type(instanceName) ~= "string" or instanceName == "" or not size then
-			return nil, "INVALID_RAID_CONTEXT"
+		if type(instanceName) ~= "string" or instanceName == ""
+			or type(instanceKey) ~= "string" or instanceKey == ""
+			or not size
+		then
+			recognizedInstanceContext = nil
+			return false, "INVALID_RAID_CONTEXT"
 		end
-		return { zone = instanceName, size = size, difficulty = difficulty }
+		recognizedInstanceContext = {
+			zone = instanceName,
+			instanceKey = instanceKey,
+			size = size,
+			difficulty = difficulty,
+		}
+		return true
+	end
+
+	function module:ClearRecognizedInstanceContext()
+		recognizedInstanceContext = nil
+	end
+
+	function module:GetRecognizedInstanceContext()
+		local context = recognizedInstanceContext
+		if not context then
+			return nil
+		end
+		return {
+			zone = context.zone,
+			instanceKey = context.instanceKey,
+			size = context.size,
+			difficulty = context.difficulty,
+		}
+	end
+
+	function module:ResolveRaidInstanceContext()
+		local context = module:GetRecognizedInstanceContext()
+		if not context then
+			return nil, "UNRECOGNIZED_RAID_INSTANCE"
+		end
+		return context
 	end
 
 	function module:ScheduleInstanceChecks()
@@ -99,16 +140,17 @@ do
 	end
 
 	-- Checks the current raid status and creates a new session if needed.
-	function module:Check(instanceName, instanceDiff)
+	function module:Check()
 		local syncer = addon.DB and addon.DB.Syncer
 		if syncer and type(syncer.IsAuthorityRecovering) == "function" and syncer:IsAuthorityRecovering() then
 			return false, "AUTHORITY_RECOVERING"
 		end
-		local context, contextReason = module:ResolveRaidInstanceContext(instanceName, instanceDiff)
+		local context, contextReason = module:ResolveRaidInstanceContext()
 		if not context then
 			return nil, contextReason
 		end
-		instanceDiff = context.difficulty
+		local instanceName = context.zone
+		local instanceDiff = context.difficulty
 		local newSize = context.size
 		if isDebugEnabled() then
 			addon:debug(
@@ -125,21 +167,34 @@ do
 			if raidStore:GetActiveRecord() then
 				return false, "RAID_REENTRY_REQUIRED"
 			end
-			return module:Create(context.zone, newSize, instanceDiff)
+			local created, reason = module:Create(context.zone, newSize, instanceDiff)
+			if created then
+				bindCurrentRaid(context.instanceKey)
+			end
+			return created, reason
 		end
 
 		local current = Database.EnsureRaidByIndex(currentRaid)
 		if not current then
-			createRaidSessionWithReason(context.zone, newSize, instanceDiff, true)
+			if createRaidSessionWithReason(context.zone, newSize, instanceDiff, true) then
+				bindCurrentRaid(context.instanceKey)
+			end
 			return
 		end
 
-		local shouldCreate = current.zone ~= instanceName
+		if boundRaidId ~= currentRaid then
+			boundRaidId = currentRaid
+			boundInstanceKey = context.instanceKey
+		end
+
+		local shouldCreate = boundInstanceKey ~= context.instanceKey
 			or tonumber(current.size) ~= newSize
 			or tonumber(current.difficulty) ~= instanceDiff
 
 		if shouldCreate then
-			createRaidSessionWithReason(context.zone, newSize, instanceDiff, false)
+			if createRaidSessionWithReason(context.zone, newSize, instanceDiff, false) then
+				bindCurrentRaid(context.instanceKey)
+			end
 		end
 	end
 

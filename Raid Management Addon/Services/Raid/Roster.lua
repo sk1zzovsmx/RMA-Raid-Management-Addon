@@ -326,13 +326,13 @@ do
 
 	local function checkCurrentRaidInstance()
 		if not addon.IsInRaid() then
-			return
+			return true
 		end
-
-		local instanceName, instanceType, instanceDiff = GetInstanceInfo()
-		if instanceType == "raid" and addon.L.RaidZones[instanceName] ~= nil then
-			module:Check(instanceName, instanceDiff)
+		if not module:GetRecognizedInstanceContext() then
+			return false
 		end
+		module:Check()
+		return true
 	end
 
 	local function endRosterSession(resetRaidSize, debugMessage)
@@ -524,11 +524,14 @@ do
 	-- Updates the current raid roster, adding new players and marking those who left.
 	-- Returns rosterChanged, delta where delta contains joined/updated/left/unresolved lists.
 	function module:UpdateRaidRoster()
-		checkCurrentRaidInstance()
+		local instanceAdmitted = checkCurrentRaidInstance()
 
 		if not Database.GetCurrentRaid() then
 			resetPendingUnitRetry()
 			resetLiveUnitCaches()
+			return false
+		end
+		if not instanceAdmitted then
 			return false
 		end
 		-- Cancel any pending roster update timer.

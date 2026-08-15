@@ -867,9 +867,27 @@ do
 				end
 				error(lootError or ignoredError, 0)
 			end
+			local raidService = getService("Raid")
+			if raidService and raidService.CommitRecognizedInstanceContext then
+				local contextCommitted = raidService:CommitRecognizedInstanceContext(
+					instanceName,
+					instanceKey,
+					instanceDiff
+				)
+				if contextCommitted ~= true then
+					activeLootSourcesData.DeactivateInstance()
+					activeIgnoredMobs.DeactivateInstance()
+					raidService:ClearRecognizedInstanceContext()
+					instanceKey = nil
+				end
+			end
 		else
 			activeLootSourcesData.DeactivateInstance()
 			activeIgnoredMobs.DeactivateInstance()
+			local raidService = getService("Raid")
+			if raidService and raidService.ClearRecognizedInstanceContext then
+				raidService:ClearRecognizedInstanceContext()
+			end
 		end
 
 		return instanceName, instanceType, instanceDiff, instanceKey
