@@ -94,3 +94,36 @@ The two French discrepancies are ordinary-space versus non-breaking-space punctu
 - Current RMA English fallback: `I've rearranged the reply code. Your planet will be spared. I cannot be certain of my own calculations anymore.` — 111 UTF-8 bytes, SHA-256 `5b6344b1096a29f39fbef9938ae4b18421846f566414916d1dfc70964d7b74ac`.
 
 The keyed source uses ` - ` after `reply code`; the current addon uses `. ` and is not source authority. This evidence plan does not change the English runtime literal.
+
+## Reproducible acceptance check
+
+Run from the repository root in PowerShell 7:
+
+```powershell
+$path = '.planning/phases/02-locale-independent-raid-recognition/02-YELL-EVIDENCE.md'
+$lines = Get-Content -LiteralPath $path -Encoding utf8 | Where-Object { $_ -like '|accepted|*' }
+$expectedIds = 12986,34319,34334,33484,33948,33524,34086,34013,35721,35741,37705,37713,38005,37852,40065
+$expectedLocales = 'ruRU','zhCN','esES','frFR'
+$utf8 = [Text.UTF8Encoding]::new($false); $sha = [Security.Cryptography.SHA256]::Create()
+$seen = @{}; $invalid = 0; $conflicts = 0
+foreach ($line in $lines) {
+  $c = $line.Substring(1, $line.Length - 2).Split('|')
+  if ($c.Count -ne 13) { $invalid++; continue }
+  $id = [int]$c[4]; $locale = $c[5]; $text = $c[12]; $key = "$($c[1])|$locale"
+  $bytes = $utf8.GetBytes($text); $digest = [Convert]::ToHexString($sha.ComputeHash($bytes)).ToLowerInvariant()
+  if ($seen.ContainsKey($key) -or $id -notin $expectedIds -or $locale -notin $expectedLocales -or [string]::IsNullOrEmpty($text) -or $bytes.Length -ne [int]$c[8] -or $digest -cne $c[9] -or $c[10] -notmatch '^[^@]+@[0-9a-f]{40}:.+$' -or $c[11] -notin 'match-ac-direct','resolved-ac-broadcast','not-present-ac-direct') { $invalid++ }
+  if ($c[11] -match 'conflict|missing|rejected|unresolved') { $conflicts++ }
+  $seen[$key] = $true
+}
+$sha.Dispose(); $missing = 60 - $seen.Count
+"accepted=$($lines.Count) unique=$($seen.Count) missing=$missing conflicts=$conflicts invalid=$invalid"
+if ($lines.Count -ne 60 -or $seen.Count -ne 60 -or $missing -ne 0 -or $conflicts -ne 0 -or $invalid -ne 0) { exit 1 }
+```
+
+Recorded result at the pinned revisions:
+
+```text
+accepted=60 unique=60 missing=0 conflicts=0 invalid=0
+```
+
+Plan 02-04 may bind only these accepted exact strings. Phase 4 must still perform the planned in-game locale smoke check because static source provenance cannot observe a particular private server's emitted `CHAT_MSG_MONSTER_YELL` payload.
