@@ -390,6 +390,11 @@ do
 	local pairs, select, type = pairs, select, type
 	local error, pcall = error, pcall
 	local tostring, tonumber = tostring, tonumber
+	local raidArchiveCategoryLabels = {
+		INVALID_RAID_ARCHIVE_TYPE = L.StrRaidArchiveInvalidType,
+		UNSUPPORTED_RAID_ARCHIVE_FORMAT = L.StrRaidArchiveUnsupportedFormat,
+		CORRUPT_RAID_ARCHIVE = L.StrRaidArchiveCorrupt,
+	}
 
 	_G["RMA"] = addon
 
@@ -709,6 +714,7 @@ do
 		self.State.initializing = true
 		local registeredEvents = {}
 		local addonLoadedRemoved = false
+		local raidArchiveWarning
 		local ok, err = pcall(function()
 			local SavedVariables = Database.SavedVariables
 			SavedVariables.EnsureAll()
@@ -743,7 +749,27 @@ do
 			if addon.Comms and addon.Comms.EnsureVersionPrefix then
 				addon.Comms:EnsureVersionPrefix()
 			end
-			SavedVariables.NormalizeAfterLoad()
+			local raidArchive, category, detail = SavedVariables.NormalizeAfterLoad()
+			if raidArchive == nil and category ~= nil then
+				local formatVersion = SavedVariables.GetRaidArchiveFormatVersion
+					and SavedVariables.GetRaidArchiveFormatVersion()
+					or nil
+				self.State.raidArchiveQuarantine = {
+					category = category,
+					formatVersion = formatVersion,
+				}
+				addon:debug(
+					Diag.D.LogRaidArchiveQuarantined:format(
+						tostring(category),
+						tostring(detail),
+						tostring(formatVersion)
+					)
+				)
+				local categoryLabel = raidArchiveCategoryLabels[category] or L.StrRaidArchiveCorrupt
+				raidArchiveWarning = L.MsgRaidHistoryQuarantined:format(tostring(category), categoryLabel)
+			else
+				self.State.raidArchiveQuarantine = nil
+			end
 
 			for event in pairs(addonEvents) do
 				self:RegisterEvent(event)
@@ -769,6 +795,9 @@ do
 		end
 
 		self.State.initializing = nil
+		if raidArchiveWarning then
+			self:warn(raidArchiveWarning)
+		end
 	end
 
 	local rosterUpdateDebounceSeconds = 0.2

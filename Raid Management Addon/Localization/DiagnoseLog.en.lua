@@ -783,6 +783,7 @@ Diag.A.TradeMenuUnitNameApiNotInitialized = "Trade menu unit name API is not ini
 -- Database --
 Diag.I.LogDatabaseLoaded = "[Database] Loaded version=%s logLevel=%s perfMode=%s"
 Diag.D.LogDatabaseEventsRegistered = "[Database] Events registered=%d"
+Diag.D.LogRaidArchiveQuarantined = "[Database] Raid archive quarantined category=%s detail=%s formatVersion=%s"
 Diag.D.LogDatabasePlayerEnteringWorld = "[Database] PLAYER_ENTERING_WORLD -> scheduling CheckInitialRaidState"
 Diag.E.LogDatabaseEventHandlerFailed = "[Database] Event handler failed event=%s err=%s"
 Diag.I.LogPerfBlock = "[Perf] %s %.1fms%s"
