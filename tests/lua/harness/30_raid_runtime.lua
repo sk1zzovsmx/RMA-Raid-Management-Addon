@@ -19,7 +19,45 @@ local function installRaidSessionCheckFixture(addon)
 	addon.L.RaidZones.Ulduar = true
 	addon.L.StrNewRaidSessionChange = "Raid session changed"
 	loadAddonFile(addon, "Raid Management Addon/Services/Raid/Session.lua")
+	raid:CommitRecognizedInstanceContext("Ulduar", "ulduar", 2)
 	return fixture, raid
+end
+
+function cases.raid_session_uses_transient_canonical_identity(addon)
+	local fixture, raid = installRaidSessionCheckFixture(addon)
+	local createCalls = 0
+	local createdZone
+	fixture.store.GetActiveRecord = function()
+		return nil
+	end
+	addon.Database.SetCurrentRaid(nil)
+	raid.Create = function(_, zone)
+		createCalls = createCalls + 1
+		createdZone = zone
+		return true
+	end
+
+	raid:CommitRecognizedInstanceContext("Coeur du Magma", "molten core", 2)
+	assertEqual(true, raid:Check(), "recognized localized raid was not admitted")
+	assertEqual("Coeur du Magma", createdZone, "localized display name was not preserved for creation")
+
+	addon.Database.SetCurrentRaid(1)
+	local historicalZone = fixture.raids[1].zone
+	createCalls = 0
+	raid:ClearRecognizedInstanceContext()
+	raid:CommitRecognizedInstanceContext("Citadelle locale", "icecrown citadel", 2)
+	raid:Check()
+	assertEqual(0, createCalls, "first recognized context after reload replaced the historical raid")
+	assertEqual(historicalZone, fixture.raids[1].zone, "historical localized zone was rewritten")
+
+	raid:CommitRecognizedInstanceContext("Citadelle traduite autrement", "icecrown citadel", 2)
+	raid:Check()
+	assertEqual(0, createCalls, "localized display-only change replaced the current raid")
+
+	raid:CommitRecognizedInstanceContext("Nom contradictoire", "molten core", 2)
+	raid:Check()
+	assertEqual(1, createCalls, "canonical instance change did not replace the current raid")
+	print("PASS raid_session_uses_transient_canonical_identity")
 end
 
 function cases.raid_session_check_defers_persisted_active_raid_to_reentry(addon)
@@ -874,6 +912,17 @@ local function installRealRosterFixture(addon, fixture)
 
 	loadAddonFile(addon, "Raid Management Addon/Services/Raid/Roster.lua")
 	local raid = addon.Services.Raid
+	function raid:GetRecognizedInstanceContext()
+		if fixture.recognizedContext == false then
+			return nil
+		end
+		return fixture.recognizedContext or {
+			zone = "Test Raid",
+			instanceKey = "ulduar",
+			difficulty = 2,
+			size = 25,
+		}
+	end
 	function raid:Check() end
 	function raid:AddPlayer(player)
 		local players = fixture.raids[fixture.currentRaid].players
@@ -2005,6 +2054,28 @@ function cases.raid_archive_legacy_nid_delete_is_fail_closed(addon)
 	assertEqual(nil, store:GetRecord(uniqueBatchKey), "unique historical batch record survived")
 	assertTrue(store:GetRecord(activeUid) ~= nil, "unique historical batch delete removed active record")
 	print("PASS raid_archive_legacy_nid_delete_is_fail_closed")
+end
+
+function cases.raid_roster_rejects_stale_instance_context(addon)
+	local fixture = newRaidRecordingFixture(addon)
+	fixture.currentRaid = 1
+	fixture.inRaid = true
+	fixture.recognizedContext = false
+	fixture.raids[1].players = {
+		{ playerNid = 1, name = "Existing", rank = 0, subgroup = 1, class = "WARRIOR", join = fixture.now },
+	}
+	fixture.roster = {
+		{ name = "Replacement", rank = 0, subgroup = 1, level = 80, class = "Mage", online = true },
+	}
+	local raid = installRealRosterFixture(addon, fixture)
+
+	local changed = raid:UpdateRaidRoster()
+
+	assertEqual(false, changed, "roster mutated without a recognized instance context")
+	assertEqual(1, #fixture.raids[1].players, "stale instance admission changed the roster")
+	assertEqual("Existing", fixture.raids[1].players[1].name, "stale instance admission replaced attendance")
+	assertEqual(0, raid:GetRosterVersion(), "stale instance admission advanced roster version")
+	print("PASS raid_roster_rejects_stale_instance_context")
 end
 
 local function installRaidArchiveLoadFixture(initialArchive)

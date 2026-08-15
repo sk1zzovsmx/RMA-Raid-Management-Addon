@@ -9,9 +9,27 @@ from tests.lua_test_runner import run_lua_case
 
 ROOT = Path(__file__).resolve().parents[1]
 SLASH_EVENTS = ROOT / "Raid Management Addon" / "EntryPoints" / "SlashEvents.lua"
+RAID_SESSION = ROOT / "Raid Management Addon" / "Services" / "Raid" / "Session.lua"
+RAID_ROSTER = ROOT / "Raid Management Addon" / "Services" / "Raid" / "Roster.lua"
 
 
 class RuntimeFoundationsBehaviorTest(unittest.TestCase):
+    def test_raid_session_uses_transient_canonical_identity(self) -> None:
+        result = run_lua_case("raid_session_uses_transient_canonical_identity")
+        self.assertIn("PASS raid_session_uses_transient_canonical_identity", result.stdout)
+
+    def test_raid_roster_rejects_stale_instance_context(self) -> None:
+        result = run_lua_case("raid_roster_rejects_stale_instance_context")
+        self.assertIn("PASS raid_roster_rejects_stale_instance_context", result.stdout)
+
+    def test_session_and_roster_have_no_independent_instance_recognition(self) -> None:
+        session_source = RAID_SESSION.read_text(encoding="utf-8")
+        roster_source = RAID_ROSTER.read_text(encoding="utf-8")
+        self.assertNotIn("RaidZones", session_source)
+        self.assertNotIn("RaidZones", roster_source)
+        self.assertNotIn("GetInstanceInfo", roster_source)
+        self.assertNotIn("ResolveInstanceKey", roster_source)
+
     def test_minimap_remains_available_without_quick_bar(self) -> None:
         result = run_lua_case("rma_minimap_remains_available_without_quick_bar")
         self.assertIn("PASS rma_minimap_remains_available_without_quick_bar", result.stdout)

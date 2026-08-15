@@ -1939,6 +1939,7 @@ function cases.localized_raid_identity_uses_instance_map_id(addon)
 	}
 	addon.LootSourcesData = { Raw = {} }
 	loadAddonFile(addon, "Raid Management Addon/Modules/Dataset/LootSources/Vanilla.lua")
+	loadAddonFile(addon, "Raid Management Addon/Modules/Dataset/LootSources/BurningCrusade.lua")
 	loadAddonFile(addon, "Raid Management Addon/Modules/Dataset/LootSources/Wrath.lua")
 	loadAddonFile(addon, "Raid Management Addon/Modules/Dataset/LootSourcesData.lua")
 
@@ -1953,10 +1954,22 @@ function cases.localized_raid_identity_uses_instance_map_id(addon)
 		"classic raid datasets must use the same locale-independent identity"
 	)
 	assertEqual(
+		"karazhan",
+		addon.LootSourcesData.ResolveInstanceKey("Tour de Medivh", 532),
+		"Burning Crusade raids must use the same locale-independent identity"
+	)
+	assertEqual(
+		"molten core",
+		addon.LootSourcesData.ResolveInstanceKey("Icecrown Citadel", 409),
+		"recognized map IDs must win over conflicting supported display names"
+	)
+	assertEqual(
 		"icecrown citadel",
 		addon.LootSourcesData.ResolveInstanceKey("Icecrown Citadel", nil),
 		"English and custom-server name fallback must remain supported"
 	)
+	assertEqual("icecrown citadel", addon.LootSourcesData.ResolveInstanceKey("Icecrown Citadel", 0))
+	assertEqual("icecrown citadel", addon.LootSourcesData.ResolveInstanceKey("Icecrown Citadel", 999999))
 	assertEqual(
 		nil,
 		addon.LootSourcesData.ResolveInstanceKey("Unknown Custom Raid", nil),

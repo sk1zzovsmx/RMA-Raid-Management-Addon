@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 import unittest
 
 from tests.lua_test_runner import run_lua_case
+
+
+ROOT = Path(__file__).resolve().parents[1]
+LOOT_SOURCES_DATA = ROOT / "Raid Management Addon" / "Modules" / "Dataset" / "LootSourcesData.lua"
 
 
 class InspectDatasetBehaviorTests(unittest.TestCase):
@@ -61,6 +66,13 @@ class InspectDatasetBehaviorTests(unittest.TestCase):
     def test_localized_raid_identity_uses_instance_map_id(self) -> None:
         result = run_lua_case("localized_raid_identity_uses_instance_map_id")
         self.assertIn("PASS localized_raid_identity_uses_instance_map_id", result.stdout)
+
+    def test_resolver_keeps_map_id_priority_and_dataset_fallback(self) -> None:
+        source = LOOT_SOURCES_DATA.read_text(encoding="utf-8")
+        resolver = source.split("function LootSourcesData.ResolveInstanceKey", 1)[1].split("\nend", 1)[0]
+        self.assertLess(resolver.index("instanceKeyByMapId"), resolver.index("normalizeText(instanceName)"))
+        self.assertIn("rawByInstance[mappedKey]", resolver)
+        self.assertIn("rawByInstance[nameKey]", resolver)
 
     def test_instance_datasets_share_canonical_identity(self) -> None:
         result = run_lua_case("instance_datasets_share_canonical_identity")
