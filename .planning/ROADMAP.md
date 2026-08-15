@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Persistence Safety** - Preserve incompatible raid archives and expose quarantine without disabling unrelated features.
 - [x] **Phase 2: Locale-Independent Raid Recognition** - Use one canonical admission path and retain encounter fallback coverage on supported locales.
-- [ ] **Phase 3: Bounded Sync Requests** - Rate-limit request-driven reserve and distribution responses without changing wire compatibility.
+- [x] **Phase 3: Bounded Sync Requests** - Rate-limit request-driven reserve and distribution responses without changing wire compatibility.
 - [ ] **Phase 4: Milestone Verification** - Complete runtime hygiene, automated validation, and documented in-game acceptance checks.
 
 ## Phase Details
@@ -87,5 +87,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Persistence Safety | 3/3 | Complete | 2026-08-15 |
 | 2. Locale-Independent Raid Recognition | 5/5 | Complete | 2026-08-15 |
-| 3. Bounded Sync Requests | 2/2 | In Progress | - |
+| 3. Bounded Sync Requests | 2/2 | Complete | 2026-08-15 |
 | 4. Milestone Verification | 0/TBD | Not started | - |

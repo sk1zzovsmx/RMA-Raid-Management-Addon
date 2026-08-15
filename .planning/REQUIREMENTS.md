@@ -21,10 +21,10 @@ Requirements for the stabilization milestone. Each requirement maps to exactly o
 
 ### Communication Safety
 
-- [ ] **COMM-01**: Reserve `META_REQ` and `DATA_REQ` messages are admitted through a bounded per-sender rate limit before response serialization or queue allocation.
-- [ ] **COMM-02**: Loot-distribution `SNAP_REQ` messages are admitted through a bounded per-sender rate limit before snapshot serialization or queue allocation.
-- [ ] **COMM-03**: Rate limiting preserves all existing RMA prefixes, protocol version 5 envelopes, payload shapes, authorization checks, and normal first-request behavior.
-- [ ] **COMM-04**: Automated regression cases prove exact rate-limit boundaries, expiry, sender normalization, and absence of response work for rejected requests.
+- [x] **COMM-01**: Reserve `META_REQ` and `DATA_REQ` messages are admitted through a bounded per-sender rate limit before response serialization or queue allocation.
+- [x] **COMM-02**: Loot-distribution `SNAP_REQ` messages are admitted through a bounded per-sender rate limit before snapshot serialization or queue allocation.
+- [x] **COMM-03**: Rate limiting preserves all existing RMA prefixes, protocol version 5 envelopes, payload shapes, authorization checks, and normal first-request behavior.
+- [x] **COMM-04**: Automated regression cases prove exact rate-limit boundaries, expiry, sender normalization, and absence of response work for rejected requests.
 
 ### Localization
 
@@ -64,10 +64,10 @@ Roadmap phase mappings will be populated during roadmap creation.
 | RAID-01 | Phase 2 | Complete |
 | RAID-02 | Phase 2 | Complete |
 | RAID-03 | Phase 2 | Complete |
-| COMM-01 | Phase 3 | Pending |
-| COMM-02 | Phase 3 | Pending |
-| COMM-03 | Phase 3 | Pending |
-| COMM-04 | Phase 3 | Pending |
+| COMM-01 | Phase 3 | Complete |
+| COMM-02 | Phase 3 | Complete |
+| COMM-03 | Phase 3 | Complete |
+| COMM-04 | Phase 3 | Complete |
 | LOCL-01 | Phase 2 | Complete |
 | LOCL-02 | Phase 2 | Complete |
 | QUAL-01 | Phase 4 | Pending |
