@@ -9,9 +9,9 @@ Requirements for the stabilization milestone. Each requirement maps to exactly o
 
 ### Persistence Safety
 
-- [ ] **PERS-01**: An existing `RMA_Raids` value with an unknown or future archive format remains byte-for-byte equivalent in memory after addon initialization and is not replaced by an empty archive.
-- [ ] **PERS-02**: When raid persistence validation fails during `ADDON_LOADED`, RMA enters an explicit degraded/quarantine state, reports a localized diagnostic, and rejects raid-history mutation without preventing unrelated features from initializing.
-- [ ] **PERS-03**: Automated regression cases cover valid, malformed format-1, non-table, and future-format `RMA_Raids` inputs through load and save preparation.
+- [x] **PERS-01**: An existing `RMA_Raids` value with an unknown or future archive format remains byte-for-byte equivalent in memory after addon initialization and is not replaced by an empty archive.
+- [x] **PERS-02**: When raid persistence validation fails during `ADDON_LOADED`, RMA enters an explicit degraded/quarantine state, reports a localized diagnostic, and rejects raid-history mutation without preventing unrelated features from initializing.
+- [x] **PERS-03**: Automated regression cases cover valid, malformed format-1, non-table, and future-format `RMA_Raids` inputs through load and save preparation.
 
 ### Raid Recognition
 
@@ -58,9 +58,9 @@ Roadmap phase mappings will be populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PERS-01 | Phase 1 | Pending |
-| PERS-02 | Phase 1 | Pending |
-| PERS-03 | Phase 1 | Pending |
+| PERS-01 | Phase 1 | Complete |
+| PERS-02 | Phase 1 | Complete |
+| PERS-03 | Phase 1 | Complete |
 | RAID-01 | Phase 2 | Pending |
 | RAID-02 | Phase 2 | Pending |
 | RAID-03 | Phase 2 | Pending |
