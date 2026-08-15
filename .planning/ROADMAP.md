@@ -43,7 +43,14 @@ Plans:
   2. Vanilla, Burning Crusade, and Wrath raids can start and update sessions regardless of the localized instance name returned by the client.
   3. Encounters that require the monster-yell fallback remain recordable on every supported locale.
   4. Automated checks cover Vanilla map IDs, at least one non-English instance name, and complete locale fallback data without allowing display strings to become admission gates.
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 02-01-PLAN.md - Make canonical resolver output the sole Session and Roster admission identity.
+- [ ] 02-02-PLAN.md - Add bounded retry recovery and one localized unknown-instance warning.
+- [ ] 02-03-PLAN.md - Acquire and validate the mandatory 60/60 yell evidence matrix.
+- [ ] 02-04-PLAN.md - Bind exact evidence-backed strings to locale catalogs and fallback metadata.
+- [ ] 02-05-PLAN.md - Enforce exact mixed-language yell matching in the expected canonical raid.
 
 ### Phase 3: Bounded Sync Requests
 **Goal**: Group members can request reserve and distribution state normally without allowing repeated requests to create unbounded response work.
@@ -75,6 +82,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Persistence Safety | 3/3 | Complete | 2026-08-15 |
-| 2. Locale-Independent Raid Recognition | 0/TBD | Not started | - |
+| 2. Locale-Independent Raid Recognition | 0/5 | Not started | - |
 | 3. Bounded Sync Requests | 0/TBD | Not started | - |
 | 4. Milestone Verification | 0/TBD | Not started | - |
