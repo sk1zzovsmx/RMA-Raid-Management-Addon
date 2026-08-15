@@ -805,7 +805,7 @@ Diag.D.LogRaidCheckInitialRaidState =
 Diag.D.LogRaidPlayerJoin = "[Raid] Player join name=%s raidId=%d"
 Diag.D.LogRaidPlayerRefresh = "[Raid] Player refresh name=%s raidId=%d"
 Diag.D.LogRaidInstanceWelcome = "[Raid] RAID_INSTANCE_WELCOME name=%s type=%s diff=%s nextReset=%s"
-Diag.W.LogRaidUnmappedZone = "[Raid] Unmapped raid zone: %s (diff=%s) -> no session check"
+Diag.D.LogRaidUnknownInstance = "[Raid] Unsupported raid instance: name=%s mapId=%s diff=%s"
 Diag.D.LogRaidInstanceRecognized = "[Raid] Instance recognized: %s diff=%s -> check"
 Diag.D.LogRaidReentryRecovery = "[Raid] Reentry recovery phase=%s reason=%s"
 Diag.D.LogDebugRaidSeed = "[Debug] Raid seed raidId=%s name=%s class=%s"

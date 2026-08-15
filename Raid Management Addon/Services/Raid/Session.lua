@@ -37,8 +37,11 @@ do
 		end
 	end
 
-	local function runLiveRaidInstanceCheck()
-		module:Check()
+	local function runLiveRaidInstanceCheck(refreshInstance)
+		if type(refreshInstance) == "function" then
+			return refreshInstance()
+		end
+		return module:Check()
 	end
 
 	local function bindCurrentRaid(instanceKey)
@@ -123,7 +126,7 @@ do
 		return context
 	end
 
-	function module:ScheduleInstanceChecks()
+	function module:ScheduleInstanceChecks(refreshInstance)
 		cancelRaidInstanceChecks()
 
 		-- Immediate live check, then short retries to catch delayed server fallback updates.
@@ -134,7 +137,7 @@ do
 			local delaySeconds = RAID_INSTANCE_CHECK_DELAYS[idx]
 			raidInstanceCheckHandles[idx] = module:ScheduleTimer(function()
 				raidInstanceCheckHandles[idx] = nil
-				runLiveRaidInstanceCheck()
+				runLiveRaidInstanceCheck(refreshInstance)
 			end, delaySeconds)
 		end
 	end

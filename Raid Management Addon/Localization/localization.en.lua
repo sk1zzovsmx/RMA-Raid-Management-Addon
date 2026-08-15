@@ -938,6 +938,7 @@ L.StrCmdLoggerShare = "Offer the selected completed raid to a current group memb
 L.MsgValidateUnavailable = "Validation service is not available."
 L.MsgSpecInspectNoService = "Spec inspect service is unavailable."
 L.MsgSpecInspectRefresh = "Spec inspect refresh: queued=%d cached=%d skipped=%d."
+L.MsgRaidInstanceUnsupported = "This raid instance is not supported. Raid recording remains paused."
 L.MsgValidateRaidsNoData = "Raid validation: no raids available."
 L.MsgValidateRaidsSummary = "Raid validation: raids=%d ok=%d warn=%d err=%d schema=%d."
 L.MsgValidateRaidsDetailsTruncated = "Raid validation: %d detail rows were truncated."

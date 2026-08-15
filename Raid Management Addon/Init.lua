@@ -803,6 +803,8 @@ do
 	local rosterUpdateDebounceSeconds = 0.2
 	local activeLootSourcesData
 	local activeIgnoredMobs
+	local lastWarnedUnknownRaidToken
+	local refreshRaidInstanceFromRetry
 
 	local function activateDatasetOwner(owner, instanceKey)
 		local ok, activated, reason = pcall(owner.ActivateInstance, instanceKey)
@@ -890,15 +892,16 @@ do
 			end
 		end
 
-		return instanceName, instanceType, instanceDiff, instanceKey
+		return instanceName, instanceType, instanceDiff, instanceKey, instanceMapId
 	end
 
-	local function scheduleRaidInstanceChecksIfRecognized(
+	local function runRecognizedRaidCheck(
 		instanceName,
 		instanceType,
 		instanceDiff,
 		instanceKey,
-		emitRecognizedLog
+		emitRecognizedLog,
+		scheduleRetries
 	)
 		local raidService = getService("Raid")
 		if instanceType ~= "raid" or instanceKey == nil then
@@ -913,7 +916,11 @@ do
 				addon:debug(Diag.D.LogRaidInstanceRecognized:format(tostring(instanceName), tostring(instanceDiff)))
 			end
 		end
-		raidService:ScheduleInstanceChecks()
+		if scheduleRetries then
+			raidService:ScheduleInstanceChecks(refreshRaidInstanceFromRetry)
+		else
+			raidService:Check()
+		end
 		return true
 	end
 
@@ -943,15 +950,55 @@ do
 		end, rosterUpdateDebounceSeconds)
 	end
 
-	local function handleRaidInstanceInfoChanged(emitRecognizedLog)
-		local instanceName, instanceType, instanceDiff, instanceKey = refreshActiveInstanceDatasets()
-		scheduleRaidInstanceChecksIfRecognized(instanceName, instanceType, instanceDiff, instanceKey, emitRecognizedLog)
-		return instanceName, instanceType, instanceDiff, instanceKey
+	local function handleRaidInstanceInfoChanged(emitRecognizedLog, scheduleRetries, emitUnknownWarning)
+		local instanceName, instanceType, instanceDiff, instanceKey, instanceMapId = refreshActiveInstanceDatasets()
+		local raidService = getService("Raid")
+		if instanceType == "raid" and instanceKey ~= nil then
+			lastWarnedUnknownRaidToken = nil
+			runRecognizedRaidCheck(
+				instanceName,
+				instanceType,
+				instanceDiff,
+				instanceKey,
+				emitRecognizedLog,
+				scheduleRetries
+			)
+		elseif instanceType == "raid" then
+			if emitUnknownWarning then
+				local unknownToken = tostring(instanceMapId or "") .. ":" .. tostring(instanceName or "")
+				if lastWarnedUnknownRaidToken ~= unknownToken then
+					lastWarnedUnknownRaidToken = unknownToken
+					addon:warn(L.MsgRaidInstanceUnsupported)
+					if isDebugEnabled() then
+						addon:debug(
+							Diag.D.LogRaidUnknownInstance:format(
+								tostring(instanceName),
+								tostring(instanceMapId),
+								tostring(instanceDiff)
+							)
+						)
+					end
+				end
+			end
+			if scheduleRetries and raidService then
+				raidService:ScheduleInstanceChecks(refreshRaidInstanceFromRetry)
+			end
+		else
+			lastWarnedUnknownRaidToken = nil
+			if raidService then
+				raidService:CancelInstanceChecks()
+			end
+		end
+		return instanceName, instanceType, instanceDiff, instanceKey, instanceMapId
+	end
+
+	refreshRaidInstanceFromRetry = function()
+		return handleRaidInstanceInfoChanged(false, false, false)
 	end
 
 	-- RAID_INSTANCE_WELCOME: Triggered when entering a raid instance.
 	function addon:RAID_INSTANCE_WELCOME(...)
-		local instanceName, instanceType, instanceDiff, instanceKey = handleRaidInstanceInfoChanged(true)
+		local instanceName, instanceType, instanceDiff = handleRaidInstanceInfoChanged(true, true, true)
 		local _, nextReset = ...
 		local resolvedNextReset = Database.SetNextReset(nextReset)
 		if isTraceEnabled() then
@@ -964,9 +1011,6 @@ do
 				)
 			)
 		end
-		if instanceType == "raid" and instanceKey == nil then
-			addon:warn(Diag.W.LogRaidUnmappedZone:format(tostring(instanceName), tostring(instanceDiff)))
-		end
 		if instanceType == "raid" then
 			RequestRaidInfo()
 		end
@@ -974,38 +1018,39 @@ do
 
 	-- PLAYER_DIFFICULTY_CHANGED: Re-check raid session when raid difficulty changes.
 	function addon:PLAYER_DIFFICULTY_CHANGED()
-		handleRaidInstanceInfoChanged()
+		handleRaidInstanceInfoChanged(false, true, false)
 	end
 
 	-- UPDATE_INSTANCE_INFO: Re-check raid session after server pushes instance-save info refreshes.
 	function addon:UPDATE_INSTANCE_INFO()
-		handleRaidInstanceInfoChanged()
+		handleRaidInstanceInfoChanged(false, true, false)
 	end
 
 	-- ZONE_CHANGED_NEW_AREA: Keep instance-scoped datasets synchronized with zone transitions.
 	function addon:ZONE_CHANGED_NEW_AREA()
-		handleRaidInstanceInfoChanged()
+		handleRaidInstanceInfoChanged(false, true, true)
 		Bus.TriggerEvent(WowEvents.ZoneChangedNewArea)
 	end
 
 	-- PLAYER_ENTERING_WORLD: Re-check after login and each world or instance transition.
 	function addon:PLAYER_ENTERING_WORLD()
-		handleRaidInstanceInfoChanged()
 		local module = getService("Raid")
 		if not module then
+			handleRaidInstanceInfoChanged(false, false, true)
 			return
 		end
+		module:CancelInstanceChecks()
+		handleRaidInstanceInfoChanged(false, true, true)
 		if isTraceEnabled() then
 			addon:trace(Diag.D.LogDatabasePlayerEnteringWorld)
 		end
-		module:CancelInstanceChecks()
 		-- Restart the first-check timer on login (timer owned by raid service module).
 		if module.CheckInitialRaidStateHandle then
 			module:CancelTimer(module.CheckInitialRaidStateHandle)
 			module.CheckInitialRaidStateHandle = nil
 		end
 		module.CheckInitialRaidStateHandle = module:ScheduleTimer(function()
-			handleRaidInstanceInfoChanged()
+			handleRaidInstanceInfoChanged(false, false, false)
 			module:CheckInitialRaidState()
 		end, 3)
 	end

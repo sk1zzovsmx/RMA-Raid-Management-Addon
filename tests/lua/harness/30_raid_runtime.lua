@@ -60,6 +60,141 @@ function cases.raid_session_uses_transient_canonical_identity(addon)
 	print("PASS raid_session_uses_transient_canonical_identity")
 end
 
+function cases.unknown_raid_retry_recovers_without_warning_spam(addon)
+	local fixture, raid = installRaidSessionCheckFixture(addon)
+	local frame = installInitStubs(addon)
+	fixture:InstallTimers(raid)
+	fixture:InstallTimers(addon)
+	local instance = {
+		name = "Unsupported Raid",
+		instanceType = "raid",
+		difficulty = 2,
+		mapId = 9999,
+	}
+	local warnings = {}
+	local debugMessages = {}
+	local requestRaidInfoCount = 0
+	local checkCount = 0
+	local activeLootKey
+	local activeIgnoredKey
+
+	_G.GetInstanceInfo = function()
+		return instance.name, instance.instanceType, instance.difficulty, nil, nil, nil, nil, instance.mapId
+	end
+	_G.RequestRaidInfo = function()
+		requestRaidInfoCount = requestRaidInfoCount + 1
+	end
+	addon.L.MsgRaidInstanceUnsupported = "unsupported raid"
+	addon.State.debugEnabled = true
+	addon.Database.SetNextReset = function(value)
+		return value
+	end
+	addon.LootSourcesData = {
+		ResolveInstanceKey = function(_, mapId)
+			if tonumber(mapId) == 631 then
+				return "icecrown citadel"
+			end
+		end,
+		GetActiveInstanceKey = function()
+			return activeLootKey
+		end,
+		CaptureActivationState = function()
+			return activeLootKey
+		end,
+		ActivateInstance = function(key)
+			activeLootKey = key
+			return true
+		end,
+		RestoreActivationState = function(key)
+			activeLootKey = key
+			return true
+		end,
+		DeactivateInstance = function()
+			activeLootKey = nil
+		end,
+	}
+	addon.IgnoredMobs = {
+		GetActiveInstanceKey = function()
+			return activeIgnoredKey
+		end,
+		CaptureActivationState = function()
+			return activeIgnoredKey
+		end,
+		ActivateInstance = function(key)
+			activeIgnoredKey = key
+			return true
+		end,
+		RestoreActivationState = function(key)
+			activeIgnoredKey = key
+			return true
+		end,
+		DeactivateInstance = function()
+			activeIgnoredKey = nil
+		end,
+	}
+	raid.Check = function()
+		checkCount = checkCount + 1
+		return true
+	end
+	raid.CheckInitialRaidState = function() end
+
+	loadAddonFile(addon, "Raid Management Addon/Init.lua")
+	assertTrue(frame ~= nil, "Init frame fixture was not installed")
+	addon.warn = function(_, message)
+		warnings[#warnings + 1] = message
+	end
+	addon.debug = function(_, message)
+		debugMessages[#debugMessages + 1] = message
+	end
+
+	instance.name = "Icecrown Citadel"
+	instance.mapId = 631
+	addon:ZONE_CHANGED_NEW_AREA()
+	assertEqual("icecrown citadel", raid:GetRecognizedInstanceContext().instanceKey, "recognized setup failed")
+
+	instance.name = "Unsupported Raid"
+	instance.mapId = 9999
+	addon:RAID_INSTANCE_WELCOME(nil, 120)
+	addon:ZONE_CHANGED_NEW_AREA()
+	addon:PLAYER_ENTERING_WORLD()
+	assertEqual(nil, raid:GetRecognizedInstanceContext(), "unknown transition retained recognized context")
+	assertEqual(nil, activeLootKey, "unknown transition retained loot dataset")
+	assertEqual(nil, activeIgnoredKey, "unknown transition retained ignored-mob dataset")
+	assertEqual(1, #warnings, "overlapping entry events repeated the warning")
+	assertEqual("unsupported raid", warnings[1], "warning exposed technical details")
+	assertEqual(1, #debugMessages, "unknown identity diagnostic cardinality differs")
+	assertTrue(string.find(debugMessages[1], "Unsupported Raid", 1, true) ~= nil, "debug omitted name")
+	assertTrue(string.find(debugMessages[1], "9999", 1, true) ~= nil, "debug omitted map ID")
+	fixture:AdvanceTime(4)
+	assertEqual(1, #warnings, "delayed callbacks repeated the warning")
+
+	instance.name = "Outside"
+	instance.instanceType = "none"
+	instance.difficulty = 0
+	instance.mapId = 0
+	addon:ZONE_CHANGED_NEW_AREA()
+	instance.name = "Unsupported Raid"
+	instance.instanceType = "raid"
+	instance.difficulty = 2
+	instance.mapId = 9999
+	addon:RAID_INSTANCE_WELCOME(nil, 120)
+	assertEqual(2, #warnings, "leave and re-entry did not reset warning dedupe")
+
+	instance.name = "Loading Raid"
+	instance.mapId = 0
+	addon:ZONE_CHANGED_NEW_AREA()
+	assertEqual(3, #warnings, "changed unknown identity did not warn once")
+	instance.name = "Citadelle de la Couronne de glace"
+	instance.mapId = 631
+	fixture:AdvanceTime(4)
+	local recovered = raid:GetRecognizedInstanceContext()
+	assertTrue(recovered ~= nil, "bounded retry did not recover recognized context")
+	assertEqual("icecrown citadel", recovered.instanceKey, "bounded retry recovered wrong canonical key")
+	assertTrue(checkCount > 0, "bounded retry did not run the raid check")
+	assertEqual(2, requestRaidInfoCount, "only RAID_INSTANCE_WELCOME should request raid info")
+	print("PASS unknown_raid_retry_recovers_without_warning_spam")
+end
+
 function cases.raid_session_check_defers_persisted_active_raid_to_reentry(addon)
 	local fixture, raid = installRaidSessionCheckFixture(addon)
 	fixture.store.GetActiveRecord = function()

@@ -11,9 +11,22 @@ ROOT = Path(__file__).resolve().parents[1]
 SLASH_EVENTS = ROOT / "Raid Management Addon" / "EntryPoints" / "SlashEvents.lua"
 RAID_SESSION = ROOT / "Raid Management Addon" / "Services" / "Raid" / "Session.lua"
 RAID_ROSTER = ROOT / "Raid Management Addon" / "Services" / "Raid" / "Roster.lua"
+INIT = ROOT / "Raid Management Addon" / "Init.lua"
 
 
 class RuntimeFoundationsBehaviorTest(unittest.TestCase):
+    def test_unknown_raid_retry_recovers_without_warning_spam(self) -> None:
+        result = run_lua_case("unknown_raid_retry_recovers_without_warning_spam")
+        self.assertIn("PASS unknown_raid_retry_recovers_without_warning_spam", result.stdout)
+
+    def test_bounded_raid_retries_reenter_init_coordinator(self) -> None:
+        init_source = INIT.read_text(encoding="utf-8")
+        session_source = RAID_SESSION.read_text(encoding="utf-8")
+        self.assertIn("ScheduleInstanceChecks(refreshRaidInstanceFromRetry)", init_source)
+        self.assertIn("refreshInstance()", session_source)
+        self.assertNotIn('SetScript("OnUpdate"', init_source)
+        self.assertNotIn('SetScript("OnUpdate"', session_source)
+
     def test_raid_session_uses_transient_canonical_identity(self) -> None:
         result = run_lua_case("raid_session_uses_transient_canonical_identity")
         self.assertIn("PASS raid_session_uses_transient_canonical_identity", result.stdout)
