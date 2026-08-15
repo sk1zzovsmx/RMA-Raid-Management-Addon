@@ -76,7 +76,11 @@ Plans:
   2. All required WotLK, Lua 5.1, TOC, XML, branding, `xpcall`, and available automated test checks pass after the corrections.
   3. A repeatable in-game checklist records successful login, `/rma`, window creation, valid and quarantined reload behavior, localized raid recognition, and loot/reserve workflows.
   4. Multi-client synchronization, combat-lockdown behavior, and taint logging complete without new Lua errors, protected-action failures, or protocol incompatibility.
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 04-01-PLAN.md - Close the one ASCII finding, repair six stale harness contracts, and run the complete automated gate.
+- [ ] 04-02-PLAN.md - Record blocking human-observed SavedVariables, localized multi-client, combat, and taint acceptance.
 
 ## Progress
 
@@ -88,4 +92,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Persistence Safety | 3/3 | Complete | 2026-08-15 |
 | 2. Locale-Independent Raid Recognition | 5/5 | Complete | 2026-08-15 |
 | 3. Bounded Sync Requests | 2/2 | Complete | 2026-08-15 |
-| 4. Milestone Verification | 0/TBD | Not started | - |
+| 4. Milestone Verification | 0/2 | Not started | - |
