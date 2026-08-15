@@ -189,7 +189,7 @@ local function clearQuarantinedHistorySelection()
 	}
 	for i = 1, #contexts do
 		if contexts[i] then
-			UI.Selection.Clear(contexts[i])
+			UI.Selection.EnsureState(contexts[i])
 		end
 	end
 end

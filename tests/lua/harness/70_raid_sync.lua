@@ -6539,7 +6539,9 @@ local function installLoggerShareFixture(addon)
 		},
 		Selection = {
 			SetModifierPolicy = noop,
-			EnsureState = noop,
+			EnsureState = function(context)
+				clearedSelections[#clearedSelections + 1] = context
+			end,
 			SetAnchor = noop,
 			GetCount = function()
 				return 0
@@ -6561,9 +6563,6 @@ local function installLoggerShareFixture(addon)
 			end,
 			SelectRange = function()
 				return nil, 0
-			end,
-			Clear = function(context)
-				clearedSelections[#clearedSelections + 1] = context
 			end,
 		},
 		ModuleState = {
