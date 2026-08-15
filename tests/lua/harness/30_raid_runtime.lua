@@ -610,6 +610,101 @@ function cases.bootstrap_retries_after_failure(addon)
 	print("PASS bootstrap_retries_after_failure")
 end
 
+function cases.bootstrap_raid_archive_quarantine_is_degraded_and_recovers(addon)
+	local categories = {
+		{
+			code = "INVALID_RAID_ARCHIVE_TYPE",
+			label = "invalid type",
+			formatVersion = nil,
+		},
+		{
+			code = "UNSUPPORTED_RAID_ARCHIVE_FORMAT",
+			label = "unsupported format",
+			formatVersion = 2,
+		},
+		{
+			code = "CORRUPT_RAID_ARCHIVE",
+			label = "corrupt format",
+			formatVersion = 1,
+		},
+	}
+
+	for i = 1, #categories do
+		local scenario = categories[i]
+		local fixtureAddon = newAddon()
+		local frame = installInitStubs(fixtureAddon)
+		local reservesLoadCount = 0
+		local warningMessages = {}
+		local debugMessages = {}
+		local detail = "PRIVATE_ARCHIVE_PLAYER_DATA_" .. scenario.code
+		local quarantined = true
+		local validArchive = { formatVersion = 1, activeRaidUid = nil, order = {}, raids = {} }
+
+		fixtureAddon.L.MsgRaidHistoryQuarantined = "quarantine %s: %s"
+		fixtureAddon.L.StrRaidArchiveInvalidType = "invalid type"
+		fixtureAddon.L.StrRaidArchiveUnsupportedFormat = "unsupported format"
+		fixtureAddon.L.StrRaidArchiveCorrupt = "corrupt format"
+		fixtureAddon.Services.Reserves = {
+			Load = function()
+				reservesLoadCount = reservesLoadCount + 1
+			end,
+		}
+		fixtureAddon.Database.SavedVariables = {
+			EnsureAll = function() end,
+			NormalizeAfterLoad = function()
+				if quarantined then
+					return nil, scenario.code, detail
+				end
+				return validArchive
+			end,
+			GetRaidArchiveError = function()
+				return quarantined and scenario.code or nil
+			end,
+			GetRaidArchiveFormatVersion = function()
+				return quarantined and scenario.formatVersion or nil
+			end,
+		}
+
+		loadAddonFile(fixtureAddon, "Raid Management Addon/Init.lua")
+		fixtureAddon.warn = function(_, message)
+			warningMessages[#warningMessages + 1] = message
+		end
+		fixtureAddon.debug = function(_, message)
+			debugMessages[#debugMessages + 1] = message
+		end
+		fixtureAddon.RAID_ROSTER_UPDATE = function() end
+
+		fixtureAddon:ADDON_LOADED("Raid Management Addon")
+
+		assertEqual(true, fixtureAddon.State.initialized, scenario.code .. " blocked addon initialization")
+		assertEqual(1, reservesLoadCount, scenario.code .. " blocked unrelated initialization")
+		assertEqual(scenario.code, fixtureAddon.State.raidArchiveQuarantine.category, "quarantine category differs")
+		assertEqual(scenario.formatVersion, fixtureAddon.State.raidArchiveQuarantine.formatVersion, "format metadata differs")
+		assertEqual(1, #warningMessages, scenario.code .. " warning cardinality differs")
+		assertEqual("quarantine " .. scenario.code .. ": " .. scenario.label, warningMessages[1], "warning differs")
+		assertTrue(not string.find(warningMessages[1], detail, 1, true), "warning exposed validator or player data")
+		assertEqual(1, #debugMessages, scenario.code .. " validator detail was not logged once")
+		assertTrue(string.find(debugMessages[1], detail, 1, true) ~= nil, "debug log omitted validator detail")
+
+		fixtureAddon.Database.SavedVariables.GetRaidArchiveError()
+		fixtureAddon.Database.SavedVariables.GetRaidArchiveError()
+		fixtureAddon:ADDON_LOADED("Raid Management Addon")
+		assertEqual(1, #warningMessages, scenario.code .. " repeated the global warning")
+
+		quarantined = false
+		fixtureAddon.State.initialized = nil
+		fixtureAddon:RegisterEvent("ADDON_LOADED")
+		fixtureAddon:ADDON_LOADED("Raid Management Addon")
+		assertEqual(true, fixtureAddon.State.initialized, scenario.code .. " recovery did not initialize")
+		assertEqual(nil, fixtureAddon.State.raidArchiveQuarantine, scenario.code .. " recovery kept quarantine state")
+		assertEqual(1, #warningMessages, scenario.code .. " recovery emitted another quarantine warning")
+		assertEqual(2, reservesLoadCount, scenario.code .. " recovery skipped unrelated initialization")
+		assertEqual(nil, frame.registered.ADDON_LOADED, scenario.code .. " recovery kept bootstrap event registered")
+	end
+
+	print("PASS bootstrap_raid_archive_quarantine_is_degraded_and_recovers")
+end
+
 function cases.bootstrap_success_commits_before_roster_refresh(addon)
 	local frame = installInitStubs(addon)
 	local order = {}

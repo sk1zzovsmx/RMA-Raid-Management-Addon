@@ -60,6 +60,14 @@ MACHINE_HELP_FORMS = {
     "MsgTimerStatsTip": ("sort: age|dur|target",),
     "MsgLogLevelList": ("error, warn, info, debug, trace, spam",),
 }
+QUARANTINE_KEYS = {
+    "MsgRaidHistoryQuarantined",
+    "StrRaidArchiveInvalidType",
+    "StrRaidArchiveUnsupportedFormat",
+    "StrRaidArchiveCorrupt",
+    "StrRaidHistoryQuarantined",
+    "RaidSyncStatusQuarantined",
+}
 DIAGNOSTIC_IDENTIFIER = re.compile(
     r"(?<![A-Za-z])(?:raid|nid|schemaVersion|current|required|players|count|loot|bossNid|"
     r"_TrashMob_|bossKills|playerNid|looterNid)(?![A-Za-z])"
@@ -597,6 +605,24 @@ class LocalizationContractTest(unittest.TestCase):
             translated = scalar_assignments(path)
             for key, value in english.items():
                 self.assertEqual(placeholders(value), placeholders(translated[key]), f"{locale}:{key}")
+
+    def test_raid_archive_quarantine_messages_are_localized_and_data_safe(self) -> None:
+        catalogs = {"enUS": ENGLISH, **LOCALES}
+        for locale, path in catalogs.items():
+            translated = scalar_assignments(path)
+            self.assertTrue(QUARANTINE_KEYS.issubset(translated), locale)
+            warning = unquoted(translated["MsgRaidHistoryQuarantined"])
+            self.assertEqual(["%s", "%s"], placeholders(translated["MsgRaidHistoryQuarantined"]), locale)
+            self.assertIn("RMA_Raids", warning, locale)
+            self.assertIn("/reload", warning, locale)
+            for forbidden_key in (
+                "RMA_Players",
+                "RMA_Reserves",
+                "RMA_Warnings",
+                "RMA_Spammer",
+                "RMA_Options",
+            ):
+                self.assertNotIn(forbidden_key, warning, f"{locale}:{forbidden_key}")
 
     def test_locale_catalogs_only_contain_scalar_translations(self) -> None:
         for path in LOCALES.values():

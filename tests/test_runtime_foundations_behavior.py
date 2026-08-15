@@ -66,6 +66,11 @@ class RuntimeFoundationsBehaviorTest(unittest.TestCase):
 
         self.assertIn("PASS bootstrap_retries_after_failure", result.stdout)
 
+    def test_bootstrap_raid_archive_quarantine_is_degraded_and_recovers(self) -> None:
+        result = run_lua_case("bootstrap_raid_archive_quarantine_is_degraded_and_recovers")
+
+        self.assertIn("PASS bootstrap_raid_archive_quarantine_is_degraded_and_recovers", result.stdout)
+
     def test_bootstrap_success_commits_before_roster_refresh(self) -> None:
         result = run_lua_case("bootstrap_success_commits_before_roster_refresh")
 
