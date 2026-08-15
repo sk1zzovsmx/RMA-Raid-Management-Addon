@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-04-PLAN.md
-last_updated: "2026-08-15T09:42:33.055Z"
-last_activity: 2026-08-15 - Completed Phase 2 Plan 02 bounded unknown-raid recovery
+stopped_at: Completed 02-05-PLAN.md
+last_updated: "2026-08-15T09:50:46.659Z"
+last_activity: 2026-08-15 - Completed Phase 2 Plan 05 exact scoped boss-yell fallback
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
-  completed_plans: 7
-  percent: 88
+  completed_plans: 8
+  percent: 100
 ---
 
 # Project State
@@ -27,28 +27,28 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 Phase: 2 of 4 (Locale-Independent Raid Recognition)
 Plan: 5 of 5
-Status: Phase 2 in progress
-Last activity: 2026-08-15 - Completed Phase 2 Plan 04 evidence-bound localized yell catalogs
+Status: Phase 2 complete
+Last activity: 2026-08-15 - Completed Phase 2 Plan 05 exact scoped boss-yell fallback
 
-Progress: [█████████░] 88%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
+- Total plans completed: 8
 - Average duration: 12 min
-- Total execution time: 1.4 hours
+- Total execution time: 1.5 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | Phase 01 | 3 | 30 min | 10 min |
-| Phase 02 | 4 | 54 min | 14 min |
+| Phase 02 | 5 | 62 min | 12 min |
 
 **Recent Trend:**
-- Last 5 plans: 12 min, 20 min, 17 min, 10 min, 7 min
-- Trend: Phase 2 admission, bounded recovery, evidence, and localized catalogs completed
+- Last 5 plans: 20 min, 17 min, 10 min, 7 min, 8 min
+- Trend: Phase 2 canonical admission, bounded recovery, localized catalogs, and scoped fallback completed
 
 *Updated after each plan completion*
 | Phase 01 P03 | 12min | 2 tasks | 5 files |
@@ -56,6 +56,7 @@ Progress: [█████████░] 88%
 | Phase 02 P03 | 17min | 2 tasks | 1 files |
 | Phase 02 P02 | 10min | 2 tasks | 11 files |
 | Phase 02 P04 | 7min | 2 tasks | 6 files |
+| Phase 02 P05 | 8min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,7 @@ Recent decisions affecting current work:
 - [Phase 02]: Session owns the bounded timer cadence while Init owns every retry refresh and dataset activation. — This preserves module ownership and avoids recursive scheduling or a new polling mechanism.
 - [Phase 02]: English yell fallback definitions retain original text separately from current-locale scalars and carry one canonical raid scope. — Exact English acceptance and localized acceptance must coexist without display-name admission or persisted schema changes.
 - [Phase 02]: Non-English yell catalogs bind only the 60 accepted evidence bytes and remain scalar-only. — Exact matching makes punctuation, whitespace, and Unicode byte drift correctness-relevant.
+- [Phase 02]: Monster-yell fallback requires exact English or current-locale text in the active canonical raid. — Exact matching prevents ambiguous cross-instance boss records without changing combat-log detection or compatibility contracts.
 
 ### Pending Todos
 
@@ -95,6 +97,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-15T09:42:33.053Z
-Stopped at: Completed 02-04-PLAN.md
+Last session: 2026-08-15T09:50:46.656Z
+Stopped at: Completed 02-05-PLAN.md
 Resume file: None

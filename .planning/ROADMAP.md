@@ -13,7 +13,7 @@ This milestone first makes persisted raid history fail closed without data loss,
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Persistence Safety** - Preserve incompatible raid archives and expose quarantine without disabling unrelated features.
-- [ ] **Phase 2: Locale-Independent Raid Recognition** - Use one canonical admission path and retain encounter fallback coverage on supported locales.
+- [x] **Phase 2: Locale-Independent Raid Recognition** - Use one canonical admission path and retain encounter fallback coverage on supported locales.
 - [ ] **Phase 3: Bounded Sync Requests** - Rate-limit request-driven reserve and distribution responses without changing wire compatibility.
 - [ ] **Phase 4: Milestone Verification** - Complete runtime hygiene, automated validation, and documented in-game acceptance checks.
 
@@ -50,7 +50,7 @@ Plans:
 - [x] 02-02-PLAN.md - Add bounded retry recovery and one localized unknown-instance warning.
 - [x] 02-03-PLAN.md - Acquire and validate the mandatory 60/60 yell evidence matrix.
 - [x] 02-04-PLAN.md - Bind exact evidence-backed strings to locale catalogs and fallback metadata.
-- [ ] 02-05-PLAN.md - Enforce exact mixed-language yell matching in the expected canonical raid.
+- [x] 02-05-PLAN.md - Enforce exact mixed-language yell matching in the expected canonical raid.
 
 ### Phase 3: Bounded Sync Requests
 **Goal**: Group members can request reserve and distribution state normally without allowing repeated requests to create unbounded response work.
@@ -82,6 +82,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Persistence Safety | 3/3 | Complete | 2026-08-15 |
-| 2. Locale-Independent Raid Recognition | 4/5 | In Progress | - |
+| 2. Locale-Independent Raid Recognition | 5/5 | Complete | 2026-08-15 |
 | 3. Bounded Sync Requests | 0/TBD | Not started | - |
 | 4. Milestone Verification | 0/TBD | Not started | - |
