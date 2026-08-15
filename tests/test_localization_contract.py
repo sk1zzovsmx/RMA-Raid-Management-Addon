@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 import re
 import shutil
@@ -15,6 +17,13 @@ PACKAGED_README = ADDON / "README.md"
 SLASH_EVENTS = ADDON / "EntryPoints" / "SlashEvents.lua"
 ENGLISH = ADDON / "Localization" / "localization.en.lua"
 DIAGNOSTICS = ADDON / "Localization" / "DiagnoseLog.en.lua"
+YELL_EVIDENCE = (
+    ROOT
+    / ".planning"
+    / "phases"
+    / "02-locale-independent-raid-recognition"
+    / "02-YELL-EVIDENCE.md"
+)
 LOCALES = {
     "ruRU": ADDON / "Localization" / "localization.ru.lua",
     "zhCN": ADDON / "Localization" / "localization.zhCN.lua",
@@ -135,6 +144,100 @@ SLASH_COMMAND = re.compile(r"/rma[ a-z0-9<>\[\]\-|]*")
 LOCALIZATION_FALLBACK = re.compile(
     r'(?:L\.[A-Za-z][A-Za-z0-9_]*|\(L\s+and\s+L\.[A-Za-z][A-Za-z0-9_]*\))\s+or\s+"[^"\r\n]*[A-Za-z][^"\r\n]*"'
 )
+YELL_DEFINITION = re.compile(
+    r'\{\s*localeKey\s*=\s*"(?P<key>[A-Za-z][A-Za-z0-9_]*)"\s*,\s*'
+    r'englishText\s*=\s*L\.(?P=key)\s*,\s*'
+    r'boss\s*=\s*"(?P<boss>(?:\\.|[^"\\])*)"\s*,\s*'
+    r'instanceKey\s*=\s*"(?P<instance>[a-z ]+)"\s*,?\s*\}',
+    re.DOTALL,
+)
+YELL_FALLBACKS = {
+    "Four Horsemen": (
+        "BossYellFourHorsemen",
+        "Four Horsemen",
+        "naxxramas",
+        "I grow tired of these games. Proceed, and I will banish your souls to oblivion!",
+    ),
+    "Iron Council - Brundir": (
+        "BossYellIronCouncilBrundir",
+        "Iron Council",
+        "ulduar",
+        "You rush headlong into the maw of madness!",
+    ),
+    "Iron Council - Molgeim": (
+        "BossYellIronCouncilMolgeim",
+        "Iron Council",
+        "ulduar",
+        "What have you gained from my defeat? You are no less doomed, mortals!",
+    ),
+    "Hodir": (
+        "BossYellHodir",
+        "Hodir",
+        "ulduar",
+        "I... I am released from his grasp... at last.",
+    ),
+    "Thorim": ("BossYellThorim", "Thorim", "ulduar", "Stay your arms! I yield!"),
+    "Freya": (
+        "BossYellFreya",
+        "Freya",
+        "ulduar",
+        "His hold on me dissipates. I can see clearly once more. Thank you, heroes.",
+    ),
+    "Mimiron": (
+        "BossYellMimiron",
+        "Mimiron",
+        "ulduar",
+        "It would appear that I've made a slight miscalculation. I allowed my mind to be corrupted by the fiend in the prison, overriding my primary directive. All systems seem to be functional now. Clear.",
+    ),
+    "Algalon": (
+        "BossYellAlgalon",
+        "Algalon",
+        "ulduar",
+        "I've rearranged the reply code. Your planet will be spared. I cannot be certain of my own calculations anymore.",
+    ),
+    "Faction Champions": (
+        "BossYellFactionChampions",
+        "Faction Champions",
+        "trial of the crusader",
+        "A shallow and tragic victory. We are weaker as a whole from the losses suffered today. Who but the Lich King could benefit from such foolishness? Great warriors have lost their lives. And for what? The true threat looms ahead - the Lich King awaits us all in death.",
+    ),
+    "Val'kyr Twins": (
+        "BossYellValkyrTwins",
+        "Val'kyr Twins",
+        "trial of the crusader",
+        "The Scourge cannot be stopped...",
+    ),
+    "Gunship - Muradin": (
+        "BossYellGunshipMuradin",
+        "Gunship Battle",
+        "icecrown citadel",
+        "Don't say I didn't warn ya, scoundrels! Onward, brothers and sisters!",
+    ),
+    "Gunship - Saurfang": (
+        "BossYellGunshipSaurfang",
+        "Gunship Battle",
+        "icecrown citadel",
+        "The Alliance falter. Onward to the Lich King!",
+    ),
+    "Blood Prince Council": (
+        "BossYellBloodPrinceCouncil",
+        "Blood Prince Council",
+        "icecrown citadel",
+        "My queen, they... come.",
+    ),
+    "Valithria Dreamwalker": (
+        "BossYellValithriaDreamwalker",
+        "Valithria Dreamwalker",
+        "icecrown citadel",
+        "I AM RENEWED! Ysera grant me the favor to lay these foul creatures to rest!",
+    ),
+    "Halion": (
+        "BossYellHalion",
+        "Halion",
+        "the ruby sanctum",
+        "Relish this victory, mortals, for it will be your last. This world will burn with the master's return!",
+    ),
+}
 
 
 def scalar_assignments(path: Path) -> dict[str, str]:
@@ -142,6 +245,43 @@ def scalar_assignments(path: Path) -> dict[str, str]:
         match.group("key"): match.group("value")
         for match in SCALAR_ASSIGNMENT.finditer(path.read_text(encoding="utf-8"))
     }
+
+
+def decoded_scalar_assignments(path: Path) -> dict[str, str]:
+    return {key: json.loads(value) for key, value in scalar_assignments(path).items()}
+
+
+def accepted_yell_evidence() -> dict[tuple[str, str], tuple[int, str, int, str]]:
+    accepted = {}
+    for line in YELL_EVIDENCE.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("|accepted|"):
+            continue
+        columns = line[1:-1].split("|")
+        if len(columns) != 13:
+            raise AssertionError(f"invalid accepted evidence row: {line}")
+        _, encounter, _, _, broadcast_id, locale, _, _, byte_length, digest, source, status, text = columns
+        key = (encounter, locale)
+        if key in accepted:
+            raise AssertionError(f"duplicate accepted evidence row: {encounter}:{locale}")
+        if locale not in LOCALES or encounter not in YELL_FALLBACKS:
+            raise AssertionError(f"unexpected accepted evidence row: {encounter}:{locale}")
+        encoded = text.encode("utf-8")
+        if (
+            not text
+            or len(encoded) != int(byte_length)
+            or hashlib.sha256(encoded).hexdigest() != digest
+            or not re.fullmatch(r"[^@]+@[0-9a-f]{40}:.+", source)
+            or status not in {"match-ac-direct", "resolved-ac-broadcast", "not-present-ac-direct"}
+            or re.search(r"conflict|missing|rejected|unresolved", status)
+        ):
+            raise AssertionError(f"unclean accepted evidence row: {encounter}:{locale}")
+        accepted[key] = (int(broadcast_id), text, int(byte_length), digest)
+    expected = {(encounter, locale) for encounter in YELL_FALLBACKS for locale in LOCALES}
+    if set(accepted) != expected:
+        missing = sorted(expected - set(accepted))
+        extra = sorted(set(accepted) - expected)
+        raise AssertionError(f"incomplete yell evidence: count={len(accepted)} missing={missing} extra={extra}")
+    return accepted
 
 
 def placeholders(value: str) -> list[str]:
@@ -579,6 +719,37 @@ class LocalizationReadmeContractTest(unittest.TestCase):
 
 
 class LocalizationContractTest(unittest.TestCase):
+    def test_yell_evidence_matrix_is_complete_and_clean(self) -> None:
+        evidence = accepted_yell_evidence()
+        self.assertEqual(60, len(evidence))
+
+    def test_yell_catalogs_match_evidence_bytes(self) -> None:
+        evidence = accepted_yell_evidence()
+        for locale, path in LOCALES.items():
+            translated = decoded_scalar_assignments(path)
+            for encounter, (locale_key, _, _, _) in YELL_FALLBACKS.items():
+                self.assertIn(locale_key, translated, f"{locale}:{locale_key}")
+                value = translated[locale_key]
+                _, expected, byte_length, digest = evidence[(encounter, locale)]
+                encoded = value.encode("utf-8")
+                self.assertEqual(expected, value, f"{locale}:{locale_key}")
+                self.assertEqual(byte_length, len(encoded), f"{locale}:{locale_key}:length")
+                self.assertEqual(digest, hashlib.sha256(encoded).hexdigest(), f"{locale}:{locale_key}:digest")
+
+    def test_yell_definitions_cover_only_existing_fallbacks(self) -> None:
+        source = ENGLISH.read_text(encoding="utf-8")
+        english = decoded_scalar_assignments(ENGLISH)
+        definitions = [match.groupdict() for match in YELL_DEFINITION.finditer(source)]
+        expected = [
+            {"key": locale_key, "boss": boss, "instance": instance_key}
+            for locale_key, boss, instance_key, _ in YELL_FALLBACKS.values()
+        ]
+        self.assertEqual(expected, definitions)
+        self.assertNotIn("L.BossYells =", source)
+        self.assertNotIn("Impossible...", source)
+        for locale_key, _, _, english_text in YELL_FALLBACKS.values():
+            self.assertEqual(english_text, english[locale_key], locale_key)
+
     def test_toc_loads_english_then_all_locale_overrides(self) -> None:
         toc = (ADDON / "Raid Management Addon.toc").read_text(encoding="utf-8")
         expected = [
@@ -640,6 +811,7 @@ class LocalizationContractTest(unittest.TestCase):
             source = path.read_text(encoding="utf-8")
             self.assertNotIn("L.RaidZones", source)
             self.assertNotIn("L.BossYells", source)
+            self.assertNotIn("L.BossYellDefinitions", source)
             lua_syntax = re.sub(r'"(?:\\.|[^"\\])*"', '""', source)
             self.assertTrue(lua_syntax.isascii(), path.name)
 
