@@ -15,7 +15,7 @@
 
 - [x] **UI-01**: Logger and Attendance use focused shared primitives for calculated widths, headers, rows, and sort binding without introducing a generic framework or configuration DSL.
 - [x] **UI-02**: Logger lists preserve their current calculated widths, sorting, hit boxes, icon allowance, titles, and empty states after consolidation.
-- [ ] **UI-03**: Attendance lists preserve their current calculated widths, sorting, inspect/spec columns, contextual titles, and empty states after consolidation.
+- [x] **UI-03**: Attendance lists preserve their current calculated widths, sorting, inspect/spec columns, contextual titles, and empty states after consolidation.
 
 ### Compatibility
 
@@ -54,7 +54,7 @@ Each v1.1 requirement maps to exactly one roadmap phase.
 | CLEAN-03 | Phase 5 | Complete |
 | UI-01 | Phase 6 | Complete |
 | UI-02 | Phase 6 | Complete |
-| UI-03 | Phase 6 | Pending |
+| UI-03 | Phase 6 | Complete |
 | QUAL-01 | Phase 7 | Pending |
 | QUAL-02 | Phase 7 | Pending |
 
@@ -65,4 +65,4 @@ Each v1.1 requirement maps to exactly one roadmap phase.
 
 ---
 *Requirements defined: 2026-08-16*
-*Last updated: 2026-08-16 after completing Phase 5 runtime surface cleanup*
+*Last updated: 2026-08-16 after completing Phase 6 shared list primitives*

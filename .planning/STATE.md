@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: UI Simplification
 status: executing
-stopped_at: Completed 06-02-PLAN.md
-last_updated: "2026-08-16T16:43:58.351Z"
-last_activity: 2026-08-16 - Phase 6 plan 02 Logger controller migration completed
+stopped_at: Completed 06-03-PLAN.md
+last_updated: "2026-08-16T16:56:26.023Z"
+last_activity: 2026-08-16 - Phase 6 Attendance migration and final compatibility gates completed
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 16
-  completed_plans: 15
-  percent: 94
+  completed_plans: 16
+  percent: 100
 ---
 
 # Project State
@@ -21,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-16)
 
 **Core value:** Raid-critical data and workflows must remain correct, recoverable, and compatible on WotLK 3.3.5a clients.
-**Current focus:** Executing Phase 6, Logger and Attendance List Primitives
+**Current focus:** Phase 6 complete; ready to plan Phase 7 UI Simplification Verification
 
 ## Current Position
 
 Phase: 6 of 7 (Logger and Attendance List Primitives)
-Plan: 2 of 3
-Status: Phase 6 in progress; plan 02 complete
-Last activity: 2026-08-16 - Phase 6 plan 02 Logger controller migration completed
+Plan: 3 of 3
+Status: Phase 6 complete; ready for Phase 7 verification
+Last activity: 2026-08-16 - Phase 6 Attendance migration and final compatibility gates completed
 
-Progress: [█████████░] 94%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 15
-- Average duration: 16 min
-- Total execution time: 3.9 hours
+- Total plans completed: 16
+- Average duration: 15 min
+- Total execution time: 4.0 hours
 
 **By Phase:**
 
@@ -48,11 +48,11 @@ Progress: [█████████░] 94%
 | Phase 03 | 2 | 23 min | 12 min |
 | Phase 04 | 2 | 90 min | 45 min |
 | Phase 05 | 1 | 12 min | 12 min |
-| Phase 06 | 2 | 19 min | 10 min |
+| Phase 06 | 3 | 27 min | 9 min |
 
 **Recent Trend:**
-- Last 5 plans: 84 min, 6 min, 12 min, 7 min, 12 min
-- Trend: Logger migration complete; ready for bounded Attendance controller migration
+- Last 5 plans: 6 min, 12 min, 7 min, 12 min, 8 min
+- Trend: Phase 6 complete; focused list ownership and compatibility gates are green
 
 *Updated after each plan completion*
 | Phase 01 P03 | 12min | 2 tasks | 5 files |
@@ -68,6 +68,7 @@ Progress: [█████████░] 94%
 | Phase 05 P01 | 12min | 3 tasks | 8 files |
 | Phase 06 P01 | 7 min | 2 tasks | 3 files |
 | Phase 06 P02 | 12 min | 2 tasks | 3 files |
+| Phase 06 P03 | 8 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -110,6 +111,8 @@ Recent decisions affecting current work:
 - [Phase 06]: CalculateColumnWidths retains its pairs-derived variable-key ordering and remainder distribution. — Numeric parity is compatibility-sensitive and sorting would change current Logger and Attendance results.
 - [Phase 06]: Logger retains all feature presentation policy while addon.UI.Lists performs only extracted mechanics. — This preserves Source behavior, geometry, localization, sorting, and existing refresh ownership.
 - [Phase 06]: The Logger controller regression composes real shared primitives with the lightweight controller fixture. — Plan 01 already protects the width algorithm; plan 02 verifies controller integration without duplicating it.
+- [Phase 06]: Attendance retains all feature presentation policy while addon.UI.Lists performs only extracted mechanics. — This preserves descriptors, sorting, context and empty-state selection, loot-ban adjustment, Spec/Inspect rendering, and Force Inspect ownership.
+- [Phase 06]: Attendance supplies every geometry and presentation choice explicitly to the shared operations. — No hidden defaults, wrapper layer, cache, listener, timer, or polling path is justified.
 
 ### Pending Todos
 
@@ -123,6 +126,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-16T16:43:58.350Z
-Stopped at: Completed 06-02-PLAN.md
+Last session: 2026-08-16T16:56:26.021Z
+Stopped at: Completed 06-03-PLAN.md
 Resume file: None
