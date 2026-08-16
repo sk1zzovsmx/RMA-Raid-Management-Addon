@@ -57,6 +57,9 @@ local function ensureFrame()
 		return nil
 	end
 
+	titleText:SetFont("Fonts\\FRIZQT__.TTF", 24, "OUTLINE")
+	detailText:SetFont("Fonts\\FRIZQT__.TTF", 16, "OUTLINE")
+
 	if frame.SetFrameLevel then
 		frame:SetFrameLevel(1000)
 	end
