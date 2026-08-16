@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: UI Simplification
-status: planning
-stopped_at: Phase 7 context gathered
-last_updated: "2026-08-16T17:39:22.869Z"
-last_activity: 2026-08-16 - Phase 7 context gathered
+status: executing
+stopped_at: Completed 07-01-PLAN.md
+last_updated: "2026-08-16T18:41:46.156Z"
+last_activity: 2026-08-16 - Completed Phase 7 Plan 01 automated acceptance gate
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 16
-  completed_plans: 16
-  percent: 100
+  total_plans: 19
+  completed_plans: 17
+  percent: 89
 ---
 
 # Project State
@@ -21,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-16)
 
 **Core value:** Raid-critical data and workflows must remain correct, recoverable, and compatible on WotLK 3.3.5a clients.
-**Current focus:** Plan Phase 7 UI Simplification Verification
+**Current focus:** Execute Phase 7 UI Simplification Verification
 
 ## Current Position
 
 Phase: 7 of 7 (UI Simplification Verification)
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-08-16 - Phase 7 context gathered
+Plan: 1 of 3
+Status: In progress
+Last activity: 2026-08-16 - Completed automated acceptance gate
 
-Progress: [██████████] 100%
+Progress: [█████████░] 89%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 16
+- Total plans completed: 17
 - Average duration: 15 min
-- Total execution time: 4.0 hours
+- Total execution time: 4.1 hours
 
 **By Phase:**
 
@@ -49,10 +49,11 @@ Progress: [██████████] 100%
 | Phase 04 | 2 | 90 min | 45 min |
 | Phase 05 | 1 | 12 min | 12 min |
 | Phase 06 | 3 | 27 min | 9 min |
+| Phase 07 | 1 | 7 min | 7 min |
 
 **Recent Trend:**
-- Last 5 plans: 6 min, 12 min, 7 min, 12 min, 8 min
-- Trend: Phase 6 complete; focused list ownership and compatibility gates are green
+- Last 5 plans: 12 min, 7 min, 12 min, 8 min, 7 min
+- Trend: Phase 7 automated scope, focused/static gates, and single 512-test discovery are green; live dispositions remain pending
 
 *Updated after each plan completion*
 | Phase 01 P03 | 12min | 2 tasks | 5 files |
@@ -69,6 +70,7 @@ Progress: [██████████] 100%
 | Phase 06 P01 | 7 min | 2 tasks | 3 files |
 | Phase 06 P02 | 12 min | 2 tasks | 3 files |
 | Phase 06 P03 | 8 min | 2 tasks | 3 files |
+| Phase 07 P01 | 7 min | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -113,6 +115,8 @@ Recent decisions affecting current work:
 - [Phase 06]: The Logger controller regression composes real shared primitives with the lightweight controller fixture. — Plan 01 already protects the width algorithm; plan 02 verifies controller integration without duplicating it.
 - [Phase 06]: Attendance retains all feature presentation policy while addon.UI.Lists performs only extracted mechanics. — This preserves descriptors, sorting, context and empty-state selection, loot-ban adjustment, Spec/Inspect rendering, and Force Inspect ownership.
 - [Phase 06]: Attendance supplies every geometry and presentation choice explicitly to the shared operations. — No hidden defaults, wrapper layer, cache, listener, timer, or polling path is justified.
+- [Phase 07]: Automated acceptance is fixed to runtime commit 6f95fb292f06bad699d65f49d0485e5a141a82bb against baseline 539a651d961bdfab25a7a7ebf849041f1a3ec75e. — All focused, static, and complete-suite evidence must describe one immutable runtime tree.
+- [Phase 07]: Plan 07-01 evidence remains AUTOMATED only; Screen Notice, Trade, and Loot live checks remain pending Plan 07-02, and Phase 6 Logger/Attendance observations are not relabeled. — Automation cannot establish a new client observation.
 
 ### Pending Todos
 
@@ -121,11 +125,12 @@ None yet.
 ### Blockers/Concerns
 
 - No v1.1 roadmap or phase-planning blocker is known.
+- No automated Phase 7 acceptance blocker is known; Plan 07-02 live dispositions are intentionally pending.
 - No v1.0 milestone completion blocker remains under the approved QUAL-03 contract.
 - Accepted residual risks remain for unexecuted SavedVariables quarantine/recovery, localized/multi-client sync, combat protected-action behavior, and taint checks.
 
 ## Session Continuity
 
-Last session: 2026-08-16T17:39:22.867Z
-Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-ui-simplification-verification/07-CONTEXT.md
+Last session: 2026-08-16T18:41:46.156Z
+Stopped at: Completed 07-01-PLAN.md
+Resume file: None

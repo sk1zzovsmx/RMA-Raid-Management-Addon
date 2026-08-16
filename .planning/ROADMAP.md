@@ -71,7 +71,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 07-01-PLAN.md — Prove the fixed v1.1 runtime scope, pass focused/static gates, and run one final 512-test discovery.
+- [x] 07-01-PLAN.md — Prove the fixed v1.1 runtime scope, pass focused/static gates, and run one final 512-test discovery.
 - [ ] 07-02-PLAN.md — Collect honest live Screen Notice, Trade retry, and active-raid Loot initialization dispositions while reusing Phase 6 observations.
 - [ ] 07-03-PLAN.md — Publish the versioned AUTOMATED/OBSERVED/DEFERRED acceptance report and final milestone disposition.
 
@@ -88,7 +88,7 @@ Phases execute in numeric order: 5 → 6 → 7
 | 4. Milestone Verification | v1.0 | 2/2 | Complete | 2026-08-15 |
 | 5. Runtime Surface Cleanup | v1.1 | Complete    | 2026-08-16 | 2026-08-16 |
 | 6. Logger and Attendance List Primitives | v1.1 | 3/3 | Complete | 2026-08-16 |
-| 7. UI Simplification Verification | v1.1 | 0/3 | Not started | - |
+| 7. UI Simplification Verification | v1.1 | 1/3 | In Progress | - |
 
 ---
 
