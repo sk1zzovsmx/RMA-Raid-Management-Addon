@@ -53,11 +53,11 @@ The complete shipped roadmap remains archived at `.planning/milestones/v1.0-ROAD
   1. Logger lists retain their calculated widths, sort behavior, clickable hit boxes, icon allowance, titles, and empty-state presentation.
   2. Attendance lists retain their calculated widths, sort behavior, inspect/spec columns, contextual titles, and empty-state presentation.
   3. Logger and Attendance obtain calculated widths, header and row layout, and sort binding from focused shared primitives without a generic framework, configuration DSL, or transfer of feature ownership.
-**Plans**: 1/3 complete
+**Plans**: 2/3 complete
 
 Plans:
 - [x] 06-01-PLAN.md — Establish the exact shared list primitive contract under `addon.UI.Lists` with TDD parity coverage.
-- [ ] 06-02-PLAN.md — Route Logger mechanics through the shared primitives while retaining Source and presentation ownership.
+- [x] 06-02-PLAN.md — Route Logger mechanics through the shared primitives while retaining Source and presentation ownership.
 - [ ] 06-03-PLAN.md — Route Attendance mechanics through the shared primitives, retain Spec/Inspect ownership, and run final Phase 6 gates.
 
 ### Phase 7: UI Simplification Verification

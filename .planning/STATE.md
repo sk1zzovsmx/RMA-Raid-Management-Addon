@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: UI Simplification
 status: executing
-stopped_at: Completed 06-01-PLAN.md
-last_updated: "2026-08-16T16:30:45.500Z"
-last_activity: 2026-08-16 - Phase 6 plan 01 shared list primitive contract completed
+stopped_at: Completed 06-02-PLAN.md
+last_updated: "2026-08-16T16:43:58.351Z"
+last_activity: 2026-08-16 - Phase 6 plan 02 Logger controller migration completed
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 16
-  completed_plans: 14
-  percent: 88
+  completed_plans: 15
+  percent: 94
 ---
 
 # Project State
@@ -26,18 +26,18 @@ See: .planning/PROJECT.md (updated 2026-08-16)
 ## Current Position
 
 Phase: 6 of 7 (Logger and Attendance List Primitives)
-Plan: 1 of 3
-Status: Phase 6 in progress; plan 01 complete
-Last activity: 2026-08-16 - Phase 6 plan 01 shared list primitive contract completed
+Plan: 2 of 3
+Status: Phase 6 in progress; plan 02 complete
+Last activity: 2026-08-16 - Phase 6 plan 02 Logger controller migration completed
 
-Progress: [█████████░] 88%
+Progress: [█████████░] 94%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 14
+- Total plans completed: 15
 - Average duration: 16 min
-- Total execution time: 3.7 hours
+- Total execution time: 3.9 hours
 
 **By Phase:**
 
@@ -48,11 +48,11 @@ Progress: [█████████░] 88%
 | Phase 03 | 2 | 23 min | 12 min |
 | Phase 04 | 2 | 90 min | 45 min |
 | Phase 05 | 1 | 12 min | 12 min |
-| Phase 06 | 1 | 7 min | 7 min |
+| Phase 06 | 2 | 19 min | 10 min |
 
 **Recent Trend:**
-- Last 5 plans: 11 min, 84 min, 6 min, 12 min, 7 min
-- Trend: Shared list contract complete; ready for bounded Logger controller migration
+- Last 5 plans: 84 min, 6 min, 12 min, 7 min, 12 min
+- Trend: Logger migration complete; ready for bounded Attendance controller migration
 
 *Updated after each plan completion*
 | Phase 01 P03 | 12min | 2 tasks | 5 files |
@@ -67,6 +67,7 @@ Progress: [█████████░] 88%
 | Phase 04 P02 | 6min | 2 tasks | 1 files |
 | Phase 05 P01 | 12min | 3 tasks | 8 files |
 | Phase 06 P01 | 7 min | 2 tasks | 3 files |
+| Phase 06 P02 | 12 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -107,6 +108,8 @@ Recent decisions affecting current work:
 - [Phase 05]: Database.EnsureLootRuntimeState calls ContextState.SyncRuntimeState directly at the established bootstrap point. — The same-file state owner preserves normalization without an unconsumed service forwarder.
 - [Phase 06]: Every list geometry value and binding flag remains caller-supplied; addon.UI.Lists adds no visual defaults or orchestration layer. — The phase shares only proven mechanics while controllers retain presentation policy.
 - [Phase 06]: CalculateColumnWidths retains its pairs-derived variable-key ordering and remainder distribution. — Numeric parity is compatibility-sensitive and sorting would change current Logger and Attendance results.
+- [Phase 06]: Logger retains all feature presentation policy while addon.UI.Lists performs only extracted mechanics. — This preserves Source behavior, geometry, localization, sorting, and existing refresh ownership.
+- [Phase 06]: The Logger controller regression composes real shared primitives with the lightweight controller fixture. — Plan 01 already protects the width algorithm; plan 02 verifies controller integration without duplicating it.
 
 ### Pending Todos
 
@@ -120,6 +123,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-16T16:30:45.499Z
-Stopped at: Completed 06-01-PLAN.md
+Last session: 2026-08-16T16:43:58.350Z
+Stopped at: Completed 06-02-PLAN.md
 Resume file: None
