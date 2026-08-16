@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: UI Simplification
-status: executing
-stopped_at: Completed 07-02-PLAN.md
-last_updated: "2026-08-16T20:36:23Z"
-last_activity: 2026-08-16 - Completed Phase 7 Plan 02 live-client evidence and focused Screen Notice correction
+status: verifying
+stopped_at: Completed 07-03-PLAN.md
+last_updated: "2026-08-16T20:42:00Z"
+last_activity: 2026-08-16 - Published Phase 7 accepted-risk GO and closed QUAL-01/QUAL-02
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 19
-  completed_plans: 18
-  percent: 95
+  completed_plans: 19
+  percent: 100
 ---
 
 # Project State
@@ -21,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-16)
 
 **Core value:** Raid-critical data and workflows must remain correct, recoverable, and compatible on WotLK 3.3.5a clients.
-**Current focus:** Execute Phase 7 UI Simplification Verification
+**Current focus:** Verify Phase 7 and complete the v1.1 milestone
 
 ## Current Position
 
 Phase: 7 of 7 (UI Simplification Verification)
-Plan: 2 of 3
-Status: In progress
-Last activity: 2026-08-16 - Recorded live dispositions after focused Screen Notice correction and retest
+Plan: 3 of 3
+Status: Plans complete; ready for independent phase verification
+Last activity: 2026-08-16 - Published the versioned acceptance report with milestone GO
 
-Progress: [██████████] 95%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 18
+- Total plans completed: 19
 - Average duration: 16 min
-- Total execution time: 4.9 hours
+- Total execution time: 5.0 hours
 
 **By Phase:**
 
@@ -49,11 +49,11 @@ Progress: [██████████] 95%
 | Phase 04 | 2 | 90 min | 45 min |
 | Phase 05 | 1 | 12 min | 12 min |
 | Phase 06 | 3 | 27 min | 9 min |
-| Phase 07 | 2 | 57 min | 29 min |
+| Phase 07 | 3 | 63 min | 21 min |
 
 **Recent Trend:**
-- Last 5 plans: 7 min, 12 min, 8 min, 7 min, 50 min
-- Trend: Screen Notice and Loot are observed passing; Trade remains deferred, and one complete repaired-tree gate remains before final acceptance
+- Last 5 plans: 12 min, 8 min, 7 min, 50 min, 6 min
+- Trend: Final repaired-tree gate passed 512/512; milestone GO retains Trade as explicit deferred risk
 
 *Updated after each plan completion*
 | Phase 01 P03 | 12min | 2 tasks | 5 files |
@@ -72,6 +72,7 @@ Progress: [██████████] 95%
 | Phase 06 P03 | 8 min | 2 tasks | 3 files |
 | Phase 07 P01 | 7 min | 3 tasks | 1 files |
 | Phase 07 P02 | 50 min | 1 tasks | 5 files |
+| Phase 07 P03 | 6 min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -121,6 +122,8 @@ Recent decisions affecting current work:
 - [Phase 07]: Screen Notice binds its intended title and detail fonts before either FontString receives text. — The WotLK client demonstrated that the XML-created strings reached the production event callback without a valid font.
 - [Phase 07]: Plan 07-02 records Screen Notice and Loot initialization as OBSERVED PASS, Trade as DEFERRED and unpassed, and Phase 6 Logger/Attendance as reused evidence. — Checkpoint approval does not convert unavailable scenarios or prior observations into new PASS results.
 - [Phase 07]: The final workflow must run one complete automatic gate on the repaired runtime tree before Plan 07-03 concludes QUAL-01 or QUAL-02. — The Screen Notice correction postdates Plan 07-01's locked acceptance commit.
+- [Phase 07]: The repaired-tree 512/512 discovery at commit 2de0353cdabf8cbbd1cc515be506893c9f13eddc supersedes the Plan 07-01 complete discovery for final acceptance. — Final evidence must describe the tree containing the demonstrated Screen Notice repair.
+- [Phase 07]: QUAL-01 and QUAL-02 close with milestone GO under the approved accepted-risk policy. — Every executed gate passed and no known regression remains, while Trade stays DEFERRED and unpassed.
 
 ### Pending Todos
 
@@ -128,14 +131,13 @@ None yet.
 
 ### Blockers/Concerns
 
-- No v1.1 roadmap or phase-planning blocker is known.
-- Plan 07-01's complete automatic gate predates the Screen Notice correction; one complete gate on the repaired tree remains pending before Plan 07-03.
+- No v1.1 phase verification blocker is known.
 - Trade success plus uncertain-verification retry remains an accepted DEFERRED, unpassed live residual risk.
 - No v1.0 milestone completion blocker remains under the approved QUAL-03 contract.
 - Accepted residual risks remain for unexecuted SavedVariables quarantine/recovery, localized/multi-client sync, combat protected-action behavior, and taint checks.
 
 ## Session Continuity
 
-Last session: 2026-08-16T20:36:23Z
-Stopped at: Completed 07-02-PLAN.md
+Last session: 2026-08-16T20:42:00Z
+Stopped at: Completed 07-03-PLAN.md
 Resume file: None

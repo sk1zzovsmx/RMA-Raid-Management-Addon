@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 Stabilization** - Phases 1-4 (shipped 2026-08-15)
-- 🚧 **v1.1 UI Simplification** - Phases 5-7 (planned)
+- ✅ **v1.1 UI Simplification** - Phases 5-7 (complete, pending archival)
 
 ## Phases
 
@@ -25,13 +25,13 @@ The complete shipped roadmap remains archived at `.planning/milestones/v1.0-ROAD
 
 </details>
 
-### 🚧 v1.1 UI Simplification (Planned)
+### ✅ v1.1 UI Simplification (Complete, Pending Archival)
 
 **Milestone Goal:** Remove demonstrated dead UI-facing paths and consolidate only the stable Logger/Attendance list-layout primitives without changing visible behavior or compatibility contracts.
 
 - [x] **Phase 5: Runtime Surface Cleanup** - Removed three confirmed unconsumed exports or forwarders while preserving their runtime behavior.
 - [x] **Phase 6: Logger and Attendance List Primitives** - Shared focused list-layout primitives while preserving each controller's presentation behavior.
-- [ ] **Phase 7: UI Simplification Verification** - Prove the simplification preserves UI, localization, runtime, and WotLK 3.3.5a contracts.
+- [x] **Phase 7: UI Simplification Verification** - Proved the simplification preserves UI, localization, runtime, and WotLK 3.3.5a contracts under the approved accepted-risk policy.
 
 ## Phase Details
 
@@ -68,12 +68,12 @@ Plans:
   1. The complete relevant automated suite and all applicable WotLK 3.3.5a static validators pass against the simplified implementation.
   2. XML remains layout-only, and the existing RMA version-5 wire protocols, six `RMA_*` SavedVariables, vendored libraries, and supported public entrypoints remain unchanged.
   3. Screen notices, trade, loot initialization, Logger, and Attendance retain their localized user-facing text and visible behavior after the cleanup.
-**Plans**: 3 plans
+**Plans**: 3/3 complete
 
 Plans:
 - [x] 07-01-PLAN.md — Prove the fixed v1.1 runtime scope, pass focused/static gates, and run one final 512-test discovery.
 - [x] 07-02-PLAN.md — Collect honest live Screen Notice, Trade retry, and active-raid Loot initialization dispositions while reusing Phase 6 observations.
-- [ ] 07-03-PLAN.md — Publish the versioned AUTOMATED/OBSERVED/DEFERRED acceptance report and final milestone disposition.
+- [x] 07-03-PLAN.md — Published the versioned AUTOMATED/OBSERVED/DEFERRED acceptance report and final milestone disposition.
 
 ## Progress
 
@@ -86,9 +86,9 @@ Phases execute in numeric order: 5 → 6 → 7
 | 2. Locale-Independent Raid Recognition | v1.0 | 5/5 | Complete | 2026-08-15 |
 | 3. Bounded Sync Requests | v1.0 | 2/2 | Complete | 2026-08-15 |
 | 4. Milestone Verification | v1.0 | 2/2 | Complete | 2026-08-15 |
-| 5. Runtime Surface Cleanup | v1.1 | Complete    | 2026-08-16 | 2026-08-16 |
+| 5. Runtime Surface Cleanup | v1.1 | 1/1 | Complete | 2026-08-16 |
 | 6. Logger and Attendance List Primitives | v1.1 | 3/3 | Complete | 2026-08-16 |
-| 7. UI Simplification Verification | v1.1 | 2/3 | In Progress | - |
+| 7. UI Simplification Verification | v1.1 | 3/3 | Complete | 2026-08-16 |
 
 ---
 

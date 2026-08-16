@@ -19,8 +19,8 @@
 
 ### Compatibility
 
-- [ ] **QUAL-01**: The complete relevant automated suite and WotLK 3.3.5a static validators pass after the simplification.
-- [ ] **QUAL-02**: The milestone leaves XML, RMA version-5 wire protocols, SavedVariables, vendored libraries, supported public entrypoints, localization, and visible behavior unchanged.
+- [x] **QUAL-01**: The complete relevant automated suite and WotLK 3.3.5a static validators pass after the simplification.
+- [x] **QUAL-02**: The milestone leaves XML, RMA version-5 wire protocols, SavedVariables, vendored libraries, supported public entrypoints, localization, and visible behavior unchanged under the approved accepted-risk disposition.
 
 ## Future Requirements
 
@@ -55,8 +55,8 @@ Each v1.1 requirement maps to exactly one roadmap phase.
 | UI-01 | Phase 6 | Complete |
 | UI-02 | Phase 6 | Complete |
 | UI-03 | Phase 6 | Complete |
-| QUAL-01 | Phase 7 | Pending |
-| QUAL-02 | Phase 7 | Pending |
+| QUAL-01 | Phase 7 | Complete |
+| QUAL-02 | Phase 7 | Complete — accepted risk retained for deferred live checks |
 
 **Coverage:**
 - v1.1 requirements: 8 total
@@ -65,4 +65,4 @@ Each v1.1 requirement maps to exactly one roadmap phase.
 
 ---
 *Requirements defined: 2026-08-16*
-*Last updated: 2026-08-16 after completing Phase 6 shared list primitives*
+*Last updated: 2026-08-16 after Phase 7 accepted-risk verification GO*
