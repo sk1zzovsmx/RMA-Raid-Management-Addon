@@ -76,7 +76,7 @@ Phases execute in numeric order: 5 → 6 → 7
 | 2. Locale-Independent Raid Recognition | v1.0 | 5/5 | Complete | 2026-08-15 |
 | 3. Bounded Sync Requests | v1.0 | 2/2 | Complete | 2026-08-15 |
 | 4. Milestone Verification | v1.0 | 2/2 | Complete | 2026-08-15 |
-| 5. Runtime Surface Cleanup | v1.1 | 1/1 | Complete | 2026-08-16 |
+| 5. Runtime Surface Cleanup | v1.1 | Complete    | 2026-08-16 | 2026-08-16 |
 | 6. Logger and Attendance List Primitives | v1.1 | 0/TBD | Not started | - |
 | 7. UI Simplification Verification | v1.1 | 0/TBD | Not started | - |
 
