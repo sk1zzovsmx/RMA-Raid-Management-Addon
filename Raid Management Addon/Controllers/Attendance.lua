@@ -18,8 +18,15 @@ local Services = addon.Services
 local Timer = addon.Timer
 local Sort = addon.Sort
 local Colors = addon.Colors
-local CalculateColumnWidths =
-	assert(UI.Lists.CalculateColumnWidths, Diag.A.AttendanceColumnLayoutOwnerNotInitialized)
+local Lists = UI.Lists
+local CalculateColumnWidths = assert(Lists.CalculateColumnWidths, Diag.A.AttendanceColumnLayoutOwnerNotInitialized)
+local GetContentWidth = assert(Lists.GetContentWidth, Diag.A.AttendanceColumnLayoutOwnerNotInitialized)
+local CalculateColumnBudget = assert(Lists.CalculateColumnBudget, Diag.A.AttendanceColumnLayoutOwnerNotInitialized)
+local ApplyHeaderLayout = assert(Lists.ApplyHeaderLayout, Diag.A.AttendanceColumnLayoutOwnerNotInitialized)
+local ApplyRowWidths = assert(Lists.ApplyRowWidths, Diag.A.AttendanceColumnLayoutOwnerNotInitialized)
+local BindSortHeaders = assert(Lists.BindSortHeaders, Diag.A.AttendanceColumnLayoutOwnerNotInitialized)
+local FormatCountTitle = assert(Lists.FormatCountTitle, Diag.A.AttendanceColumnLayoutOwnerNotInitialized)
+local SetLabel = assert(Lists.SetLabel, Diag.A.AttendanceColumnLayoutOwnerNotInitialized)
 local ExportDialog = assert(UI.ExportDialog, Diag.A.AttendanceExportDialogOwnerNotInitialized)
 
 local GetFrameRef = assert(Frames.GetRef, Diag.A.AttendanceFrameRefResolverNotInitialized)
@@ -69,7 +76,6 @@ local LootBans = assert(Raid.LootBans, Diag.A.AttendanceLootBanOwnerNotInitializ
 
 local _G = _G
 local type, tostring, tonumber = type, tostring, tonumber
-local floor, max = math.floor, math.max
 local CreateFrame = assert(_G.CreateFrame, Diag.A.AttendanceFrameCreationApiNotInitialized)
 local CompareNumbers = Sort.CompareNumbers
 local CompareValues = Sort.CompareValues
@@ -157,89 +163,16 @@ local function compareStrings(aValue, bValue, asc)
 	return CompareValues(tostring(aValue or ""), tostring(bValue or ""), asc)
 end
 
-local function setWidgetWidth(widget, width)
-	if widget and widget.SetWidth then
-		widget:SetWidth(width)
-	end
-end
-
-local function setHeaderWidth(widget, width, includeTrailingGap)
-	local gap = includeTrailingGap and AttendanceLayout.HEADER_COLUMN_GAP or 0
-	setWidgetWidth(widget, (tonumber(width) or 0) + gap)
-end
-
-local function getListContentWidth(frameName)
-	if not frameName then
-		return AttendanceLayout.LIST_WIDTH_FALLBACK
-	end
-
-	local scroll = _G[frameName .. "ScrollFrame"]
-	local width = scroll and scroll.GetWidth and scroll:GetWidth() or nil
-	if type(width) ~= "number" or width <= 0 then
-		local frame = _G[frameName]
-		width = frame and frame.GetWidth and frame:GetWidth() or nil
-		if type(width) == "number" and width > AttendanceLayout.SCROLLBAR_GUTTER_WIDTH then
-			width = width - AttendanceLayout.SCROLLBAR_GUTTER_WIDTH
-		end
-	end
-
-	width = tonumber(width) or AttendanceLayout.LIST_WIDTH_FALLBACK
-	return max(AttendanceLayout.LIST_WIDTH_FALLBACK, floor(width))
-end
-
-local function getColumnBudget(frameName, leadOffset, gapCount)
-	local budget = getListContentWidth(frameName)
-		- (tonumber(leadOffset) or 0)
-		- ((tonumber(gapCount) or 0) * AttendanceLayout.ROW_COLUMN_GAP)
-	return max(AttendanceLayout.LIST_WIDTH_FALLBACK, floor(budget))
-end
-
-local function getLayoutColumnWidth(widths, column)
-	return tonumber(widths and widths[column.widthKey]) or 0
-end
-
-local function positionHeader(header, frameName, offsetX, width, includeTrailingGap)
-	local frame = frameName and _G[frameName] or nil
-	if not (header and frame) then
-		return
-	end
-
-	header:ClearAllPoints()
-	header:SetPoint("TOPLEFT", frame, "TOPLEFT", offsetX, AttendanceLayout.HEADER_TOP_OFFSET)
-	setHeaderWidth(header, width, includeTrailingGap)
-end
-
-local function applyHeaderColumnWidths(frameName, widths, columns, startOffset)
-	local offset = tonumber(startOffset) or AttendanceLayout.PANEL_SCROLL_LEFT_OFFSET
-	for i = 1, #columns do
-		local column = columns[i]
-		positionHeader(
-			_G[frameName .. column.headerSuffix],
-			frameName,
-			offset,
-			getLayoutColumnWidth(widths, column),
-			column.trailingGap
-		)
-		offset = offset + getLayoutColumnWidth(widths, column)
-		if column.trailingGap then
-			offset = offset + AttendanceLayout.HEADER_COLUMN_GAP
-		end
-	end
-end
-
-local function applyRowColumnWidths(ui, widths, columns)
-	if not ui then
-		return
-	end
-	for i = 1, #columns do
-		local column = columns[i]
-		setWidgetWidth(ui[column.rowKey], getLayoutColumnWidth(widths, column))
-	end
-end
-
 local function getRaidColumnWidths(frameName)
 	return CalculateColumnWidths(
-		getColumnBudget(frameName, AttendanceLayout.ROW_LEFT_INSET, 3),
+		CalculateColumnBudget(
+			frameName,
+			AttendanceLayout.LIST_WIDTH_FALLBACK,
+			AttendanceLayout.SCROLLBAR_GUTTER_WIDTH,
+			AttendanceLayout.ROW_LEFT_INSET,
+			3,
+			AttendanceLayout.ROW_COLUMN_GAP
+		),
 		AttendanceLayout.RAID_COLUMN_MIN_WIDTHS,
 		AttendanceLayout.RAID_COLUMN_RATIOS,
 		{ "id" }
@@ -248,97 +181,47 @@ end
 
 local function getAttendanceColumnWidths(frameName)
 	return CalculateColumnWidths(
-		getColumnBudget(frameName, AttendanceLayout.ROW_LEFT_INSET, 5),
+		CalculateColumnBudget(
+			frameName,
+			AttendanceLayout.LIST_WIDTH_FALLBACK,
+			AttendanceLayout.SCROLLBAR_GUTTER_WIDTH,
+			AttendanceLayout.ROW_LEFT_INSET,
+			5,
+			AttendanceLayout.ROW_COLUMN_GAP
+		),
 		AttendanceLayout.ATTENDANCE_COLUMN_MIN_WIDTHS,
 		AttendanceLayout.ATTENDANCE_COLUMN_RATIOS
 	)
 end
 
 local function applyRaidListColumnWidths(frameName)
-	applyHeaderColumnWidths(
+	ApplyHeaderLayout(
 		frameName,
 		getRaidColumnWidths(frameName),
 		RAID_LAYOUT_COLUMNS,
-		AttendanceLayout.PANEL_SCROLL_LEFT_OFFSET + AttendanceLayout.ROW_LEFT_INSET
+		AttendanceLayout.PANEL_SCROLL_LEFT_OFFSET + AttendanceLayout.ROW_LEFT_INSET,
+		AttendanceLayout.HEADER_TOP_OFFSET,
+		AttendanceLayout.HEADER_COLUMN_GAP
 	)
 end
 
 local function applyRaidRowColumnWidths(ui, frameName)
-	applyRowColumnWidths(ui, getRaidColumnWidths(frameName), RAID_LAYOUT_COLUMNS)
+	ApplyRowWidths(ui, getRaidColumnWidths(frameName), RAID_LAYOUT_COLUMNS)
 end
 
 local function applyAttendanceListColumnWidths(frameName)
-	applyHeaderColumnWidths(
+	ApplyHeaderLayout(
 		frameName,
 		getAttendanceColumnWidths(frameName),
 		ATTENDANCE_LAYOUT_COLUMNS,
-		AttendanceLayout.PANEL_SCROLL_LEFT_OFFSET + AttendanceLayout.ROW_LEFT_INSET
+		AttendanceLayout.PANEL_SCROLL_LEFT_OFFSET + AttendanceLayout.ROW_LEFT_INSET,
+		AttendanceLayout.HEADER_TOP_OFFSET,
+		AttendanceLayout.HEADER_COLUMN_GAP
 	)
 end
 
 local function applyAttendanceRowColumnWidths(ui, frameName)
-	applyRowColumnWidths(ui, getAttendanceColumnWidths(frameName), ATTENDANCE_LAYOUT_COLUMNS)
-end
-
-local function bindSortHeaders(frameName, columns, listRef, boundFlag)
-	local frame = frameName and _G[frameName] or nil
-	if not frame or not listRef or type(listRef.Sort) ~= "function" then
-		return
-	end
-	if frame[boundFlag] then
-		return
-	end
-
-	for i = 1, #columns do
-		local column = columns[i]
-		if column.sortKey then
-			local headerButton = column.headerSuffix and _G[frameName .. column.headerSuffix] or nil
-			if headerButton then
-				local sortKey = column.sortKey
-				SetScriptSafely(headerButton, "OnClick", function()
-					listRef:Sort(sortKey)
-				end)
-			end
-		end
-	end
-	frame[boundFlag] = true
-end
-
-local function setFrameLabel(frameName, suffix, text)
-	local label = frameName and _G[frameName .. suffix] or nil
-	if not label then
-		return
-	end
-	if label.SetText then
-		label:SetText(text)
-	end
-end
-
-local function setPanelTitle(frameName, text)
-	setFrameLabel(frameName, "Title", text)
-end
-
-local function setFrameHint(frameName, suffix, text)
-	local label = frameName and _G[frameName .. suffix] or nil
-	if not label then
-		return
-	end
-	if label.SetText then
-		label:SetText(text or "")
-	end
-	UI.Primitives.SetShown(label, text ~= nil and text ~= "")
-end
-
-local function getCountTitle(baseText, count)
-	return ("%s (%d)"):format(tostring(baseText or ""), tonumber(count) or 0)
-end
-
-local function getCountContextTitle(baseText, count, contextText)
-	local title = getCountTitle(baseText, count)
-	if contextText and contextText ~= "" then
-		return ("%s - %s"):format(title, contextText)
-	end
-	return title
+	ApplyRowWidths(ui, getAttendanceColumnWidths(frameName), ATTENDANCE_LAYOUT_COLUMNS)
 end
 
 local function getRaidContextLabel(selectedRaid)
@@ -932,7 +815,7 @@ attendanceRaidsController = makeAttendanceList(
 		_rowParts = { "ID", "Date", "Zone", "Size" },
 
 		localize = function(n)
-			setPanelTitle(n, L.StrRaidsList)
+			SetLabel(n, "Title", L.StrRaidsList, false)
 			_G[n .. "HeaderNum"]:SetText(L.StrNumber)
 			_G[n .. "HeaderDate"]:SetText(L.StrDate)
 			_G[n .. "HeaderZone"]:SetText(L.StrZone)
@@ -940,7 +823,7 @@ attendanceRaidsController = makeAttendanceList(
 			UI.Primitives.SetShown(_G[n .. "CurrentBtn"], false)
 			UI.Primitives.SetShown(_G[n .. "DeleteBtn"], false)
 			applyRaidListColumnWidths(n)
-			bindSortHeaders(n, RAID_LAYOUT_COLUMNS, module.AttendanceRaids, "_RMAAttendanceRaidHeadersBound")
+			BindSortHeaders(n, RAID_LAYOUT_COLUMNS, module.AttendanceRaids, "_RMAAttendanceRaidHeadersBound")
 		end,
 
 		getData = function(out)
@@ -971,8 +854,8 @@ attendanceRaidsController = makeAttendanceList(
 			if attendanceRaidsController and attendanceRaidsController.data then
 				count = #attendanceRaidsController.data
 			end
-			setPanelTitle(n, getCountTitle(L.StrRaidsList, count))
-			setFrameHint(n, "EmptyState", count == 0 and L.StrLoggerEmptyRaids or nil)
+			SetLabel(n, "Title", FormatCountTitle(L.StrRaidsList, count), false)
+			SetLabel(n, "EmptyState", count == 0 and L.StrLoggerEmptyRaids or nil, true)
 		end,
 
 		sorters = {
@@ -1007,7 +890,7 @@ attendancePlayersController = makeAttendanceList({
 
 	localize = function(n)
 		local frame = _G[n]
-		setPanelTitle(n, L.StrRaidAttendees)
+		SetLabel(n, "Title", L.StrRaidAttendees, false)
 		_G[n .. "HeaderName"]:SetText(L.StrName)
 		_G[n .. "HeaderJoin"]:SetText(L.StrJoin)
 		_G[n .. "HeaderLeave"]:SetText(L.StrLeave)
@@ -1048,7 +931,7 @@ attendancePlayersController = makeAttendanceList({
 			exportBtn:SetText(L.BtnLoggerExportRaidAttendanceCSV)
 			SetScriptSafely(exportBtn, "OnClick", showAttendanceExport)
 		end
-		bindSortHeaders(n, ATTENDANCE_LAYOUT_COLUMNS, attendancePlayersController, "_RMAAttendanceHeadersBound")
+		BindSortHeaders(n, ATTENDANCE_LAYOUT_COLUMNS, attendancePlayersController, "_RMAAttendanceHeadersBound")
 	end,
 
 	getData = function(out)
@@ -1118,11 +1001,18 @@ attendancePlayersController = makeAttendanceList({
 		if attendancePlayersController and attendancePlayersController.data then
 			count = #attendancePlayersController.data
 		end
-		setPanelTitle(
+		SetLabel(
 			n,
-			getCountContextTitle(L.StrRaidAttendees, count, getRaidContextLabel(module.attendanceSelectedRaid))
+			"Title",
+			FormatCountTitle(
+				L.StrRaidAttendees,
+				count,
+				getRaidContextLabel(module.attendanceSelectedRaid),
+				nil
+			),
+			false
 		)
-		setFrameHint(n, "EmptyState", getRaidAttendeesEmptyStateText(count, module.attendanceSelectedRaid))
+		SetLabel(n, "EmptyState", getRaidAttendeesEmptyStateText(count, module.attendanceSelectedRaid), true)
 
 		local currentRaid = Database.GetCurrentRaid()
 		local canUpdate = addon.IsInRaid()
