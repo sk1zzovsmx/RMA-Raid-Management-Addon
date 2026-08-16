@@ -53,7 +53,12 @@ The complete shipped roadmap remains archived at `.planning/milestones/v1.0-ROAD
   1. Logger lists retain their calculated widths, sort behavior, clickable hit boxes, icon allowance, titles, and empty-state presentation.
   2. Attendance lists retain their calculated widths, sort behavior, inspect/spec columns, contextual titles, and empty-state presentation.
   3. Logger and Attendance obtain calculated widths, header and row layout, and sort binding from focused shared primitives without a generic framework, configuration DSL, or transfer of feature ownership.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 06-01-PLAN.md — Establish the exact shared list primitive contract under `addon.UI.Lists` with TDD parity coverage.
+- [ ] 06-02-PLAN.md — Route Logger mechanics through the shared primitives while retaining Source and presentation ownership.
+- [ ] 06-03-PLAN.md — Route Attendance mechanics through the shared primitives, retain Spec/Inspect ownership, and run final Phase 6 gates.
 
 ### Phase 7: UI Simplification Verification
 **Goal**: The completed simplification is demonstrably compatible with the addon's existing UI, runtime, localization, persistence, communication, and WotLK 3.3.5a contracts.
@@ -77,7 +82,7 @@ Phases execute in numeric order: 5 → 6 → 7
 | 3. Bounded Sync Requests | v1.0 | 2/2 | Complete | 2026-08-15 |
 | 4. Milestone Verification | v1.0 | 2/2 | Complete | 2026-08-15 |
 | 5. Runtime Surface Cleanup | v1.1 | Complete    | 2026-08-16 | 2026-08-16 |
-| 6. Logger and Attendance List Primitives | v1.1 | 0/TBD | Not started | - |
+| 6. Logger and Attendance List Primitives | v1.1 | 0/3 | Not started | - |
 | 7. UI Simplification Verification | v1.1 | 0/TBD | Not started | - |
 
 ---
