@@ -1,36 +1,36 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: Stabilization
-status: between_milestones
-stopped_at: Archived v1.0 Stabilization
-last_updated: "2026-08-15T19:40:18.270Z"
-last_activity: 2026-08-15 - Phase 4 closed with accepted-risk verification disposition
+milestone: v1.1
+milestone_name: UI Simplification
+status: defining_requirements
+stopped_at: Defining v1.1 requirements
+last_updated: "2026-08-16T00:00:00+02:00"
+last_activity: 2026-08-16 - Milestone v1.1 UI Simplification started
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 12
-  completed_plans: 12
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-15)
+See: .planning/PROJECT.md (updated 2026-08-16)
 
 **Core value:** Raid-critical data and workflows must remain correct, recoverable, and compatible on WotLK 3.3.5a clients.
-**Current focus:** Planning the next milestone
+**Current focus:** Defining v1.1 UI Simplification requirements
 
 ## Current Position
 
-Phase: Milestone complete
-Plan: 12 of 12 complete
-Status: Between milestones; v1.0 Stabilization archived locally
-Last activity: 2026-08-15 - Archived v1.0 Stabilization
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-08-16 - Milestone v1.1 started
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
