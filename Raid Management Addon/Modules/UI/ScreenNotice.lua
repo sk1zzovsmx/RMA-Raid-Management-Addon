@@ -112,9 +112,4 @@ local function showNotice(_eventName, message, requestedDuration)
 	return true
 end
 
--- ----- Public methods ----- --
-function ScreenNotice.Show(message, requestedDuration)
-	return showNotice(nil, message, requestedDuration)
-end
-
 RegisterCallback(ScreenNoticeEvent, showNotice)

@@ -3,6 +3,97 @@ function cases.lua_51_smoke()
 	print("PASS lua_51_smoke")
 end
 
+function cases.screen_notice_uses_internal_event_without_direct_export(addon)
+	local registeredEvent
+	local registeredCallback
+	local titleValue
+	local detailValue
+	local detailHidden = false
+	local frameWidth
+	local frameHeight
+	local frameAlpha
+	local frameShown = false
+	local frameLevel
+	local fadeArgs
+	local screenNoticeEvent = "RMA_SCREEN_NOTICE"
+
+	local noticeFrame = {
+		SetFrameLevel = function(_, value)
+			frameLevel = value
+		end,
+		SetWidth = function(_, value)
+			frameWidth = value
+		end,
+		SetHeight = function(_, value)
+			frameHeight = value
+		end,
+		SetAlpha = function(_, value)
+			frameAlpha = value
+		end,
+		Show = function()
+			frameShown = true
+		end,
+		Hide = function()
+			frameShown = false
+		end,
+	}
+	local titleText = {
+		SetText = function(_, value)
+			titleValue = value
+		end,
+		GetWidth = function()
+			return 180
+		end,
+	}
+	local detailText = {
+		SetText = function(_, value)
+			detailValue = value
+		end,
+		Hide = function()
+			detailHidden = true
+		end,
+	}
+
+	_G.RMAScreenNoticeFrame = noticeFrame
+	_G.RMAScreenNoticeFrameTitleText = titleText
+	_G.RMAScreenNoticeFrameDetailText = detailText
+	addon.UI = {
+		Effects = {
+			SetTimedFade = function(...)
+				fadeArgs = { ... }
+			end,
+		},
+	}
+	addon.Events = { Internal = { ScreenNotice = screenNoticeEvent } }
+	addon.Bus = {
+		RegisterCallback = function(eventName, callback)
+			registeredEvent = eventName
+			registeredCallback = callback
+		end,
+	}
+
+	loadAddonFile(addon, "Raid Management Addon/Modules/UI/ScreenNotice.lua")
+
+	assertEqual(screenNoticeEvent, registeredEvent, "screen notice registered for the wrong event")
+	assertTrue(type(registeredCallback) == "function", "screen notice callback was not registered")
+	assertEqual(nil, addon.UI.ScreenNotice.Show, "screen notice retained its direct export")
+	assertEqual(false, registeredCallback(screenNoticeEvent, "", 2.5), "empty screen notice was accepted")
+	assertEqual(true, registeredCallback(screenNoticeEvent, "Master Loot enabled", 2.5), "screen notice event failed")
+	assertEqual(1000, frameLevel, "screen notice frame level changed")
+	assertEqual("|cffff2020Master Loot|r enabled", titleValue, "screen notice title colorization changed")
+	assertEqual("", detailValue, "screen notice detail was not cleared")
+	assertEqual(true, detailHidden, "screen notice detail remained visible")
+	assertEqual(180, frameWidth, "screen notice width changed")
+	assertEqual(24, frameHeight, "screen notice height changed")
+	assertEqual(1, frameAlpha, "screen notice alpha changed")
+	assertEqual(true, frameShown, "screen notice frame was not shown")
+	assertEqual(noticeFrame, fadeArgs and fadeArgs[1], "screen notice fade used the wrong frame")
+	assertEqual(2.5, fadeArgs and fadeArgs[2], "screen notice fade duration changed")
+	assertEqual(0.35, fadeArgs and fadeArgs[3], "screen notice fade length changed")
+	assertTrue(type(fadeArgs and fadeArgs[4]) == "function", "screen notice fade callback was not provided")
+	print("PASS screen_notice_uses_internal_event_without_direct_export")
+end
+
 local function installRaidSessionCheckFixture(addon)
 	local fixture, raid = installRaidCreationFixture(addon, nil)
 	_G.SetRaidTarget = function() end

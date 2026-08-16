@@ -15,6 +15,10 @@ INIT = ROOT / "Raid Management Addon" / "Init.lua"
 
 
 class RuntimeFoundationsBehaviorTest(unittest.TestCase):
+    def test_screen_notice_uses_internal_event_without_direct_export(self) -> None:
+        result = run_lua_case("screen_notice_uses_internal_event_without_direct_export")
+        self.assertIn("PASS screen_notice_uses_internal_event_without_direct_export", result.stdout)
+
     def test_unknown_raid_retry_recovers_without_warning_spam(self) -> None:
         result = run_lua_case("unknown_raid_retry_recovers_without_warning_spam")
         self.assertIn("PASS unknown_raid_retry_recovers_without_warning_spam", result.stdout)
