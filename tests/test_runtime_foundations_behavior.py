@@ -15,6 +15,10 @@ INIT = ROOT / "Raid Management Addon" / "Init.lua"
 
 
 class RuntimeFoundationsBehaviorTest(unittest.TestCase):
+    def test_ui_lists_preserve_explicit_layout_geometry(self) -> None:
+        result = run_lua_case("ui_lists_preserve_explicit_layout_geometry")
+        self.assertIn("PASS ui_lists_preserve_explicit_layout_geometry", result.stdout)
+
     def test_screen_notice_uses_internal_event_without_direct_export(self) -> None:
         result = run_lua_case("screen_notice_uses_internal_event_without_direct_export")
         self.assertIn("PASS screen_notice_uses_internal_event_without_direct_export", result.stdout)

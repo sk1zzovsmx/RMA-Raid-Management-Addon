@@ -1847,6 +1847,259 @@ function cases.logger_refresh_requests_coalesce_behaviorally(addon)
 	print("PASS logger_refresh_requests_coalesce_behaviorally")
 end
 
+function cases.ui_lists_preserve_explicit_layout_geometry(addon)
+	local scriptBindings = 0
+	local shownCalls = {}
+	_G.table.wipe = _G.table.wipe or function(value)
+		for key in pairs(value) do
+			value[key] = nil
+		end
+	end
+	_G.CreateFrame = function()
+		return {
+			Hide = function() end,
+			Show = function() end,
+		}
+	end
+	addon.Diag = { A = { ListControllerFrameCreationApiNotInitialized = "missing CreateFrame" } }
+	addon.Options = {
+		IsDebugEnabled = function()
+			return false
+		end,
+	}
+	addon.UI = {
+		Frames = {
+			SetScriptSafely = function(frame, scriptName, callback)
+				scriptBindings = scriptBindings + 1
+				frame[scriptName] = callback
+			end,
+		},
+		Rows = {},
+		Primitives = {
+			SetShown = function(label, shown)
+				shownCalls[#shownCalls + 1] = { label = label, shown = shown }
+			end,
+		},
+	}
+	loadAddonFile(addon, "Raid Management Addon/Modules/UI/ListController.lua")
+	local Lists = addon.UI.Lists
+	local function assertPairOrderedRemainder(widths, minWidths, fixedKeys, flooredWidths, remainder, message)
+		local fixed = {}
+		for i = 1, #fixedKeys do
+			fixed[fixedKeys[i]] = true
+		end
+		local expected = deepCopy(flooredWidths)
+		local variableKeys = {}
+		for key in pairs(minWidths) do
+			if not fixed[key] then
+				variableKeys[#variableKeys + 1] = key
+			end
+		end
+		for i = 1, remainder do
+			expected[variableKeys[i]] = expected[variableKeys[i]] + 1
+		end
+		assertTrue(deepEqual(expected, widths), message)
+	end
+
+	local loggerRaidMinimums = { id = 24, date = 88, zone = 128, size = 36 }
+	local loggerRaidWidths = Lists.CalculateColumnWidths(
+		619,
+		loggerRaidMinimums,
+		{ date = 0.20, zone = 0.66, size = 0.14 },
+		{ "id" }
+	)
+	assertPairOrderedRemainder(
+		loggerRaidWidths,
+		loggerRaidMinimums,
+		{ "id" },
+		{ id = 24, date = 156, zone = 354, size = 84 },
+		1,
+		"Logger raid widths must retain fixed, floor, and pairs-ordered remainder allocation"
+	)
+	local loggerLootMinimums = {
+		icon = 30,
+		item = 165,
+		source = 105,
+		winner = 86,
+		type = 45,
+		roll = 38,
+		time = 48,
+	}
+	local loggerLootWidths = Lists.CalculateColumnWidths(
+		606,
+		loggerLootMinimums,
+		{ item = 0.34, source = 0.22, winner = 0.18, type = 0.08, roll = 0.07, time = 0.11 },
+		{ "icon" }
+	)
+	assertPairOrderedRemainder(
+		loggerLootWidths,
+		loggerLootMinimums,
+		{ "icon" },
+		{ icon = 30, item = 195, source = 124, winner = 102, type = 52, roll = 44, time = 57 },
+		2,
+		"Logger loot widths must retain fixed, floor, and pairs-ordered remainder allocation"
+	)
+	local attendanceWidths = Lists.CalculateColumnWidths(
+		607,
+		{ name = 68, join = 39, leave = 39, ilvl = 30, spec = 37, inspect = 324 },
+		{ name = 0, join = 0, leave = 0, ilvl = 0, spec = 0, inspect = 1 }
+	)
+	assertTrue(
+		deepEqual({ name = 68, join = 39, leave = 39, ilvl = 30, spec = 37, inspect = 394 }, attendanceWidths),
+		("Attendance widths must retain minimum and proportional allocation: name=%s join=%s leave=%s ilvl=%s spec=%s inspect=%s")
+			:format(
+				attendanceWidths.name,
+				attendanceWidths.join,
+				attendanceWidths.leave,
+				attendanceWidths.ilvl,
+				attendanceWidths.spec,
+				attendanceWidths.inspect
+			)
+	)
+	local minimumWidths = Lists.CalculateColumnWidths(
+		100,
+		{ id = 24, date = 88, zone = 128, size = 36 },
+		{ date = 0.20, zone = 0.66, size = 0.14 },
+		{ "id" }
+	)
+	assertTrue(
+		deepEqual({ id = 24, date = 88, zone = 128, size = 36 }, minimumWidths),
+		"minimum-only widths must remain unchanged"
+	)
+
+	_G.RMAList = {
+		GetWidth = function()
+			return 500.9
+		end,
+	}
+	_G.RMAListScrollFrame = {
+		GetWidth = function()
+			return 512.9
+		end,
+	}
+	assertEqual(512, Lists.GetContentWidth("RMAList", 240, 24), "valid scroll width wins and is floored")
+	_G.RMAListScrollFrame.GetWidth = function()
+		return 0
+	end
+	assertEqual(476, Lists.GetContentWidth("RMAList", 240, 24), "frame fallback subtracts only explicit gutter")
+	assertEqual(240, Lists.GetContentWidth("MissingList", 240, 24), "missing widths use explicit fallback")
+	_G.RMAListScrollFrame.GetWidth = function()
+		return 239.9
+	end
+	assertEqual(240, Lists.GetContentWidth("RMAList", 240, 24), "content width clamps to explicit fallback")
+	_G.RMAListScrollFrame.GetWidth = function()
+		return 640.9
+	end
+	assertEqual(
+		606,
+		Lists.CalculateColumnBudget("RMAList", 240, 24, 34, 5, 6, 30),
+		"Logger loot budget preserves explicit lead, gaps, and returned width"
+	)
+
+	local function newWidget()
+		local widget = {}
+		function widget:ClearAllPoints()
+			self.cleared = (self.cleared or 0) + 1
+		end
+		function widget:SetPoint(...)
+			self.point = { ... }
+		end
+		function widget:SetWidth(width)
+			self.width = width
+		end
+		function widget:SetText(text)
+			self.text = text
+		end
+		return widget
+	end
+
+	local itemHeader = newWidget()
+	local sourceHeader = newWidget()
+	_G.RMAListHeaderItem = itemHeader
+	_G.RMAListHeaderSource = sourceHeader
+	local layoutWidths = { icon = 30, item = 195, source = 125, winner = 102 }
+	local layoutColumns = {
+		{
+			headerSuffix = "HeaderItem",
+			rowKey = "Name",
+			widthKey = "item",
+			headerExtraWidthKey = "icon",
+			trailingGap = true,
+			sortKey = "id",
+		},
+		{
+			headerSuffix = "HeaderSource",
+			rowKey = "Source",
+			hitBoxKey = "SourceHitBox",
+			widthKey = "source",
+			trailingGap = false,
+			sortKey = "source",
+		},
+		{ headerSuffix = "MissingHeader", rowKey = "Missing", widthKey = "winner" },
+	}
+	Lists.ApplyHeaderLayout("RMAList", layoutWidths, layoutColumns, 5, -25, 6)
+	assertEqual(1, itemHeader.cleared, "existing item header is cleared once")
+	assertEqual("TOPLEFT", itemHeader.point[1], "item header uses explicit anchor")
+	assertTrue(itemHeader.point[2] == _G.RMAList, "item header anchors to the supplied frame")
+	assertEqual(5, itemHeader.point[4], "item header starts at explicit offset")
+	assertEqual(-25, itemHeader.point[5], "item header uses explicit top offset")
+	assertEqual(231, itemHeader.width, "item header includes explicit icon width and trailing gap")
+	assertEqual(236, sourceHeader.point[4], "next header advances by header width and explicit gap")
+	assertEqual(125, sourceHeader.width, "Source header receives only its calculated width")
+
+	local rowUi = {
+		Name = newWidget(),
+		Source = newWidget(),
+		SourceHitBox = newWidget(),
+	}
+	Lists.ApplyRowWidths(rowUi, layoutWidths, layoutColumns)
+	assertEqual(195, rowUi.Name.width, "row item width excludes header-only icon allowance")
+	assertEqual(125, rowUi.Source.width, "Source row receives its calculated width")
+	assertEqual(125, rowUi.SourceHitBox.width, "Source hit box matches the Source row width")
+
+	local sortedKeys = {}
+	local listRef = {
+		Sort = function(_, key)
+			sortedKeys[#sortedKeys + 1] = key
+		end,
+	}
+	Lists.BindSortHeaders("RMAList", layoutColumns, listRef, "_ExplicitHeadersBound")
+	Lists.BindSortHeaders("RMAList", layoutColumns, listRef, "_ExplicitHeadersBound")
+	assertEqual(2, scriptBindings, "each sortable existing header binds exactly once")
+	assertEqual(true, _G.RMAList._ExplicitHeadersBound, "only the caller-selected flag is set")
+	itemHeader.OnClick()
+	sourceHeader.OnClick()
+	assertEqual("id", sortedKeys[1], "item click dispatches captured sort key")
+	assertEqual("source", sortedKeys[2], "Source click dispatches captured sort key")
+
+	assertEqual("Title (7)", Lists.FormatCountTitle("Title", 7), "count title format is exact")
+	assertEqual(
+		"Title (7) - Context",
+		Lists.FormatCountTitle("Title", 7, "Context", "Fallback"),
+		"non-empty context is preserved"
+	)
+	assertEqual(
+		"Title (7) - Fallback",
+		Lists.FormatCountTitle("Title", 7, "", "Fallback"),
+		"empty context uses explicit fallback"
+	)
+	assertEqual("Title (7)", Lists.FormatCountTitle("Title", 7, ""), "empty context without fallback has no suffix")
+
+	local title = newWidget()
+	local hint = newWidget()
+	_G.RMAListTitle = title
+	_G.RMAListHint = hint
+	Lists.SetLabel("RMAList", "Title", "Chosen", false)
+	assertEqual("Chosen", title.text, "label writes only caller-selected text")
+	assertEqual(0, #shownCalls, "visibility remains untouched unless explicitly managed")
+	Lists.SetLabel("RMAList", "Hint", "Empty", true)
+	Lists.SetLabel("RMAList", "Hint", nil, true)
+	assertEqual("", hint.text, "nil label text is normalized to empty text")
+	assertEqual(true, shownCalls[1].shown, "non-empty managed label is shown")
+	assertEqual(false, shownCalls[2].shown, "empty managed label is hidden")
+	print("PASS ui_lists_preserve_explicit_layout_geometry")
+end
+
 function cases.logger_bulk_raid_delete_publishes_once(addon)
 	local fixture, actions = installLoggerCleanupFixture(addon)
 	assert(fixture.store:ConcludeActiveRaid(fixture.archive.activeRaidUid, fixture.now + 1))
