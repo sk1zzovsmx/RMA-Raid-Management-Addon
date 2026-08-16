@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: UI Simplification
-status: defining_requirements
-stopped_at: Defining v1.1 requirements
+status: roadmap_created
+stopped_at: Roadmap created; ready to plan Phase 5
 last_updated: "2026-08-16T00:00:00+02:00"
-last_activity: 2026-08-16 - Milestone v1.1 UI Simplification started
+last_activity: 2026-08-16 - v1.1 roadmap created with phases 5-7
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-16)
 
 **Core value:** Raid-critical data and workflows must remain correct, recoverable, and compatible on WotLK 3.3.5a clients.
-**Current focus:** Defining v1.1 UI Simplification requirements
+**Current focus:** Planning Phase 5, Runtime Surface Cleanup
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 5 of 7 (Runtime Surface Cleanup)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-08-16 - Milestone v1.1 started
+Status: Roadmap created; ready for phase planning
+Last activity: 2026-08-16 - v1.1 roadmap created with 8/8 requirements mapped
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -72,6 +72,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
 - [Milestone]: Correct only demonstrated stabilization defects; no general refactors or new features.
+- [Milestone v1.1]: Sequence bounded dead-path cleanup before Logger/Attendance primitive consolidation, then run one compatibility verification phase.
+- [Milestone v1.1]: Keep shared UI scope limited to demonstrated calculated-width, header, row, title, and sort-binding primitives; do not introduce a framework or DSL.
 - [Phase 1]: Preserve unsupported `RMA_Raids` values and fail closed through explicit quarantine.
 - [Phase 2]: Canonical map-ID resolution is the only raid-admission source of truth.
 - [Phase 3]: Add application-level request limits without changing version-5 wire formats.
@@ -103,11 +105,12 @@ None yet.
 
 ### Blockers/Concerns
 
-- No milestone completion blocker remains under the approved QUAL-03 contract.
+- No v1.1 roadmap or phase-planning blocker is known.
+- No v1.0 milestone completion blocker remains under the approved QUAL-03 contract.
 - Accepted residual risks remain for unexecuted SavedVariables quarantine/recovery, localized/multi-client sync, combat protected-action behavior, and taint checks.
 
 ## Session Continuity
 
-Last session: 2026-08-15T19:40:18Z
-Stopped at: Archived v1.0 Stabilization
+Last session: 2026-08-16T00:00:00+02:00
+Stopped at: Created v1.1 roadmap; ready to plan Phase 5
 Resume file: None
