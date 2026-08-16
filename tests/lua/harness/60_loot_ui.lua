@@ -1793,6 +1793,7 @@ function cases.loot_manual_hold_trade_requires_inventory_evidence(addon)
 	}
 	loadAddonFile(addon, "Raid Management Addon/Services/Master/Trade.lua")
 	local trade = addon.Services.Master.Trade
+	assertEqual(nil, trade.EnsureState, "manual Trade retained its mutable state accessor")
 	local state = trade.RefreshCandidate({
 		source = "TRADE_PLAYER_ITEM_CHANGED",
 		partnerName = "Winner",
@@ -1803,14 +1804,16 @@ function cases.loot_manual_hold_trade_requires_inventory_evidence(addon)
 	assertTrue(trade.SetSelectedReason(10, 1), "manual Hold reason selection failed")
 	assertTrue(trade.ApplyAccept(1, 1, false), "manual Hold accept intent failed")
 	assertEqual(false, trade.CompletePending(), "manual Hold without delta must not log")
-	assertEqual("uncertain", trade.EnsureState().state, "manual Hold without evidence must be uncertain")
+	assertEqual(1, warnings, "manual Hold uncertainty warning count differs")
 	assertEqual(0, loggerCalls, "manual Hold without evidence logged success")
+	assertEqual(0, countCalls, "manual Hold without evidence advanced the counter")
+	assertEqual(true, trade.HasClosePending(), "manual Hold without evidence lost its pending close")
 	bags[0][1] = nil
 	assertEqual(true, trade.CompletePending(), "manual Hold with later delta must log")
+	assertEqual(1, warnings, "manual Hold retry repeated the uncertainty warning")
 	assertEqual(1, loggerCalls, "manual Hold logger count differs")
 	assertEqual(1, countCalls, "manual Hold counter count differs")
-	assertEqual("confirmed", trade.EnsureState().state, "manual Hold confirmed state differs")
-	assertEqual(1, warnings, "manual Hold uncertainty warning count differs")
+	assertEqual(false, trade.HasClosePending(), "manual Hold retry retained its pending close")
 
 	local secondAddon = newAddon()
 	local secondTarget = "|cffa335ee|Hitem:18832:0:0:0:0:0:0:0|h[Second]|h|r"

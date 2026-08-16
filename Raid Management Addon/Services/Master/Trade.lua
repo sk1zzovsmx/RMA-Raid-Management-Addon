@@ -279,10 +279,6 @@ function Trade.GetReasonOrder()
 	return REASON_ORDER
 end
 
-function Trade.EnsureState()
-	return ensureState()
-end
-
 function Trade.IsFailureMessage(message)
 	return isManualTradeFailureMessage(message)
 end
