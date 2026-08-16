@@ -1357,6 +1357,28 @@ function cases.real_attendance_manual_refresh_calls_roster_owner(addon)
 			CalculateColumnWidths = function()
 				return {}
 			end,
+			GetContentWidth = function()
+				return 240
+			end,
+			CalculateColumnBudget = function()
+				return 240
+			end,
+			ApplyHeaderLayout = noop,
+			ApplyRowWidths = noop,
+			BindSortHeaders = noop,
+			FormatCountTitle = function(baseText, count, contextText)
+				local title = ("%s (%d)"):format(tostring(baseText or ""), tonumber(count) or 0)
+				if contextText and contextText ~= "" then
+					return ("%s - %s"):format(title, contextText)
+				end
+				return title
+			end,
+			SetLabel = function(frameName, suffix, text)
+				local label = _G[frameName .. suffix]
+				if label and label.SetText then
+					label:SetText(text or "")
+				end
+			end,
 			CreateController = function(cfg)
 				controllerConfigs[#controllerConfigs + 1] = cfg
 				return {
@@ -1425,6 +1447,618 @@ end
 function cases.attendance_controller_resolves_stable_event_identity(addon)
 	cases.real_attendance_manual_refresh_calls_roster_owner(addon)
 	print("PASS attendance_controller_resolves_stable_event_identity")
+end
+
+local function installAttendanceShareFixture(addon)
+	local noop = function() end
+	local primitiveCalls = {}
+	local callbacks = {}
+	local lootBanned = false
+	local forceInspectCalls = {}
+	local itemTooltipCalls = {}
+	local raid = {
+		raidNid = 42,
+		zone = "Icecrown Citadel",
+		difficulty = 4,
+		players = {},
+	}
+
+	local function newControl(name)
+		return {
+			name = name,
+			width = 640,
+			height = 22,
+			text = "",
+			shown = false,
+			enabled = true,
+			points = {},
+			scripts = {},
+			scriptSetCounts = {},
+			GetName = function(self)
+				return self.name
+			end,
+			SetText = function(self, value)
+				self.text = tostring(value or "")
+			end,
+			GetText = function(self)
+				return self.text
+			end,
+			SetScript = function(self, scriptName, callback)
+				self.scripts[scriptName] = callback
+				self.scriptSetCounts[scriptName] = (self.scriptSetCounts[scriptName] or 0) + 1
+			end,
+			GetScript = function(self, scriptName)
+				return self.scripts[scriptName]
+			end,
+			SetWidth = function(self, width)
+				self.width = width
+			end,
+			GetWidth = function(self)
+				return self.width
+			end,
+			SetHeight = function(self, height)
+				self.height = height
+			end,
+			GetHeight = function(self)
+				return self.height
+			end,
+			SetSize = function(self, width, height)
+				self.width = width
+				self.height = height
+			end,
+			ClearAllPoints = function(self)
+				self.points = {}
+			end,
+			SetPoint = function(self, ...)
+				self.points[#self.points + 1] = { ... }
+			end,
+			SetAllPoints = function(self, relativeTo)
+				self.allPoints = relativeTo
+			end,
+			Show = function(self)
+				self.shown = true
+			end,
+			Hide = function(self)
+				self.shown = false
+			end,
+			IsShown = function(self)
+				return self.shown
+			end,
+			SetEnabled = function(self, enabled)
+				self.enabled = enabled == true
+			end,
+			Enable = function(self)
+				self.enabled = true
+			end,
+			Disable = function(self)
+				self.enabled = false
+			end,
+			EnableMouse = function(self, enabled)
+				self.mouseEnabled = enabled == true
+			end,
+			RegisterForClicks = function(self, ...)
+				self.registeredClicks = { ... }
+			end,
+			SetID = function(self, id)
+				self.id = id
+			end,
+			GetID = function(self)
+				return self.id
+			end,
+			SetNormalTexture = function(self, texture)
+				self.normalTexture = texture
+			end,
+			SetTexture = function(self, texture)
+				self.texturePath = texture
+			end,
+			SetTexCoord = function(self, ...)
+				self.texCoord = { ... }
+			end,
+			SetDesaturated = function(self, desaturated)
+				self.desaturated = desaturated == true
+			end,
+			SetVertexColor = function(self, ...)
+				self.vertexColor = { ... }
+			end,
+		}
+	end
+
+	local raidName = "RMARaidAttendanceRaids"
+	local playerName = "RMARaidAttendanceRaidAttendees"
+	local raidSuffixes = {
+		"Title",
+		"HeaderNum",
+		"HeaderDate",
+		"HeaderZone",
+		"HeaderSize",
+		"CurrentBtn",
+		"DeleteBtn",
+		"EmptyState",
+		"ScrollFrame",
+	}
+	local playerSuffixes = {
+		"Title",
+		"HeaderName",
+		"HeaderJoin",
+		"HeaderLeave",
+		"HeaderIlvl",
+		"HeaderSpec",
+		"HeaderInspect",
+		"AddBtn",
+		"DeleteBtn",
+		"ForceInspectBtn",
+		"ExportBtn",
+		"EmptyState",
+		"ScrollFrame",
+	}
+	_G[raidName] = newControl(raidName)
+	_G[playerName] = newControl(playerName)
+	for i = 1, #raidSuffixes do
+		_G[raidName .. raidSuffixes[i]] = newControl(raidName .. raidSuffixes[i])
+	end
+	for i = 1, #playerSuffixes do
+		_G[playerName .. playerSuffixes[i]] = newControl(playerName .. playerSuffixes[i])
+	end
+
+	addon.L = setmetatable({
+		StrRaidsList = "Raids",
+		StrRaidAttendees = "Raid Attendees",
+		StrLoggerEmptyRaids = "No raids",
+		StrLoggerEmptyRaidAttendeesSelectRaid = "Select a raid",
+		StrLoggerEmptyRaidAttendees = "No attendees",
+		StrInspectNotInspected = "Not inspected",
+		StrLootBanTooltipTitle = "Loot banned",
+	}, {
+		__index = function(_, key)
+			return key
+		end,
+	})
+	addon.Diag = {
+		A = setmetatable({}, {
+			__index = function(_, key)
+				return key
+			end,
+		}),
+		W = setmetatable({}, {
+			__index = function(_, key)
+				return key
+			end,
+		}),
+	}
+	addon.Controllers = {}
+	addon.Options = { IsDebugEnabled = function() return false end }
+	addon.Database.GetCurrentRaid = function()
+		return 1
+	end
+	addon.Database.GetRaids = function()
+		return { raid }
+	end
+	addon.Database.GetRaidIndexByNid = function(raidNid)
+		return tonumber(raidNid) == 42 and 1 or nil
+	end
+	addon.IsInRaid = function()
+		return true
+	end
+	addon.info = noop
+	addon.warn = noop
+	addon.error = noop
+	addon.Services = {
+		Attendance = {
+			Store = {
+				GetRaid = function(_, raidIndex)
+					return tonumber(raidIndex) == 1 and raid or nil
+				end,
+			},
+			View = { FillRaidAttendeesList = noop },
+			Actions = { DeleteRaidAttendance = function() return 0 end },
+			Export = {},
+		},
+		EquipInspect = {
+			ForcePlayer = function(_, raidIndex, playerNid)
+				forceInspectCalls[#forceInspectCalls + 1] = { raidIndex, playerNid }
+				return true, "queued"
+			end,
+		},
+		Raid = {
+			Projections = {
+				FillRaidList = noop,
+				GetDifficultyLabel = function()
+					return "25 Heroic"
+				end,
+			},
+			LootBans = {
+				Get = function()
+					return lootBanned, lootBanned and "Bench" or nil
+				end,
+			},
+			RefreshAndPublish = noop,
+		},
+	}
+	addon.Events = {
+		Internal = {
+			RaidCreate = "RaidCreate",
+			RaidAttendanceChanged = "RaidAttendanceChanged",
+			EquipInspectUpdated = "EquipInspectUpdated",
+			EquipInspectCompleted = "EquipInspectCompleted",
+			LoggerClearPlayerSelections = "LoggerClearPlayerSelections",
+			LootBansChanged = "LootBansChanged",
+		},
+	}
+	addon.Bus = {
+		TriggerEvent = noop,
+		RegisterCallback = function(eventName, callback)
+			callbacks[eventName] = callback
+		end,
+	}
+	addon.Timer = {
+		BindMixin = function(owner)
+			function owner:ScheduleTimer(callback)
+				callback()
+				return {}
+			end
+			function owner:CancelTimer()
+				return true
+			end
+		end,
+	}
+	addon.Sort = {
+		CompareNumbers = function(a, b, asc)
+			return asc and a < b or a > b
+		end,
+		CompareValues = function(a, b, asc)
+			return asc and a < b or a > b
+		end,
+	}
+	addon.Colors = {
+		GetClassColor = function()
+			return 0.78, 0.61, 0.43
+		end,
+	}
+
+	local controllers = {}
+	addon.UI = {
+		Rows = { SetLoggerRowIndex = noop, ApplyLoggerSkin = noop },
+		Frames = {
+			GetRef = function()
+				return nil
+			end,
+			SetScriptSafely = function(control, scriptName, callback)
+				control:SetScript(scriptName, callback)
+				return true
+			end,
+			SetFrameTitle = noop,
+			BindModuleFrame = noop,
+			MakeFrameGetter = function()
+				return function()
+					return nil
+				end
+			end,
+		},
+		Tooltips = {
+			ShowItem = function(...)
+				itemTooltipCalls[#itemTooltipCalls + 1] = { ... }
+			end,
+			ShowLines = noop,
+			Hide = noop,
+			BindModel = function(control, model, anchor)
+				control.tooltipModel = model
+				control.tooltipAnchor = anchor
+			end,
+		},
+		Primitives = {
+			SetShown = function(control, shown)
+				if control then
+					control.shown = shown == true
+				end
+			end,
+			SetEnabled = function(control, enabled)
+				if control then
+					control.enabled = enabled == true
+				end
+			end,
+		},
+		ExportDialog = {},
+		Lists = {
+			CreateController = function(config)
+				local controller = { config = config, data = {}, sortedKeys = {} }
+				function controller:Dirty() end
+				function controller:Touch() end
+				function controller:OnLoad() end
+				function controller:Sort(key)
+					self.sortedKeys[#self.sortedKeys + 1] = key
+				end
+				controllers[#controllers + 1] = controller
+				return controller
+			end,
+			MakeIndexedRowName = function(suffix)
+				return function(frameName, _, index)
+					return tostring(frameName) .. tostring(suffix) .. tostring(index)
+				end
+			end,
+			CreateRowRenderer = function(callback)
+				return callback
+			end,
+			BindController = function(listModule, controller)
+				listModule._ctrl = controller
+				listModule.Sort = function(_, key)
+					controller:Sort(key)
+				end
+			end,
+		},
+	}
+
+	_G.CreateFrame = function(_, name)
+		return newControl(name or "AttendanceDynamicControl")
+	end
+
+	local createController = addon.UI.Lists.CreateController
+	local makeIndexedRowName = addon.UI.Lists.MakeIndexedRowName
+	local createRowRenderer = addon.UI.Lists.CreateRowRenderer
+	local bindController = addon.UI.Lists.BindController
+	loadAddonFile(addon, "Raid Management Addon/Modules/UI/ListController.lua")
+	addon.UI.Lists.CreateController = createController
+	addon.UI.Lists.MakeIndexedRowName = makeIndexedRowName
+	addon.UI.Lists.CreateRowRenderer = createRowRenderer
+	addon.UI.Lists.BindController = bindController
+	local sharedOperationNames = {
+		"GetContentWidth",
+		"CalculateColumnBudget",
+		"ApplyHeaderLayout",
+		"ApplyRowWidths",
+		"BindSortHeaders",
+		"FormatCountTitle",
+		"SetLabel",
+	}
+	for i = 1, #sharedOperationNames do
+		local operationName = sharedOperationNames[i]
+		local operation = assert(addon.UI.Lists[operationName], operationName .. " is missing")
+		primitiveCalls[operationName] = {}
+		addon.UI.Lists[operationName] = function(...)
+			local calls = primitiveCalls[operationName]
+			calls[#calls + 1] = { ... }
+			return operation(...)
+		end
+	end
+
+	loadAddonFile(addon, "Raid Management Addon/Controllers/Attendance.lua")
+	local raidController = addon.Controllers.Attendance.AttendanceRaids._ctrl
+	local playerController = addon.Controllers.Attendance.AttendancePlayers._ctrl
+	assertTrue(raidController ~= nil, "Attendance raid controller fixture did not bind")
+	assertTrue(playerController ~= nil, "Attendance player controller fixture did not bind")
+	raidController.config.localize(raidName)
+	playerController.config.localize(playerName)
+
+	return {
+		controller = addon.Controllers.Attendance,
+		raidController = raidController,
+		playerController = playerController,
+		raidName = raidName,
+		playerName = playerName,
+		raidFrame = _G[raidName],
+		playerFrame = _G[playerName],
+		raidScroll = _G[raidName .. "ScrollFrame"],
+		playerScroll = _G[playerName .. "ScrollFrame"],
+		primitiveCalls = primitiveCalls,
+		newControl = newControl,
+		forceInspectCalls = forceInspectCalls,
+		itemTooltipCalls = itemTooltipCalls,
+		setLootBanned = function(value)
+			lootBanned = value == true
+		end,
+	}
+end
+
+function cases.attendance_lists_use_shared_layout_primitives_without_behavior_drift(addon)
+	local fixture = installAttendanceShareFixture(addon)
+	local attendance = fixture.controller
+	local raidController = fixture.raidController
+	local playerController = fixture.playerController
+	local raidName = fixture.raidName
+	local playerName = fixture.playerName
+
+	local function assertHeader(name, width, offset, message)
+		local header = _G[name]
+		assertEqual(width, header.width, message .. " width")
+		assertEqual("TOPLEFT", header.points[1][1], message .. " anchor")
+		assertEqual(offset, header.points[1][4], message .. " offset")
+		assertEqual(-25, header.points[1][5], message .. " top offset")
+	end
+
+	local function assertContiguousHeaders(headers, expectedEnd, message)
+		for i = 2, #headers do
+			assertEqual(
+				headers[i - 1].points[1][4] + headers[i - 1].width,
+				headers[i].points[1][4],
+				message .. " header gap at " .. tostring(i)
+			)
+		end
+		assertEqual(
+			expectedEnd,
+			headers[#headers].points[1][4] + headers[#headers].width,
+			message .. " boundary"
+		)
+	end
+
+	-- Localization runs twice while sort bindings remain one-time and controller-owned.
+	raidController.config.localize(raidName)
+	playerController.config.localize(playerName)
+	assertEqual(1, _G[raidName .. "HeaderZone"].scriptSetCounts.OnClick, "raid sort header rebound")
+	assertEqual(1, _G[playerName .. "HeaderSpec"].scriptSetCounts.OnClick, "Spec sort header rebound")
+	assertEqual(nil, _G[playerName .. "HeaderInspect"].scriptSetCounts.OnClick, "Inspect became sortable")
+	_G[raidName .. "HeaderZone"].scripts.OnClick()
+	_G[playerName .. "HeaderSpec"].scripts.OnClick()
+	assertEqual("zone", raidController.sortedKeys[1], "raid header dispatched the wrong sort key")
+	assertEqual("spec", playerController.sortedKeys[1], "Spec header dispatched the wrong sort key")
+
+	local raidHeaders = {
+		_G[raidName .. "HeaderNum"],
+		_G[raidName .. "HeaderDate"],
+		_G[raidName .. "HeaderZone"],
+		_G[raidName .. "HeaderSize"],
+	}
+	local playerHeaders = {
+		_G[playerName .. "HeaderName"],
+		_G[playerName .. "HeaderJoin"],
+		_G[playerName .. "HeaderLeave"],
+		_G[playerName .. "HeaderIlvl"],
+		_G[playerName .. "HeaderSpec"],
+		_G[playerName .. "HeaderInspect"],
+	}
+	assertHeader(raidName .. "HeaderNum", 30, 6, "raid number header")
+	assertContiguousHeaders(raidHeaders, 643, "raid 619px budget")
+	assertHeader(playerName .. "HeaderName", 74, 6, "attendance name header")
+	assertHeader(playerName .. "HeaderJoin", 45, 80, "attendance join header")
+	assertHeader(playerName .. "HeaderLeave", 45, 125, "attendance leave header")
+	assertHeader(playerName .. "HeaderIlvl", 36, 170, "attendance ilvl header")
+	assertHeader(playerName .. "HeaderSpec", 43, 206, "attendance Spec header")
+	assertHeader(playerName .. "HeaderInspect", 394, 249, "attendance Inspect header")
+	assertContiguousHeaders(playerHeaders, 643, "attendance 607px budget")
+
+	local raidRow = fixture.newControl("AttendanceRaidRow1")
+	raidRow._p = {
+		ID = fixture.newControl("AttendanceRaidRow1ID"),
+		Date = fixture.newControl("AttendanceRaidRow1Date"),
+		Zone = fixture.newControl("AttendanceRaidRow1Zone"),
+		Size = fixture.newControl("AttendanceRaidRow1Size"),
+	}
+	raidController.config.drawRow(raidRow, {
+		seq = 3,
+		dateFmt = "2026-08-16",
+		zone = "Icecrown Citadel",
+		size = 25,
+	}, 1)
+	assertEqual(24, raidRow._p.ID.width, "raid row id width drifted")
+	assertEqual(raidHeaders[2].width - 6, raidRow._p.Date.width, "raid date row/header parity drifted")
+	assertEqual(raidHeaders[3].width - 6, raidRow._p.Zone.width, "raid zone row/header parity drifted")
+	assertEqual(raidHeaders[4].width, raidRow._p.Size.width, "raid size row/header parity drifted")
+	assertEqual(
+		619,
+		raidRow._p.ID.width + raidRow._p.Date.width + raidRow._p.Zone.width + raidRow._p.Size.width,
+		"raid row budget drifted"
+	)
+
+	local playerRow = fixture.newControl("AttendancePlayerRow1")
+	playerRow._p = {
+		Name = fixture.newControl("AttendancePlayerRow1Name"),
+		Join = fixture.newControl("AttendancePlayerRow1Join"),
+		Leave = fixture.newControl("AttendancePlayerRow1Leave"),
+		Ilvl = fixture.newControl("AttendancePlayerRow1Ilvl"),
+		Spec = fixture.newControl("AttendancePlayerRow1Spec"),
+		InspectStatus = fixture.newControl("AttendancePlayerRow1InspectStatus"),
+	}
+	for _, suffix in ipairs({
+		"SpecIcon",
+		"SpecIconTexture",
+		"SecondarySpecIcon",
+		"SecondarySpecIconTexture",
+		"InspectItemIcon1",
+		"InspectItemIcon1Texture",
+	}) do
+		_G["AttendancePlayerRow1" .. suffix] = fixture.newControl("AttendancePlayerRow1" .. suffix)
+	end
+	local playerItem = {
+		id = 21,
+		playerNid = 21,
+		name = "Alpha",
+		class = "WARRIOR",
+		joinFmt = "20:00",
+		leaveFmt = "21:00",
+		avgIlvlFmt = "245",
+		inspect = {
+			status = "ready",
+			specIcon = "primary-spec",
+			secondarySpecIcon = "secondary-spec",
+			specName = "Arms",
+			secondarySpecName = "Fury",
+			items = { [1] = { itemLink = "|Hitem:1|h[Test]|h", texture = "helm-texture" } },
+		},
+	}
+	playerController.config.drawRow(playerRow, playerItem, 1)
+	assertEqual(68, playerRow._p.Name.width, "attendance name width drifted")
+	assertEqual(39, playerRow._p.Join.width, "attendance join width drifted")
+	assertEqual(39, playerRow._p.Leave.width, "attendance leave width drifted")
+	assertEqual(30, playerRow._p.Ilvl.width, "attendance ilvl width drifted")
+	assertEqual(37, playerRow._p.Spec.width, "attendance Spec width drifted")
+	assertEqual(394, playerRow._p.InspectStatus.width, "attendance Inspect width drifted")
+	assertEqual("primary-spec", _G.AttendancePlayerRow1SpecIconTexture.texturePath, "primary Spec texture drifted")
+	assertEqual("secondary-spec", _G.AttendancePlayerRow1SecondarySpecIconTexture.texturePath, "secondary Spec texture drifted")
+	assertEqual(true, _G.AttendancePlayerRow1SecondarySpecIconTexture.desaturated, "secondary Spec state drifted")
+	assertEqual("Arms", _G.AttendancePlayerRow1SpecIcon.tooltipModel(_G.AttendancePlayerRow1SpecIcon).title, "Spec tooltip drifted")
+	assertEqual("helm-texture", _G.AttendancePlayerRow1InspectItemIcon1Texture.texturePath, "Inspect texture drifted")
+	assertEqual(1, _G.AttendancePlayerRow1InspectItemIcon1.points[1][4], "Inspect icon placement drifted")
+	assertEqual("|Hitem:1|h[Test]|h", _G.AttendancePlayerRow1InspectItemIcon1._RMAItemLink, "Inspect link drifted")
+	_G.AttendancePlayerRow1InspectItemIcon1.scripts.OnEnter(_G.AttendancePlayerRow1InspectItemIcon1)
+	assertEqual(1, #fixture.itemTooltipCalls, "Inspect tooltip interaction drifted")
+
+	-- Titles and already-selected empty-state strings remain Attendance-owned.
+	raidController.data = {}
+	playerController.data = {}
+	attendance.attendanceSelectedRaid = nil
+	raidController.config.postUpdate(raidName)
+	playerController.config.postUpdate(playerName)
+	assertEqual("Raids (0)", _G[raidName .. "Title"].text, "empty raid title drifted")
+	assertEqual("No raids", _G[raidName .. "EmptyState"].text, "empty raid selection drifted")
+	assertEqual("Raid Attendees (0)", _G[playerName .. "Title"].text, "absent context gained a fallback")
+	assertEqual("Select a raid", _G[playerName .. "EmptyState"].text, "select-raid empty state drifted")
+
+	attendance.attendanceSelectedRaid = 1
+	attendance.attendanceSelectedPlayer = 21
+	raidController.data = { {} }
+	playerController.data = { {} }
+	raidController.config.postUpdate(raidName)
+	playerController.config.postUpdate(playerName)
+	assertEqual("Raids (1)", _G[raidName .. "Title"].text, "populated raid title drifted")
+	assertEqual(
+		"Raid Attendees (1) - Icecrown Citadel 25 Heroic",
+		_G[playerName .. "Title"].text,
+		"Attendance context title drifted"
+	)
+	_G[playerName .. "ForceInspectBtn"].scripts.OnClick()
+	assertEqual(1, #fixture.forceInspectCalls, "Force Inspect action moved or disappeared")
+	assertEqual(1, fixture.forceInspectCalls[1][1], "Force Inspect used the wrong raid")
+	assertEqual(21, fixture.forceInspectCalls[1][2], "Force Inspect used the wrong player")
+
+	-- Invalid ScrollFrames and undersized frames preserve the 240 clamp and minima.
+	fixture.raidScroll.width = 0
+	fixture.playerScroll.width = 0
+	fixture.raidFrame.width = 200
+	fixture.playerFrame.width = 200
+	raidController.data = {}
+	playerController.data = {}
+	raidController.config.postUpdate(raidName)
+	playerController.config.postUpdate(playerName)
+	raidController.config.drawRow(raidRow, {
+		seq = 3,
+		dateFmt = "2026-08-16",
+		zone = "Icecrown Citadel",
+		size = 25,
+	}, 1)
+	fixture.setLootBanned(true)
+	playerController.config.drawRow(playerRow, playerItem, 1)
+	assertHeader(raidName .. "HeaderNum", 30, 6, "fallback raid number header")
+	assertHeader(raidName .. "HeaderDate", 94, 36, "fallback raid date header")
+	assertHeader(raidName .. "HeaderZone", 134, 130, "fallback raid zone header")
+	assertHeader(raidName .. "HeaderSize", 36, 264, "fallback raid size header")
+	assertContiguousHeaders(raidHeaders, 300, "fallback raid minimum budget")
+	assertHeader(playerName .. "HeaderName", 74, 6, "fallback attendance name header")
+	assertHeader(playerName .. "HeaderInspect", 324, 249, "fallback attendance Inspect header")
+	assertContiguousHeaders(playerHeaders, 573, "fallback attendance minimum budget")
+	assertEqual(51, playerRow._p.Name.width, "loot-ban name inset moved into shared row geometry")
+	assertEqual(20, playerRow._p.Name.points[1][4], "loot-ban name anchor drifted")
+	assertEqual(true, playerRow._RMALootBanIcon.shown, "loot-ban icon ownership drifted")
+	assertEqual("No attendees", _G[playerName .. "EmptyState"].text, "selected-raid empty state drifted")
+
+	-- RED reaches this point with all Attendance-owned behavior intact, then fails
+	-- only while the controller still bypasses the seven shared operations.
+	assertEqual(14, #fixture.primitiveCalls.GetContentWidth, "Attendance did not route content width through UI.Lists")
+	assertEqual(14, #fixture.primitiveCalls.CalculateColumnBudget, "Attendance did not route budgets through UI.Lists")
+	assertEqual(10, #fixture.primitiveCalls.ApplyHeaderLayout, "Attendance did not route header geometry through UI.Lists")
+	assertEqual(4, #fixture.primitiveCalls.ApplyRowWidths, "Attendance did not route row widths through UI.Lists")
+	assertEqual(4, #fixture.primitiveCalls.BindSortHeaders, "Attendance did not route initial sort binding through UI.Lists")
+	assertEqual(6, #fixture.primitiveCalls.FormatCountTitle, "Attendance did not route titles through UI.Lists")
+	assertEqual(16, #fixture.primitiveCalls.SetLabel, "Attendance did not route title and empty labels through UI.Lists")
+
+	print("PASS attendance_lists_use_shared_layout_primitives_without_behavior_drift")
 end
 
 function cases.attendance_seed_and_close_are_idempotent_revisioned_transactions(addon)

@@ -12,12 +12,38 @@ SLASH_EVENTS = ROOT / "Raid Management Addon" / "EntryPoints" / "SlashEvents.lua
 RAID_SESSION = ROOT / "Raid Management Addon" / "Services" / "Raid" / "Session.lua"
 RAID_ROSTER = ROOT / "Raid Management Addon" / "Services" / "Raid" / "Roster.lua"
 INIT = ROOT / "Raid Management Addon" / "Init.lua"
+ATTENDANCE = ROOT / "Raid Management Addon" / "Controllers" / "Attendance.lua"
+LIST_CONTROLLER = ROOT / "Raid Management Addon" / "Modules" / "UI" / "ListController.lua"
 
 
 class RuntimeFoundationsBehaviorTest(unittest.TestCase):
     def test_ui_lists_preserve_explicit_layout_geometry(self) -> None:
         result = run_lua_case("ui_lists_preserve_explicit_layout_geometry")
         self.assertIn("PASS ui_lists_preserve_explicit_layout_geometry", result.stdout)
+
+    def test_attendance_lists_use_shared_layout_primitives_without_behavior_drift(self) -> None:
+        result = run_lua_case("attendance_lists_use_shared_layout_primitives_without_behavior_drift")
+        self.assertIn(
+            "PASS attendance_lists_use_shared_layout_primitives_without_behavior_drift",
+            result.stdout,
+        )
+
+        attendance = ATTENDANCE.read_text(encoding="utf-8")
+        shared = LIST_CONTROLLER.read_text(encoding="utf-8")
+        for owned_symbol in (
+            "AttendanceLayout",
+            "RAID_LAYOUT_COLUMNS",
+            "ATTENDANCE_LAYOUT_COLUMNS",
+            "setAttendanceSpecIcon",
+            "renderAttendanceInspectIcons",
+            "getAttendanceInspectIcon",
+            "bindAttendanceSpecIconTooltip",
+            "showAttendanceLootBanTooltip",
+            "RAID_INSPECT_SLOTS",
+            "ForceInspectPlayer",
+        ):
+            self.assertIn(owned_symbol, attendance)
+            self.assertNotIn(owned_symbol, shared)
 
     def test_screen_notice_uses_internal_event_without_direct_export(self) -> None:
         result = run_lua_case("screen_notice_uses_internal_event_without_direct_export")
