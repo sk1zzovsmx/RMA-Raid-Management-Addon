@@ -1992,3 +1992,137 @@ function cases.raid_replication_protocol_rejects_malformed_compact_live_loot_sca
 	assertTrue(optionalBody ~= nil, "false optional compact slots were rejected: " .. tostring(optionalReason))
 	print("PASS raid_replication_protocol_rejects_malformed_compact_live_loot_scalars")
 end
+function cases.loot_runtime_state_syncs_directly_without_service_forwarder(addon)
+	local lootContext = {
+		eventBoss = {
+			raidNum = "2",
+			bossNid = "7",
+			name = "Legacy Boss",
+			source = "COMBAT_LOG",
+			seenAt = "12",
+		},
+		activeWindow = {
+			raidNum = "2",
+			bossNid = "7",
+			blocked = false,
+			source = "LOOT_OPENED",
+			sourceUnit = "target",
+			sourceNpcId = "123",
+			sourceName = "Legacy Boss",
+			expiresAt = "99",
+		},
+		source = {
+			raidNum = "2",
+			kind = "boss",
+			bossNid = "7",
+			sourceNpcId = "123",
+			sourceName = "Legacy Boss",
+			sourceKey = "  Legacy Boss  ",
+			openedAt = "10",
+			snapshotId = "3",
+			expiresAt = "80",
+		},
+		sessions = { bySessionId = "invalid" },
+		snapshots = {
+			byId = "invalid",
+			bySignature = "invalid",
+			nextId = "0",
+			activeId = "5",
+			nextPurgeAt = "25",
+			signatureIndexVersion = "2",
+		},
+	}
+	local raidState = { lootContext = lootContext, lastLootCount = 0 }
+	local itemInfo = {}
+	addon.State = {
+		raid = raidState,
+		loot = {
+			itemInfo = itemInfo,
+			currentRollType = "invalid",
+			currentRollItem = "9",
+			currentItemIndex = "2",
+			nextRollSessionId = 0,
+			selectedItemCount = 0,
+			lootCount = -1,
+			rollsCount = "3",
+			itemTraded = -2,
+		},
+	}
+	addon.C = {}
+	addon.Time = {
+		GetCurrentTime = function()
+			return 50
+		end,
+	}
+	addon.Strings = {
+		NormalizeText = function(value, lower)
+			if type(value) ~= "string" then
+				return nil
+			end
+			local normalized = value:gsub("^%s+", ""):gsub("%s+$", "")
+			return lower and string.lower(normalized) or normalized
+		end,
+	}
+	addon.LootSourceCandidates = {
+		Copy = function(value)
+			return value
+		end,
+	}
+	addon.Database.EnsureRaidByIndex = function() end
+	addon.Database.EnsureRaidSchema = function(value)
+		return value
+	end
+	addon.Services.EnsureNamespace = function(name)
+		addon.Services[name] = addon.Services[name] or {}
+		return addon.Services[name]
+	end
+	_G.GetTime = function()
+		return 50
+	end
+
+	loadAddonFile(addon, "Raid Management Addon/Services/Loot/Context.lua")
+	loadAddonFile(addon, "Raid Management Addon/Services/Loot/State.lua")
+	assertEqual(nil, addon.Services.Loot.SyncRuntimeState, "Loot retained its runtime-state forwarder")
+	assertTrue(
+		type(addon.Services.Loot._State.SyncRuntimeState) == "function",
+		"Loot state owner lost SyncRuntimeState"
+	)
+
+	local stateResult, lootStateResult, itemInfoResult, raidStateResult = addon.Database.EnsureLootRuntimeState()
+	assertEqual(addon.State, stateResult, "runtime state root identity changed")
+	assertEqual(raidState, raidStateResult, "raid runtime state identity changed")
+	assertEqual(lootContext, raidStateResult.lootContext, "loot context identity changed")
+	assertEqual(itemInfo, itemInfoResult, "item-info identity changed")
+	assertEqual(2, lootContext.eventBoss.raidNum, "event boss raid number was not normalized")
+	assertEqual(7, lootContext.eventBoss.bossNid, "event boss NID was not normalized")
+	assertEqual(12, lootContext.eventBoss.seenAt, "event boss time was not normalized")
+	assertTrue(type(lootContext.activeLoot) == "table", "legacy active context was not synchronized")
+	assertEqual(2, lootContext.activeLoot.raidNum, "active loot raid number differs")
+	assertEqual("boss", lootContext.activeLoot.kind, "active loot kind differs")
+	assertEqual(7, lootContext.activeLoot.bossNid, "active loot boss differs")
+	assertEqual("legacy boss", lootContext.activeLoot.sourceKey, "active loot source key was not normalized")
+	assertEqual(99, lootContext.activeLoot.windowExpiresAt, "active loot window expiry differs")
+	assertEqual(99, lootContext.activeWindow.expiresAt, "legacy active-window projection differs")
+	assertEqual(3, lootContext.source.snapshotId, "legacy source projection differs")
+	assertTrue(type(lootContext.sessions.bySessionId) == "table", "loot session map was not normalized")
+	assertTrue(type(lootContext.snapshots.byId) == "table", "loot snapshot ID map was not normalized")
+	assertTrue(type(lootContext.snapshots.bySignature) == "table", "loot snapshot signature map was not normalized")
+	assertEqual(1, lootContext.snapshots.nextId, "loot snapshot next ID default differs")
+	assertEqual(5, lootContext.snapshots.activeId, "loot snapshot active ID differs")
+	assertEqual(25, lootContext.snapshots.nextPurgeAt, "loot snapshot purge time differs")
+	assertEqual(2, lootContext.snapshots.signatureIndexVersion, "loot snapshot index version differs")
+	assertEqual(4, lootStateResult.currentRollType, "loot roll type default differs")
+	assertEqual(9, lootStateResult.currentRollItem, "loot item NID normalization differs")
+	assertEqual(2, lootStateResult.currentItemIndex, "loot item index normalization differs")
+	assertEqual(1, lootStateResult.nextRollSessionId, "loot roll-session ID default differs")
+	assertEqual(1, lootStateResult.selectedItemCount, "selected item count default differs")
+	assertEqual(1, raidStateResult.lastLootCount, "last loot count default differs")
+	assertEqual(0, lootStateResult.lootCount, "loot count default differs")
+	assertEqual(3, lootStateResult.rollsCount, "roll count normalization differs")
+	assertEqual(0, lootStateResult.itemTraded, "traded item count default differs")
+	assertEqual(false, lootStateResult.rollStarted, "roll-started default differs")
+	assertEqual(false, lootStateResult.opened, "loot-opened default differs")
+	assertEqual(false, lootStateResult.fromInventory, "inventory-source default differs")
+	assertTrue(type(lootStateResult.pendingAwards) == "table", "pending award map default differs")
+	print("PASS loot_runtime_state_syncs_directly_without_service_forwarder")
+end

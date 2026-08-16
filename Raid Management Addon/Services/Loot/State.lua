@@ -89,10 +89,8 @@ function Database.EnsureLootRuntimeState()
 	local lootContext = type(raidState.lootContext) == "table" and raidState.lootContext or {}
 	raidState.lootContext = lootContext
 
-	if Loot and type(Loot.SyncRuntimeState) == "function" then
-		lootContext = Loot:SyncRuntimeState(raidState)
-		raidState.lootContext = lootContext
-	end
+	lootContext = ContextState.SyncRuntimeState(raidState)
+	raidState.lootContext = lootContext
 
 	lootState.lootCount = tonumber(lootState.lootCount) or 0
 	if lootState.lootCount < 0 then
@@ -269,10 +267,6 @@ function ContextState.SyncRuntimeState(raidState)
 	lootContext.snapshots = ContextState.SyncField(raidState, "snapshots", normalizeLootSnapshotState)
 	lootContext = ContextState.EnsureState(raidState)
 	return lootContext
-end
-
-function module:SyncRuntimeState(raidState)
-	return ContextState.SyncRuntimeState(raidState)
 end
 
 -- ----- Loot session helpers (merged from Loot/Sessions.lua) ----- --

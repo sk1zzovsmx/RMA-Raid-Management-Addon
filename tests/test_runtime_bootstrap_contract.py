@@ -70,6 +70,10 @@ def duplicate_raid_names() -> set[str]:
 
 
 class RuntimeBootstrapContractTest(unittest.TestCase):
+    def test_loot_runtime_state_syncs_directly_without_service_forwarder(self) -> None:
+        result = run_lua_case("loot_runtime_state_syncs_directly_without_service_forwarder")
+        self.assertIn("PASS loot_runtime_state_syncs_directly_without_service_forwarder", result.stdout)
+
     def test_runtime_has_no_libcompat_dependency_or_accidental_mixin_api(self) -> None:
         entries = toc_entries()
         self.assertNotIn(r"Libs\LibCompat-1.0\lib.xml", entries)
