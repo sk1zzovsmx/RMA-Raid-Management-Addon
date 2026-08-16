@@ -115,6 +115,130 @@ function Lists.CalculateColumnWidths(totalWidth, minWidths, ratios, fixedKeys)
 	return widths
 end
 
+function Lists.GetContentWidth(frameName, fallbackWidth, gutterWidth)
+	local fallback = floor(tonumber(fallbackWidth) or 0)
+	local scroll = frameName and _G[frameName .. "ScrollFrame"] or nil
+	local width = scroll and scroll.GetWidth and scroll:GetWidth() or nil
+	if type(width) ~= "number" or width <= 0 then
+		local frame = frameName and _G[frameName] or nil
+		width = frame and frame.GetWidth and frame:GetWidth() or nil
+		local gutter = tonumber(gutterWidth) or 0
+		if type(width) == "number" and width > gutter then
+			width = width - gutter
+		end
+	end
+
+	width = tonumber(width) or fallback
+	return math.max(fallback, floor(width))
+end
+
+function Lists.CalculateColumnBudget(
+	frameName,
+	fallbackWidth,
+	gutterWidth,
+	leadOffset,
+	gapCount,
+	gapWidth,
+	returnedWidthOffset
+)
+	local fallback = floor(tonumber(fallbackWidth) or 0)
+	local budget = Lists.GetContentWidth(frameName, fallbackWidth, gutterWidth)
+		- (tonumber(leadOffset) or 0)
+		- ((tonumber(gapCount) or 0) * (tonumber(gapWidth) or 0))
+		+ (tonumber(returnedWidthOffset) or 0)
+	return math.max(fallback, floor(budget))
+end
+
+function Lists.ApplyHeaderLayout(frameName, widths, columns, startOffset, topOffset, gapWidth)
+	local frame = frameName and _G[frameName] or nil
+	if not frame then
+		return
+	end
+
+	local offset = tonumber(startOffset) or 0
+	local top = tonumber(topOffset) or 0
+	local gap = tonumber(gapWidth) or 0
+	for i = 1, #(columns or {}) do
+		local column = columns[i]
+		local width = tonumber(widths and widths[column.widthKey]) or 0
+		if column.headerExtraWidthKey then
+			width = width + (tonumber(widths and widths[column.headerExtraWidthKey]) or 0)
+		end
+		local trailingGap = column.trailingGap and gap or 0
+		local header = column.headerSuffix and _G[frameName .. column.headerSuffix] or nil
+		if header then
+			header:ClearAllPoints()
+			header:SetPoint("TOPLEFT", frame, "TOPLEFT", offset, top)
+			header:SetWidth(width + trailingGap)
+		end
+		offset = offset + width + trailingGap
+	end
+end
+
+function Lists.ApplyRowWidths(ui, widths, columns)
+	if not ui then
+		return
+	end
+	for i = 1, #(columns or {}) do
+		local column = columns[i]
+		local width = tonumber(widths and widths[column.widthKey]) or 0
+		local widget = column.rowKey and ui[column.rowKey] or nil
+		if widget and widget.SetWidth then
+			widget:SetWidth(width)
+		end
+		local hitBox = column.hitBoxKey and ui[column.hitBoxKey] or nil
+		if hitBox and hitBox.SetWidth then
+			hitBox:SetWidth(width)
+		end
+	end
+end
+
+function Lists.BindSortHeaders(frameName, columns, listRef, boundFlag)
+	local frame = frameName and _G[frameName] or nil
+	if not frame or not boundFlag or not listRef or type(listRef.Sort) ~= "function" or frame[boundFlag] then
+		return
+	end
+
+	for i = 1, #(columns or {}) do
+		local column = columns[i]
+		if column.sortKey and column.headerSuffix then
+			local header = _G[frameName .. column.headerSuffix]
+			if header then
+				local sortKey = column.sortKey
+				Frames.SetScriptSafely(header, "OnClick", function()
+					listRef:Sort(sortKey)
+				end)
+			end
+		end
+	end
+	frame[boundFlag] = true
+end
+
+function Lists.FormatCountTitle(baseText, count, contextText, fallbackContext)
+	local title = ("%s (%d)"):format(tostring(baseText or ""), tonumber(count) or 0)
+	local context = contextText
+	if context == nil or context == "" then
+		context = fallbackContext
+	end
+	if context ~= nil and context ~= "" then
+		return ("%s - %s"):format(title, context)
+	end
+	return title
+end
+
+function Lists.SetLabel(frameName, suffix, text, manageVisibility)
+	local label = frameName and suffix and _G[frameName .. suffix] or nil
+	if not label then
+		return
+	end
+	if label.SetText then
+		label:SetText(text or "")
+	end
+	if manageVisibility == true then
+		Primitives.SetShown(label, type(text) == "string" and text ~= "")
+	end
+end
+
 function Lists.CreateController(cfg)
 	local self = {
 		frameName = nil,
