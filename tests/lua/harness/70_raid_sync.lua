@@ -6144,6 +6144,7 @@ local function installLoggerShareFixture(addon)
 	local clearedSelections = {}
 	local frameBinding
 	local scaffoldDefinition
+	local primitiveCalls = {}
 
 	local function noop() end
 	local function newControl(name)
@@ -6153,6 +6154,9 @@ local function installLoggerShareFixture(addon)
 			enabled = true,
 			text = "",
 			scripts = {},
+			scriptSetCounts = {},
+			width = 640,
+			height = 22,
 			GetName = function(self)
 				return self.name
 			end,
@@ -6164,6 +6168,7 @@ local function installLoggerShareFixture(addon)
 			end,
 			SetScript = function(self, scriptName, callback)
 				self.scripts[scriptName] = callback
+				self.scriptSetCounts[scriptName] = (self.scriptSetCounts[scriptName] or 0) + 1
 			end,
 			GetScript = function(self, scriptName)
 				return self.scripts[scriptName]
@@ -6190,16 +6195,38 @@ local function installLoggerShareFixture(addon)
 			SetEnabled = function(self, enabled)
 				self.enabled = enabled == true
 			end,
-			GetWidth = function()
-				return 335
+			GetWidth = function(self)
+				return self.width
 			end,
-			SetWidth = noop,
-			SetHeight = noop,
+			SetWidth = function(self, width)
+				self.width = width
+			end,
+			GetHeight = function(self)
+				return self.height
+			end,
+			SetHeight = function(self, height)
+				self.height = height
+			end,
 			SetSize = noop,
-			ClearAllPoints = noop,
-			SetPoint = noop,
-			EnableMouse = noop,
-			SetAlpha = noop,
+			ClearAllPoints = function(self)
+				self.points = {}
+			end,
+			SetPoint = function(self, ...)
+				self.points = self.points or {}
+				self.points[#self.points + 1] = { ... }
+			end,
+			EnableMouse = function(self, enabled)
+				self.mouseEnabled = enabled == true
+			end,
+			SetAlpha = function(self, alpha)
+				self.alpha = alpha
+			end,
+			RegisterForClicks = function(self, ...)
+				self.registeredClicks = { ... }
+			end,
+			SetVertexColor = noop,
+			SetTexture = noop,
+			SetTexCoord = noop,
 		}
 	end
 
@@ -6295,6 +6322,9 @@ local function installLoggerShareFixture(addon)
 		end,
 	}
 	addon.Colors = {
+		WrapText = function(value)
+			return value
+		end,
 		NormalizeHexColor = function(value)
 			return value
 		end,
@@ -6372,6 +6402,9 @@ local function installLoggerShareFixture(addon)
 			Store = {
 				GetRaid = function(_, raidId)
 					return raids[raidId]
+				end,
+				GetPlayer = function()
+					return nil
 				end,
 			},
 			View = {},
@@ -6500,7 +6533,16 @@ local function installLoggerShareFixture(addon)
 			ShowConfirm = noop,
 			ShowEditBox = noop,
 		},
-		Tooltips = { ShowItem = noop, ShowLines = noop, Hide = noop, Bind = noop, BindModel = noop },
+		Tooltips = {
+			ShowItem = noop,
+			ShowLines = noop,
+			Hide = noop,
+			Bind = noop,
+			BindModel = function(control, model, anchor)
+				control.tooltipModel = model
+				control.tooltipAnchor = anchor
+			end,
+		},
 		Frames = {
 			GetRef = function()
 				return nil
@@ -6529,10 +6571,12 @@ local function installLoggerShareFixture(addon)
 				return minimums
 			end,
 			CreateController = function(config)
-				local controller = { config = config, data = {} }
+				local controller = { config = config, data = {}, sortedKeys = {} }
 				function controller:Dirty() end
 				function controller:Touch() end
-				function controller:Sort() end
+				function controller:Sort(key)
+					self.sortedKeys[#self.sortedKeys + 1] = key
+				end
 				return controller
 			end,
 			MakeIndexedRowName = function(prefix)
@@ -6543,7 +6587,11 @@ local function installLoggerShareFixture(addon)
 			CreateRowRenderer = function(callback)
 				return callback
 			end,
-			BindController = noop,
+			BindController = function(listModule, controller)
+				listModule.Sort = function(_, key)
+					controller:Sort(key)
+				end
+			end,
 		},
 		Selection = {
 			SetModifierPolicy = noop,
@@ -6629,6 +6677,31 @@ local function installLoggerShareFixture(addon)
 	end
 	_G.YES, _G.NO = "Yes", "No"
 
+	local createController = addon.UI.Lists.CreateController
+	local bindController = addon.UI.Lists.BindController
+	loadAddonFile(addon, "Raid Management Addon/Modules/UI/ListController.lua")
+	addon.UI.Lists.CreateController = createController
+	addon.UI.Lists.BindController = bindController
+	local sharedOperationNames = {
+		"GetContentWidth",
+		"CalculateColumnBudget",
+		"ApplyHeaderLayout",
+		"ApplyRowWidths",
+		"BindSortHeaders",
+		"FormatCountTitle",
+		"SetLabel",
+	}
+	for i = 1, #sharedOperationNames do
+		local operationName = sharedOperationNames[i]
+		local operation = assert(addon.UI.Lists[operationName], operationName .. " is missing")
+		primitiveCalls[operationName] = {}
+		addon.UI.Lists[operationName] = function(...)
+			local calls = primitiveCalls[operationName]
+			calls[#calls + 1] = { ... }
+			return operation(...)
+		end
+	end
+
 	loadAddonFile(addon, "Raid Management Addon/Controllers/Logger.lua")
 	local raidController = addon.Controllers.Logger.Raids._ctrl
 	local lootController = addon.Controllers.Logger.Loot._ctrl
@@ -6644,6 +6717,12 @@ local function installLoggerShareFixture(addon)
 		lootHint = _G[lootListName .. "EmptyState"],
 		lootExportButton = _G[lootListName .. "ExportBtn"],
 		lootDeleteButton = _G[lootListName .. "DeleteBtn"],
+		raidFrame = _G[listName],
+		raidScroll = _G[listName .. "ScrollFrame"],
+		lootFrame = _G[lootListName],
+		lootScroll = _G[lootListName .. "ScrollFrame"],
+		primitiveCalls = primitiveCalls,
+		newControl = newControl,
 		shareFrame = _G[shareName],
 		sendButton = _G[shareName .. "SendBtn"],
 		warnings = warnings,
@@ -6686,6 +6765,203 @@ local function installLoggerShareFixture(addon)
 		end,
 		clearedSelections = clearedSelections,
 	}
+end
+
+function cases.logger_lists_use_shared_layout_primitives_without_behavior_drift(addon)
+	local fixture = installLoggerShareFixture(addon)
+	local logger = fixture.controller
+	local raidController = fixture.raidController
+	local lootController = fixture.lootController
+	local raidName = "RMALootHistoryRaids"
+	local lootName = "RMALootHistoryLoot"
+
+	local function assertHeader(suffix, width, offset, message)
+		local header = _G[suffix]
+		assertEqual(width, header.width, message .. " width")
+		assertEqual("TOPLEFT", header.points[1][1], message .. " anchor")
+		assertEqual(offset, header.points[1][4], message .. " offset")
+		assertEqual(-25, header.points[1][5], message .. " top offset")
+	end
+
+	-- The initial localization path uses the valid 640px ScrollFrame width.
+	assertHeader(raidName .. "HeaderNum", 30, 6, "raid number header")
+	local raidHeaders = {
+		_G[raidName .. "HeaderNum"],
+		_G[raidName .. "HeaderDate"],
+		_G[raidName .. "HeaderZone"],
+		_G[raidName .. "HeaderSize"],
+	}
+	for i = 2, #raidHeaders do
+		assertEqual(
+			raidHeaders[i - 1].points[1][4] + raidHeaders[i - 1].width,
+			raidHeaders[i].points[1][4],
+			"raid headers are no longer contiguous"
+		)
+		assertEqual(-25, raidHeaders[i].points[1][5], "raid header top offset drifted")
+	end
+	assertEqual(643, raidHeaders[4].points[1][4] + raidHeaders[4].width, "raid 619px budget boundary drifted")
+	local lootHeaders = {
+		_G[lootName .. "HeaderItem"],
+		_G[lootName .. "HeaderSource"],
+		_G[lootName .. "HeaderWinner"],
+		_G[lootName .. "HeaderType"],
+		_G[lootName .. "HeaderRoll"],
+		_G[lootName .. "HeaderTime"],
+	}
+	assertEqual(3, lootHeaders[1].points[1][4], "loot header start offset drifted")
+	for i = 2, #lootHeaders do
+		assertEqual(
+			lootHeaders[i - 1].points[1][4] + lootHeaders[i - 1].width,
+			lootHeaders[i].points[1][4],
+			"loot headers are no longer contiguous"
+		)
+		assertEqual(-25, lootHeaders[i].points[1][5], "loot header top offset drifted")
+	end
+	assertEqual(639, lootHeaders[6].points[1][4] + lootHeaders[6].width, "loot 606px budget boundary drifted")
+
+	-- Re-localization preserves one-time sort binding and Logger-owned sort keys.
+	raidController.config.localize(raidName)
+	raidController.config.localize(raidName)
+	logger.selectedBoss = 7
+	lootController.config.localize(lootName)
+	local sourceHeader = _G[lootName .. "HeaderSource"]
+	assertEqual(false, sourceHeader.mouseEnabled, "boss selection did not disable Source sorting")
+	assertEqual(0.6, sourceHeader.alpha, "boss selection did not dim Source header")
+	logger.selectedBoss = nil
+	lootController.config.localize(lootName)
+	assertEqual(true, sourceHeader.mouseEnabled, "clearing boss did not restore Source sorting")
+	assertEqual(1, sourceHeader.alpha, "clearing boss did not restore Source header alpha")
+	assertEqual(1, _G[raidName .. "HeaderZone"].scriptSetCounts.OnClick, "raid sort header rebound")
+	assertEqual(1, sourceHeader.scriptSetCounts.OnClick, "Source sort header rebound")
+	_G[raidName .. "HeaderZone"].scripts.OnClick()
+	sourceHeader.scripts.OnClick()
+	assertEqual("zone", raidController.sortedKeys[1], "raid header dispatched the wrong Logger sort key")
+	assertEqual("source", lootController.sortedKeys[1], "Source header dispatched the wrong Logger sort key")
+
+	-- Representative rows receive the same widths as their headers, with Source
+	-- interaction ownership retained on the row hit box.
+	local raidRow = fixture.newControl("LoggerRaidRow1")
+	raidRow._p = {
+		ID = fixture.newControl("LoggerRaidRow1ID"),
+		Date = fixture.newControl("LoggerRaidRow1Date"),
+		Zone = fixture.newControl("LoggerRaidRow1Zone"),
+		Size = fixture.newControl("LoggerRaidRow1Size"),
+	}
+	raidController.config.drawRow(raidRow, { seq = 3, dateFmt = "2026-08-16", zone = "Ulduar", size = 25 }, 1)
+	assertEqual(24, raidRow._p.ID.width, "raid row id width drifted")
+	assertEqual(raidHeaders[2].width - 6, raidRow._p.Date.width, "raid row/header date parity drifted")
+	assertEqual(raidHeaders[3].width - 6, raidRow._p.Zone.width, "raid row/header zone parity drifted")
+	assertEqual(raidHeaders[4].width, raidRow._p.Size.width, "raid row/header size parity drifted")
+	assertEqual(619, raidRow._p.ID.width + raidRow._p.Date.width + raidRow._p.Zone.width + raidRow._p.Size.width, "raid row budget drifted")
+
+	local lootRow = fixture.newControl("LoggerLootRow1")
+	local lootUi = {
+		Name = fixture.newControl("LoggerLootRow1Name"),
+		Source = fixture.newControl("LoggerLootRow1Source"),
+		SourceHitBox = fixture.newControl("LoggerLootRow1SourceHitBox"),
+		Winner = fixture.newControl("LoggerLootRow1Winner"),
+		Type = fixture.newControl("LoggerLootRow1Type"),
+		Roll = fixture.newControl("LoggerLootRow1Roll"),
+		Time = fixture.newControl("LoggerLootRow1Time"),
+		ItemIconTexture = fixture.newControl("LoggerLootRow1ItemIconTexture"),
+		ItemNormalTexture = fixture.newControl("LoggerLootRow1ItemNormalTexture"),
+	}
+	lootRow._p = lootUi
+	_G.LoggerLootRow1Item = fixture.newControl("LoggerLootRow1Item")
+	_G.LoggerLootRow1SourceHitBox = lootUi.SourceHitBox
+	lootController.config.drawRow(lootRow, {
+		itemId = 123,
+		itemName = "Test Item",
+		itemRarity = 1,
+		sourceName = "The Lich King",
+		looter = "Player",
+		rollValue = 88,
+		timeFmt = "20:15",
+	}, 1)
+	assertEqual(lootUi.Name.width + 30 + 6, lootHeaders[1].width, "loot item header lost its fixed icon allowance")
+	assertEqual(lootUi.Source.width + 6, lootHeaders[2].width, "loot Source row/header parity drifted")
+	assertEqual(lootUi.Winner.width + 6, lootHeaders[3].width, "loot winner row/header parity drifted")
+	assertEqual(lootUi.Type.width + 6, lootHeaders[4].width, "loot type row/header parity drifted")
+	assertEqual(lootUi.Roll.width + 6, lootHeaders[5].width, "loot roll row/header parity drifted")
+	assertEqual(lootUi.Time.width, lootHeaders[6].width, "loot time row/header parity drifted")
+	assertEqual(lootUi.Source.width, lootUi.SourceHitBox.width, "Source hit box no longer matches Source text width")
+	assertEqual(576, lootUi.Name.width + lootUi.Source.width + lootUi.Winner.width + lootUi.Type.width + lootUi.Roll.width + lootUi.Time.width, "loot row budget drifted")
+	assertTrue(lootUi.SourceHitBox._RMARow == lootRow, "Source hit box lost Logger row ownership")
+	assertTrue(type(lootUi.SourceHitBox.tooltipModel) == "function", "Source tooltip model binding moved off the row")
+	assertEqual("ANCHOR_CURSOR", lootUi.SourceHitBox.tooltipAnchor, "Source tooltip anchor drifted")
+
+	-- Empty/populated titles and already-selected hint text remain byte-exact.
+	raidController.data = {}
+	lootController.data = {}
+	logger.selectedRaid = nil
+	logger.selectedPlayer = nil
+	raidController.config.postUpdate(raidName)
+	lootController.config.postUpdate(lootName)
+	assertEqual("StrRaidsList (0)", _G[raidName .. "Title"].text, "empty raid title drifted")
+	assertEqual("StrLoggerEmptyRaids", fixture.raidHint.text, "empty raid hint selection drifted")
+	assertEqual(true, fixture.raidHint.shown, "empty raid hint is hidden")
+	assertEqual("StrRaidLoot (0)", _G[lootName .. "Title"].text, "no-selection loot title drifted")
+	assertEqual("StrLoggerEmptyLootSelectRaid", fixture.lootHint.text, "select-raid hint drifted")
+
+	logger.selectedRaid = 1
+	lootController.config.postUpdate(lootName)
+	assertEqual(
+		"StrRaidLoot (0) - Icecrown Citadel 25 Heroic",
+		_G[lootName .. "Title"].text,
+		"raid fallback context title drifted"
+	)
+	assertEqual("StrLoggerEmptyLoot", fixture.lootHint.text, "selected-raid empty hint drifted")
+	logger.selectedPlayer = 99
+	lootController.config.postUpdate(lootName)
+	assertEqual("StrLoggerEmptyLootFiltered", fixture.lootHint.text, "filtered empty hint drifted")
+	logger.selectedPlayer = nil
+	raidController.data = { {} }
+	lootController.data = { {} }
+	raidController.config.postUpdate(raidName)
+	lootController.config.postUpdate(lootName)
+	assertEqual("StrRaidsList (1)", _G[raidName .. "Title"].text, "populated raid title drifted")
+	assertEqual("StrRaidLoot (1) - Icecrown Citadel 25 Heroic", _G[lootName .. "Title"].text, "populated loot title drifted")
+	assertEqual(false, fixture.raidHint.shown, "populated raid hint remained visible")
+	assertEqual(false, fixture.lootHint.shown, "populated loot hint remained visible")
+
+	-- Invalid ScrollFrame and undersized frame widths use the existing 240 clamp.
+	fixture.raidScroll.width = 0
+	fixture.lootScroll.width = 0
+	fixture.raidFrame.width = 200
+	fixture.lootFrame.width = 200
+	raidController.config.postUpdate(raidName)
+	lootController.config.postUpdate(lootName)
+	raidController.config.drawRow(raidRow, { seq = 3, dateFmt = "2026-08-16", zone = "Ulduar", size = 25 }, 1)
+	lootController.config.drawRow(lootRow, {
+		itemId = 123,
+		itemName = "Test Item",
+		itemRarity = 1,
+		sourceName = "The Lich King",
+		looter = "Player",
+		rollValue = 88,
+		timeFmt = "20:15",
+	}, 1)
+	assertHeader(raidName .. "HeaderNum", 30, 6, "fallback raid number header")
+	assertHeader(raidName .. "HeaderDate", 94, 36, "fallback raid date header")
+	assertHeader(raidName .. "HeaderZone", 134, 130, "fallback raid zone header")
+	assertHeader(raidName .. "HeaderSize", 36, 264, "fallback raid size header")
+	assertHeader(lootName .. "HeaderItem", 201, 3, "fallback loot item header")
+	assertHeader(lootName .. "HeaderSource", 111, 204, "fallback loot Source header")
+	assertEqual(88, raidRow._p.Date.width, "fallback raid row did not retain its minimum width")
+	assertEqual(105, lootUi.Source.width, "fallback Source row did not retain its minimum width")
+	assertEqual(105, lootUi.SourceHitBox.width, "fallback Source hit box drifted from Source text")
+
+	-- RED fails here only while Logger still owns duplicated mechanics. All
+	-- controller-edge behavior above has already executed and matched.
+	assertEqual(18, #fixture.primitiveCalls.GetContentWidth, "Logger did not route content width through UI.Lists")
+	assertEqual(18, #fixture.primitiveCalls.CalculateColumnBudget, "Logger did not route budgets through UI.Lists")
+	assertEqual(14, #fixture.primitiveCalls.ApplyHeaderLayout, "Logger did not route header geometry through UI.Lists")
+	assertEqual(4, #fixture.primitiveCalls.ApplyRowWidths, "Logger did not route row widths through UI.Lists")
+	assertEqual(2, #fixture.primitiveCalls.BindSortHeaders, "Logger did not route initial sort binding through UI.Lists")
+	assertEqual(8, #fixture.primitiveCalls.FormatCountTitle, "Logger did not route titles through UI.Lists")
+	assertEqual(16, #fixture.primitiveCalls.SetLabel, "Logger did not route title and empty labels through UI.Lists")
+
+	print("PASS logger_lists_use_shared_layout_primitives_without_behavior_drift")
 end
 
 function cases.logger_quarantined_history_is_visible_and_read_only(addon)

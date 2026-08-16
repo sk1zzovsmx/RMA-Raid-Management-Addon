@@ -8,6 +8,8 @@ from tests.lua_test_runner import run_lua_case
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_SYNCER = ROOT / "Raid Management Addon" / "Database" / "DBSyncer.lua"
+LOGGER = ROOT / "Raid Management Addon" / "Controllers" / "Logger.lua"
+LIST_CONTROLLER = ROOT / "Raid Management Addon" / "Modules" / "UI" / "ListController.lua"
 
 
 class SyncCommunicationsBehaviorTests(unittest.TestCase):
@@ -138,6 +140,23 @@ class SyncCommunicationsBehaviorTests(unittest.TestCase):
 
     def test_quarantine_suspends_raid_sync_without_touching_other_handlers(self) -> None:
         self.assert_case("raid_history_quarantine_suspends_only_raid_sync")
+
+    def test_logger_lists_use_shared_layout_primitives_without_behavior_drift(self) -> None:
+        self.assert_case("logger_lists_use_shared_layout_primitives_without_behavior_drift")
+        logger = LOGGER.read_text(encoding="utf-8")
+        shared = LIST_CONTROLLER.read_text(encoding="utf-8")
+        for owned_symbol in (
+            "LoggerLayout",
+            "RAID_LAYOUT_COLUMNS",
+            "LOOT_LAYOUT_COLUMNS",
+            'headerExtraWidthKey = "icon"',
+            'hitBoxKey = "SourceHitBox"',
+            "updateSourceHeaderState",
+            "getLootEmptyStateText",
+            "buildSourceTooltipModel",
+        ):
+            self.assertIn(owned_symbol, logger)
+            self.assertNotIn(owned_symbol, shared)
 
     def test_transfer_session_retries_once_then_fails_once(self) -> None:
         self.assert_case("raid_transfer_session_retry")
