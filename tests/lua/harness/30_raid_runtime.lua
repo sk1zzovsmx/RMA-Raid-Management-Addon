@@ -16,6 +16,8 @@ function cases.screen_notice_uses_internal_event_without_direct_export(addon)
 	local frameLevel
 	local fadeArgs
 	local screenNoticeEvent = "RMA_SCREEN_NOTICE"
+	local titleFontSet = false
+	local detailFontSet = false
 
 	local noticeFrame = {
 		SetFrameLevel = function(_, value)
@@ -38,7 +40,14 @@ function cases.screen_notice_uses_internal_event_without_direct_export(addon)
 		end,
 	}
 	local titleText = {
+		SetFont = function(_, path, size, flags)
+			titleFontSet = path == "Fonts\\FRIZQT__.TTF" and size == 24 and flags == "OUTLINE"
+			return titleFontSet
+		end,
 		SetText = function(_, value)
+			if not titleFontSet then
+				error("RMAScreenNoticeFrameTitleText:SetText(): Font not set")
+			end
 			titleValue = value
 		end,
 		GetWidth = function()
@@ -46,7 +55,14 @@ function cases.screen_notice_uses_internal_event_without_direct_export(addon)
 		end,
 	}
 	local detailText = {
+		SetFont = function(_, path, size, flags)
+			detailFontSet = path == "Fonts\\FRIZQT__.TTF" and size == 16 and flags == "OUTLINE"
+			return detailFontSet
+		end,
 		SetText = function(_, value)
+			if not detailFontSet then
+				error("RMAScreenNoticeFrameDetailText:SetText(): Font not set")
+			end
 			detailValue = value
 		end,
 		Hide = function()
@@ -78,7 +94,11 @@ function cases.screen_notice_uses_internal_event_without_direct_export(addon)
 	assertTrue(type(registeredCallback) == "function", "screen notice callback was not registered")
 	assertEqual(nil, addon.UI.ScreenNotice.Show, "screen notice retained its direct export")
 	assertEqual(false, registeredCallback(screenNoticeEvent, "", 2.5), "empty screen notice was accepted")
-	assertEqual(true, registeredCallback(screenNoticeEvent, "Master Loot enabled", 2.5), "screen notice event failed")
+	local noticeOk, noticeResult = pcall(registeredCallback, screenNoticeEvent, "Master Loot enabled", 2.5)
+	assertTrue(noticeOk, "screen notice set text before assigning valid fonts: " .. tostring(noticeResult))
+	assertEqual(true, noticeResult, "screen notice event failed")
+	assertEqual(true, titleFontSet, "screen notice title font was not initialized")
+	assertEqual(true, detailFontSet, "screen notice detail font was not initialized")
 	assertEqual(1000, frameLevel, "screen notice frame level changed")
 	assertEqual("|cffff2020Master Loot|r enabled", titleValue, "screen notice title colorization changed")
 	assertEqual("", detailValue, "screen notice detail was not cleared")
