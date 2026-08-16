@@ -51,7 +51,15 @@ local LoggerView = assert(LoggerSvc.View, Diag.A.LoggerViewServiceNotInitialized
 local LoggerExport = assert(LoggerSvc.Export, Diag.A.LoggerExportServiceNotInitialized)
 local LoggerActions = assert(LoggerSvc.Actions, Diag.A.LoggerActionsServiceNotInitialized)
 local LoggerHelpers = assert(LoggerSvc.Helpers, Diag.A.LoggerHelperServiceNotInitialized)
-local CalculateColumnWidths = assert(UI.Lists.CalculateColumnWidths, Diag.A.LoggerColumnLayoutOwnerNotInitialized)
+local Lists = UI.Lists
+local CalculateColumnWidths = assert(Lists.CalculateColumnWidths, Diag.A.LoggerColumnLayoutOwnerNotInitialized)
+local GetContentWidth = assert(Lists.GetContentWidth, Diag.A.LoggerColumnLayoutOwnerNotInitialized)
+local CalculateColumnBudget = assert(Lists.CalculateColumnBudget, Diag.A.LoggerColumnLayoutOwnerNotInitialized)
+local ApplyHeaderLayout = assert(Lists.ApplyHeaderLayout, Diag.A.LoggerColumnLayoutOwnerNotInitialized)
+local ApplyRowWidths = assert(Lists.ApplyRowWidths, Diag.A.LoggerColumnLayoutOwnerNotInitialized)
+local BindSortHeaders = assert(Lists.BindSortHeaders, Diag.A.LoggerColumnLayoutOwnerNotInitialized)
+local FormatCountTitle = assert(Lists.FormatCountTitle, Diag.A.LoggerColumnLayoutOwnerNotInitialized)
+local SetLabel = assert(Lists.SetLabel, Diag.A.LoggerColumnLayoutOwnerNotInitialized)
 local ExportDialog = assert(UI.ExportDialog, Diag.A.LoggerExportDialogOwnerNotInitialized)
 local Raid = assert(Services.Raid, Diag.A.LoggerRaidServiceNotInitialized)
 local RaidProjections = assert(Raid.Projections, Diag.A.LoggerRaidProjectionsServiceNotInitialized)
@@ -271,105 +279,15 @@ local function getActionCommitOpts(extra)
 	return opts
 end
 
-local function setWidgetWidth(widget, width)
-	if widget and widget.SetWidth then
-		widget:SetWidth(width)
-	end
-end
-
-local function setHeaderWidth(widget, width, includeTrailingGap)
-	local gap = includeTrailingGap and LoggerLayout.LOGGER_HEADER_COLUMN_GAP or 0
-	setWidgetWidth(widget, (tonumber(width) or 0) + gap)
-end
-
-local function positionLoggerHeader(header, frameName, offsetX, width, includeTrailingGap)
-	local frame = frameName and _G[frameName] or nil
-	if not (header and frame) then
-		return
-	end
-
-	header:ClearAllPoints()
-	header:SetPoint("TOPLEFT", frame, "TOPLEFT", offsetX, LoggerLayout.LOGGER_HEADER_TOP_OFFSET)
-	setHeaderWidth(header, width, includeTrailingGap)
-end
-
-local function positionLoggerHeaderColumns(frameName, columns, startOffset)
-	local offset = tonumber(startOffset) or LoggerLayout.LOGGER_PANEL_SCROLL_LEFT_OFFSET
-	for i = 1, #columns do
-		local column = columns[i]
-		positionLoggerHeader(column.header, frameName, offset, column.width, column.trailingGap)
-		offset = offset + (tonumber(column.width) or 0)
-		if column.trailingGap then
-			offset = offset + LoggerLayout.LOGGER_HEADER_COLUMN_GAP
-		end
-	end
-end
-
-local function getLoggerLayoutColumnWidth(widths, column, isHeader)
-	local width = tonumber(widths and widths[column.widthKey]) or 0
-	if isHeader and column.headerExtraWidthKey then
-		width = width + (tonumber(widths and widths[column.headerExtraWidthKey]) or 0)
-	end
-	return width
-end
-
-local function buildLoggerHeaderColumns(frameName, widths, columns)
-	local headers = {}
-	for i = 1, #columns do
-		local column = columns[i]
-		headers[#headers + 1] = {
-			header = _G[frameName .. column.headerSuffix],
-			width = getLoggerLayoutColumnWidth(widths, column, true),
-			trailingGap = column.trailingGap,
-		}
-	end
-	return headers
-end
-
-local function applyLoggerRowColumnWidths(ui, widths, columns)
-	if not ui then
-		return
-	end
-	for i = 1, #columns do
-		local column = columns[i]
-		local width = getLoggerLayoutColumnWidth(widths, column, false)
-		setWidgetWidth(ui[column.rowKey], width)
-		if column.hitBoxKey then
-			setWidgetWidth(ui[column.hitBoxKey], width)
-		end
-	end
-end
-
-local function getLoggerListContentWidth(frameName)
-	if not frameName then
-		return LoggerLayout.LOGGER_LIST_WIDTH_FALLBACK
-	end
-
-	local scroll = _G[frameName .. "ScrollFrame"]
-	local width = scroll and scroll.GetWidth and scroll:GetWidth() or nil
-	if type(width) ~= "number" or width <= 0 then
-		local frame = _G[frameName]
-		width = frame and frame.GetWidth and frame:GetWidth() or nil
-		if type(width) == "number" and width > LoggerLayout.LOGGER_SCROLLBAR_GUTTER_WIDTH then
-			width = width - LoggerLayout.LOGGER_SCROLLBAR_GUTTER_WIDTH
-		end
-	end
-
-	width = tonumber(width) or LoggerLayout.LOGGER_LIST_WIDTH_FALLBACK
-	return max(LoggerLayout.LOGGER_LIST_WIDTH_FALLBACK, floor(width))
-end
-
-local function getLoggerListColumnBudget(frameName, leadOffset, gapCount, returnedWidthOffset)
-	local width = getLoggerListContentWidth(frameName)
-	local budget = width
-		- (tonumber(leadOffset) or 0)
-		- ((tonumber(gapCount) or 0) * LoggerLayout.LOGGER_ROW_COLUMN_GAP)
-	budget = budget + (tonumber(returnedWidthOffset) or 0)
-	return max(LoggerLayout.LOGGER_LIST_WIDTH_FALLBACK, floor(budget))
-end
-
 local function getRaidColumnWidths(frameName)
-	local budget = getLoggerListColumnBudget(frameName, LoggerLayout.LOGGER_ROW_LEFT_INSET, 3)
+	local budget = CalculateColumnBudget(
+		frameName,
+		LoggerLayout.LOGGER_LIST_WIDTH_FALLBACK,
+		LoggerLayout.LOGGER_SCROLLBAR_GUTTER_WIDTH,
+		LoggerLayout.LOGGER_ROW_LEFT_INSET,
+		3,
+		LoggerLayout.LOGGER_ROW_COLUMN_GAP
+	)
 	return CalculateColumnWidths(
 		budget,
 		LoggerLayout.LOGGER_RAID_COLUMN_MIN_WIDTHS,
@@ -379,10 +297,13 @@ local function getRaidColumnWidths(frameName)
 end
 
 local function getLootColumnWidths(frameName)
-	local budget = getLoggerListColumnBudget(
+	local budget = CalculateColumnBudget(
 		frameName,
+		LoggerLayout.LOGGER_LIST_WIDTH_FALLBACK,
+		LoggerLayout.LOGGER_SCROLLBAR_GUTTER_WIDTH,
 		LoggerLayout.LOGGER_LOOT_NAME_LEFT_OFFSET,
 		5,
+		LoggerLayout.LOGGER_ROW_COLUMN_GAP,
 		LoggerLayout.LOGGER_LOOT_COLUMN_MIN_WIDTHS.icon
 	)
 	return CalculateColumnWidths(
@@ -423,28 +344,23 @@ local LOOT_LAYOUT_COLUMNS = {
 	{ headerSuffix = "HeaderTime", rowKey = "Time", widthKey = "time", trailingGap = false, sortKey = "time" },
 }
 
-local function applyLoggerHeaderColumnWidths(frameName, widths, columns, startOffset)
-	if not frameName then
-		return
-	end
-	positionLoggerHeaderColumns(frameName, buildLoggerHeaderColumns(frameName, widths, columns), startOffset)
-end
-
 local function applyRaidListColumnWidths(frameName)
 	if not frameName then
 		return
 	end
 	local widths = getRaidColumnWidths(frameName)
-	applyLoggerHeaderColumnWidths(
+	ApplyHeaderLayout(
 		frameName,
 		widths,
 		RAID_LAYOUT_COLUMNS,
-		LoggerLayout.LOGGER_PANEL_SCROLL_LEFT_OFFSET + LoggerLayout.LOGGER_ROW_LEFT_INSET
+		LoggerLayout.LOGGER_PANEL_SCROLL_LEFT_OFFSET + LoggerLayout.LOGGER_ROW_LEFT_INSET,
+		LoggerLayout.LOGGER_HEADER_TOP_OFFSET,
+		LoggerLayout.LOGGER_HEADER_COLUMN_GAP
 	)
 end
 
 local function applyRaidRowColumnWidths(ui, frameName)
-	applyLoggerRowColumnWidths(ui, getRaidColumnWidths(frameName), RAID_LAYOUT_COLUMNS)
+	ApplyRowWidths(ui, getRaidColumnWidths(frameName), RAID_LAYOUT_COLUMNS)
 end
 
 local function applyLootListColumnWidths(frameName)
@@ -452,11 +368,18 @@ local function applyLootListColumnWidths(frameName)
 		return
 	end
 	local widths = getLootColumnWidths(frameName)
-	applyLoggerHeaderColumnWidths(frameName, widths, LOOT_LAYOUT_COLUMNS, LoggerLayout.LOGGER_PANEL_SCROLL_LEFT_OFFSET)
+	ApplyHeaderLayout(
+		frameName,
+		widths,
+		LOOT_LAYOUT_COLUMNS,
+		LoggerLayout.LOGGER_PANEL_SCROLL_LEFT_OFFSET,
+		LoggerLayout.LOGGER_HEADER_TOP_OFFSET,
+		LoggerLayout.LOGGER_HEADER_COLUMN_GAP
+	)
 end
 
 local function applyLootRowColumnWidths(ui, frameName)
-	applyLoggerRowColumnWidths(ui, getLootColumnWidths(frameName), LOOT_LAYOUT_COLUMNS)
+	ApplyRowWidths(ui, getLootColumnWidths(frameName), LOOT_LAYOUT_COLUMNS)
 end
 
 local GetItemIcon = assert(_G.GetItemIcon, Diag.A.LoggerItemIconApiNotInitialized)
@@ -476,37 +399,6 @@ local UIDropDownMenu_SetWidth =
 local UIDropDownMenu_SetButtonWidth =
 	assert(_G.UIDropDownMenu_SetButtonWidth, Diag.A.LoggerDropdownButtonWidthApiNotInitialized)
 local UIDropDownMenu_SetText = assert(_G.UIDropDownMenu_SetText, Diag.A.LoggerDropdownTextApiNotInitialized)
-
-local function bindLoggerSortHeaders(frameName, columns, listRef, boundFlag)
-	local frame = frameName and _G[frameName] or nil
-	if not frame or not listRef or type(listRef.Sort) ~= "function" then
-		return
-	end
-	if not boundFlag then
-		boundFlag = "_RMABound"
-	end
-	if frame[boundFlag] then
-		return
-	end
-
-	for i = 1, #columns do
-		local column = columns[i]
-		if column.sortKey then
-			local headerButton = column.headerSuffix and _G[frameName .. column.headerSuffix] or nil
-			if headerButton then
-				local sortKey = column.sortKey
-				SetScriptSafely(headerButton, "OnClick", function()
-					listRef:Sort(sortKey)
-				end)
-			end
-		end
-	end
-	frame[boundFlag] = true
-end
-
-local function bindRaidSortHeaders(frameName, listRef)
-	return bindLoggerSortHeaders(frameName, RAID_LAYOUT_COLUMNS, listRef, "_RMABound")
-end
 
 local uiState = UI.ModuleState.Ensure(module)
 
@@ -572,25 +464,6 @@ if not IsPopupDefined("RMALOGGER_RAID_OFFER") then
 			end
 		end,
 	})
-end
-
-local function getCountTitle(baseText, count)
-	return ("%s (%d)"):format(tostring(baseText or ""), tonumber(count) or 0)
-end
-
-local function getContextTitle(baseText, contextText, emptyHint)
-	local suffix = contextText
-	if not suffix or suffix == "" then
-		suffix = emptyHint
-	end
-	if suffix and suffix ~= "" then
-		return ("%s - %s"):format(baseText, suffix)
-	end
-	return baseText
-end
-
-local function getCountContextTitle(baseText, count, contextText, emptyHint)
-	return getContextTitle(getCountTitle(baseText, count), contextText, emptyHint)
 end
 
 local function getRaidContextLabel(selectedRaid)
@@ -760,29 +633,6 @@ do
 		target[key] = nil
 		if multiSelectCtx then
 			UI.Selection.EnsureState(multiSelectCtx)
-		end
-	end
-
-	module._setFrameLabel = function(frameName, suffix, text)
-		local label = frameName and _G[frameName .. suffix] or nil
-		if not label then
-			return nil
-		end
-		if label.GetText and label:GetText() == text then
-			return label
-		end
-		label:SetText(text)
-		return label
-	end
-
-	module._setPanelTitle = function(frameName, text)
-		module._setFrameLabel(frameName, "Title", text)
-	end
-
-	module._setFrameHint = function(frameName, suffix, text)
-		local label = module._setFrameLabel(frameName, suffix, text or "")
-		if label then
-			UI.Primitives.SetShown(label, type(text) == "string" and text ~= "")
 		end
 	end
 
@@ -1795,7 +1645,7 @@ do
 					SetScriptSafely(_G[n .. "DeleteBtn"], "OnClick", function(self, button)
 						confirmDeleteSelectedRaids(self, button)
 					end)
-					bindRaidSortHeaders(n, Raids)
+					BindSortHeaders(n, RAID_LAYOUT_COLUMNS, Raids, "_RMABound")
 				end
 			end,
 
@@ -1834,8 +1684,8 @@ do
 					local delBtn = _G[n .. "DeleteBtn"]
 					UI.Primitives.SetButtonCount(delBtn, L.BtnDelete, 0)
 					UI.Primitives.SetEnabled(delBtn, false)
-					module._setPanelTitle(n, getCountTitle(L.StrRaidsList, 0))
-					module._setFrameHint(n, "EmptyState", L.StrRaidHistoryQuarantined)
+					SetLabel(n, "Title", FormatCountTitle(L.StrRaidsList, 0), false)
+					SetLabel(n, "EmptyState", L.StrRaidHistoryQuarantined, true)
 					return
 				end
 
@@ -1886,8 +1736,8 @@ do
 				local delBtn = _G[n .. "DeleteBtn"]
 				UI.Primitives.SetButtonCount(delBtn, L.BtnDelete, selCount)
 				UI.Primitives.SetEnabled(delBtn, canDelete)
-				module._setPanelTitle(n, getCountTitle(L.StrRaidsList, count))
-				module._setFrameHint(n, "EmptyState", count == 0 and L.StrLoggerEmptyRaids or nil)
+				SetLabel(n, "Title", FormatCountTitle(L.StrRaidsList, count), false)
+				SetLabel(n, "EmptyState", count == 0 and L.StrLoggerEmptyRaids or nil, true)
 			end,
 
 			sorters = {
@@ -2140,7 +1990,7 @@ do
 				SetScriptSafely(_G[n .. "DeleteBtn"], "OnClick", function()
 					confirmDeleteSelectedLootItems()
 				end)
-				bindLoggerSortHeaders(n, LOOT_LAYOUT_COLUMNS, {
+				BindSortHeaders(n, LOOT_LAYOUT_COLUMNS, {
 					Sort = function(_, key)
 						sortLoot(key)
 					end,
@@ -2293,8 +2143,8 @@ do
 					UI.Primitives.SetEnabled(_G[n .. actionSuffixes[i]], false)
 				end
 				UI.Primitives.SetButtonCount(_G[n .. "DeleteBtn"], L.BtnDelete, 0)
-				module._setPanelTitle(n, getCountTitle(L.StrRaidLoot, 0))
-				module._setFrameHint(n, "EmptyState", L.StrRaidHistoryQuarantined)
+				SetLabel(n, "Title", FormatCountTitle(L.StrRaidLoot, 0), false)
+				SetLabel(n, "EmptyState", L.StrRaidHistoryQuarantined, true)
 				return
 			end
 
@@ -2305,8 +2155,13 @@ do
 			UI.Primitives.SetEnabled(exportBtn, module.selectedRaid ~= nil)
 			UI.Primitives.SetButtonCount(delBtn, L.BtnDelete, lootSelCount)
 			UI.Primitives.SetEnabled(delBtn, (lootSelCount or 0) > 0)
-			module._setPanelTitle(n, getCountContextTitle(L.StrRaidLoot, count, getLootPanelContextLabel(module), nil))
-			module._setFrameHint(n, "EmptyState", getLootEmptyStateText(count, module))
+			SetLabel(
+				n,
+				"Title",
+				FormatCountTitle(L.StrRaidLoot, count, getLootPanelContextLabel(module), nil),
+				false
+			)
+			SetLabel(n, "EmptyState", getLootEmptyStateText(count, module), true)
 		end,
 
 		sorters = {
