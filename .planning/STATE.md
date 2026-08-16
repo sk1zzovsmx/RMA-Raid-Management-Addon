@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: UI Simplification
-status: planning
-stopped_at: Phase 6 context gathered
-last_updated: "2026-08-16T14:53:27.727Z"
-last_activity: 2026-08-16 - Phase 5 runtime surface cleanup completed with 509/509 tests passing
+status: executing
+stopped_at: Completed 06-01-PLAN.md
+last_updated: "2026-08-16T16:30:45.500Z"
+last_activity: 2026-08-16 - Phase 6 plan 01 shared list primitive contract completed
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
-  percent: 33
+  total_plans: 16
+  completed_plans: 14
+  percent: 88
 ---
 
 # Project State
@@ -21,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-16)
 
 **Core value:** Raid-critical data and workflows must remain correct, recoverable, and compatible on WotLK 3.3.5a clients.
-**Current focus:** Planning Phase 6, Logger and Attendance List Primitives
+**Current focus:** Executing Phase 6, Logger and Attendance List Primitives
 
 ## Current Position
 
 Phase: 6 of 7 (Logger and Attendance List Primitives)
-Plan: —
-Status: Phase 5 complete; ready for Phase 6 planning
-Last activity: 2026-08-16 - Phase 5 runtime surface cleanup completed with 509/509 tests passing
+Plan: 1 of 3
+Status: Phase 6 in progress; plan 01 complete
+Last activity: 2026-08-16 - Phase 6 plan 01 shared list primitive contract completed
 
-Progress: [███░░░░░░░] 33%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 13
-- Average duration: 17 min
-- Total execution time: 3.6 hours
+- Total plans completed: 14
+- Average duration: 16 min
+- Total execution time: 3.7 hours
 
 **By Phase:**
 
@@ -48,10 +48,11 @@ Progress: [███░░░░░░░] 33%
 | Phase 03 | 2 | 23 min | 12 min |
 | Phase 04 | 2 | 90 min | 45 min |
 | Phase 05 | 1 | 12 min | 12 min |
+| Phase 06 | 1 | 7 min | 7 min |
 
 **Recent Trend:**
-- Last 5 plans: 12 min, 11 min, 84 min, 6 min, 12 min
-- Trend: Runtime surface cleanup complete; ready for bounded Logger/Attendance primitive planning
+- Last 5 plans: 11 min, 84 min, 6 min, 12 min, 7 min
+- Trend: Shared list contract complete; ready for bounded Logger controller migration
 
 *Updated after each plan completion*
 | Phase 01 P03 | 12min | 2 tasks | 5 files |
@@ -65,6 +66,7 @@ Progress: [███░░░░░░░] 33%
 | Phase 04 P01 | 84min | 3 tasks | 6 files |
 | Phase 04 P02 | 6min | 2 tasks | 1 files |
 | Phase 05 P01 | 12min | 3 tasks | 8 files |
+| Phase 06 P01 | 7 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -103,6 +105,8 @@ Recent decisions affecting current work:
 - [Phase 05]: Internal ScreenNotice events are the sole notice invocation path; no compatibility export was retained. — The removed direct export had no repository consumer and the internal event already owns behavior.
 - [Phase 05]: Trade mutable state remains accessible only through Trade-owned operations and the private ensureState helper. — Observable Trade contracts do not require exposing mutable runtime state.
 - [Phase 05]: Database.EnsureLootRuntimeState calls ContextState.SyncRuntimeState directly at the established bootstrap point. — The same-file state owner preserves normalization without an unconsumed service forwarder.
+- [Phase 06]: Every list geometry value and binding flag remains caller-supplied; addon.UI.Lists adds no visual defaults or orchestration layer. — The phase shares only proven mechanics while controllers retain presentation policy.
+- [Phase 06]: CalculateColumnWidths retains its pairs-derived variable-key ordering and remainder distribution. — Numeric parity is compatibility-sensitive and sorting would change current Logger and Attendance results.
 
 ### Pending Todos
 
@@ -116,6 +120,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-16T14:53:27.724Z
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/06-logger-and-attendance-list-primitives/06-CONTEXT.md
+Last session: 2026-08-16T16:30:45.499Z
+Stopped at: Completed 06-01-PLAN.md
+Resume file: None
