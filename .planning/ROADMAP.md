@@ -2,93 +2,14 @@
 
 ## Milestones
 
-- ✅ **v1.0 Stabilization** - Phases 1-4 (shipped 2026-08-15)
-- ✅ **v1.1 UI Simplification** - Phases 5-7 (complete, pending archival)
+- [v1.0 Stabilization](milestones/v1.0-ROADMAP.md) — Phases 1-4, shipped 2026-08-15.
+- [v1.1 UI Simplification](milestones/v1.1-ROADMAP.md) — Phases 5-7, shipped 2026-08-16.
 
-## Phases
+## Current Position
 
-**Phase Numbering:**
-- Integer phases (5, 6, 7): Planned v1.1 milestone work
-- Decimal phases (5.1, 5.2): Urgent insertions (marked with INSERTED)
+No milestone is active. Start `$gsd-new-milestone` to define fresh requirements and continue phase numbering from Phase 8.
 
-Decimal phases appear between their surrounding integers in numeric order. Phase numbering continues from the shipped v1.0 milestone.
-
-<details>
-<summary>✅ v1.0 Stabilization (Phases 1-4) - SHIPPED 2026-08-15</summary>
-
-- [x] **Phase 1: Persistence Safety** - Preserved incompatible raid archives and exposed quarantine without disabling unrelated features.
-- [x] **Phase 2: Locale-Independent Raid Recognition** - Established canonical raid admission and supported-locale encounter fallback coverage.
-- [x] **Phase 3: Bounded Sync Requests** - Bounded request-driven reserve and distribution responses without changing version-5 wire compatibility.
-- [x] **Phase 4: Milestone Verification** - Completed the automated acceptance gate and recorded observed and deferred live evidence honestly.
-
-The complete shipped roadmap remains archived at `.planning/milestones/v1.0-ROADMAP.md`.
-
-</details>
-
-### ✅ v1.1 UI Simplification (Complete, Pending Archival)
-
-**Milestone Goal:** Remove demonstrated dead UI-facing paths and consolidate only the stable Logger/Attendance list-layout primitives without changing visible behavior or compatibility contracts.
-
-- [x] **Phase 5: Runtime Surface Cleanup** - Removed three confirmed unconsumed exports or forwarders while preserving their runtime behavior.
-- [x] **Phase 6: Logger and Attendance List Primitives** - Shared focused list-layout primitives while preserving each controller's presentation behavior.
-- [x] **Phase 7: UI Simplification Verification** - Proved the simplification preserves UI, localization, runtime, and WotLK 3.3.5a contracts under the approved accepted-risk policy.
-
-## Phase Details
-
-### Phase 5: Runtime Surface Cleanup
-**Goal**: Screen notices, trade handling, and loot initialization retain their current behavior with the three unconsumed public or forwarding paths removed.
-**Depends on**: Phase 4 (v1.0 shipped baseline)
-**Requirements**: CLEAN-01, CLEAN-02, CLEAN-03
-**Success Criteria** (what must be TRUE):
-  1. Screen notices still appear through the internal event path after `ScreenNotice.Show` is no longer exported.
-  2. Existing trade workflows behave identically after the unconsumed `Trade.EnsureState` export is removed.
-  3. Loot startup produces the same normalized runtime state through a direct `ContextState.SyncRuntimeState` call, with no `Loot:SyncRuntimeState` forwarding method.
-**Plans**: 1/1 complete
-
-### Phase 6: Logger and Attendance List Primitives
-**Goal**: Logger and Attendance use a small shared set of stable list-layout primitives while retaining controller-owned, feature-specific presentation.
-**Depends on**: Phase 5
-**Requirements**: UI-01, UI-02, UI-03
-**Success Criteria** (what must be TRUE):
-  1. Logger lists retain their calculated widths, sort behavior, clickable hit boxes, icon allowance, titles, and empty-state presentation.
-  2. Attendance lists retain their calculated widths, sort behavior, inspect/spec columns, contextual titles, and empty-state presentation.
-  3. Logger and Attendance obtain calculated widths, header and row layout, and sort binding from focused shared primitives without a generic framework, configuration DSL, or transfer of feature ownership.
-**Plans**: 3/3 complete
-
-Plans:
-- [x] 06-01-PLAN.md — Establish the exact shared list primitive contract under `addon.UI.Lists` with TDD parity coverage.
-- [x] 06-02-PLAN.md — Route Logger mechanics through the shared primitives while retaining Source and presentation ownership.
-- [x] 06-03-PLAN.md — Route Attendance mechanics through the shared primitives, retain Spec/Inspect ownership, and run final Phase 6 gates.
-
-### Phase 7: UI Simplification Verification
-**Goal**: The completed simplification is demonstrably compatible with the addon's existing UI, runtime, localization, persistence, communication, and WotLK 3.3.5a contracts.
-**Depends on**: Phase 6
-**Requirements**: QUAL-01, QUAL-02
-**Success Criteria** (what must be TRUE):
-  1. The complete relevant automated suite and all applicable WotLK 3.3.5a static validators pass against the simplified implementation.
-  2. XML remains layout-only, and the existing RMA version-5 wire protocols, six `RMA_*` SavedVariables, vendored libraries, and supported public entrypoints remain unchanged.
-  3. Screen notices, trade, loot initialization, Logger, and Attendance retain their localized user-facing text and visible behavior after the cleanup.
-**Plans**: 3/3 complete
-
-Plans:
-- [x] 07-01-PLAN.md — Prove the fixed v1.1 runtime scope, pass focused/static gates, and run one final 512-test discovery.
-- [x] 07-02-PLAN.md — Collect honest live Screen Notice, Trade retry, and active-raid Loot initialization dispositions while reusing Phase 6 observations.
-- [x] 07-03-PLAN.md — Published the versioned AUTOMATED/OBSERVED/DEFERRED acceptance report and final milestone disposition.
-
-## Progress
-
-**Execution Order:**
-Phases execute in numeric order: 5 → 6 → 7
-
-| Phase | Milestone | Plans Complete | Status | Completed |
-|-------|-----------|----------------|--------|-----------|
-| 1. Persistence Safety | v1.0 | 3/3 | Complete | 2026-08-15 |
-| 2. Locale-Independent Raid Recognition | v1.0 | 5/5 | Complete | 2026-08-15 |
-| 3. Bounded Sync Requests | v1.0 | 2/2 | Complete | 2026-08-15 |
-| 4. Milestone Verification | v1.0 | 2/2 | Complete | 2026-08-15 |
-| 5. Runtime Surface Cleanup | v1.1 | 1/1 | Complete | 2026-08-16 |
-| 6. Logger and Attendance List Primitives | v1.1 | 3/3 | Complete | 2026-08-16 |
-| 7. UI Simplification Verification | v1.1 | 3/3 | Complete | 2026-08-16 |
+Candidate next scope retained in project context: v1.2 Dependency Optimization.
 
 ---
 

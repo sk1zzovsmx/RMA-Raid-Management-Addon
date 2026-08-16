@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: UI Simplification
-status: completed
-stopped_at: Verified Phase 7 UI Simplification Verification
-last_updated: "2026-08-16T20:47:38Z"
-last_activity: 2026-08-16 - Independently verified Phase 7 accepted-risk GO and closed the v1.1 milestone
+status: between_milestones
+stopped_at: Archived v1.1 UI Simplification
+last_updated: "2026-08-16T21:42:44.066Z"
+last_activity: 2026-08-16 - Archived v1.1 UI Simplification with accepted residual risk
 progress:
   total_phases: 3
   completed_phases: 3
-  total_plans: 19
-  completed_plans: 19
+  total_plans: 7
+  completed_plans: 7
   percent: 100
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-16)
 
 **Core value:** Raid-critical data and workflows must remain correct, recoverable, and compatible on WotLK 3.3.5a clients.
-**Current focus:** Archive the completed v1.1 UI Simplification milestone
+**Current focus:** Planning the next milestone
 
 ## Current Position
 
-Phase: 7 of 7 (UI Simplification Verification, complete)
-Plan: 3 of 3 complete
-Status: Phase 7 independently verified; v1.1 complete pending archival
-Last activity: 2026-08-16 - Verified the phase goal under the approved accepted-risk policy
+Phase: Milestone complete
+Plan: 7 of 7 complete
+Status: Between milestones; v1.1 UI Simplification archived locally
+Last activity: 2026-08-16 - Archived v1.1 UI Simplification
 
 Progress: [██████████] 100%
 
@@ -131,13 +131,13 @@ None yet.
 
 ### Blockers/Concerns
 
-- No v1.1 phase verification blocker is known.
+- No active milestone blocker is known.
 - Trade success plus uncertain-verification retry remains an accepted DEFERRED, unpassed live residual risk.
-- No v1.0 milestone completion blocker remains under the approved QUAL-03 contract.
 - Accepted residual risks remain for unexecuted SavedVariables quarantine/recovery, localized/multi-client sync, combat protected-action behavior, and taint checks.
+- Dependency optimization remains candidate v1.2 scope until fresh requirements are created.
 
 ## Session Continuity
 
-Last session: 2026-08-16T20:42:00Z
-Stopped at: Completed 07-03-PLAN.md
+Last session: 2026-08-16T21:42:44.066Z
+Stopped at: Archived v1.1 UI Simplification
 Resume file: None
