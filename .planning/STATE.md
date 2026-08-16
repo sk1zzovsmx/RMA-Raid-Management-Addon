@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: UI Simplification
 status: planning
-stopped_at: Phase 5 context gathered
-last_updated: "2026-08-16T14:07:47.937Z"
-last_activity: 2026-08-16 - v1.1 roadmap created with 8/8 requirements mapped
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-08-16T14:27:42.198Z"
+last_activity: 2026-08-16 - Phase 5 runtime surface cleanup completed with 509/509 tests passing
 progress:
   total_phases: 3
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 33
 ---
 
 # Project State
@@ -21,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-16)
 
 **Core value:** Raid-critical data and workflows must remain correct, recoverable, and compatible on WotLK 3.3.5a clients.
-**Current focus:** Planning Phase 5, Runtime Surface Cleanup
+**Current focus:** Planning Phase 6, Logger and Attendance List Primitives
 
 ## Current Position
 
-Phase: 5 of 7 (Runtime Surface Cleanup)
+Phase: 6 of 7 (Logger and Attendance List Primitives)
 Plan: —
-Status: Roadmap created; ready for phase planning
-Last activity: 2026-08-16 - v1.1 roadmap created with 8/8 requirements mapped
+Status: Phase 5 complete; ready for Phase 6 planning
+Last activity: 2026-08-16 - Phase 5 runtime surface cleanup completed with 509/509 tests passing
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [███░░░░░░░] 33%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 12
+- Total plans completed: 13
 - Average duration: 17 min
-- Total execution time: 3.4 hours
+- Total execution time: 3.6 hours
 
 **By Phase:**
 
@@ -47,10 +47,11 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 02 | 5 | 62 min | 12 min |
 | Phase 03 | 2 | 23 min | 12 min |
 | Phase 04 | 2 | 90 min | 45 min |
+| Phase 05 | 1 | 12 min | 12 min |
 
 **Recent Trend:**
-- Last 5 plans: 8 min, 12 min, 11 min, 84 min, 6 min
-- Trend: Milestone verification complete; live residual risks remain explicitly deferred
+- Last 5 plans: 12 min, 11 min, 84 min, 6 min, 12 min
+- Trend: Runtime surface cleanup complete; ready for bounded Logger/Attendance primitive planning
 
 *Updated after each plan completion*
 | Phase 01 P03 | 12min | 2 tasks | 5 files |
@@ -63,6 +64,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P02 | 11min | 2 tasks | 3 files |
 | Phase 04 P01 | 84min | 3 tasks | 6 files |
 | Phase 04 P02 | 6min | 2 tasks | 1 files |
+| Phase 05 P01 | 12min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -98,6 +100,9 @@ Recent decisions affecting current work:
 - [Phase 03]: Capacity rejection fails closed without eviction and debug deduplication stays inside admitted kind state. — Active protection cannot be displaced by sender churn and no overflow or diagnostic table can exceed the service bound.
 - [Phase 03]: Distribution response admission owns one sender-keyed transient map and never shares reserve or raid-history admission state. — Owner independence keeps each literal 128-sender bound isolated and avoids a shared communication abstraction.
 - [Phase 03]: Raw sender membership is re-evaluated before lowercase short-name admission. — Authorization behavior remains unchanged while case and realm aliases share one transient cooldown.
+- [Phase 05]: Internal ScreenNotice events are the sole notice invocation path; no compatibility export was retained. — The removed direct export had no repository consumer and the internal event already owns behavior.
+- [Phase 05]: Trade mutable state remains accessible only through Trade-owned operations and the private ensureState helper. — Observable Trade contracts do not require exposing mutable runtime state.
+- [Phase 05]: Database.EnsureLootRuntimeState calls ContextState.SyncRuntimeState directly at the established bootstrap point. — The same-file state owner preserves normalization without an unconsumed service forwarder.
 
 ### Pending Todos
 
@@ -111,6 +116,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-16T14:07:47.936Z
-Stopped at: Phase 5 context gathered
-Resume file: .planning/phases/05-runtime-surface-cleanup/05-CONTEXT.md
+Last session: 2026-08-16T14:27:42.195Z
+Stopped at: Completed 05-01-PLAN.md
+Resume file: None

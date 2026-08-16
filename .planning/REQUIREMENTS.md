@@ -7,9 +7,9 @@
 
 ### Runtime Cleanup
 
-- [ ] **CLEAN-01**: Screen notices continue to work through the internal event path after the unconsumed `ScreenNotice.Show` export is removed.
-- [ ] **CLEAN-02**: Trade behavior remains unchanged after the unconsumed `Trade.EnsureState` export is removed.
-- [ ] **CLEAN-03**: Loot runtime initialization produces the same normalized state by calling `ContextState.SyncRuntimeState` directly without the `Loot:SyncRuntimeState` forwarder.
+- [x] **CLEAN-01**: Screen notices continue to work through the internal event path after the unconsumed `ScreenNotice.Show` export is removed.
+- [x] **CLEAN-02**: Trade behavior remains unchanged after the unconsumed `Trade.EnsureState` export is removed.
+- [x] **CLEAN-03**: Loot runtime initialization produces the same normalized state by calling `ContextState.SyncRuntimeState` directly without the `Loot:SyncRuntimeState` forwarder.
 
 ### Shared UI Primitives
 
@@ -49,9 +49,9 @@ Each v1.1 requirement maps to exactly one roadmap phase.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CLEAN-01 | Phase 5 | Pending |
-| CLEAN-02 | Phase 5 | Pending |
-| CLEAN-03 | Phase 5 | Pending |
+| CLEAN-01 | Phase 5 | Complete |
+| CLEAN-02 | Phase 5 | Complete |
+| CLEAN-03 | Phase 5 | Complete |
 | UI-01 | Phase 6 | Pending |
 | UI-02 | Phase 6 | Pending |
 | UI-03 | Phase 6 | Pending |
@@ -65,4 +65,4 @@ Each v1.1 requirement maps to exactly one roadmap phase.
 
 ---
 *Requirements defined: 2026-08-16*
-*Last updated: 2026-08-16 after v1.1 roadmap creation*
+*Last updated: 2026-08-16 after completing Phase 5 runtime surface cleanup*

@@ -29,7 +29,7 @@ The complete shipped roadmap remains archived at `.planning/milestones/v1.0-ROAD
 
 **Milestone Goal:** Remove demonstrated dead UI-facing paths and consolidate only the stable Logger/Attendance list-layout primitives without changing visible behavior or compatibility contracts.
 
-- [ ] **Phase 5: Runtime Surface Cleanup** - Remove three confirmed unconsumed exports or forwarders while preserving their runtime behavior.
+- [x] **Phase 5: Runtime Surface Cleanup** - Removed three confirmed unconsumed exports or forwarders while preserving their runtime behavior.
 - [ ] **Phase 6: Logger and Attendance List Primitives** - Share focused list-layout primitives while preserving each controller's presentation behavior.
 - [ ] **Phase 7: UI Simplification Verification** - Prove the simplification preserves UI, localization, runtime, and WotLK 3.3.5a contracts.
 
@@ -43,7 +43,7 @@ The complete shipped roadmap remains archived at `.planning/milestones/v1.0-ROAD
   1. Screen notices still appear through the internal event path after `ScreenNotice.Show` is no longer exported.
   2. Existing trade workflows behave identically after the unconsumed `Trade.EnsureState` export is removed.
   3. Loot startup produces the same normalized runtime state through a direct `ContextState.SyncRuntimeState` call, with no `Loot:SyncRuntimeState` forwarding method.
-**Plans**: TBD
+**Plans**: 1/1 complete
 
 ### Phase 6: Logger and Attendance List Primitives
 **Goal**: Logger and Attendance use a small shared set of stable list-layout primitives while retaining controller-owned, feature-specific presentation.
@@ -76,7 +76,7 @@ Phases execute in numeric order: 5 → 6 → 7
 | 2. Locale-Independent Raid Recognition | v1.0 | 5/5 | Complete | 2026-08-15 |
 | 3. Bounded Sync Requests | v1.0 | 2/2 | Complete | 2026-08-15 |
 | 4. Milestone Verification | v1.0 | 2/2 | Complete | 2026-08-15 |
-| 5. Runtime Surface Cleanup | v1.1 | 0/TBD | Not started | - |
+| 5. Runtime Surface Cleanup | v1.1 | 1/1 | Complete | 2026-08-16 |
 | 6. Logger and Attendance List Primitives | v1.1 | 0/TBD | Not started | - |
 | 7. UI Simplification Verification | v1.1 | 0/TBD | Not started | - |
 
