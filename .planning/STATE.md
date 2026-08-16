@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: UI Simplification
-status: verifying
-stopped_at: Completed 07-03-PLAN.md
-last_updated: "2026-08-16T20:42:00Z"
-last_activity: 2026-08-16 - Published Phase 7 accepted-risk GO and closed QUAL-01/QUAL-02
+status: completed
+stopped_at: Verified Phase 7 UI Simplification Verification
+last_updated: "2026-08-16T20:47:38Z"
+last_activity: 2026-08-16 - Independently verified Phase 7 accepted-risk GO and closed the v1.1 milestone
 progress:
   total_phases: 3
   completed_phases: 3
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-16)
 
 **Core value:** Raid-critical data and workflows must remain correct, recoverable, and compatible on WotLK 3.3.5a clients.
-**Current focus:** Verify Phase 7 and complete the v1.1 milestone
+**Current focus:** Archive the completed v1.1 UI Simplification milestone
 
 ## Current Position
 
-Phase: 7 of 7 (UI Simplification Verification)
-Plan: 3 of 3
-Status: Plans complete; ready for independent phase verification
-Last activity: 2026-08-16 - Published the versioned acceptance report with milestone GO
+Phase: 7 of 7 (UI Simplification Verification, complete)
+Plan: 3 of 3 complete
+Status: Phase 7 independently verified; v1.1 complete pending archival
+Last activity: 2026-08-16 - Verified the phase goal under the approved accepted-risk policy
 
 Progress: [██████████] 100%
 
