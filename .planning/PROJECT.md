@@ -6,6 +6,15 @@ Raid Management Addon (RMA) is a World of Warcraft raid-management addon for the
 
 Versions v1.0 and v1.1 established a safer runtime baseline and simplified demonstrated UI internals without changing product scope or compatibility contracts.
 
+## Current Milestone: v1.2 Dependency Optimization
+
+**Goal:** Reduce owned dependency surface only where repository evidence proves a simpler replacement preserves every current runtime and compatibility contract.
+
+**Target features:**
+- Replace `LibDeflate` and remove it from the addon only if byte-for-byte addon-channel encoding, decoding, and Adler32 compatibility is demonstrated.
+- Evaluate `LibGroupTalents`, `LibTalentQuery`, and `LibBabble-TalentTree` as one atomic stack, replacing and removing all three only if their required behavior can be preserved safely.
+- Preserve RMA protocol version 5, payload shapes, the six canonical SavedVariables, WotLK 3.3.5a, Lua 5.1, and unchanged vendored sources throughout the dependency decisions.
+
 ## Core Value
 
 Raid-critical data and workflows must remain correct, recoverable, and compatible on WotLK 3.3.5a clients.
@@ -39,7 +48,9 @@ Planning history is archived under `.planning/milestones/`. No milestone require
 
 ### Active
 
-None. The next milestone must create fresh requirements.
+- [ ] Reach an evidence-backed keep-or-replace decision for `LibDeflate`; implement removal and TOC cleanup only if strict codec and checksum compatibility passes.
+- [ ] Reach one atomic keep-or-replace decision for `LibGroupTalents`, `LibTalentQuery`, and `LibBabble-TalentTree`; implement removal and TOC cleanup only if all required talent behavior remains compatible.
+- [ ] Preserve protocol version 5, payloads, SavedVariables, WotLK 3.3.5a, Lua 5.1, and vendored-source integrity across every accepted change.
 
 ### Out of Scope Until Explicitly Approved
 
@@ -48,15 +59,6 @@ None. The next milestone must create fresh requirements.
 - Wire-format changes or protocol-version bumps — version 5 remains the compatibility contract.
 - New raid-management features — require a separately scoped milestone.
 - Editing vendored libraries under `Libs/` — upstream source remains outside project ownership unless a replacement milestone explicitly removes a dependency.
-
-## Next Milestone Goals
-
-Candidate v1.2 scope: **Dependency Optimization**. These are planning inputs, not active requirements until `$gsd-new-milestone` confirms them.
-
-- Evaluate replacing `LibDeflate` only with byte-for-byte compatible addon-channel encoding, decoding, and Adler32 golden vectors.
-- Evaluate `LibGroupTalents`, `LibTalentQuery`, `LibBabble-TalentTree`, and `CallbackHandler` as one dependency stack against the existing `InspectCoordinator`.
-- Retain `LibStub`, `LibSerialize`, `ChatThrottleLib`, `LibDeformat`, and `LibBossIDs` unless repository evidence proves a safer and simpler replacement.
-- Keep dependency work separate from UI cleanup and do not edit vendored sources in place.
 
 ## Context
 
@@ -91,6 +93,8 @@ Candidate v1.2 scope: **Dependency Optimization**. These are planning inputs, no
 | Keep feature geometry and behavior controller-owned | Shared UI code must not absorb Source, Spec/Inspect, or contextual policy | ✓ Good — shipped v1.1 |
 | Supersede a complete gate after any later runtime repair | Final evidence must describe the actual shipped runtime tree | ✓ Good — repaired tree passed 512/512 |
 | Split UI simplification from dependency optimization | Codec and talent-stack replacement require separate compatibility proof | ✓ Good — v1.2 candidate scope retained |
+| Treat the three talent libraries as one replacement unit while retaining `CallbackHandler` | Partial removal would leave an unapproved hybrid stack and obscure the actual dependency contract | — Pending — v1.2 |
+| Accept evidence-backed dependency retention as a valid milestone outcome | Optimization must not trade correctness or compatibility for library-count reduction | — Pending — v1.2 |
 
 <details>
 <summary>Archived v1.1 planning scope</summary>
@@ -101,4 +105,4 @@ The v1.1 milestone removed three unconsumed runtime paths, introduced seven focu
 
 ---
 
-_Last updated: 2026-08-16 after v1.1 UI Simplification milestone_
+_Last updated: 2026-08-17 after starting v1.2 Dependency Optimization_

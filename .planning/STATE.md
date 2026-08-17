@@ -1,36 +1,36 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: UI Simplification
-status: between_milestones
-stopped_at: Archived v1.1 UI Simplification
-last_updated: "2026-08-16T21:42:44.066Z"
-last_activity: 2026-08-16 - Archived v1.1 UI Simplification with accepted residual risk
+milestone: v1.2
+milestone_name: Dependency Optimization
+status: defining_requirements
+stopped_at: Defining v1.2 requirements
+last_updated: "2026-08-17T17:53:58.145+02:00"
+last_activity: 2026-08-17 - Milestone v1.2 started
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 7
-  completed_plans: 7
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-16)
+See: .planning/PROJECT.md (updated 2026-08-17)
 
 **Core value:** Raid-critical data and workflows must remain correct, recoverable, and compatible on WotLK 3.3.5a clients.
-**Current focus:** Planning the next milestone
+**Current focus:** Defining v1.2 Dependency Optimization requirements
 
 ## Current Position
 
-Phase: Milestone complete
-Plan: 7 of 7 complete
-Status: Between milestones; v1.1 UI Simplification archived locally
-Last activity: 2026-08-16 - Archived v1.1 UI Simplification
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-08-17 - Milestone v1.2 started
 
-Progress: [██████████] 100%
+Progress: [----------] 0%
 
 ## Performance Metrics
 
@@ -134,10 +134,10 @@ None yet.
 - No active milestone blocker is known.
 - Trade success plus uncertain-verification retry remains an accepted DEFERRED, unpassed live residual risk.
 - Accepted residual risks remain for unexecuted SavedVariables quarantine/recovery, localized/multi-client sync, combat protected-action behavior, and taint checks.
-- Dependency optimization remains candidate v1.2 scope until fresh requirements are created.
+- Dependency replacement must remain conditional on demonstrated compatibility; retaining a dependency is valid when replacement proof fails.
 
 ## Session Continuity
 
-Last session: 2026-08-16T21:42:44.066Z
-Stopped at: Archived v1.1 UI Simplification
+Last session: 2026-08-17T17:53:58.145+02:00
+Stopped at: Defining v1.2 requirements
 Resume file: None
