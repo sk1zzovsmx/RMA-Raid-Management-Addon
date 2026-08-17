@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Dependency Optimization
-status: defining_requirements
-stopped_at: Defining v1.2 requirements
-last_updated: "2026-08-17T17:53:58.145+02:00"
-last_activity: 2026-08-17 - Milestone v1.2 started
+status: ready_to_plan
+stopped_at: Roadmap created; ready to plan Phase 8
+last_updated: "2026-08-17T18:08:08.585+02:00"
+last_activity: 2026-08-17 - v1.2 roadmap created with 5 phases and 19 mapped requirements
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-17)
 
 **Core value:** Raid-critical data and workflows must remain correct, recoverable, and compatible on WotLK 3.3.5a clients.
-**Current focus:** Defining v1.2 Dependency Optimization requirements
+**Current focus:** Phase 8 — Contract and Evidence Baseline
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 8 of 12 (Contract and Evidence Baseline)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-08-17 - Milestone v1.2 started
+Status: Ready to plan
+Last activity: 2026-08-17 - v1.2 roadmap created with 5 phases and 19 mapped requirements
 
 Progress: [----------] 0%
 
@@ -84,6 +84,10 @@ Recent decisions affecting current work:
 - [Milestone]: Correct only demonstrated stabilization defects; no general refactors or new features.
 - [Milestone v1.1]: Sequence bounded dead-path cleanup before Logger/Attendance primitive consolidation, then run one compatibility verification phase.
 - [Milestone v1.1]: Keep shared UI scope limited to demonstrated calculated-width, header, row, title, and sort-binding primitives; do not introduce a framework or DSL.
+- [Milestone v1.2]: Treat LibDeflate and the atomic talent stack as independent KEEP/REPLACE decisions; an evidence-backed KEEP is successful.
+- [Milestone v1.2]: Keep untouched vendors available as proof oracles and remove candidates only after their required gates pass.
+- [Milestone v1.2]: Separate talent compatibility proof from the all-three-or-none cutover because required client observations cannot be established by automation alone.
+- [Milestone v1.2]: Retain CallbackHandler-1.0 unchanged regardless of the talent-stack outcome.
 - [Phase 1]: Preserve unsupported `RMA_Raids` values and fail closed through explicit quarantine.
 - [Phase 2]: Canonical map-ID resolution is the only raid-admission source of truth.
 - [Phase 3]: Add application-level request limits without changing version-5 wire formats.
@@ -138,6 +142,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-17T17:53:58.145+02:00
-Stopped at: Defining v1.2 requirements
+Last session: 2026-08-17T18:08:08.585+02:00
+Stopped at: Roadmap created; ready to plan Phase 8
 Resume file: None

@@ -59,31 +59,31 @@ Populated during roadmap creation. Every v1.2 requirement must map to exactly on
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EVID-01 | — | Pending |
-| EVID-02 | — | Pending |
-| EVID-03 | — | Pending |
-| CODEC-01 | — | Pending |
-| CODEC-02 | — | Pending |
-| CODEC-03 | — | Pending |
-| CODEC-04 | — | Pending |
-| CODEC-05 | — | Pending |
-| TAL-01 | — | Pending |
-| TAL-02 | — | Pending |
-| TAL-03 | — | Pending |
-| TAL-04 | — | Pending |
-| TAL-05 | — | Pending |
-| TAL-06 | — | Pending |
-| TAL-07 | — | Pending |
-| COMP-01 | — | Pending |
-| COMP-02 | — | Pending |
-| COMP-03 | — | Pending |
-| COMP-04 | — | Pending |
+| EVID-01 | Phase 8 | Pending |
+| EVID-02 | Phase 8 | Pending |
+| EVID-03 | Phase 8 | Pending |
+| CODEC-01 | Phase 9 | Pending |
+| CODEC-02 | Phase 9 | Pending |
+| CODEC-03 | Phase 9 | Pending |
+| CODEC-04 | Phase 9 | Pending |
+| CODEC-05 | Phase 9 | Pending |
+| TAL-01 | Phase 10 | Pending |
+| TAL-02 | Phase 10 | Pending |
+| TAL-03 | Phase 10 | Pending |
+| TAL-04 | Phase 10 | Pending |
+| TAL-05 | Phase 10 | Pending |
+| TAL-06 | Phase 11 | Pending |
+| TAL-07 | Phase 11 | Pending |
+| COMP-01 | Phase 12 | Pending |
+| COMP-02 | Phase 12 | Pending |
+| COMP-03 | Phase 12 | Pending |
+| COMP-04 | Phase 12 | Pending |
 
 **Coverage:**
 - v1.2 requirements: 19 total
-- Mapped to phases: 0
-- Unmapped: 19
+- Mapped to phases: 19
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-08-17*
-*Last updated: 2026-08-17 after initial v1.2 definition*
+*Last updated: 2026-08-17 after v1.2 roadmap creation*
