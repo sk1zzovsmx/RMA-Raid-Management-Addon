@@ -13,17 +13,17 @@ protected actions, or chat restrictions.
 - Runtime: Lua 5.1
 - Addon folder: `Raid Management Addon`
 - Main command: `/rma`
-- Version: `0.1.0-alpha.1`
+- Version: `0.1.1`
 
 RMA does not require Ace2 or Ace3. Copy the `Raid Management Addon` folder
 into `World of Warcraft\Interface\AddOns\`; it must contain `Raid Management
 Addon.toc` directly. Enable the addon, log in, and enter `/rma` for command
 help.
 
-The addon is an alpha baseline. Test it in a real 3.3.5a raid before relying on
-it for a live run. Grouped sync and sharing require compatible RMA builds; data
-stays local unless RMA deliberately sends it through addon messages, raid chat,
-or whispers.
+Version 0.1.1 is a pre-release build. Test it in a real 3.3.5a raid before
+relying on it for a live run. Grouped sync and sharing require compatible RMA
+builds; data stays local unless RMA deliberately sends it through addon
+messages, raid chat, or whispers.
 
 ## Master Loot
 

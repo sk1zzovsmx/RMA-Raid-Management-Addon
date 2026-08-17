@@ -3,7 +3,7 @@
 ## Notes: Raid Management Addon helps raid leaders manage loot, reserves, warnings, and raid history.
 ## Author: ferrarizer
 ## SavedVariables: RMA_Raids, RMA_Players, RMA_Reserves, RMA_Warnings, RMA_Spammer, RMA_Options
-## Version: 0.1.0-alpha.1
+## Version: 0.1.1
 ## X-Category: Raid, Inventory
 
 
